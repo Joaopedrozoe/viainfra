@@ -57,14 +57,14 @@ export const AppSidebar = () => {
       title: "Agentes IA", 
       url: "/agents", 
       icon: Bot, 
-      available: hasFeature(PLAN_FEATURES.AI_AGENTS),
+      available: true, // Sempre disponível
       feature: PLAN_FEATURES.AI_AGENTS
     },
     { 
       title: "Agenda", 
       url: "/schedule", 
       icon: Calendar, 
-      available: hasFeature(PLAN_FEATURES.SCHEDULE),
+      available: true, // Sempre disponível
       feature: PLAN_FEATURES.SCHEDULE
     },
     { title: "Configurações", url: "/settings", icon: Settings, available: true },
@@ -133,25 +133,17 @@ export const AppSidebar = () => {
                   <SidebarMenuButton 
                     asChild 
                     isActive={isActive(item.url)}
-                    disabled={!item.available}
                   >
                     <NavLink 
-                      to={item.available ? item.url : "#"}
-                      onClick={(e) => {
-                        if (!item.available) {
-                          e.preventDefault();
-                        }
-                      }}
+                      to={item.url}
                     >
                       <item.icon className="h-4 w-4" />
-                      <div className="flex items-center justify-between w-full">
-                        <span className={!item.available ? "opacity-50" : ""}>
-                          {item.title}
-                        </span>
-                        {item.feature && !item.available && !collapsed && (
-                          <PlanBadge feature={item.feature} className="ml-2 text-xs" />
-                        )}
-                      </div>
+                        <div className="flex items-center justify-between w-full">
+                          <span>{item.title}</span>
+                          {item.feature && !hasFeature(item.feature) && !collapsed && (
+                            <PlanBadge feature={item.feature} className="ml-2 text-xs" />
+                          )}
+                        </div>
                     </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

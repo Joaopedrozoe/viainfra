@@ -15,9 +15,9 @@ export const usePlanPermissions = () => {
       case PLAN_FEATURES.INBOX:
         return true; // Todos os planos têm inbox
       case PLAN_FEATURES.SCHEDULE:
-        return currentPlan.limits.hasSchedule;
+        return true; // Permitir acesso à agenda sempre
       case PLAN_FEATURES.AI_AGENTS:
-        return currentPlan.limits.hasAiAgents;
+        return true; // Permitir acesso aos agentes sempre
       case PLAN_FEATURES.BULK_MESSAGING:
         return currentPlan.limits.hasBulkMessaging;
       case PLAN_FEATURES.API:
