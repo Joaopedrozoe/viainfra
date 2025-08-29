@@ -25,10 +25,10 @@ export default {
 				ring: 'hsl(var(--ring))',
 				background: 'hsl(var(--background))',
 				foreground: 'hsl(var(--foreground))',
-				bonina: '#B10B28',
 				'viainfra-primary': 'hsl(var(--viainfra-primary))',
 				'viainfra-secondary': 'hsl(var(--viainfra-secondary))',
 				'viainfra-light': 'hsl(var(--viainfra-light))',
+				'viainfra-accent': 'hsl(var(--viainfra-accent))',
 				primary: {
 					DEFAULT: 'hsl(var(--primary))',
 					foreground: 'hsl(var(--primary-foreground))'

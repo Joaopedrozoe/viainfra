@@ -45,9 +45,10 @@
     --sidebar-ring: 134 61% 41%;
     
     /* ViaInfra brand colors */
-    --viainfra-primary: 134 61% 41%;    /* Verde predominante */
+    --viainfra-primary: 134 61% 31%;    /* Verde escuro predominante */
     --viainfra-secondary: 201 78% 28%;  /* Azul como secundário */
-    --viainfra-light: 134 61% 51%;      /* Verde mais claro */
+    --viainfra-light: 134 61% 41%;      /* Verde médio */
+    --viainfra-accent: 134 61% 51%;     /* Verde claro para acentos */
   }
 
   .dark {
@@ -89,9 +90,10 @@
     --sidebar-ring: 134 61% 41%;
     
     /* ViaInfra brand colors - dark mode */
-    --viainfra-primary: 134 61% 41%;
+    --viainfra-primary: 134 61% 31%;
     --viainfra-secondary: 201 78% 28%;
-    --viainfra-light: 134 61% 51%;
+    --viainfra-light: 134 61% 41%;
+    --viainfra-accent: 134 61% 51%;
   }
 }
 

@@ -84,14 +84,14 @@ export const AgentChannels: React.FC<AgentChannelsProps> = ({ agent, updateAgent
               className={`cursor-pointer relative overflow-hidden transition-all
                 ${
                   selectedChannels.includes(channel.id) 
-                    ? "border-2 border-bonina" 
+                    ? "border-2 border-viainfra-primary" 
                     : channel.available ? "hover:border-gray-300" : "opacity-50 cursor-not-allowed"
                 }
               `}
               onClick={() => channel.available && toggleChannel(channel.id)}
             >
               {selectedChannels.includes(channel.id) && (
-                <div className="absolute top-2 right-2 bg-bonina text-white rounded-full p-1">
+                <div className="absolute top-2 right-2 bg-viainfra-primary text-white rounded-full p-1">
                   <Check size={16} />
                 </div>
               )}

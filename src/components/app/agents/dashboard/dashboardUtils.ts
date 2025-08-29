@@ -131,5 +131,5 @@ export const prepareChartData = () => {
 // Colors for charts - updated with better contrast
 export const CHART_COLORS = [
   '#9b87f5', '#7E69AB', '#F97316', '#0EA5E9', '#D946EF', 
-  '#B10B28', '#33C3F0', '#0FA0CE', '#D6BCFA', '#6E59A5'
+  'hsl(var(--viainfra-primary))', 'hsl(var(--viainfra-secondary))', 'hsl(var(--viainfra-light))', '#D6BCFA', '#6E59A5'
 ];

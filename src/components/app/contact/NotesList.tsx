@@ -172,7 +172,7 @@ export const NotesList = ({ contactId }: NotesListProps) => {
                         className="h-6 w-6"
                         onClick={() => handleDeleteTask(note.id, task.id)}
                       >
-                        <Trash className="h-4 w-4 text-gray-500 hover:text-red-500" />
+                        <Trash className="h-4 w-4 text-gray-500 hover:text-destructive" />
                       </Button>
                     </div>
                   ))}
@@ -216,7 +216,7 @@ export const NotesList = ({ contactId }: NotesListProps) => {
                 className="h-6 w-6"
                 onClick={() => handleDeleteNote(note.id)}
               >
-                <Trash className="h-4 w-4 text-gray-500 hover:text-red-500" />
+                <Trash className="h-4 w-4 text-gray-500 hover:text-destructive" />
               </Button>
             </div>
 

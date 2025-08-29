@@ -53,7 +53,7 @@ export const ChatInput = memo(({ onSendMessage }: ChatInputProps) => {
   const recordingButtonClass = useMemo(() => {
     return cn(
       "p-2 rounded-full transition-colors",
-      isRecording ? "text-red-500 hover:text-red-600" : "text-gray-500 hover:text-gray-700"
+      isRecording ? "text-destructive hover:text-destructive/80" : "text-gray-500 hover:text-gray-700"
     );
   }, [isRecording]);
 
@@ -87,7 +87,7 @@ export const ChatInput = memo(({ onSendMessage }: ChatInputProps) => {
         </div>
         <Button 
           onClick={handleSendMessage} 
-          className="bg-bonina hover:bg-bonina/90"
+          className="bg-viainfra-primary hover:bg-viainfra-primary/90"
           disabled={!newMessage.trim() || isRecording}
           aria-label="Enviar mensagem"
         >

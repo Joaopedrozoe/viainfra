@@ -84,7 +84,7 @@ export function ConversationActions({ conversationId }: ConversationActionsProps
             <Archive className="mr-2 h-4 w-4" />
             Arquivar conversa
           </DropdownMenuItem>
-          <DropdownMenuItem className="text-red-600">
+          <DropdownMenuItem className="text-destructive">
             <Trash className="mr-2 h-4 w-4" />
             Excluir conversa
           </DropdownMenuItem>

@@ -19,7 +19,7 @@ export const MessageItem = memo(({ message }: MessageItemProps) => {
         className={cn(
           "max-w-[70%] p-3 rounded-lg",
           message.sender === "agent"
-            ? "bg-bonina text-white rounded-tr-none"
+            ? "bg-viainfra-primary text-white rounded-tr-none"
             : "bg-white border border-gray-200 rounded-tl-none"
         )}
       >

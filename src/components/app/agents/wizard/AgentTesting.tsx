@@ -55,7 +55,7 @@ export const AgentTesting = ({ agent, updateAgent }: AgentTestingProps) => {
                       log.type === 'system' 
                         ? 'bg-gray-100 text-gray-700' 
                         : log.type === 'error'
-                        ? 'bg-red-100 text-red-800'
+                        ? 'bg-destructive/10 text-destructive'
                         : 'bg-green-100 text-green-800'
                     }`}
                   >

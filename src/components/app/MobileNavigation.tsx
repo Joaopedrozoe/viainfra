@@ -72,7 +72,7 @@ export const MobileNavigation = () => {
             to={item.path}
             className={cn(
               "flex flex-col items-center justify-center py-1 px-3",
-              isActive ? "text-[#B10B28]" : "text-[#888888]"
+              isActive ? "text-viainfra-primary" : "text-[#888888]"
             )}
           >
             <div className="flex items-center justify-center">
@@ -88,7 +88,7 @@ export const MobileNavigation = () => {
           <button
             className={cn(
               "flex flex-col items-center justify-center py-1 px-3",
-              isMoreOpen ? "text-[#B10B28]" : "text-[#888888]"
+              isMoreOpen ? "text-viainfra-primary" : "text-[#888888]"
             )}
           >
             <div className="flex items-center justify-center">
@@ -110,14 +110,14 @@ export const MobileNavigation = () => {
                       className={cn(
                         "flex flex-col items-center justify-center p-3 rounded-lg transition-colors",
                         isActive 
-                          ? "bg-[#B10B28]/10 text-[#B10B28]" 
+                          ? "bg-viainfra-primary/10 text-viainfra-primary" 
                           : "hover:bg-gray-50"
                       )}
                     >
                       <div className={cn(
                         "w-12 h-12 rounded-full flex items-center justify-center mb-2",
                         isActive 
-                          ? "bg-[#B10B28]/10" 
+                          ? "bg-viainfra-primary/10" 
                           : "bg-gray-100"
                       )}>
                         {item.icon}

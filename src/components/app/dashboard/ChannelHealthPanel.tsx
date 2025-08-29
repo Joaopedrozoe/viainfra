@@ -53,7 +53,7 @@ export const ChannelHealthPanel: React.FC = () => {
       case 'pending':
         return <Clock className="h-4 w-4 text-yellow-600" />;
       case 'error':
-        return <XCircle className="h-4 w-4 text-red-600" />;
+        return <XCircle className="h-4 w-4 text-destructive" />;
       case 'disconnected':
         return <AlertTriangle className="h-4 w-4 text-gray-600" />;
       default:
@@ -68,7 +68,7 @@ export const ChannelHealthPanel: React.FC = () => {
       case 'pending':
         return 'bg-yellow-50 text-yellow-700 border-yellow-200';
       case 'error':
-        return 'bg-red-50 text-red-700 border-red-200';
+        return 'bg-destructive/10 text-destructive border-destructive/20';
       case 'disconnected':
         return 'bg-gray-50 text-gray-700 border-gray-200';
       default:

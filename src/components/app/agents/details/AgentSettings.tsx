@@ -245,7 +245,7 @@ export const AgentSettings = ({ agent }: AgentSettingsProps) => {
               {testResult && (
                 <div className="mt-4 border rounded-md p-4 bg-gray-50">
                   <div className="flex items-center justify-between">
-                    <h3 className={`text-sm font-medium ${testResult.success ? 'text-green-600' : 'text-red-600'}`}>
+                    <h3 className={`text-sm font-medium ${testResult.success ? 'text-green-600' : 'text-destructive'}`}>
                       {testResult.message}
                     </h3>
                     <span className="text-xs text-gray-500">{testResult.requestTime}</span>
@@ -283,10 +283,10 @@ export const AgentSettings = ({ agent }: AgentSettingsProps) => {
         </TabsContent>
 
         <TabsContent value="advanced">
-          <Card className="bg-red-50 border-red-200">
+          <Card className="bg-destructive/5 border-destructive/20">
             <CardHeader>
-              <CardTitle className="text-red-700">Zona de Perigo</CardTitle>
-              <CardDescription className="text-red-600">
+              <CardTitle className="text-destructive">Zona de Perigo</CardTitle>
+              <CardDescription className="text-destructive/80">
                 Ações destrutivas que não podem ser desfeitas.
               </CardDescription>
             </CardHeader>

@@ -140,7 +140,7 @@ export const WebhookForm = ({ onTestComplete }: WebhookFormProps) => {
       <CardFooter>
         <Button 
           onClick={handleTest}
-          className="bg-bonina hover:bg-bonina/90 w-full md:w-auto"
+          className="bg-viainfra-primary hover:bg-viainfra-primary/90 w-full md:w-auto"
           disabled={isTesting || !webhookUrl}
         >
           {isTesting ? "Testando..." : "Testar Conexão"}

@@ -64,7 +64,7 @@ export const ConversationItem = memo(({
       </div>
       
       {conversation.unread > 0 && (
-        <div className="w-5 h-5 rounded-full bg-bonina text-white text-xs flex items-center justify-center">
+        <div className="w-5 h-5 rounded-full bg-viainfra-primary text-white text-xs flex items-center justify-center">
           {conversation.unread}
         </div>
       )}

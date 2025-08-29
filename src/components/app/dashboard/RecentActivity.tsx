@@ -51,7 +51,7 @@ export const RecentActivity: React.FC = () => {
     if (unread === 0) {
       return <CheckCircle className="h-4 w-4 text-green-600" />;
     } else if (unread > 3) {
-      return <Clock className="h-4 w-4 text-red-600" />;
+      return <Clock className="h-4 w-4 text-destructive" />;
     } else {
       return <MessageSquare className="h-4 w-4 text-blue-600" />;
     }
@@ -61,7 +61,7 @@ export const RecentActivity: React.FC = () => {
     if (unread === 0) {
       return 'bg-green-50 text-green-700 border-green-200';
     } else if (unread > 3) {
-      return 'bg-red-50 text-red-700 border-red-200';
+      return 'bg-destructive/10 text-destructive border-destructive/20';
     } else {
       return 'bg-blue-50 text-blue-700 border-blue-200';
     }

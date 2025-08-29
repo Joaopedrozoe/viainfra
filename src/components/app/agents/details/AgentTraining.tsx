@@ -49,7 +49,7 @@ export const AgentTraining = ({ agent }: AgentTrainingProps) => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-medium">Base de Conhecimento</h2>
-        <Button className="bg-bonina hover:bg-bonina/90 text-white">
+        <Button className="bg-viainfra-primary hover:bg-viainfra-primary/90 text-white">
           <Plus size={16} className="mr-2" /> Adicionar Conhecimento
         </Button>
       </div>

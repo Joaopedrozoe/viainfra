@@ -89,16 +89,16 @@ export const AgentWizard = ({ onClose, onCreated }: AgentWizardProps) => {
             <div
               className={`h-2 flex-1 ${
                 step.id < currentStep
-                  ? "bg-bonina"
+                  ? "bg-viainfra-primary"
                   : step.id === currentStep
-                  ? "bg-bonina/50"
+                  ? "bg-viainfra-primary/50"
                   : "bg-gray-200"
               }`}
             ></div>
             <div
               className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium ${
                 step.id <= currentStep
-                  ? "bg-bonina text-white"
+                  ? "bg-viainfra-primary text-white"
                   : "bg-gray-200 text-gray-500"
               }`}
             >
@@ -107,9 +107,9 @@ export const AgentWizard = ({ onClose, onCreated }: AgentWizardProps) => {
             <div
               className={`h-2 flex-1 ${
                 step.id < currentStep - 1
-                  ? "bg-bonina"
+                  ? "bg-viainfra-primary"
                   : step.id === currentStep - 1
-                  ? "bg-bonina/50"
+                  ? "bg-viainfra-primary/50"
                   : "bg-gray-200"
               }`}
             ></div>
@@ -123,7 +123,7 @@ export const AgentWizard = ({ onClose, onCreated }: AgentWizardProps) => {
             key={step.id} 
             className={`text-center px-3 py-1 text-sm ${
               step.id === currentStep
-                ? "text-bonina font-medium"
+                ? "text-viainfra-primary font-medium"
                 : "text-gray-500"
             }`}
           >
@@ -160,7 +160,7 @@ export const AgentWizard = ({ onClose, onCreated }: AgentWizardProps) => {
             </Button>
             <Button 
               onClick={handleNext}
-              className="bg-bonina hover:bg-bonina/90 text-white"
+              className="bg-viainfra-primary hover:bg-viainfra-primary/90 text-white"
             >
               {currentStep < steps.length ? (
                 <>

@@ -18,8 +18,8 @@ export const TestResult = ({ result }: TestResultProps) => {
       <CardHeader>
         <CardTitle>Resultado do Teste</CardTitle>
         <div className="flex items-center">
-          <div className={`h-3 w-3 rounded-full mr-2 ${result.success ? "bg-green-500" : "bg-red-500"}`}></div>
-          <span className={result.success ? "text-green-600" : "text-red-600"}>
+          <div className={`h-3 w-3 rounded-full mr-2 ${result.success ? "bg-green-500" : "bg-destructive"}`}></div>
+          <span className={result.success ? "text-green-600" : "text-destructive"}>
             {result.message}
           </span>
           {result.requestTime && (

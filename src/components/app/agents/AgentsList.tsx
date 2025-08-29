@@ -75,7 +75,7 @@ export const AgentsList = ({ agents, isLoading }: AgentsListProps) => {
                   className={`
                     ${agent.status === 'active' ? 'bg-green-100 text-green-800 hover:bg-green-100' : 
                       agent.status === 'training' ? 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100' : 
-                      'bg-red-100 text-red-800 hover:bg-red-100'}
+                      'bg-destructive/10 text-destructive hover:bg-destructive/10'}
                   `}>
                   {agent.status === 'active' ? 'Ativo' : 
                    agent.status === 'training' ? 'Treinando' : 

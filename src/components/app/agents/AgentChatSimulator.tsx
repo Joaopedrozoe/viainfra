@@ -108,7 +108,7 @@ export const AgentChatSimulator = ({ agent }: AgentChatSimulatorProps) => {
     <div className="flex flex-col h-[400px]">
       <div className="bg-gray-100 p-3 border-b">
         <div className="flex items-center">
-          <div className="w-8 h-8 rounded-full bg-bonina flex items-center justify-center text-white font-medium mr-2">
+          <div className="w-8 h-8 rounded-full bg-viainfra-primary flex items-center justify-center text-white font-medium mr-2">
             {agent.name?.substring(0, 1) || 'A'}
           </div>
           <div>
@@ -131,7 +131,7 @@ export const AgentChatSimulator = ({ agent }: AgentChatSimulatorProps) => {
             <div
               className={`max-w-[80%] rounded-lg p-3 ${
                 message.sender === "user"
-                  ? "bg-bonina text-white"
+                  ? "bg-viainfra-primary text-white"
                   : "bg-white border border-gray-200"
               }`}
             >
@@ -167,13 +167,13 @@ export const AgentChatSimulator = ({ agent }: AgentChatSimulatorProps) => {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Digite uma mensagem..."
-            className="flex-1 mr-2 p-2 border rounded resize-none focus:outline-none focus:ring-1 focus:ring-bonina"
+            className="flex-1 mr-2 p-2 border rounded resize-none focus:outline-none focus:ring-1 focus:ring-viainfra-primary"
             rows={1}
           />
           <Button 
             onClick={handleSendMessage} 
             disabled={!input.trim() || isTyping}
-            className="bg-bonina hover:bg-bonina/90 text-white"
+            className="bg-viainfra-primary hover:bg-viainfra-primary/90 text-white"
             size="icon"
           >
             <Send size={18} />

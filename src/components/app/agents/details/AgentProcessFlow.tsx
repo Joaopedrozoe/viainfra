@@ -153,7 +153,7 @@ export const AgentProcessFlow = ({ agent }: AgentProcessFlowProps) => {
                     <div 
                       className="flex items-center gap-2 bg-white p-3 rounded border"
                     >
-                      <div className="flex-shrink-0 w-8 h-8 bg-bonina text-white flex items-center justify-center rounded-full text-sm">
+                      <div className="flex-shrink-0 w-8 h-8 bg-viainfra-primary text-white flex items-center justify-center rounded-full text-sm">
                         {process.order}
                       </div>
                       <div className="flex-1 mr-2">{process.description}</div>

@@ -36,7 +36,7 @@ export const ChannelDistributionChart: React.FC = () => {
             )}
             <Tooltip formatter={(value) => [`${value} conversas`, 'Quantidade']} />
             <Legend />
-            <Bar dataKey="value" name="Conversas" fill="#B10B28" />
+            <Bar dataKey="value" name="Conversas" fill="hsl(var(--viainfra-primary))" />
           </BarChart>
         </ResponsiveContainer>
       </CardContent>
