@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart";
 import { Line, LineChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid } from "recharts";
-import { calculateDashboardMetrics } from "./dashboardUtils";
+import { calculateDashboardMetrics, DashboardMetrics } from "./dashboardUtils";
+import { useDemoMode } from "@/hooks/useDemoMode";
 
 const chartConfig = {
   conversations: {
@@ -16,7 +17,59 @@ const chartConfig = {
 };
 
 export const WeeklyTrendChart: React.FC = () => {
-  const metrics = calculateDashboardMetrics();
+  const { isDemoMode } = useDemoMode();
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  useEffect(() => {
+    const loadMetrics = () => {
+      setIsLoading(true);
+      try {
+        const calculatedMetrics = calculateDashboardMetrics(isDemoMode);
+        setMetrics(calculatedMetrics);
+      } catch (error) {
+        console.error('Error loading metrics:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadMetrics();
+  }, [isDemoMode]);
+  
+  // Listen for dashboard refresh events
+  useEffect(() => {
+    const handleRefresh = () => {
+      setIsLoading(true);
+      try {
+        const calculatedMetrics = calculateDashboardMetrics(isDemoMode);
+        setMetrics(calculatedMetrics);
+      } catch (error) {
+        console.error('Error refreshing metrics:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    window.addEventListener('dashboard-refresh', handleRefresh);
+    return () => window.removeEventListener('dashboard-refresh', handleRefresh);
+  }, [isDemoMode]);
+  
+  if (isLoading || !metrics || !metrics.weeklyTrend) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Tendência Semanal</CardTitle>
+          <CardDescription>Conversas e mensagens dos últimos 7 dias</CardDescription>
+        </CardHeader>
+        <CardContent className="p-3 sm:p-6">
+          <div className="w-full h-64 sm:h-80 flex items-center justify-center">
+            <div className="animate-pulse text-gray-500">Carregando...</div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
   
   return (
     <Card>
