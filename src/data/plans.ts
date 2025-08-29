@@ -87,11 +87,11 @@ export const PLANS: Plan[] = [
 
 // Mock user plan data (será substituído pelo Supabase)
 export const MOCK_USER_PLAN = {
-  type: "avancado" as const,
-  limits: PLANS[2].limits,
+  type: "inicial" as const,
+  limits: PLANS[0].limits,
   usage: {
-    channels: 3,
-    contacts: 12450,
-    aiAgents: 1
+    channels: 0,
+    contacts: 0,
+    aiAgents: 0
   }
 };
