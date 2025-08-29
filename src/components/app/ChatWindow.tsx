@@ -2,21 +2,9 @@ import { useState, useRef, useEffect, useCallback, memo } from "react";
 import { ChatHeader } from "./chat/ChatHeader";
 import { MessageItem } from "./chat/MessageItem";
 import { ChatInput } from "./chat/ChatInput";
-import { mockMessages } from "./chat/mockData";
 import { Message, ChatWindowProps } from "./chat/types";
 import { Channel } from "@/types/conversation";
 import { useNavigate } from "react-router-dom";
-
-const getUserData = (conversationId: string): { name: string; channel: Channel } => {
-  switch (conversationId) {
-    case "1": return { name: "João Silva", channel: "whatsapp" };
-    case "2": return { name: "Maria Souza", channel: "instagram" };
-    case "3": return { name: "Pedro Santos", channel: "messenger" };
-    case "4": return { name: "Ana Costa", channel: "telegram" };
-    case "5": return { name: "Carlos Oliveira", channel: "whatsapp" };
-    default: return { name: "", channel: "whatsapp" };
-  }
-};
 
 export const ChatWindow = memo(({ conversationId, onBack }: ChatWindowProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -24,11 +12,9 @@ export const ChatWindow = memo(({ conversationId, onBack }: ChatWindowProps) => 
   const navigate = useNavigate();
   
   useEffect(() => {
-    if (conversationId && mockMessages[conversationId]) {
-      setMessages(mockMessages[conversationId]);
-    } else {
-      setMessages([]);
-    }
+    // TODO: Fetch real messages from API when backend is connected
+    // For now, always show empty messages
+    setMessages([]);
   }, [conversationId]);
   
   useEffect(() => {
@@ -43,13 +29,8 @@ export const ChatWindow = memo(({ conversationId, onBack }: ChatWindowProps) => 
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
     
+    // TODO: Send message via API when backend is connected
     setMessages(prev => [...prev, message]);
-    
-    if (mockMessages[conversationId]) {
-      mockMessages[conversationId] = [...mockMessages[conversationId], message];
-    } else {
-      mockMessages[conversationId] = [message];
-    }
   }, [conversationId]);
 
   const handleViewContactDetails = useCallback(() => {
@@ -77,13 +58,15 @@ export const ChatWindow = memo(({ conversationId, onBack }: ChatWindowProps) => 
       <div className="flex-1 flex items-center justify-center bg-gray-50 p-4">
         <div className="text-center">
           <p className="text-xl text-gray-500 mb-3">Selecione uma conversa para começar</p>
-          <p className="text-gray-400">Ou inicie uma nova conversa</p>
+          <p className="text-gray-400">Conecte uma API do WhatsApp para receber conversas reais</p>
         </div>
       </div>
     );
   }
   
-  const { name, channel } = getUserData(conversationId);
+  // TODO: Get real user data from API when backend is connected
+  const name = `Usuário ${conversationId}`;
+  const channel: Channel = "whatsapp";
   
   return (
     <div className="flex flex-col h-full relative">

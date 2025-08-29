@@ -7,7 +7,6 @@ import { DbConversation, mapDbConversationToConversation } from "@/types/supabas
 import { Conversation, Channel } from "@/types/conversation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDemoMode } from "@/hooks/useDemoMode";
-import { getDemoConversations, updateConversationUnread } from "@/data/mockConversations";
 
 type ConversationListProps = {
   onSelectConversation: (id: string) => void;
@@ -23,16 +22,12 @@ export const ConversationList = ({ onSelectConversation, selectedId }: Conversat
   const [isLoading, setIsLoading] = useState(true);
   const { isDemoMode } = useDemoMode();
 
-  // Fetch conversations from Supabase or use demo data
+  // Fetch conversations from Supabase - removed mock data
   useEffect(() => {
     const fetchConversations = async () => {
       setIsLoading(true);
       try {
-        if (isDemoMode) {
-          // Use demo data
-          const demoConversations = getDemoConversations();
-          setConversations(demoConversations);
-        } else {
+        if (!isDemoMode) {
           // Use real Supabase data
           const { data, error } = await supabase
             .from('conversations')
@@ -46,6 +41,9 @@ export const ConversationList = ({ onSelectConversation, selectedId }: Conversat
           
           const mappedConversations = (data || []).map(mapDbConversationToConversation);
           setConversations(mappedConversations);
+        } else {
+          // In demo mode, show empty state for conversations
+          setConversations([]);
         }
       } catch (error) {
         console.error('Error in conversation fetch:', error);
@@ -57,15 +55,13 @@ export const ConversationList = ({ onSelectConversation, selectedId }: Conversat
     fetchConversations();
   }, [isDemoMode]);
 
-  // Handle conversation selection and mark as read in demo mode
+  // Handle conversation selection
   const handleConversationSelect = (conversationId: string) => {
     onSelectConversation(conversationId);
     
-    if (isDemoMode) {
-      // Mark conversation as read in demo mode
-      updateConversationUnread(conversationId, 0);
-      
-      // Update local state
+    // Mark conversation as read in real mode (will be handled by backend)
+    if (!isDemoMode) {
+      // TODO: API call to mark as read when backend is connected
       setConversations(prev => 
         prev.map(conv => 
           conv.id === conversationId ? { ...conv, unread: 0 } : conv
@@ -162,7 +158,8 @@ export const ConversationList = ({ onSelectConversation, selectedId }: Conversat
           ))
         ) : (
           <div className="p-4 text-center text-gray-500">
-            {searchTerm || selectedChannel !== "all" ? "Nenhuma conversa encontrada" : "Nenhuma conversa disponível"}
+            {searchTerm || selectedChannel !== "all" ? "Nenhuma conversa encontrada" : 
+             isDemoMode ? "Conecte uma API do WhatsApp para ver conversas reais" : "Nenhuma conversa disponível"}
           </div>
         )}
       </div>
