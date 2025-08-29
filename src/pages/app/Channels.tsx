@@ -73,15 +73,52 @@ const Channels = () => {
 
   // Load channels on component mount
   useEffect(() => {
-    if (isDemoMode) {
-      const expandedChannels = getDemoChannelsExpanded();
-      setChannels(expandedChannels);
-    } else {
-      // Here you would load from real API/Supabase
-      // For now, using demo data as fallback
-      const expandedChannels = getDemoChannelsExpanded();
-      setChannels(expandedChannels);
-    }
+    const loadChannels = () => {
+      if (isDemoMode) {
+        let expandedChannels = getDemoChannelsExpanded();
+        
+        // Zera dados dos canais que não são WhatsApp
+        expandedChannels = expandedChannels.map(channel => {
+          if (channel.type !== 'whatsapp') {
+            return {
+              ...channel,
+              status: 'disconnected' as const,
+              metrics: {
+                ...channel.metrics,
+                totalMessages: 0,
+                todayMessages: 0,
+                responseTime: 0,
+                lastActivity: '',
+                deliveryRate: 0,
+                errorRate: 0
+              }
+            };
+          }
+          return channel;
+        });
+        
+        setChannels(expandedChannels);
+      } else {
+        // Para dados reais, carregaria da API/Supabase
+        // Por enquanto, zera todos os dados
+        const expandedChannels = getDemoChannelsExpanded().map(channel => ({
+          ...channel,
+          status: 'disconnected' as const,
+          metrics: {
+            ...channel.metrics,
+            totalMessages: 0,
+            todayMessages: 0,
+            responseTime: 0,
+            lastActivity: '',
+            deliveryRate: 0,
+            errorRate: 0
+          }
+        }));
+        setChannels(expandedChannels);
+      }
+    };
+    
+    loadChannels();
   }, [isDemoMode]);
 
   const handleChannelComplete = (channelData: any) => {
@@ -138,6 +175,12 @@ const Channels = () => {
   const toggleChannelStatus = (id: string) => {
     const channelToUpdate = channels.find(ch => ch.id === id);
     
+    // Restringe conexão apenas ao WhatsApp quando não está em modo demo
+    if (!isDemoMode && channelToUpdate?.type !== 'whatsapp') {
+      toast.error('Este canal ainda não está disponível. Apenas WhatsApp está funcionando no MVP atual.');
+      return;
+    }
+    
     if (isDemoMode) {
       updateDemoChannelExpanded(id, { 
         status: channelToUpdate?.status === 'connected' ? 'disconnected' : 'connected' 
@@ -150,14 +193,16 @@ const Channels = () => {
         )
       );
     } else {
-      // Here you would update in real API/Supabase
-      setChannels(prev =>
-        prev.map(channel =>
-          channel.id === id 
-            ? { ...channel, status: channel.status === 'connected' ? 'disconnected' : 'connected' }
-            : channel
-        )
-      );
+      // Para modo não-demo, apenas permite conexão do WhatsApp
+      if (channelToUpdate?.type === 'whatsapp') {
+        setChannels(prev =>
+          prev.map(channel =>
+            channel.id === id 
+              ? { ...channel, status: channel.status === 'connected' ? 'disconnected' : 'connected' }
+              : channel
+          )
+        );
+      }
     }
     
     if (channelToUpdate) {
