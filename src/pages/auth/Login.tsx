@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/auth";
 import { Loader2 } from "lucide-react";
-import { ViaInfraLogo } from "@/assets/viainfra-placeholder";
+import { ViaInfraLogo } from "@/assets/ViaInfraLogo";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -33,9 +33,8 @@ const Login = () => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-viainfra-light to-viainfra-primary p-4">
       <div className="w-full max-w-md">
-        <div className="text-center mb-6">
-          <ViaInfraLogo className="h-20 mx-auto mb-4" />
-          <p className="text-white/90 text-lg font-medium">Plataforma de Comunicação</p>
+        <div className="text-center mb-8">
+          <ViaInfraLogo className="h-20 mx-auto" />
         </div>
         
         <Card className="backdrop-blur-sm bg-white/95 shadow-2xl border-0">
