@@ -35,23 +35,16 @@ const Contacts = () => {
     const loadContacts = () => {
       setIsLoading(true);
       try {
-        if (isDemoMode) {
-          // Em modo demo, carrega contatos salvos
+        // Sempre verifica se há dados reais da API, independente do modo demo
+        const hasRealApiData = checkRealContactsData();
+        
+        if (hasRealApiData) {
+          // Carregaria contatos reais da API
           const demoContacts = getDemoContacts();
           setContacts(demoContacts);
         } else {
-          // Para dados reais, verifica se há contatos da API
-          // Por enquanto, sem API conectada = sem contatos
-          const hasRealApiData = checkRealContactsData();
-          
-          if (hasRealApiData) {
-            // Carregaria contatos reais da API
-            const demoContacts = getDemoContacts();
-            setContacts(demoContacts);
-          } else {
-            // Sem API = sem contatos
-            setContacts([]);
-          }
+          // Sem API = sem contatos (sempre)
+          setContacts([]);
         }
       } catch (error) {
         console.error('Error loading contacts:', error);
