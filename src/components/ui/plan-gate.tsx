@@ -98,9 +98,25 @@ interface PlanBadgeProps {
 }
 
 export const PlanBadge = ({ feature, className }: PlanBadgeProps) => {
-  const { hasFeature } = usePlanPermissions();
+  const { currentPlan } = usePlanPermissions();
 
-  if (hasFeature(feature)) {
+  // Verificar se o plano atual não tem a funcionalidade nativamente
+  const shouldShowBadge = () => {
+    switch (feature) {
+      case "schedule":
+        return !currentPlan.limits.hasSchedule;
+      case "ai_agents":
+        return !currentPlan.limits.hasAiAgents;
+      case "bulk_messaging":
+        return !currentPlan.limits.hasBulkMessaging;
+      case "api":
+        return !currentPlan.limits.hasApi;
+      default:
+        return false;
+    }
+  };
+
+  if (!shouldShowBadge()) {
     return null;
   }
 
