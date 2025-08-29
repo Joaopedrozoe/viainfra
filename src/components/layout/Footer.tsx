@@ -7,7 +7,7 @@ export const Footer = () => {
       <div className="container mx-auto px-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           <div>
-            <h3 className="font-bold text-lg mb-4">ZOE Chat</h3>
+            <h3 className="font-bold text-lg mb-4">ViaInfra Chat</h3>
             <p className="text-gray-600 mb-4">
               Um só app para todos os seus canais de atendimento.
             </p>
@@ -58,7 +58,7 @@ export const Footer = () => {
         </div>
         
         <div className="border-t border-gray-200 mt-12 pt-8 flex flex-col md:flex-row justify-between items-center">
-          <p className="text-gray-600 text-sm">© {new Date().getFullYear()} ZOE Soluções Digitais. Todos os direitos reservados.</p>
+          <p className="text-gray-600 text-sm">© {new Date().getFullYear()} ViaInfra. Todos os direitos reservados.</p>
           <div className="mt-4 md:mt-0 space-x-4 text-sm">
             <Link to="/privacy" className="text-gray-600 hover:text-bonina">Privacidade</Link>
             <Link to="/terms" className="text-gray-600 hover:text-bonina">Termos</Link>

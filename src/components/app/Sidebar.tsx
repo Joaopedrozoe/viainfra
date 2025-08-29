@@ -81,7 +81,7 @@ export const AppSidebar = () => {
               collapsed ? 'text-center' : ''
             }`}
           >
-            ZOE
+            VIAINFRA
           </Link>
         </div>
       </SidebarHeader>

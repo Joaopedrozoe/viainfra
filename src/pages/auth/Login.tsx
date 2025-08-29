@@ -1,12 +1,13 @@
 
 import { useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/auth";
 import { Loader2 } from "lucide-react";
+import { ViaInfraLogo } from "@/assets/viainfra-placeholder";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -30,16 +31,16 @@ const Login = () => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-viainfra-light to-viainfra-primary p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
-          <h1 className="text-3xl font-bold text-bonina">ZOE</h1>
-          <p className="text-gray-500">Plataforma de Comunicação</p>
+          <ViaInfraLogo className="h-20 mx-auto mb-4" />
+          <p className="text-white/90 text-lg font-medium">Plataforma de Comunicação</p>
         </div>
         
-        <Card>
-          <CardHeader>
-            <CardTitle>Login</CardTitle>
+        <Card className="backdrop-blur-sm bg-white/95 shadow-2xl border-0">
+          <CardHeader className="text-center">
+            <CardTitle className="text-2xl text-viainfra-primary">Bem-vindo</CardTitle>
             <CardDescription>Entre para acessar sua conta</CardDescription>
           </CardHeader>
           <form onSubmit={handleSubmit}>
@@ -69,7 +70,7 @@ const Login = () => {
             <CardFooter className="flex flex-col">
               <Button 
                 type="submit" 
-                className="w-full bg-bonina hover:bg-bonina/90" 
+                className="w-full bg-viainfra-primary hover:bg-viainfra-primary/90 text-white shadow-lg" 
                 disabled={isLoading}
               >
                 {isLoading ? (
@@ -81,18 +82,6 @@ const Login = () => {
                   "Entrar"
                 )}
               </Button>
-              <p className="mt-4 text-sm text-center text-gray-500">
-                Não tem uma conta?{" "}
-                <Link to="/register" className="text-bonina hover:underline">
-                  Registre-se
-                </Link>
-              </p>
-              <div className="mt-4">
-                <p className="text-sm text-center text-gray-400">
-                  <span className="block">Demo: joaopedro@zoesolucoes.com.br</span>
-                  <span className="block">Senha: eutenhenhoasenha</span>
-                </p>
-              </div>
             </CardFooter>
           </form>
         </Card>

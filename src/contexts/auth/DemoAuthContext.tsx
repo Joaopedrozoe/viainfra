@@ -3,7 +3,7 @@ import { useState, useEffect, createContext, ReactNode, useContext } from "react
 import { Session, User } from "@supabase/supabase-js";
 import { toast } from "sonner";
 import { AuthContextType } from "./types";
-import { mockProfile, mockCompany } from "./mockData";
+import { attendantsProfiles, mockCompany } from "./mockData";
 
 // Create the demo auth context
 const DemoAuthContext = createContext<AuthContextType | null>(null);
@@ -16,32 +16,41 @@ export const useDemoAuth = () => {
   return context;
 };
 
+// ViaInfra attendant credentials
+const attendantCredentials = [
+  { email: "joicy.souza@vialogistic.com.br", password: "atendimento@25" },
+  { email: "elisabete.silva@viainfra.com.br", password: "atendimento@25" },
+  { email: "suelem.souza@vialogistic.com.br", password: "atendimento@25" },
+  { email: "giovanna.ferreira@vialogistic.com.br", password: "atendimento@25" },
+  { email: "sandra.romano@vialogistic.com.br", password: "atendimento@25" }
+];
+
 // Demo user data
-const demoUser: User = {
-  id: "demo-user-123",
-  email: "joaopedro@zoesolucoes.com.br",
+const createDemoUser = (profile: any): User => ({
+  id: profile.id,
+  email: profile.email,
   user_metadata: {
-    name: "João Pedro Silva"
+    name: profile.name
   },
   app_metadata: {},
   aud: "authenticated",
   created_at: new Date().toISOString(),
   role: "authenticated"
-} as User;
+} as User);
 
-const demoSession: Session = {
+const createDemoSession = (user: User): Session => ({
   access_token: "demo-access-token",
   refresh_token: "demo-refresh-token",
   expires_in: 3600,
   expires_at: Date.now() + 3600000,
   token_type: "bearer",
-  user: demoUser
-} as Session;
+  user
+} as Session);
 
 export const DemoAuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState(mockProfile);
+  const [profile, setProfile] = useState(attendantsProfiles[0]);
   const [company, setCompany] = useState(mockCompany);
   const [isLoading, setIsLoading] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -53,6 +62,9 @@ export const DemoAuthProvider = ({ children }: { children: ReactNode }) => {
       const authData = JSON.parse(savedAuth);
       setUser(authData.user);
       setSession(authData.session);
+      if (authData.profile) {
+        setProfile(authData.profile);
+      }
       setIsAuthenticated(true);
     }
   }, []);
@@ -65,19 +77,29 @@ export const DemoAuthProvider = ({ children }: { children: ReactNode }) => {
     await new Promise(resolve => setTimeout(resolve, 1000));
     
     try {
-      // Demo credentials validation
-      if (email === "joaopedro@zoesolucoes.com.br" && password === "eutenhenhoasenha") {
+      // Find matching attendant credentials
+      const attendantIndex = attendantCredentials.findIndex(
+        cred => cred.email === email && cred.password === password
+      );
+      
+      if (attendantIndex !== -1) {
+        const attendantProfile = attendantsProfiles[attendantIndex];
+        const demoUser = createDemoUser(attendantProfile);
+        const demoSession = createDemoSession(demoUser);
+        
         setUser(demoUser);
         setSession(demoSession);
+        setProfile(attendantProfile);
         setIsAuthenticated(true);
         
         // Save to localStorage
         localStorage.setItem('demo-auth', JSON.stringify({
           user: demoUser,
-          session: demoSession
+          session: demoSession,
+          profile: attendantProfile
         }));
         
-        toast.success('Login realizado com sucesso! (Modo Demo)');
+        toast.success('Login realizado com sucesso!');
       } else {
         throw new Error('Credenciais inválidas');
       }
@@ -96,9 +118,10 @@ export const DemoAuthProvider = ({ children }: { children: ReactNode }) => {
     await new Promise(resolve => setTimeout(resolve, 1000));
     
     try {
-      // In demo mode, any registration creates a demo account
-      const newUser = { ...demoUser, email, user_metadata: { name } };
-      const newSession = { ...demoSession, user: newUser };
+      // In demo mode, any registration creates a demo account using first attendant profile
+      const firstProfile = attendantsProfiles[0];
+      const newUser = createDemoUser({ ...firstProfile, email, name });
+      const newSession = createDemoSession(newUser);
       
       setUser(newUser);
       setSession(newSession);

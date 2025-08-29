@@ -53,7 +53,7 @@ const Register = () => {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
-          <h1 className="text-3xl font-bold text-bonina">ZOE</h1>
+          <h1 className="text-3xl font-bold text-bonina">VIAINFRA</h1>
           <p className="text-gray-500">Plataforma de Comunicação</p>
         </div>
         

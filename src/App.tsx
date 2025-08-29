@@ -46,8 +46,8 @@ const AIRedirect = () => {
 
 // Loading fallback
 const LoadingFallback = () => (
-  <div className="flex items-center justify-center h-screen w-screen bg-gray-50">
-    <div className="w-16 h-16 border-4 border-bonina border-solid rounded-full border-t-transparent animate-spin"></div>
+  <div className="flex items-center justify-center h-screen w-screen bg-gradient-to-br from-viainfra-light to-viainfra-primary">
+    <div className="w-16 h-16 border-4 border-white border-solid rounded-full border-t-transparent animate-spin"></div>
   </div>
 );
 
@@ -69,8 +69,8 @@ const App = () => (
           <Sonner />
           <Suspense fallback={<LoadingFallback />}>
             <Routes>
-              {/* Landing Routes */}
-              <Route path="/" element={<Landing />} />
+              {/* Redirect to login */}
+              <Route path="/" element={<Navigate to="/login" replace />} />
               
               {/* Auth Routes - Not lazy loaded */}
               <Route path="/login" element={<Login />} />

@@ -14,7 +14,7 @@ export function Header({ className, children }: HeaderProps) {
       <div className="container flex h-14 items-center justify-between">
         <div className="mr-4 flex">
           <Link to="/" className="flex items-center space-x-2">
-            <span className="font-bold text-xl">ZOE</span>
+            <span className="font-bold text-xl">VIAINFRA</span>
           </Link>
         </div>
         {children}
