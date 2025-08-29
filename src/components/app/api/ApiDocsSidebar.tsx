@@ -142,7 +142,7 @@ export const ApiDocsSidebar = ({ activeSection, setActiveSection }: ApiDocsSideb
                 className={cn(
                   "w-full flex items-center gap-2 text-sm px-2 py-1.5 rounded-md",
                   activeSection === section.id 
-                    ? "bg-bonina/10 text-bonina font-medium"
+                    ? "bg-viainfra-primary/10 text-viainfra-primary font-medium"
                     : "hover:bg-gray-200 text-gray-700"
                 )}
               >
@@ -161,7 +161,7 @@ export const ApiDocsSidebar = ({ activeSection, setActiveSection }: ApiDocsSideb
                         className={cn(
                           "w-full text-left text-sm px-2 py-1 rounded-md",
                           activeSection === fullId
-                            ? "bg-bonina/10 text-bonina font-medium"
+                            ? "bg-viainfra-primary/10 text-viainfra-primary font-medium"
                             : "hover:bg-gray-200 text-gray-600"
                         )}
                       >

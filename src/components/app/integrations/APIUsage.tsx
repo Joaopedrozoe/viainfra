@@ -17,7 +17,7 @@ export const APIUsage = () => {
         <TabsContent value="fetch" className="mt-0">
           <div className="bg-gray-100 p-3 rounded text-xs font-mono overflow-x-auto">
             <pre>
-{`fetch('https://api.zoechat.app/v1/contacts', {
+{`fetch('https://api.viainfra.com/v1/contacts', {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer sk_live_your_api_key',
@@ -34,7 +34,7 @@ export const APIUsage = () => {
           <div className="bg-gray-100 p-3 rounded text-xs font-mono overflow-x-auto">
             <pre>
 {`curl -X GET \\
-  https://api.zoechat.app/v1/contacts \\
+  https://api.viainfra.com/v1/contacts \\
   -H 'Authorization: Bearer sk_live_your_api_key' \\
   -H 'Content-Type: application/json'`}
             </pre>
@@ -48,7 +48,7 @@ export const APIUsage = () => {
 
 axios({
   method: 'get',
-  url: 'https://api.zoechat.app/v1/contacts',
+  url: 'https://api.viainfra.com/v1/contacts',
   headers: {
     'Authorization': 'Bearer sk_live_your_api_key',
     'Content-Type': 'application/json'
@@ -69,7 +69,7 @@ axios({
       <div className="bg-gray-100 p-3 rounded text-xs font-mono overflow-x-auto">
         <pre>
 {`// Acessando a base de conhecimento de um agente
-fetch('https://api.zoechat.app/v1/agents/agent123/knowledge', {
+fetch('https://api.viainfra.com/v1/agents/agent123/knowledge', {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer sk_live_your_api_key',
@@ -80,7 +80,7 @@ fetch('https://api.zoechat.app/v1/agents/agent123/knowledge', {
 .then(data => console.log(data));
 
 // Enviando uma mensagem para processamento pelo agente
-fetch('https://api.zoechat.app/v1/agents/agent123/conversation', {
+fetch('https://api.viainfra.com/v1/agents/agent123/conversation', {
   method: 'POST',
   headers: {
     'Authorization': 'Bearer sk_live_your_api_key',

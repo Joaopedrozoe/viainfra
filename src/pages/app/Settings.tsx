@@ -453,34 +453,9 @@ const Settings = () => {
                           </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                          <tr>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">15/06/2025</td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm">Plano Corporativo</td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm">R$ 197,00</td>
-                            <td className="px-4 py-3 whitespace-nowrap">
-                              <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                                Pago
-                              </span>
-                            </td>
-                          </tr>
-                          <tr>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">15/05/2025</td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm">Plano Corporativo</td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm">R$ 197,00</td>
-                            <td className="px-4 py-3 whitespace-nowrap">
-                              <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                                Pago
-                              </span>
-                            </td>
-                          </tr>
-                          <tr>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">15/04/2025</td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm">Plano Corporativo</td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm">R$ 197,00</td>
-                            <td className="px-4 py-3 whitespace-nowrap">
-                              <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                                Pago
-                              </span>
+                          <tr className="text-gray-500">
+                            <td className="px-4 py-8 text-center" colSpan={4}>
+                              Nenhuma fatura disponível. As faturas aparecerão aqui após a primeira cobrança.
                             </td>
                           </tr>
                         </tbody>

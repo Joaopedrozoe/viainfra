@@ -12,14 +12,14 @@ import { Copy, CopyCheck } from "lucide-react";
 
 export const BookingPageTab = () => {
   const [bookingSettings, setBookingSettings] = useState<BookingSettings>({
-    availableDays: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+    availableDays: [],
     startTime: "09:00",
     endTime: "18:00",
     defaultDuration: 30,
     minInterval: 15
   });
   
-  const [bookingUrl, setBookingUrl] = useState("empresa-sa");
+  const [bookingUrl, setBookingUrl] = useState("");
   const [isCopied, setIsCopied] = useState(false);
   
   // Toggle day selection
@@ -46,7 +46,7 @@ export const BookingPageTab = () => {
   
   // Copy booking link to clipboard
   const handleCopyLink = () => {
-    const fullUrl = `zoechat.app/agendar/${bookingUrl}`;
+    const fullUrl = `viainfra.com/agendar/${bookingUrl}`;
     navigator.clipboard.writeText(fullUrl)
       .then(() => {
         setIsCopied(true);
@@ -190,7 +190,7 @@ export const BookingPageTab = () => {
           <Label htmlFor="booking-url">URL de Agendamento</Label>
           <div className="flex items-center">
             <span className="bg-gray-100 px-3 py-2 rounded-l-md border border-r-0 text-gray-500">
-              zoechat.app/agendar/
+              viainfra.com/agendar/
             </span>
             <Input 
               id="booking-url" 
@@ -214,7 +214,7 @@ export const BookingPageTab = () => {
         </div>
       </CardContent>
       <CardFooter className="pb-6 md:pb-4">
-        <Button onClick={saveBookingSettings} className="bg-bonina hover:bg-bonina/90">
+        <Button onClick={saveBookingSettings} className="bg-viainfra-primary hover:bg-viainfra-primary/90">
           Salvar Configurações
         </Button>
       </CardFooter>

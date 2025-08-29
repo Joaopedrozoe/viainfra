@@ -178,7 +178,7 @@ export const N8nIntegration = () => {
                   <Button
                     onClick={handleSaveConfiguration}
                     disabled={!selectedAgent || !webhookURL.trim()}
-                    className="bg-bonina hover:bg-bonina/90"
+                    className="bg-viainfra-primary hover:bg-viainfra-primary/90"
                   >
                     Salvar Configuração
                   </Button>
