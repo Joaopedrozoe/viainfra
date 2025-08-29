@@ -77,11 +77,15 @@ export const AppSidebar = () => {
         <div className={`flex items-center px-2 py-2 ${collapsed ? 'justify-center' : 'gap-2'}`}>
           <Link 
             to="/dashboard" 
-            className={`text-xl font-bold text-sidebar-primary transition-all duration-200 ${
-              collapsed ? 'text-center' : ''
+            className={`transition-all duration-200 ${
+              collapsed ? 'flex justify-center' : ''
             }`}
           >
-            VIAINFRA
+            <img 
+              src="/lovable-uploads/c4694f21-258b-4986-8611-4b1b7fb7a727.png" 
+              alt="ViaInfra" 
+              className={`${collapsed ? 'h-8' : 'h-10'} w-auto transition-all duration-200`}
+            />
           </Link>
         </div>
       </SidebarHeader>
