@@ -1,5 +1,6 @@
-import { getDemoConversations } from "@/data/mockConversations";
 import { getDemoChannelsExpanded } from "@/data/mockChannelsExpanded";
+import { supabase } from "@/integrations/supabase/client";
+import { useDemoMode } from "@/hooks/useDemoMode";
 
 export interface DashboardMetrics {
   // Conversas
@@ -26,7 +27,7 @@ let cachedMetrics: DashboardMetrics | null = null;
 let lastCalculation = 0;
 const CACHE_DURATION = 30000; // 30 segundos
 
-export const calculateDashboardMetrics = (): DashboardMetrics => {
+export const calculateDashboardMetrics = (isDemoMode: boolean = true): DashboardMetrics => {
   const now = Date.now();
   
   // Retorna cache se ainda válido
@@ -34,37 +35,55 @@ export const calculateDashboardMetrics = (): DashboardMetrics => {
     return cachedMetrics;
   }
   
-  const conversations = getDemoConversations();
-  const channels = getDemoChannelsExpanded();
+  let conversations: any[] = [];
+  let channels: any[] = [];
   
-  // Conversas ativas (simulado - consideramos conversas com unread > 0 como ativas)
-  const activeConversations = conversations.filter(c => c.unread > 0).length;
+  if (isDemoMode) {
+    // No modo demo, retorna dados zerados
+    conversations = [];
+    channels = getDemoChannelsExpanded();
+  } else {
+    // Para dados reais, retorna dados básicos (sem fetch async por enquanto)
+    conversations = [];
+    channels = getDemoChannelsExpanded();
+  }
+  
+  // Conversas ativas (consideramos conversas com unread > 0 como ativas)
+  const activeConversations = conversations.filter(c => c.unread && c.unread > 0).length;
   const totalConversations = conversations.length;
   
-  // Mensagens hoje (simulado baseado nos canais)
-  const todayMessages = channels.reduce((sum, channel) => sum + channel.metrics.todayMessages, 0);
+  // Mensagens hoje (baseado nos canais ou dados reais)
+  const todayMessages = channels.reduce((sum, channel) => {
+    const messages = channel.metrics?.todayMessages || channel.today_messages || 0;
+    return sum + (typeof messages === 'number' ? messages : 0);
+  }, 0);
   
   // Tempo médio de resposta (dos canais conectados)
   const connectedChannels = channels.filter(c => c.status === 'connected');
   const averageResponseTime = connectedChannels.length > 0 
-    ? connectedChannels.reduce((sum, c) => sum + c.metrics.responseTime, 0) / connectedChannels.length
+    ? connectedChannels.reduce((sum, c) => {
+        const responseTime = c.metrics?.responseTime || c.response_time || 0;
+        return sum + (typeof responseTime === 'number' ? responseTime : 0);
+      }, 0) / connectedChannels.length
     : 0;
   
-  // Taxa de resolução (simulada - consideramos conversas com unread = 0 como resolvidas)
-  const resolvedConversations = conversations.filter(c => c.unread === 0).length;
+  // Taxa de resolução (conversas com unread = 0 como resolvidas)
+  const resolvedConversations = conversations.filter(c => !c.unread || c.unread === 0).length;
   const resolutionRate = totalConversations > 0 ? (resolvedConversations / totalConversations) * 100 : 0;
   
   // Distribuição por canal
   const channelCounts = channels.reduce((acc, channel) => {
-    acc[channel.name] = channel.metrics.totalMessages;
+    const name = channel.name || channel.type || 'Desconhecido';
+    const totalMessages = channel.metrics?.totalMessages || channel.total_messages || 0;
+    acc[name] = typeof totalMessages === 'number' ? totalMessages : 0;
     return acc;
   }, {} as Record<string, number>);
   
-  const totalChannelMessages = Object.values(channelCounts).reduce((sum, count) => sum + count, 0);
+  const totalChannelMessages = Object.values(channelCounts).reduce((sum: number, count: number) => sum + count, 0);
   const channelDistribution = Object.entries(channelCounts).map(([name, value]) => ({
     name,
-    value,
-    percentage: totalChannelMessages > 0 ? (value / totalChannelMessages) * 100 : 0
+    value: Number(value),
+    percentage: Number(totalChannelMessages) > 0 ? (Number(value) / Number(totalChannelMessages)) * 100 : 0
   }));
   
   // Atividade por hora (últimas 24h - simulada)

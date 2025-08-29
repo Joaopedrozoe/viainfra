@@ -1,11 +1,13 @@
-import React from "react";
+import React, { useState } from "react";
 import { useAuth } from "@/contexts/auth";
 import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { calculateDashboardMetrics } from "./dashboardUtils";
+import { useDemoMode } from "@/hooks/useDemoMode";
 
 export const DashboardHeader: React.FC = () => {
   const { profile } = useAuth();
+  const { isDemoMode } = useDemoMode();
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const currentDate = new Date().toLocaleDateString('pt-BR', {
     weekday: 'long',
     year: 'numeric',
@@ -17,10 +19,21 @@ export const DashboardHeader: React.FC = () => {
     minute: '2-digit'
   });
 
-  const handleRefresh = () => {
-    // Force recalculation by clearing cache
-    calculateDashboardMetrics();
-    window.location.reload();
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      // Clear cache and force refresh
+      if (typeof window !== 'undefined') {
+        // Dispatch custom event to trigger metric recalculation
+        window.dispatchEvent(new CustomEvent('dashboard-refresh'));
+      }
+      // Small delay for visual feedback
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (error) {
+      console.error('Error refreshing dashboard:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   return (
@@ -39,10 +52,11 @@ export const DashboardHeader: React.FC = () => {
           variant="outline" 
           size="sm"
           onClick={handleRefresh}
+          disabled={isRefreshing}
           className="flex items-center gap-2"
         >
-          <RefreshCw className="h-4 w-4" />
-          Atualizar
+          <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          {isRefreshing ? 'Atualizando...' : 'Atualizar'}
         </Button>
       </div>
     </div>
