@@ -13,12 +13,7 @@ interface User {
 }
 
 export const PermissionsTab = () => {
-  const [users, setUsers] = useState<User[]>([
-    { userId: "1", userName: "Admin", canView: true, canEdit: true },
-    { userId: "2", userName: "Gerente", canView: true, canEdit: true },
-    { userId: "3", userName: "Atendente", canView: true, canEdit: false },
-    { userId: "4", userName: "Estagiário", canView: false, canEdit: false }
-  ]);
+  const [users, setUsers] = useState<User[]>([]);
   
   // Update user permissions
   const updateUserPermission = (userId: string, field: 'canView' | 'canEdit', value: boolean) => {
@@ -41,40 +36,13 @@ export const PermissionsTab = () => {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="border rounded-md overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b">
-                <th className="text-left p-3">Usuário</th>
-                <th className="text-center p-3">Visualizar Agenda</th>
-                <th className="text-center p-3">Criar/Editar Eventos</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((user) => (
-                <tr key={user.userId} className="border-b last:border-b-0">
-                  <td className="p-3">{user.userName}</td>
-                  <td className="text-center p-3">
-                    <Checkbox 
-                      checked={user.canView} 
-                      onCheckedChange={(checked) => updateUserPermission(user.userId, 'canView', !!checked)} 
-                    />
-                  </td>
-                  <td className="text-center p-3">
-                    <Checkbox 
-                      checked={user.canEdit} 
-                      disabled={!user.canView}
-                      onCheckedChange={(checked) => updateUserPermission(user.userId, 'canEdit', !!checked)} 
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="border rounded-md p-6 text-center text-gray-500">
+          <p>Nenhum usuário configurado.</p>
+          <p className="text-sm mt-1">As permissões aparecerão aqui quando usuários forem adicionados à equipe.</p>
         </div>
       </CardContent>
       <CardFooter className="pb-6 md:pb-4">
-        <Button onClick={saveUserPermissions} className="bg-bonina hover:bg-bonina/90">
+        <Button onClick={saveUserPermissions} className="bg-viainfra-primary hover:bg-viainfra-primary/90">
           Salvar Permissões
         </Button>
       </CardFooter>

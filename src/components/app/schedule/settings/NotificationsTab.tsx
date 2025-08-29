@@ -10,8 +10,8 @@ import { NotificationSettings } from "@/types/calendar";
 
 export const NotificationsTab = () => {
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
-    whatsapp: true,
-    email: true,
+    whatsapp: false,
+    email: false,
     sms: false,
     reminderMinutes: 15
   });
@@ -80,7 +80,7 @@ export const NotificationsTab = () => {
         </div>
       </CardContent>
       <CardFooter className="pb-6 md:pb-4">
-        <Button onClick={saveNotificationSettings} className="bg-bonina hover:bg-bonina/90">
+        <Button onClick={saveNotificationSettings} className="bg-viainfra-primary hover:bg-viainfra-primary/90">
           Salvar Configurações
         </Button>
       </CardFooter>

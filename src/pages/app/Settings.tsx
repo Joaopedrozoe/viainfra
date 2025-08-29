@@ -426,18 +426,9 @@ const Settings = () => {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <div className="p-4 bg-gray-50 rounded-lg border">
-                    <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-4">
-                      <div>
-                        <h3 className="font-medium">Plano Atual</h3>
-                        <p className="text-sm text-gray-500">Corporativo</p>
-                      </div>
-                      <Button variant="outline" className="w-full md:w-auto">Alterar Plano</Button>
-                    </div>
-                    <div className="text-sm text-gray-700">
-                      <p className="mb-1">Próxima cobrança: 15/07/2025</p>
-                      <p>Valor: R$ 197,00</p>
-                    </div>
+                  <div className="p-4 bg-gray-50 rounded-lg border text-center text-gray-500">
+                    <p>Nenhum plano ativo no momento.</p>
+                    <p className="text-sm mt-1">As informações do plano aparecerão aqui após a assinatura.</p>
                   </div>
                   
                   <div>

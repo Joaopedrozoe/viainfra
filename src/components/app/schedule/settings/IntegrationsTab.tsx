@@ -87,7 +87,7 @@ export const IntegrationsTab = () => {
           </div>
         </CardContent>
         <CardFooter className="pb-6 md:pb-4">
-          <Button onClick={handleGoogleConnect} className={googleConnected ? "bg-red-600 hover:bg-red-700" : "bg-bonina hover:bg-bonina/90"}>
+          <Button onClick={handleGoogleConnect} className={googleConnected ? "bg-red-600 hover:bg-red-700" : "bg-viainfra-primary hover:bg-viainfra-primary/90"}>
             {googleConnected ? "Desconectar Conta" : "Conectar Conta Google"}
           </Button>
         </CardFooter>
