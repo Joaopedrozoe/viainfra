@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Search, Plus, Filter, Users, Mail, MessageSquare, Download } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,8 @@ import { useDemoMode } from "@/hooks/useDemoMode";
 
 const Contacts = () => {
   const { isDemoMode } = useDemoMode();
-  const [contacts] = useState<Contact[]>(getDemoContacts());
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -28,6 +29,47 @@ const Contacts = () => {
   const [filters, setFilters] = useState<ContactFilter>({});
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
+
+  // Load contacts dynamically based on real data availability
+  useEffect(() => {
+    const loadContacts = () => {
+      setIsLoading(true);
+      try {
+        if (isDemoMode) {
+          // Em modo demo, carrega contatos salvos
+          const demoContacts = getDemoContacts();
+          setContacts(demoContacts);
+        } else {
+          // Para dados reais, verifica se há contatos da API
+          // Por enquanto, sem API conectada = sem contatos
+          const hasRealApiData = checkRealContactsData();
+          
+          if (hasRealApiData) {
+            // Carregaria contatos reais da API
+            const demoContacts = getDemoContacts();
+            setContacts(demoContacts);
+          } else {
+            // Sem API = sem contatos
+            setContacts([]);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading contacts:', error);
+        setContacts([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadContacts();
+  }, [isDemoMode]);
+
+  // Função para verificar se há dados reais de contatos
+  const checkRealContactsData = (): boolean => {
+    // Verifica se há conversas reais ativas que geraram contatos
+    // Por enquanto, sempre retorna false até ter API conectada
+    return false;
+  };
 
   const filteredContacts = useMemo(() => {
     return contacts.filter(contact => {
@@ -210,7 +252,11 @@ const Contacts = () => {
       <div className="flex-1 overflow-hidden">
         <div className="max-w-4xl mx-auto h-full">
           <div className="overflow-y-auto h-full p-4">
-            {filteredContacts.length > 0 ? (
+            {isLoading ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <div className="animate-pulse">Carregando contatos...</div>
+              </div>
+            ) : filteredContacts.length > 0 ? (
               <div className="space-y-2">
                 {filteredContacts.map((contact) => (
                   <div key={contact.id} className="flex items-center gap-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors">
@@ -260,7 +306,12 @@ const Contacts = () => {
               <div className="text-center py-12 text-muted-foreground">
                 <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p className="text-lg font-medium">Nenhum contato encontrado</p>
-                <p className="text-sm">Tente ajustar os filtros ou adicionar um novo contato</p>
+                <p className="text-sm">
+                  {contacts.length === 0 
+                    ? "Conecte a API do WhatsApp para ver contatos das conversas" 
+                    : "Tente ajustar os filtros ou adicionar um novo contato"
+                  }
+                </p>
               </div>
             )}
           </div>
