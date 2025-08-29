@@ -1,12 +1,50 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, AlertTriangle, XCircle, Clock } from "lucide-react";
 import { getDemoChannelsExpanded } from "@/data/mockChannelsExpanded";
 import { formatResponseTime } from "./dashboardUtils";
+import { useDemoMode } from "@/hooks/useDemoMode";
 
 export const ChannelHealthPanel: React.FC = () => {
-  const channels = getDemoChannelsExpanded();
+  const { isDemoMode } = useDemoMode();
+  const [channels, setChannels] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  const loadChannels = () => {
+    setIsLoading(true);
+    try {
+      if (isDemoMode) {
+        // No modo demo, carrega canais salvos no localStorage
+        const savedChannels = getDemoChannelsExpanded();
+        setChannels(savedChannels);
+      } else {
+        // Para dados reais, carregaria da API
+        // Por enquanto, usa dados do localStorage também
+        const savedChannels = getDemoChannelsExpanded();
+        setChannels(savedChannels);
+      }
+    } catch (error) {
+      console.error('Error loading channels:', error);
+      setChannels([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  useEffect(() => {
+    loadChannels();
+  }, [isDemoMode]);
+  
+  // Listen for dashboard refresh events
+  useEffect(() => {
+    const handleRefresh = () => {
+      loadChannels();
+    };
+    
+    window.addEventListener('dashboard-refresh', handleRefresh);
+    return () => window.removeEventListener('dashboard-refresh', handleRefresh);
+  }, [isDemoMode]);
   
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -53,6 +91,24 @@ export const ChannelHealthPanel: React.FC = () => {
     }
   };
   
+  if (isLoading) {
+    return (
+      <Card className="w-full">
+        <CardHeader>
+          <CardTitle>Status dos Canais</CardTitle>
+          <CardDescription>
+            Saúde e performance dos canais de atendimento
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-3 sm:p-6">
+          <div className="h-64 sm:h-80 flex items-center justify-center">
+            <div className="animate-pulse text-gray-500">Carregando...</div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+  
   return (
     <Card className="w-full">
       <CardHeader>
@@ -63,40 +119,52 @@ export const ChannelHealthPanel: React.FC = () => {
       </CardHeader>
       <CardContent className="p-3 sm:p-6">
         <div className="h-64 sm:h-80 overflow-y-auto space-y-3 sm:space-y-4 pr-2">
-          {channels.map((channel) => (
-            <div 
-              key={channel.id}
-              className="flex flex-col sm:flex-row sm:items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors gap-3 flex-shrink-0"
-            >
-              <div className="flex items-center gap-3 min-w-0 flex-1">
-                {getStatusIcon(channel.status)}
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium truncate">{channel.name}</div>
-                  <div className="text-sm text-muted-foreground truncate">
-                    {channel.type.charAt(0).toUpperCase() + channel.type.slice(1)}
-                  </div>
-                </div>
-              </div>
-              
-              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-                <div className="text-right text-sm">
-                  <div className="font-medium">
-                    {formatResponseTime(channel.metrics.responseTime)}
-                  </div>
-                  <div className="text-muted-foreground">
-                    {channel.metrics.todayMessages} msgs hoje
+          {channels.length === 0 ? (
+            <div className="flex items-center justify-center h-full text-gray-500">
+              Nenhum canal configurado
+            </div>
+          ) : (
+            channels.map((channel) => (
+              <div 
+                key={channel.id}
+                className="flex flex-col sm:flex-row sm:items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors gap-3 flex-shrink-0"
+              >
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  {getStatusIcon(channel.status)}
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium truncate">{channel.name}</div>
+                    <div className="text-sm text-muted-foreground truncate">
+                      {channel.type.charAt(0).toUpperCase() + channel.type.slice(1)}
+                    </div>
                   </div>
                 </div>
                 
-                <Badge 
-                  variant="outline"
-                  className={`${getStatusColor(channel.status)} text-xs whitespace-nowrap self-start sm:self-center`}
-                >
-                  {getStatusText(channel.status)}
-                </Badge>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+                  <div className="text-right text-sm">
+                    <div className="font-medium">
+                      {channel.status === 'connected' && channel.metrics ? 
+                        formatResponseTime(channel.metrics.responseTime) : 
+                        '0s'
+                      }
+                    </div>
+                    <div className="text-muted-foreground">
+                      {channel.status === 'connected' && channel.metrics ? 
+                        `${channel.metrics.todayMessages} msgs hoje` : 
+                        '0 msgs hoje'
+                      }
+                    </div>
+                  </div>
+                  
+                  <Badge 
+                    variant="outline"
+                    className={`${getStatusColor(channel.status)} text-xs whitespace-nowrap self-start sm:self-center`}
+                  >
+                    {getStatusText(channel.status)}
+                  </Badge>
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </CardContent>
     </Card>
