@@ -31,7 +31,7 @@ const Login = () => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-viainfra-light to-viainfra-primary p-4">
+    <div className="min-h-screen flex items-center justify-center bg-white p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <img 
@@ -41,7 +41,7 @@ const Login = () => {
           />
         </div>
         
-        <Card className="backdrop-blur-sm bg-white/95 shadow-2xl border-0">
+        <Card className="backdrop-blur-sm bg-white shadow-2xl border border-gray-100">
           <CardHeader className="text-center">
             <CardTitle className="text-2xl text-viainfra-primary">Bem-vindo</CardTitle>
             <CardDescription>Entre para acessar sua conta</CardDescription>
