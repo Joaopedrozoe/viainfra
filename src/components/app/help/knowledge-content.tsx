@@ -6,8 +6,8 @@ export const knowledgeBaseContent = [
     content: (
       <div>
         <p>
-          O ZOE Chat é uma plataforma unificada de comunicação que permite gerenciar conversas de múltiplos canais em um único lugar. 
-          Com recursos avançados de IA e integração simplificada, o ZOE Chat torna a comunicação com seus clientes mais eficiente e organizada.
+          O ChatViaInfra é uma plataforma unificada de comunicação que permite gerenciar conversas de múltiplos canais em um único lugar. 
+          Com recursos avançados de IA e integração simplificada, o ChatViaInfra torna a comunicação com seus clientes mais eficiente e organizada.
         </p>
       </div>
     )
@@ -19,7 +19,7 @@ export const knowledgeBaseContent = [
       <div>
         <h3>Login</h3>
         <ul>
-          <li>Acesse a página inicial do ZOE Chat</li>
+          <li>Acesse a página inicial do ChatViaInfra</li>
           <li>Clique no botão "Entrar"</li>
           <li>Insira seu e-mail e senha</li>
         </ul>
@@ -38,7 +38,7 @@ export const knowledgeBaseContent = [
     title: "Dashboard e Navegação",
     content: (
       <div>
-        <p>O dashboard do ZOE Chat oferece uma visão completa das suas conversas e canais:</p>
+        <p>O dashboard do ChatViaInfra oferece uma visão completa das suas conversas e canais:</p>
         <ul>
           <li>Menu lateral com acesso rápido a todas as funcionalidades</li>
           <li>Lista de conversas organizada por data e prioridade</li>
@@ -128,7 +128,7 @@ export const knowledgeBaseContent = [
     title: "Aplicativo Mobile",
     content: (
       <div>
-        <p>O ZOE Chat é totalmente responsivo:</p>
+        <p>O ChatViaInfra é totalmente responsivo:</p>
         <ul>
           <li>Interface adaptativa para diferentes telas</li>
           <li>Navegação otimizada para touch</li>
@@ -145,7 +145,7 @@ export const knowledgeBaseContent = [
       <div>
         <h3>Canais de Atendimento:</h3>
         <ul>
-          <li>E-mail: suporte@zoechat.com</li>
+          <li>E-mail: suporte@viainfra.com</li>
           <li>Chat: Horário comercial (9h às 18h)</li>
           <li>Base de conhecimento</li>
           <li>FAQ e tutoriais</li>

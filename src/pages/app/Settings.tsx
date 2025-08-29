@@ -47,74 +47,25 @@ const Settings = () => {
     return () => window.removeEventListener('resize', checkOverflow);
   }, [isMobile]);
   
-  const [name, setName] = useState("Admin");
-  const [email, setEmail] = useState("admin@empresa.com");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   
-  const [companyName, setCompanyName] = useState("Empresa S.A.");
+  const [companyName, setCompanyName] = useState("");
   const [timezone, setTimezone] = useState("America/Sao_Paulo");
   const [language, setLanguage] = useState("pt-BR");
   
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [desktopNotifications, setDesktopNotifications] = useState(true);
-  const [soundNotifications, setSoundNotifications] = useState(true);
+  const [emailNotifications, setEmailNotifications] = useState(false);
+  const [desktopNotifications, setDesktopNotifications] = useState(false);
+  const [soundNotifications, setSoundNotifications] = useState(false);
 
   // Integration states
   const [integrationsTab, setIntegrationsTab] = useState("api");
   const [apiActiveSection, setApiActiveSection] = useState("introduction");
 
-  // Mock active connections
-  const activeConnections = [
-    {
-      id: "conn_123",
-      name: "WhatsApp Business API",
-      type: "channel",
-      status: "active",
-      lastUsed: "2024-05-10T14:32:00Z",
-      usage: {
-        requests: 742,
-        errors: 3,
-        successRate: "99.6%"
-      }
-    },
-    {
-      id: "conn_456",
-      name: "Google Calendar",
-      type: "calendar",
-      status: "active",
-      lastUsed: "2024-05-09T18:15:00Z",
-      usage: {
-        requests: 127,
-        errors: 0,
-        successRate: "100%"
-      }
-    },
-    {
-      id: "conn_789",
-      name: "n8n Workflow",
-      type: "automation",
-      status: "active",
-      lastUsed: "2024-05-10T09:45:00Z",
-      usage: {
-        requests: 35,
-        errors: 1,
-        successRate: "97.1%"
-      }
-    },
-    {
-      id: "conn_321",
-      name: "Facebook Custom Integration",
-      type: "channel",
-      status: "warning",
-      lastUsed: "2024-05-08T11:20:00Z",
-      usage: {
-        requests: 94,
-        errors: 8,
-        successRate: "91.5%"
-      }
-    }
-  ];
+  // Empty connections until real API is connected
+  const activeConnections: any[] = [];
 
   const tabItems = [
     { id: "profile", label: "Perfil" },
@@ -313,7 +264,7 @@ const Settings = () => {
                 <CardFooter>
                   <Button 
                     onClick={handleSaveProfile}
-                    className="bg-bonina hover:bg-bonina/90 w-full md:w-auto"
+                    className="bg-viainfra-primary hover:bg-viainfra-primary/90 w-full md:w-auto"
                   >
                     Salvar Alterações
                   </Button>
@@ -390,7 +341,7 @@ const Settings = () => {
                 <CardFooter>
                   <Button 
                     onClick={handleSaveCompany}
-                    className="bg-bonina hover:bg-bonina/90 w-full md:w-auto"
+                    className="bg-viainfra-primary hover:bg-viainfra-primary/90 w-full md:w-auto"
                   >
                     Salvar Alterações
                   </Button>
@@ -456,7 +407,7 @@ const Settings = () => {
                 <CardFooter>
                   <Button 
                     onClick={handleSaveNotifications}
-                    className="bg-bonina hover:bg-bonina/90 w-full md:w-auto"
+                    className="bg-viainfra-primary hover:bg-viainfra-primary/90 w-full md:w-auto"
                   >
                     Salvar Alterações
                   </Button>

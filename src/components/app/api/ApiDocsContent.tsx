@@ -163,8 +163,8 @@ export const ApiDocsContent = ({ activeSection }: ApiDocsContentProps) => {
           <h1 className="text-3xl font-bold mb-6">Documentação da API</h1>
           
           <p className="text-gray-700 mb-6">
-            Bem-vindo à documentação da API ZoeChat. Esta API permite que você integre os recursos
-            do ZoeChat em suas aplicações, possibilitando gerenciar contatos, enviar mensagens,
+            Bem-vindo à documentação da API ChatViaInfra. Esta API permite que você integre os recursos
+            do ChatViaInfra em suas aplicações, possibilitando gerenciar contatos, enviar mensagens,
             agendar eventos e interagir com agentes de IA.
           </p>
           
@@ -174,7 +174,7 @@ export const ApiDocsContent = ({ activeSection }: ApiDocsContentProps) => {
               <CardDescription>Todas as requisições devem ser feitas para o seguinte endpoint:</CardDescription>
             </CardHeader>
             <CardContent>
-              <code className="bg-gray-100 p-2 rounded block font-mono">https://api.zoechat.app/v1</code>
+              <code className="bg-gray-100 p-2 rounded block font-mono">https://api.viainfra.com/v1</code>
             </CardContent>
           </Card>
           
@@ -201,7 +201,7 @@ export const ApiDocsContent = ({ activeSection }: ApiDocsContentProps) => {
           <h1 className="text-3xl font-bold mb-6">Autenticação</h1>
           
           <p className="text-gray-700 mb-6">
-            A API ZoeChat usa autenticação baseada em token. Você precisa incluir sua chave API
+            A API ChatViaInfra usa autenticação baseada em token. Você precisa incluir sua chave API
             em todas as requisições para autenticar-se.
           </p>
           
@@ -245,7 +245,7 @@ export const ApiDocsContent = ({ activeSection }: ApiDocsContentProps) => {
             <TabsContent value="fetch">
               <CodeSnippet 
                 language="javascript" 
-                code={`fetch('https://api.zoechat.app/v1/contacts', {
+                code={`fetch('https://api.viainfra.com/v1/contacts', {
   method: 'GET',
   headers: {
     'Authorization': 'Bearer sk_live_your_api_key',
@@ -261,7 +261,7 @@ export const ApiDocsContent = ({ activeSection }: ApiDocsContentProps) => {
               <CodeSnippet 
                 language="bash" 
                 code={`curl -X GET \\
-  https://api.zoechat.app/v1/contacts \\
+  https://api.viainfra.com/v1/contacts \\
   -H 'Authorization: Bearer sk_live_your_api_key' \\
   -H 'Content-Type: application/json'`} 
               />
@@ -274,7 +274,7 @@ export const ApiDocsContent = ({ activeSection }: ApiDocsContentProps) => {
 
 axios({
   method: 'get',
-  url: 'https://api.zoechat.app/v1/contacts',
+  url: 'https://api.viainfra.com/v1/contacts',
   headers: {
     'Authorization': 'Bearer sk_live_your_api_key',
     'Content-Type': 'application/json'
