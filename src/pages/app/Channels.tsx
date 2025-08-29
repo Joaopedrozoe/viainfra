@@ -74,41 +74,32 @@ const Channels = () => {
   // Load channels on component mount
   useEffect(() => {
     const loadChannels = () => {
-      if (isDemoMode) {
-        let expandedChannels = getDemoChannelsExpanded();
+      let expandedChannels = getDemoChannelsExpanded();
+      
+      // Sempre verifica se há conexão real com API, independente do modo demo
+      expandedChannels = expandedChannels.map(channel => {
+        const hasRealApiConnection = checkRealApiConnection(channel);
         
-        // Em modo demo, mantém dados dos canais como estão
-        setChannels(expandedChannels);
-      } else {
-        // Para dados reais, verifica se há conexões ativas com APIs
-        let expandedChannels = getDemoChannelsExpanded();
+        if (!hasRealApiConnection) {
+          return {
+            ...channel,
+            status: 'disconnected' as const,
+            metrics: {
+              ...channel.metrics,
+              totalMessages: 0,
+              todayMessages: 0,
+              responseTime: 0,
+              lastActivity: '',
+              deliveryRate: 0,
+              errorRate: 0
+            }
+          };
+        }
         
-        // Para cada canal, verifica se há conexão real ativa
-        expandedChannels = expandedChannels.map(channel => {
-          // Verifica se há dados reais da API (por exemplo, token válido, último sync recente, etc.)
-          const hasRealApiConnection = checkRealApiConnection(channel);
-          
-          if (!hasRealApiConnection) {
-            return {
-              ...channel,
-              status: 'disconnected' as const,
-              metrics: {
-                ...channel.metrics,
-                totalMessages: 0,
-                todayMessages: 0,
-                responseTime: 0,
-                lastActivity: '',
-                deliveryRate: 0,
-                errorRate: 0
-              }
-            };
-          }
-          
-          return channel;
-        });
-        
-        setChannels(expandedChannels);
-      }
+        return channel;
+      });
+      
+      setChannels(expandedChannels);
     };
     
     loadChannels();
@@ -116,23 +107,15 @@ const Channels = () => {
 
   // Função para verificar se há conexão real com API
   const checkRealApiConnection = (channel: Channel): boolean => {
-    // Para WhatsApp, verifica se há:
-    // - Token válido do WhatsApp Cloud API
-    // - Phone Number ID configurado
+    // Para agora, sempre retorna false até termos API real conectada
+    // Quando conectar a API do WhatsApp, esta função verificará:
+    // - Token válido do WhatsApp Cloud API (não demo)
+    // - Phone Number ID real (não mock)
     // - Webhook funcionando
     // - Último sync recente (últimas 24h)
     
-    if (channel.type === 'whatsapp') {
-      const integration = channel.integration;
-      const hasValidToken = integration.accessToken && integration.accessToken !== 'demo-token' && integration.accessToken !== '';
-      const hasPhoneNumberId = integration.phoneNumberId && integration.phoneNumberId !== '+5511999999999';
-      const hasRecentSync = integration.lastSync && 
-        new Date(integration.lastSync) > new Date(Date.now() - 24 * 60 * 60 * 1000);
-      
-      return hasValidToken && hasPhoneNumberId && hasRecentSync;
-    }
-    
-    // Para outros canais, retorna false até implementarmos
+    // TODO: Implementar verificação real quando API for conectada
+    // Por enquanto, sempre retorna false para forçar dados zerados
     return false;
   };
 
