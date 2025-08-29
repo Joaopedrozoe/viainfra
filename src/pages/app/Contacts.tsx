@@ -160,18 +160,6 @@ const Contacts = () => {
           </div>
           
           <div className="ml-auto flex items-center gap-2">
-            <PlanGate feature={PLAN_FEATURES.BULK_MESSAGING}>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowMessageModal(true)}
-                disabled={selectedContacts.length === 0}
-              >
-                <MessageSquare className="h-4 w-4 mr-2" />
-                Enviar Mensagem ({selectedContacts.length})
-              </Button>
-            </PlanGate>
-            
             <Button
               variant="outline"
               size="sm"
@@ -206,16 +194,6 @@ const Contacts = () => {
               <Filter className="h-4 w-4 mr-2" />
               Filtros
             </Button>
-            
-            {filteredContacts.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSelectAll}
-              >
-                {selectedContacts.length === filteredContacts.length ? 'Desmarcar Todos' : 'Selecionar Todos'}
-              </Button>
-            )}
           </div>
 
           {showFilters && (
@@ -230,7 +208,6 @@ const Contacts = () => {
           <div className="flex items-center justify-between text-sm text-muted-foreground">
             <span>
               {filteredContacts.length} contato{filteredContacts.length !== 1 ? 's' : ''}
-              {selectedContacts.length > 0 && ` • ${selectedContacts.length} selecionado${selectedContacts.length !== 1 ? 's' : ''}`}
             </span>
             <div className="flex items-center gap-4 text-xs">
               <span>Total: {contacts.length}</span>
@@ -253,13 +230,6 @@ const Contacts = () => {
               <div className="space-y-2">
                 {filteredContacts.map((contact) => (
                   <div key={contact.id} className="flex items-center gap-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={selectedContacts.includes(contact.id)}
-                      onChange={() => handleContactToggle(contact.id)}
-                      className="rounded"
-                    />
-                    
                     <div 
                       className="flex-1 cursor-pointer"
                       onClick={() => handleContactSelect(contact)}
@@ -324,13 +294,6 @@ const Contacts = () => {
       <CreateContactModal
         open={showCreateModal}
         onOpenChange={setShowCreateModal}
-      />
-      
-      <MessageComposerModal
-        open={showMessageModal}
-        onOpenChange={setShowMessageModal}
-        selectedContactIds={selectedContacts}
-        contacts={contacts}
       />
     </div>
   );
