@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { EventModal } from "@/components/app/schedule/EventModal";
 import { ScheduleDashboard } from "@/components/app/schedule/ScheduleDashboard";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useDemoMode } from "@/hooks/useDemoMode";
 import { Plus } from "lucide-react";
 import { PlanGate } from "@/components/ui/plan-gate";
 import { PLAN_FEATURES } from "@/types/plans";
@@ -15,6 +16,7 @@ const Schedule = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showDashboard, setShowDashboard] = useState(false);
+  const { isDemoMode } = useDemoMode();
   const isMobile = useIsMobile();
 
   // Always initialize to current date when the component mounts
@@ -33,7 +35,7 @@ const Schedule = () => {
         <main className="h-full overflow-auto w-full">
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white">
-            <h1 className="text-xl font-bold text-bonina">Agenda</h1>
+            <h1 className="text-xl font-bold text-primary">Agenda</h1>
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"
@@ -48,7 +50,7 @@ const Schedule = () => {
                   variant="ghost"
                   size="sm"
                   onClick={() => setView("day")}
-                  className={view === "day" ? "bg-gray-100 font-medium" : ""}
+                  className={view === "day" ? "bg-primary/10 text-primary font-medium" : ""}
                 >
                   Dia
                 </Button>
@@ -56,7 +58,7 @@ const Schedule = () => {
                   variant="ghost"
                   size="sm"
                   onClick={() => setView("week")}
-                  className={view === "week" ? "bg-gray-100 font-medium" : ""}
+                  className={view === "week" ? "bg-primary/10 text-primary font-medium" : ""}
                 >
                   Semana
                 </Button>
@@ -64,7 +66,7 @@ const Schedule = () => {
                   variant="ghost"
                   size="sm"
                   onClick={() => setView("month")}
-                  className={view === "month" ? "bg-gray-100 font-medium" : ""}
+                  className={view === "month" ? "bg-primary/10 text-primary font-medium" : ""}
                 >
                   Mês
                 </Button>
@@ -86,7 +88,7 @@ const Schedule = () => {
           )}
           
           <Button
-            className="fixed bottom-16 right-4 md:bottom-4 md:right-4 rounded-full w-12 h-12 p-0 bg-bonina hover:bg-bonina/90 text-white shadow-md z-10"
+            className="fixed bottom-16 right-4 md:bottom-4 md:right-4 rounded-full w-12 h-12 p-0 bg-primary hover:bg-primary/90 text-white shadow-md z-10"
             onClick={() => setIsModalOpen(true)}
           >
             <Plus size={24} />

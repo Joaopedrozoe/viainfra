@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
 import { format, addDays, addWeeks, addMonths, startOfWeek, startOfMonth, endOfWeek, endOfMonth, isToday } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { mockEvents } from "./mockData";
+import { useDemoMode } from "@/hooks/useDemoMode";
 import { cn } from "@/lib/utils";
 
 interface CalendarProps {
@@ -19,15 +19,44 @@ interface CalendarProps {
 export const Calendar = ({ view, onDateSelect }: CalendarProps) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const { isDemoMode } = useDemoMode();
   const [visibleRange, setVisibleRange] = useState<{ start: Date; end: Date }>({
     start: new Date(),
     end: new Date()
   });
 
   useEffect(() => {
-    // In a real app, this would fetch events from an API
-    setEvents(mockEvents);
-  }, []);
+    const loadEvents = () => {
+      setIsLoading(true);
+      try {
+        // Verifica se há dados reais de eventos
+        const hasRealEventsData = checkRealEventsData();
+        
+        if (hasRealEventsData) {
+          // Carregaria eventos reais da API/banco
+          // Por enquanto, retorna lista vazia
+          setEvents([]);
+        } else {
+          // Sem dados reais = sem eventos
+          setEvents([]);
+        }
+      } catch (error) {
+        console.error('Error loading events:', error);
+        setEvents([]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadEvents();
+  }, [isDemoMode]);
+
+  // Função para verificar se há dados reais de eventos
+  const checkRealEventsData = (): boolean => {
+    // Para MVP, sempre retorna false até integrar com PostgreSQL
+    return false;
+  };
 
   useEffect(() => {
     // Set the visible date range based on the current view
@@ -88,7 +117,7 @@ export const Calendar = ({ view, onDateSelect }: CalendarProps) => {
     <div className="h-full flex flex-col">
       <div className="flex items-center justify-between px-4 py-3 border-b bg-white sticky top-0 z-10 shadow-sm">
         <h2 className="text-lg font-medium flex items-center gap-2">
-          <CalendarIcon size={20} className="text-bonina" />
+          <CalendarIcon size={20} className="text-primary" />
           {renderTitle()}
         </h2>
         <div className="flex items-center gap-2">
@@ -97,8 +126,8 @@ export const Calendar = ({ view, onDateSelect }: CalendarProps) => {
             size="sm" 
             onClick={handleToday}
             className={cn(
-              "border-bonina/30 hover:bg-bonina/5",
-              isToday(currentDate) && "bg-bonina/10 border-bonina text-bonina font-medium"
+              "border-primary/30 hover:bg-primary/5",
+              isToday(currentDate) && "bg-primary/10 border-primary text-primary font-medium"
             )}
           >
             Hoje
