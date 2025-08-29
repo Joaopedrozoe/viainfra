@@ -46,8 +46,8 @@ const AIRedirect = () => {
 
 // Loading fallback
 const LoadingFallback = () => (
-  <div className="flex items-center justify-center h-screen w-screen bg-gradient-to-br from-viainfra-light to-viainfra-primary">
-    <div className="w-16 h-16 border-4 border-white border-solid rounded-full border-t-transparent animate-spin"></div>
+  <div className="flex items-center justify-center h-screen w-screen bg-white">
+    <div className="w-16 h-16 border-4 border-gray-300 border-solid rounded-full border-t-viainfra-primary animate-spin"></div>
   </div>
 );
 

@@ -43,7 +43,7 @@ const Login = () => {
         
         <Card className="backdrop-blur-sm bg-white shadow-2xl border border-gray-100">
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl text-viainfra-primary">Bem-vindo</CardTitle>
+            <CardTitle className="text-2xl text-gray-800">Bem-vindo</CardTitle>
             <CardDescription>Entre para acessar sua conta</CardDescription>
           </CardHeader>
           <form onSubmit={handleSubmit}>
@@ -73,7 +73,7 @@ const Login = () => {
             <CardFooter className="flex flex-col">
               <Button 
                 type="submit" 
-                className="w-full bg-viainfra-primary hover:bg-viainfra-primary/90 text-white shadow-lg" 
+                className="w-full bg-gray-800 hover:bg-gray-700 text-white shadow-lg" 
                 disabled={isLoading}
               >
                 {isLoading ? (
