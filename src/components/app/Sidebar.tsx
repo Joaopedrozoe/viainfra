@@ -140,7 +140,7 @@ export const AppSidebar = () => {
                       <item.icon className="h-4 w-4" />
                         <div className="flex items-center justify-between w-full">
                           <span>{item.title}</span>
-                          {item.feature && !hasFeature(item.feature) && !collapsed && (
+                          {item.feature && !collapsed && (
                             <PlanBadge feature={item.feature} className="ml-2 text-xs" />
                           )}
                         </div>
