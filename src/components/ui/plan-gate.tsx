@@ -100,13 +100,13 @@ interface PlanBadgeProps {
 export const PlanBadge = ({ feature, className }: PlanBadgeProps) => {
   const { currentPlan } = usePlanPermissions();
 
-  // Verificar se o plano atual não tem a funcionalidade nativamente
+  // Sempre mostrar badge para Agentes IA e Agenda (sinalização de recurso premium)
   const shouldShowBadge = () => {
     switch (feature) {
       case "schedule":
-        return !currentPlan.limits.hasSchedule;
+        return true; // Sempre mostrar para agenda
       case "ai_agents":
-        return !currentPlan.limits.hasAiAgents;
+        return true; // Sempre mostrar para agentes IA
       case "bulk_messaging":
         return !currentPlan.limits.hasBulkMessaging;
       case "api":

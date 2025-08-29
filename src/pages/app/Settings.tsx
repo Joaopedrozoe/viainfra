@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/auth";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { toast as sonnerToast } from "sonner";
@@ -26,8 +27,12 @@ import { PlanUsageCard } from "@/components/app/PlanUsageCard";
 
 const Settings = () => {
   const { toast } = useToast();
+  const { profile } = useAuth();
   const isMobile = useIsMobile();
   const [activeTab, setActiveTab] = useState("profile");
+  
+  // Verificar se é a Elisabete (pode editar perfil e empresa)
+  const canEditProfileAndCompany = profile?.email === "elisabete.silva@viainfra.com.br";
   const tabsRef = useRef<HTMLDivElement>(null);
   const [isTabsOverflowing, setIsTabsOverflowing] = useState(false);
   
@@ -221,7 +226,13 @@ const Settings = () => {
                       value={name} 
                       onChange={(e) => setName(e.target.value)}
                       aria-label="Nome"
+                      disabled={!canEditProfileAndCompany}
                     />
+                    {!canEditProfileAndCompany && (
+                      <p className="text-xs text-amber-600">
+                        Apenas administradores podem editar essas informações
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
@@ -231,6 +242,7 @@ const Settings = () => {
                       value={email} 
                       onChange={(e) => setEmail(e.target.value)}
                       aria-label="Email"
+                      disabled={!canEditProfileAndCompany}
                     />
                   </div>
                   <div className="pt-4 border-t">
@@ -245,6 +257,7 @@ const Settings = () => {
                           onChange={(e) => setPassword(e.target.value)}
                           placeholder="••••••••"
                           aria-label="Nova Senha"
+                          disabled={!canEditProfileAndCompany}
                         />
                       </div>
                       <div className="space-y-2">
@@ -256,6 +269,7 @@ const Settings = () => {
                           onChange={(e) => setConfirmPassword(e.target.value)}
                           placeholder="••••••••"
                           aria-label="Confirmar Senha"
+                          disabled={!canEditProfileAndCompany}
                         />
                       </div>
                     </div>
@@ -265,6 +279,7 @@ const Settings = () => {
                   <Button 
                     onClick={handleSaveProfile}
                     className="bg-viainfra-primary hover:bg-viainfra-primary/90 w-full md:w-auto"
+                    disabled={!canEditProfileAndCompany}
                   >
                     Salvar Alterações
                   </Button>
@@ -288,7 +303,13 @@ const Settings = () => {
                       value={companyName} 
                       onChange={(e) => setCompanyName(e.target.value)}
                       aria-label="Nome da Empresa"
+                      disabled={!canEditProfileAndCompany}
                     />
+                    {!canEditProfileAndCompany && (
+                      <p className="text-xs text-amber-600">
+                        Apenas administradores podem editar essas informações
+                      </p>
+                    )}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -299,6 +320,7 @@ const Settings = () => {
                         value={timezone}
                         onChange={(e) => setTimezone(e.target.value)}
                         aria-label="Fuso Horário"
+                        disabled={!canEditProfileAndCompany}
                       >
                         <option value="America/Sao_Paulo">Brasília (GMT-3)</option>
                         <option value="America/Manaus">Manaus (GMT-4)</option>
@@ -315,6 +337,7 @@ const Settings = () => {
                         value={language}
                         onChange={(e) => setLanguage(e.target.value)}
                         aria-label="Idioma"
+                        disabled={!canEditProfileAndCompany}
                       >
                         <option value="pt-BR">Português (Brasil)</option>
                         <option value="en-US">English (United States)</option>
@@ -332,7 +355,7 @@ const Settings = () => {
                           <path d="M12 18v0"></path>
                         </svg>
                       </div>
-                      <Button variant="outline" className="flex-1 md:flex-none">
+                      <Button variant="outline" className="flex-1 md:flex-none" disabled={!canEditProfileAndCompany}>
                         Fazer Upload
                       </Button>
                     </div>
@@ -342,6 +365,7 @@ const Settings = () => {
                   <Button 
                     onClick={handleSaveCompany}
                     className="bg-viainfra-primary hover:bg-viainfra-primary/90 w-full md:w-auto"
+                    disabled={!canEditProfileAndCompany}
                   >
                     Salvar Alterações
                   </Button>
