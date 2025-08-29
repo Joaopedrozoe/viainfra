@@ -12,13 +12,15 @@ import { PrivateRoute } from "@/components/auth/PrivateRoute";
 import Login from "@/pages/auth/Login";
 import Register from "@/pages/auth/Register";
 
+// Import Channels directly to fix dynamic import issue
+import Channels from "@/pages/app/Channels";
+
 // Landing
 const Landing = lazy(() => import("@/pages/landing/Landing"));
 
 // App
 const Dashboard = lazy(() => import("@/pages/app/Dashboard"));
 const Inbox = lazy(() => import("@/pages/app/Inbox"));
-const Channels = lazy(() => import("@/pages/app/Channels"));
 const Agents = lazy(() => import("@/pages/app/Agents"));
 const AgentDetails = lazy(() => import("@/pages/app/AgentDetails"));
 const Widget = lazy(() => import("@/pages/app/Widget"));
