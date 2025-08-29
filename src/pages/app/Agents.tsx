@@ -16,23 +16,23 @@ import { PLAN_FEATURES } from "@/types/plans";
 
 const fetchAgents = async (): Promise<Agent[]> => {
   try {
+    // Verifica se há dados reais de agentes - para MVP sem Supabase, sempre retorna vazio
+    const hasRealAgentsData = checkRealAgentsData();
+    
+    if (!hasRealAgentsData) {
+      // Sem dados reais = sem agentes
+      return [];
+    }
+    
+    // Este código será usado quando houver integração real com banco de dados
     // Fetch agents
     const { data: dbAgents, error: agentsError } = await supabase
       .from('agents')
       .select('*')
       .order('created_at', { ascending: false });
     
-    if (agentsError) {
-      console.warn('Error fetching agents from DB, using mock data:', agentsError.message);
-      // Return mock data as fallback
-      const { mockAgents } = await import('@/components/app/agents/mockData');
-      return mockAgents;
-    }
-
-    if (!dbAgents || dbAgents.length === 0) {
-      // Return mock data when no agents in DB
-      const { mockAgents } = await import('@/components/app/agents/mockData');
-      return mockAgents;
+    if (agentsError || !dbAgents || dbAgents.length === 0) {
+      return [];
     }
 
     // Fetch agent knowledge for all agents
@@ -89,11 +89,17 @@ const fetchAgents = async (): Promise<Agent[]> => {
       return agent;
     });
   } catch (error) {
-    console.warn('Error in fetchAgents, using mock data:', error);
-    // Fallback to mock data on any error
-    const { mockAgents } = await import('@/components/app/agents/mockData');
-    return mockAgents;
+    console.warn('Error in fetchAgents:', error);
+    // Sem dados reais = retorna lista vazia
+    return [];
   }
+};
+
+// Função para verificar se há dados reais de agentes
+const checkRealAgentsData = (): boolean => {
+  // Para MVP sem Supabase, sempre retorna false
+  // Quando integrar com seu PostgreSQL, esta função verificará se há agentes reais
+  return false;
 };
 
 const Agents = () => {
