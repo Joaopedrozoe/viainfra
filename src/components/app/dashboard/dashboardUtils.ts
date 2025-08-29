@@ -30,10 +30,8 @@ const CACHE_DURATION = 30000; // 30 segundos
 export const calculateDashboardMetrics = (isDemoMode: boolean = true): DashboardMetrics => {
   const now = Date.now();
   
-  // Retorna cache se ainda válido
-  if (cachedMetrics && (now - lastCalculation) < CACHE_DURATION) {
-    return cachedMetrics;
-  }
+  // Limpa cache para forçar recálculo sempre (temporário para garantir dados zerados)
+  cachedMetrics = null;
   
   let conversations: any[] = [];
   let channels: any[] = [];
@@ -52,15 +50,15 @@ export const calculateDashboardMetrics = (isDemoMode: boolean = true): Dashboard
   const activeConversations = conversations.filter(c => c.unread && c.unread > 0).length;
   const totalConversations = conversations.length;
   
-  // Mensagens hoje (baseado nos canais ou dados reais)
-  const todayMessages = channels.reduce((sum, channel) => {
+  // Mensagens hoje - zerado quando não há conversas
+  const todayMessages = conversations.length > 0 ? channels.reduce((sum, channel) => {
     const messages = channel.metrics?.todayMessages || channel.today_messages || 0;
     return sum + (typeof messages === 'number' ? messages : 0);
-  }, 0);
+  }, 0) : 0;
   
   // Tempo médio de resposta (dos canais conectados)
   const connectedChannels = channels.filter(c => c.status === 'connected');
-  const averageResponseTime = connectedChannels.length > 0 
+  const averageResponseTime = conversations.length > 0 && connectedChannels.length > 0 
     ? connectedChannels.reduce((sum, c) => {
         const responseTime = c.metrics?.responseTime || c.response_time || 0;
         return sum + (typeof responseTime === 'number' ? responseTime : 0);
@@ -71,13 +69,13 @@ export const calculateDashboardMetrics = (isDemoMode: boolean = true): Dashboard
   const resolvedConversations = conversations.filter(c => !c.unread || c.unread === 0).length;
   const resolutionRate = totalConversations > 0 ? (resolvedConversations / totalConversations) * 100 : 0;
   
-  // Distribuição por canal
-  const channelCounts = channels.reduce((acc, channel) => {
+  // Distribuição por canal - zerado quando não há conversas
+  const channelCounts = conversations.length > 0 ? channels.reduce((acc, channel) => {
     const name = channel.name || channel.type || 'Desconhecido';
     const totalMessages = channel.metrics?.totalMessages || channel.total_messages || 0;
     acc[name] = typeof totalMessages === 'number' ? totalMessages : 0;
     return acc;
-  }, {} as Record<string, number>);
+  }, {} as Record<string, number>) : {};
   
   const totalChannelMessages = Object.values(channelCounts).reduce((sum: number, count: number) => sum + count, 0);
   const channelDistribution = Object.entries(channelCounts).map(([name, value]) => ({
@@ -86,39 +84,25 @@ export const calculateDashboardMetrics = (isDemoMode: boolean = true): Dashboard
     percentage: Number(totalChannelMessages) > 0 ? (Number(value) / Number(totalChannelMessages)) * 100 : 0
   }));
   
-  // Atividade por hora (últimas 24h - simulada)
+  // Atividade por hora - zerado quando não há conversas
   const hourlyActivity = Array.from({ length: 24 }, (_, i) => {
     const hour = i.toString().padStart(2, '0');
-    // Simula padrão realista: mais atividade durante horário comercial
-    let messages = Math.random() * 20;
-    if (i >= 9 && i <= 18) {
-      messages = Math.random() * 50 + 30; // Horário comercial
-    } else if (i >= 19 && i <= 22) {
-      messages = Math.random() * 30 + 10; // Noite
-    } else {
-      messages = Math.random() * 10; // Madrugada
-    }
     return {
       hour: `${hour}:00`,
-      messages: Math.round(messages)
+      messages: conversations.length > 0 ? Math.round(Math.random() * (i >= 9 && i <= 18 ? 50 : 10)) : 0
     };
   });
   
-  // Tendência semanal (últimos 7 dias - simulada)
+  // Tendência semanal - zerado quando não há conversas
   const weeklyTrend = Array.from({ length: 7 }, (_, i) => {
     const date = new Date();
     date.setDate(date.getDate() - (6 - i));
     const dayName = date.toLocaleDateString('pt-BR', { weekday: 'short' });
     
-    // Simula padrão semanal: menos atividade nos fins de semana
-    const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-    const baseConversations = isWeekend ? 15 : 35;
-    const baseMessages = isWeekend ? 80 : 180;
-    
     return {
       day: dayName,
-      conversations: Math.round(baseConversations + (Math.random() * 20)),
-      messages: Math.round(baseMessages + (Math.random() * 100))
+      conversations: conversations.length > 0 ? Math.round(Math.random() * 20 + 10) : 0,
+      messages: conversations.length > 0 ? Math.round(Math.random() * 100 + 50) : 0
     };
   });
   
