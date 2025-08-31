@@ -259,17 +259,17 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
         // Novo formato de campo estruturado
         const fieldPrompt = `Por favor, informe **${field.label}**:`;
         addMessage(fieldPrompt);
-        setShowInput(true);
+        setShowInput(true); // Garantir que o input está visível
       } else if (typeof field === 'object' && field.key) {
         // Formato com key
         const fieldPrompt = `Por favor, informe **${field.key}**:`;
         addMessage(fieldPrompt);
-        setShowInput(true);
+        setShowInput(true); // Garantir que o input está visível
       } else if (typeof field === 'string') {
         // Formato antigo de campo (string)
         const fieldPrompt = `Por favor, informe **${field}**:`;
         addMessage(fieldPrompt);
-        setShowInput(true);
+        setShowInput(true); // Garantir que o input está visível
       }
     } else {
       mostrarResumoChamado(formFields);
@@ -288,9 +288,6 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
       ? field.label 
       : (typeof field === 'object' && field.key ? field.key : (typeof field === 'string' ? field : `Campo ${currentFieldIndex + 1}`));
     
-    // Adicionar mensagem do usuário
-    addMessage(value, 'user');
-    
     setChamadoData(prev => ({
       ...prev,
       [fieldKey]: value
@@ -298,7 +295,6 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     
     // Avançar para o próximo campo (sem validação por enquanto)
     setCurrentFieldIndex(prev => prev + 1);
-    setShowInput(false);
     
     setTimeout(() => {
       askNextField();
@@ -556,7 +552,7 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
           <div ref={messagesEndRef} />
         </div>
         
-        {(showInput || state === 'start') && (
+        {(showInput || state === 'start' || state === 'abrindoChamado') && (
           <div className="p-4 border-t border-border">
             <div className="flex gap-2">
               <Input

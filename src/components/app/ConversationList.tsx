@@ -25,77 +25,20 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
   const { isDemoMode } = useDemoMode();
   const { previewConversations } = usePreviewConversation();
 
-  // Fetch conversations from Supabase with real-time updates
+  // Simple effect to handle preview conversations
   useEffect(() => {
-    const fetchConversations = async () => {
-      if (!isDemoMode) {
-        setIsLoading(true);
-        try {
-          // Use real Supabase data
-          const { data, error } = await supabase
-            .from('conversations')
-            .select('*')
-            .order('time', { ascending: false });
-            
-          if (error) {
-            console.error('Error fetching conversations:', error);
-            setConversations([]);
-            return;
-          }
-          
-          const mappedConversations = (data || []).map(mapDbConversationToConversation);
-          // Combinar conversas reais com conversas de preview
-          const allConversations = [...previewConversations, ...mappedConversations];
-          setConversations(allConversations);
-        } catch (error) {
-          console.error('Error in conversation fetch:', error);
-          setConversations([]);
-        } finally {
-          setIsLoading(false);
-        }
-      }
-    };
+    console.log('=== CONVERSATION LIST DEBUG ===');
+    console.log('isDemoMode:', isDemoMode);
+    console.log('previewConversations length:', previewConversations.length);
+    console.log('previewConversations:', previewConversations);
     
-    fetchConversations();
-
-    // Set up real-time subscription for conversations
-    if (!isDemoMode) {
-      const channel = supabase
-        .channel('conversations-changes')
-        .on('postgres_changes', 
-          { event: '*', schema: 'public', table: 'conversations' }, 
-          (payload) => {
-            console.log('Conversation change:', payload);
-            fetchConversations(); // Refresh conversations on any change
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    }
-  }, [isDemoMode, refreshTrigger]);
-
-  // Update conversations when preview conversations change
-  useEffect(() => {
-    console.log('Preview conversations changed:', previewConversations.length, previewConversations);
+    // SEMPRE usar as conversas de preview, independente do modo
+    setConversations(previewConversations);
+    setIsLoading(false);
     
-    if (isDemoMode) {
-      // Em modo demo, usar apenas conversas de preview
-      console.log('Modo demo - definindo conversas de preview:', previewConversations.length);
-      setConversations(previewConversations);
-      setIsLoading(false);
-    } else {
-      // Em modo não-demo, combinar preview com reais
-      setConversations(prev => {
-        const realConversations = prev.filter(conv => !(conv as any).is_preview);
-        const combined = [...previewConversations, ...realConversations];
-        console.log('Modo produção - combinando conversas:', { preview: previewConversations.length, real: realConversations.length, total: combined.length });
-        return combined;
-      });
-    }
-  }, [previewConversations, isDemoMode]);
+    console.log('Conversations set to:', previewConversations.length);
+    console.log('=== END DEBUG ===');
+  }, [previewConversations, isDemoMode, refreshTrigger]);
 
   // Handle conversation selection
   const handleConversationSelect = (conversationId: string) => {
