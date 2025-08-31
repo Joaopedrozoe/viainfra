@@ -22,7 +22,7 @@ export const ConversationList = ({ onSelectConversation, selectedId }: Conversat
   const [isLoading, setIsLoading] = useState(true);
   const { isDemoMode } = useDemoMode();
 
-  // Fetch conversations from Supabase - removed mock data
+  // Fetch conversations from Supabase with real-time updates
   useEffect(() => {
     const fetchConversations = async () => {
       setIsLoading(true);
@@ -53,6 +53,24 @@ export const ConversationList = ({ onSelectConversation, selectedId }: Conversat
     };
     
     fetchConversations();
+
+    // Set up real-time subscription for conversations
+    if (!isDemoMode) {
+      const channel = supabase
+        .channel('conversations-changes')
+        .on('postgres_changes', 
+          { event: '*', schema: 'public', table: 'conversations' }, 
+          (payload) => {
+            console.log('Conversation change:', payload);
+            fetchConversations(); // Refresh conversations on any change
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
   }, [isDemoMode]);
 
   // Handle conversation selection

@@ -55,6 +55,7 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
   const [chamadoData, setChamadoData] = useState<ChamadoData>({});
   const [chamadoCounter, setChamadoCounter] = useState(1);
   const [showInput, setShowInput] = useState(false);
+  const [previewConversationId, setPreviewConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -75,10 +76,12 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
       setCurrentFieldIndex(0);
       setChamadoData({});
       setShowInput(false);
+      setPreviewConversationId(null);
       
       // Iniciar conversa com base no fluxo atual
       setTimeout(() => {
         startChatFromFlow();
+        createPreviewConversation();
       }, 100);
     }
   }, [isOpen, botData]);
@@ -93,7 +96,16 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
         minute: '2-digit' 
       })
     };
-    setMessages(prev => [...prev, newMessage]);
+    setMessages(prev => {
+      const updatedMessages = [...prev, newMessage];
+      
+      // Atualizar conversa de preview em tempo real
+      if (previewConversationId) {
+        updatePreviewConversation(updatedMessages);
+      }
+      
+      return updatedMessages;
+    });
   };
 
   const startChatFromFlow = () => {
@@ -374,34 +386,62 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
         // Manter o campo de input sempre disponível após transferência
         setShowInput(true);
         setState('start');
-        
-        // Salvar conversa de preview para a inbox
-        savePreviewConversation();
       }, 2000);
     }, 500);
   };
 
-  const savePreviewConversation = async () => {
+  const createPreviewConversation = async () => {
     if (!botData) return;
     
     try {
       const conversationData = {
         name: `Preview Bot - ${botData.name}`,
         channel: 'whatsapp' as Channel,
-        preview: 'Conversa de preview do chatbot',
+        preview: 'Conversa de preview do chatbot iniciada...',
         time: new Date().toISOString(),
         unread: 1,
-        company_id: '1', // ID padrão para conversas de preview
+        company_id: '1',
         is_preview: true
       };
 
+      const { data, error } = await supabase
+        .from('conversations')
+        .insert([conversationData])
+        .select()
+        .single();
+        
+      if (error) {
+        console.error('Erro ao criar conversa de preview:', error);
+        return;
+      }
+      
+      setPreviewConversationId(data.id);
+      console.log('Conversa de preview criada:', data.id);
+    } catch (error) {
+      console.error('Erro ao criar conversa de preview:', error);
+    }
+  };
+
+  const updatePreviewConversation = async (messages: Message[]) => {
+    if (!previewConversationId || messages.length === 0) return;
+    
+    try {
+      const lastMessage = messages[messages.length - 1];
+      const preview = lastMessage.content.length > 50 
+        ? lastMessage.content.substring(0, 50) + '...'
+        : lastMessage.content;
+
       await supabase
         .from('conversations')
-        .insert([conversationData]);
+        .update({ 
+          preview: preview,
+          time: new Date().toISOString(),
+          unread: 1
+        })
+        .eq('id', previewConversationId);
         
-      console.log('Conversa de preview salva na inbox');
     } catch (error) {
-      console.error('Erro ao salvar conversa de preview:', error);
+      console.error('Erro ao atualizar conversa de preview:', error);
     }
   };
 
