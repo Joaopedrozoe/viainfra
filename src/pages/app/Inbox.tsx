@@ -4,7 +4,7 @@ import { ChatWindow } from "@/components/app/ChatWindow";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { X, CheckCircle } from "lucide-react";
+import { X, CheckCircle, RefreshCw } from "lucide-react";
 
 const Inbox = () => {
   const location = useLocation();
@@ -14,6 +14,7 @@ const Inbox = () => {
   const [selectedConversation, setSelectedConversation] = useState<string | undefined>(initialConversation);
   const isMobile = useIsMobile();
   const [showChat, setShowChat] = useState(shouldShowChat !== undefined ? shouldShowChat : false);
+  const [refreshKey, setRefreshKey] = useState(0);
   
   // Effect to update the state when navigation happens
   useEffect(() => {
@@ -44,6 +45,10 @@ const Inbox = () => {
     // Implementar lógica para encerrar conversa
     console.log("Encerrando conversa:", conversationId);
   }, []);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshKey(prev => prev + 1);
+  }, []);
   
   if (isMobile) {
     return (
@@ -63,13 +68,22 @@ const Inbox = () => {
             <div className="flex-none p-4 border-b border-border">
               <div className="flex items-center justify-between">
                 <h1 className="text-xl font-bold">Conversas</h1>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleRefresh}
+                  className="h-8 w-8 p-0"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
               </div>
             </div>
             <div className="flex-1 overflow-hidden">
-              <ConversationList 
-                onSelectConversation={handleSelectConversation}
-                selectedId={selectedConversation}
-              />
+            <ConversationList 
+              onSelectConversation={handleSelectConversation}
+              selectedId={selectedConversation}
+              key={refreshKey}
+            />
             </div>
           </div>
         )}
@@ -85,11 +99,20 @@ const Inbox = () => {
             <div className="p-4 border-b border-border">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Conversas</h2>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleRefresh}
+                  className="h-8 w-8 p-0"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
               </div>
             </div>
             <ConversationList 
               onSelectConversation={handleSelectConversation}
               selectedId={selectedConversation}
+              key={refreshKey}
             />
           </div>
           <div className="flex-1">
