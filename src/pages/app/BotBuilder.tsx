@@ -16,6 +16,16 @@ import '@xyflow/react/dist/style.css';
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { 
   Play, 
   Save, 
@@ -48,6 +58,9 @@ const BotBuilder = () => {
   const [selectedBot, setSelectedBot] = useState<string | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<string>("v1");
   const [showPreview, setShowPreview] = useState(false);
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [initialBotState, setInitialBotState] = useState<BotVersion | null>(null);
   
   // Bot versions state - FLUXO-VIAINFRA já criado
   const [botVersions, setBotVersions] = useState<BotVersion[]>([
@@ -76,6 +89,14 @@ const BotBuilder = () => {
   const currentBot = botVersions.find(bot => 
     bot.id === selectedBot && bot.version === selectedVersion
   );
+
+  // Detectar mudanças no bot atual
+  useEffect(() => {
+    if (currentBot && initialBotState) {
+      const hasChanges = JSON.stringify(currentBot.flows) !== JSON.stringify(initialBotState.flows);
+      setHasUnsavedChanges(hasChanges);
+    }
+  }, [currentBot, initialBotState]);
 
   const handleCreateNewVersion = () => {
     if (!currentBot) return;
@@ -114,6 +135,49 @@ const BotBuilder = () => {
         ? { ...bot, status: 'draft', updatedAt: new Date().toISOString() }
         : bot
     ));
+  };
+
+  const handleBotSelect = (botId: string | null) => {
+    if (botId) {
+      const bot = botVersions.find(b => b.id === botId);
+      if (bot) {
+        // Salvar estado inicial para detectar mudanças
+        setInitialBotState(JSON.parse(JSON.stringify(bot)));
+        setHasUnsavedChanges(false);
+      }
+    } else {
+      // Limpar estado ao voltar
+      setInitialBotState(null);
+      setHasUnsavedChanges(false);
+    }
+    setSelectedBot(botId);
+  };
+
+  const handleBackClick = () => {
+    if (hasUnsavedChanges) {
+      setShowUnsavedDialog(true);
+    } else {
+      handleBotSelect(null);
+    }
+  };
+
+  const handleSaveAndExit = () => {
+    // As mudanças já estão salvas automaticamente no estado
+    setShowUnsavedDialog(false);
+    handleBotSelect(null);
+  };
+
+  const handleDiscardAndExit = () => {
+    if (initialBotState) {
+      // Restaurar estado inicial
+      setBotVersions(prev => prev.map(bot => 
+        bot.id === initialBotState.id && bot.version === initialBotState.version
+          ? initialBotState
+          : bot
+      ));
+    }
+    setShowUnsavedDialog(false);
+    handleBotSelect(null);
   };
 
   return (
@@ -185,7 +249,7 @@ const BotBuilder = () => {
                     key={bot.id}
                     className="p-6 cursor-pointer hover:shadow-md transition-shadow"
                     onClick={() => {
-                      setSelectedBot(bot.id);
+                      handleBotSelect(bot.id);
                       setSelectedVersion(publishedVersion?.version || versions[0]?.version || 'v1');
                     }}
                   >
@@ -216,9 +280,10 @@ const BotBuilder = () => {
                 botVersions={botVersions}
                 selectedBot={selectedBot}
                 selectedVersion={selectedVersion}
-                onSelectBot={setSelectedBot}
+                onSelectBot={handleBackClick}
                 onSelectVersion={setSelectedVersion}
                 onCreateNewVersion={handleCreateNewVersion}
+                hasUnsavedChanges={hasUnsavedChanges}
               />
             </div>
 
@@ -252,6 +317,26 @@ const BotBuilder = () => {
         botData={currentBot}
         key={showPreview ? `preview-${Date.now()}` : 'preview-closed'}
       />
+
+      {/* Unsaved Changes Dialog */}
+      <AlertDialog open={showUnsavedDialog} onOpenChange={setShowUnsavedDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Salvar modificações?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Você tem modificações não salvas no fluxo do bot. Deseja salvá-las antes de sair?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleDiscardAndExit}>
+              Não, descartar mudanças
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleSaveAndExit}>
+              Sim, salvar mudanças
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

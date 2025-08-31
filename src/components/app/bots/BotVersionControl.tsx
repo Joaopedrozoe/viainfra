@@ -20,6 +20,7 @@ interface BotVersionControlProps {
   onSelectBot: (botId: string | null) => void;
   onSelectVersion: (version: string) => void;
   onCreateNewVersion: () => void;
+  hasUnsavedChanges?: boolean;
 }
 
 export function BotVersionControl({
@@ -28,7 +29,8 @@ export function BotVersionControl({
   selectedVersion,
   onSelectBot,
   onSelectVersion,
-  onCreateNewVersion
+  onCreateNewVersion,
+  hasUnsavedChanges = false
 }: BotVersionControlProps) {
   
   const currentBotVersions = botVersions.filter(bot => bot.id === selectedBot);
@@ -42,7 +44,14 @@ export function BotVersionControl({
     <div className="h-full flex flex-col">
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold">Bot Selecionado</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold">Bot Selecionado</h3>
+            {hasUnsavedChanges && (
+              <Badge variant="secondary" className="text-xs">
+                Não salvo
+              </Badge>
+            )}
+          </div>
           <Button
             variant="ghost"
             size="sm"
