@@ -260,6 +260,15 @@ export function BotFlowBuilder({ bot, onUpdateBot }: BotFlowBuilderProps) {
             <Button
               variant="outline"
               size="sm"
+              onClick={() => addNode('start')}
+              className="flex items-center gap-2"
+            >
+              <Play className="h-4 w-4" />
+              Início
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => addNode('message')}
               className="flex items-center gap-2"
             >
