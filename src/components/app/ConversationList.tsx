@@ -81,6 +81,23 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     }
   }, [isDemoMode, refreshTrigger, previewConversations]);
 
+  // Separate effect to update conversations when preview conversations change
+  useEffect(() => {
+    if (isDemoMode) {
+      console.log('Atualizando conversas no modo demo com preview conversations:', previewConversations.length);
+      setConversations(previewConversations);
+    } else {
+      // In production mode, we need to combine both
+      setConversations(prev => {
+        // Filter out old preview conversations and add new ones
+        const realConversations = prev.filter(conv => !(conv as any).is_preview);
+        const combined = [...previewConversations, ...realConversations];
+        console.log('Combinando conversas: preview=', previewConversations.length, 'reais=', realConversations.length);
+        return combined;
+      });
+    }
+  }, [previewConversations, isDemoMode]);
+
   // Handle conversation selection
   const handleConversationSelect = (conversationId: string) => {
     onSelectConversation(conversationId);
@@ -190,6 +207,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         ) : (
           <div className="p-4 text-center text-gray-500">
             {searchTerm || selectedChannel !== "all" ? "Nenhuma conversa encontrada" : 
+             activeTab === "preview" ? "Teste o preview do bot para ver as conversas aqui" :
              isDemoMode ? "Conecte uma API do WhatsApp para ver conversas reais" : "Nenhuma conversa disponível"}
           </div>
         )}
