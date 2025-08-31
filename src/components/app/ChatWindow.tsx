@@ -14,24 +14,24 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   useEffect(() => {
     if (conversationId) {
       // Para conversas de preview, buscar mensagens do contexto de preview
-      const previewConversation = localStorage.getItem('preview-conversations');
-      if (previewConversation) {
-        try {
-          const previewData = JSON.parse(previewConversation);
-          const conversation = previewData[conversationId];
-          if (conversation && conversation.messages) {
-            const mappedMessages = conversation.messages.map((msg: any, index: number) => ({
+      try {
+        const storedConversations = localStorage.getItem('preview-conversations');
+        if (storedConversations) {
+          const previewData = JSON.parse(storedConversations);
+          if (previewData[conversationId] && previewData[conversationId].messages) {
+            const mappedMessages = previewData[conversationId].messages.map((msg: any, index: number) => ({
               id: `${conversationId}-${index}`,
               content: msg.content,
               sender: msg.isBot ? 'bot' : 'user',
               timestamp: msg.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             }));
+            console.log('📱 ChatWindow: Carregando mensagens para', conversationId, mappedMessages.length, 'mensagens');
             setMessages(mappedMessages);
             return;
           }
-        } catch (error) {
-          console.error('Erro ao carregar mensagens de preview:', error);
         }
+      } catch (error) {
+        console.error('Erro ao carregar mensagens de preview:', error);
       }
       
       // TODO: Fetch real messages from API when backend is connected

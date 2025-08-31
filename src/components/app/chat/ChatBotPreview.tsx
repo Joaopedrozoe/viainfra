@@ -236,7 +236,7 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
         askNextField();
       }, 500);
     } else if (option === "Falar com Atendente") {
-      setState('escolhendoSetor');
+      // Ir direto para escolha de setor sem repetir pergunta
       setTimeout(() => {
         escolherSetor();
       }, 500);
@@ -349,18 +349,8 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     addMessage(resumo);
     
       setTimeout(() => {
-        const opcaoMessage = {
-          id: Date.now().toString(),
-          content: "O que deseja fazer agora?",
-          sender: 'bot' as const,
-          timestamp: new Date().toLocaleTimeString('pt-BR', { 
-            hour: '2-digit', 
-            minute: '2-digit' 
-          }),
-          options: ["Falar com Atendente", "Menu Principal"]
-        };
-        
-        setMessages(prev => [...prev, opcaoMessage]);
+        addMessage("O que deseja fazer agora?");
+        setShowInput(false);
         setState('posResumo');
       }, 1500);
   };
