@@ -60,7 +60,8 @@ const BotBuilder = () => {
   const [showPreview, setShowPreview] = useState(false);
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [initialBotState, setInitialBotState] = useState<BotVersion | null>(null);
+  const [initialFlowHash, setInitialFlowHash] = useState<string>("");
+  const [originalBotData, setOriginalBotData] = useState<{ nodes: Node[]; edges: Edge[] } | null>(null);
   
   // Bot versions state - FLUXO-VIAINFRA já criado
   const [botVersions, setBotVersions] = useState<BotVersion[]>([
@@ -90,25 +91,22 @@ const BotBuilder = () => {
     bot.id === selectedBot && bot.version === selectedVersion
   );
 
-  // Detectar mudanças no bot atual - apenas quando há mudanças reais
+  // Função para gerar hash simples dos dados do fluxo
+  const generateFlowHash = (flows: { nodes: Node[]; edges: Edge[] }) => {
+    return JSON.stringify({
+      nodes: flows.nodes.map(n => ({ id: n.id, type: n.type, position: n.position, data: n.data })),
+      edges: flows.edges.map(e => ({ id: e.id, source: e.source, target: e.target, type: e.type }))
+    });
+  };
+
+  // Detectar mudanças reais comparando com hash inicial
   useEffect(() => {
-    if (currentBot && initialBotState && currentBot.id === initialBotState.id && currentBot.version === initialBotState.version) {
-      // Comparar apenas os fluxos de forma mais precisa
-      const currentFlowString = JSON.stringify({
-        nodes: currentBot.flows.nodes,
-        edges: currentBot.flows.edges
-      });
-      const initialFlowString = JSON.stringify({
-        nodes: initialBotState.flows.nodes,
-        edges: initialBotState.flows.edges
-      });
-      
-      const hasChanges = currentFlowString !== initialFlowString;
+    if (currentBot && selectedBot && initialFlowHash) {
+      const currentFlowHash = generateFlowHash(currentBot.flows);
+      const hasChanges = currentFlowHash !== initialFlowHash;
       setHasUnsavedChanges(hasChanges);
-    } else if (!currentBot || !initialBotState) {
-      setHasUnsavedChanges(false);
     }
-  }, [currentBot?.flows, initialBotState]);
+  }, [currentBot?.flows, initialFlowHash]);
 
   const handleCreateNewVersion = () => {
     if (!currentBot) return;
@@ -153,20 +151,21 @@ const BotBuilder = () => {
     if (botId) {
       const bot = botVersions.find(b => b.id === botId);
       if (bot) {
-        // Salvar estado inicial para detectar mudanças - criar uma cópia profunda
-        const initialState = {
-          ...bot,
-          flows: {
-            nodes: bot.flows.nodes.map(node => ({ ...node, data: { ...node.data } })),
-            edges: bot.flows.edges.map(edge => ({ ...edge }))
-          }
-        };
-        setInitialBotState(initialState);
+        // Salvar dados originais para restauração
+        setOriginalBotData({
+          nodes: JSON.parse(JSON.stringify(bot.flows.nodes)),
+          edges: JSON.parse(JSON.stringify(bot.flows.edges))
+        });
+        
+        // Gerar hash do estado inicial para comparação
+        const flowHash = generateFlowHash(bot.flows);
+        setInitialFlowHash(flowHash);
         setHasUnsavedChanges(false);
       }
     } else {
       // Limpar estado ao voltar
-      setInitialBotState(null);
+      setOriginalBotData(null);
+      setInitialFlowHash("");
       setHasUnsavedChanges(false);
     }
     setSelectedBot(botId);
@@ -187,11 +186,14 @@ const BotBuilder = () => {
   };
 
   const handleDiscardAndExit = () => {
-    if (initialBotState) {
-      // Restaurar estado inicial
+    if (originalBotData && currentBot) {
+      // Restaurar estado original
       setBotVersions(prev => prev.map(bot => 
-        bot.id === initialBotState.id && bot.version === initialBotState.version
-          ? initialBotState
+        bot.id === currentBot.id && bot.version === currentBot.version
+          ? {
+              ...bot,
+              flows: originalBotData
+            }
           : bot
       ));
     }
