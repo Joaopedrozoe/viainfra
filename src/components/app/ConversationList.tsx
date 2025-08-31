@@ -1,4 +1,4 @@
-import { useState, useEffect, forwardRef, useImperativeHandle } from "react";
+import { useState, useEffect } from "react";
 import { SearchHeader } from "./conversation/SearchHeader";
 import { ConversationItem } from "./conversation/ConversationItem";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -15,13 +15,10 @@ interface ConversationListProps {
   onSelectConversation: (id: string) => void;
   selectedId?: string;
   refreshTrigger?: number;
+  onResolveConversation?: (id: string) => void;
 }
 
-interface ConversationListRef {
-  resolveConversation: (id: string) => void;
-}
-
-export const ConversationList = forwardRef<ConversationListRef, ConversationListProps>(({ onSelectConversation, selectedId, refreshTrigger }, ref) => {
+export const ConversationList = ({ onSelectConversation, selectedId, refreshTrigger, onResolveConversation }: ConversationListProps) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -82,12 +79,10 @@ export const ConversationList = forwardRef<ConversationListRef, ConversationList
         conv.id === conversationId ? { ...conv, unread: 0 } : conv
       )
     );
+    
+    // Call parent callback if provided
+    onResolveConversation?.(conversationId);
   };
-
-  // Expose functions to parent via ref
-  useImperativeHandle(ref, () => ({
-    resolveConversation: handleConversationResolve
-  }), [handleConversationResolve]);
 
   // Apply filters when conversations, search term, channel or active tab changes
   useEffect(() => {
@@ -215,6 +210,4 @@ export const ConversationList = forwardRef<ConversationListRef, ConversationList
       </div>
     </div>
   );
-});
-
-ConversationList.displayName = "ConversationList";
+};
