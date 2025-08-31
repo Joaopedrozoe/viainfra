@@ -23,66 +23,11 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
   const [isLoading, setIsLoading] = useState(true);
   const { previewConversations } = usePreviewConversation();
 
-  // Fetch conversations from Supabase and combine with preview conversations
+  // SOLUÇÃO DIRETA: Sempre mostrar conversas de preview
   useEffect(() => {
-    console.log('🔍 ConversationList useEffect triggered');
-    console.log('📊 previewConversations.length:', previewConversations.length);
-    console.log('📋 previewConversations:', previewConversations);
-    console.log('🔄 refreshTrigger:', refreshTrigger);
-    
-    const fetchConversations = async () => {
-      setIsLoading(true);
-      console.log('⏳ Starting to fetch conversations...');
-      
-      try {
-        // Fetch real conversations from Supabase
-        const { data, error } = await supabase
-          .from('conversations')
-          .select('*')
-          .order('time', { ascending: false });
-          
-        if (error) {
-          console.error('❌ Error fetching conversations:', error);
-        }
-        
-        const mappedConversations = (data || []).map(mapDbConversationToConversation);
-        
-        // Combine preview conversations with real conversations
-        const allConversations = [...previewConversations, ...mappedConversations];
-        console.log('✅ Total conversations loaded:', allConversations.length);
-        console.log('🎬 Preview:', previewConversations.length, '📡 Real:', mappedConversations.length);
-        console.log('📝 All conversations:', allConversations);
-        
-        setConversations(allConversations);
-        console.log('💾 Conversations state updated');
-      } catch (error) {
-        console.error('💥 Error in conversation fetch:', error);
-        // Even if Supabase fails, still show preview conversations
-        console.log('🔄 Fallback: Setting only preview conversations');
-        setConversations(previewConversations);
-      } finally {
-        setIsLoading(false);
-        console.log('✅ Loading finished');
-      }
-    };
-    
-    fetchConversations();
-
-    // Set up real-time subscription for conversations
-    const channel = supabase
-      .channel('conversations-changes')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'conversations' }, 
-        (payload) => {
-          console.log('🔔 Conversation change:', payload);
-          fetchConversations(); // Refresh conversations on any change
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    console.log('📱 DIRECT: Setting preview conversations:', previewConversations.length);
+    setConversations(previewConversations);
+    setIsLoading(false);
   }, [previewConversations, refreshTrigger]);
 
   // Handle conversation selection
