@@ -81,13 +81,14 @@ const getInitialNodes = (): Node[] => [
     position: { x: 100, y: 280 },
     data: {
       label: 'Processo de Chamado',
-      action: 'collect_ticket_data',
+      actionType: 'form',
+      action: 'Coletar dados do chamado',
       fields: [
-        'PLACA',
-        'CORRETIVA', 
-        'CANTEIRO OU OFICINA',
-        'AGENDAMENTO',
-        'DESCRIÇÃO'
+        { key: 'PLACA', placeholder: 'Informe a placa do veículo', type: 'text', required: true },
+        { key: 'CORRETIVA', placeholder: 'Sim ou Não', type: 'select', options: ['Sim', 'Não'], required: true },
+        { key: 'CANTEIRO OU OFICINA', placeholder: 'Canteiro ou Oficina', type: 'select', options: ['Canteiro', 'Oficina'], required: true },
+        { key: 'AGENDAMENTO', placeholder: 'Data e hora (ex: 25/08/2025 14:30)', type: 'text', required: true },
+        { key: 'DESCRIÇÃO', placeholder: 'Descreva o problema ou necessidade', type: 'textarea', required: true }
       ]
     }
   },
@@ -583,12 +584,15 @@ function getDefaultNodeData(type: string) {
       return { label: 'Nova Condição', condition: 'Condição...' };
     case 'action':
       return { 
-        label: 'Nova Ação', 
+        label: 'Processo de Chamado', 
         actionType: 'form',
-        action: 'Ação...', 
+        action: 'Coletar dados do chamado', 
         fields: [
-          { key: 'Nome', placeholder: 'Digite seu nome', type: 'text', required: true },
-          { key: 'Email', placeholder: 'Digite seu email', type: 'email', required: true }
+          { key: 'PLACA', placeholder: 'Informe a placa do veículo', type: 'text', required: true },
+          { key: 'CORRETIVA', placeholder: 'Sim ou Não', type: 'select', options: ['Sim', 'Não'], required: true },
+          { key: 'CANTEIRO OU OFICINA', placeholder: 'Canteiro ou Oficina', type: 'select', options: ['Canteiro', 'Oficina'], required: true },
+          { key: 'AGENDAMENTO', placeholder: 'Data e hora (ex: 25/08/2025 14:30)', type: 'text', required: true },
+          { key: 'DESCRIÇÃO', placeholder: 'Descreva o problema ou necessidade', type: 'textarea', required: true }
         ] 
       };
     case 'end':
