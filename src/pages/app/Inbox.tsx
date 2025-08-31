@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ConversationList } from "@/components/app/ConversationList";
 import { ChatWindow } from "@/components/app/ChatWindow";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -15,6 +15,7 @@ const Inbox = () => {
   const isMobile = useIsMobile();
   const [showChat, setShowChat] = useState(shouldShowChat !== undefined ? shouldShowChat : false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const conversationListRef = useRef<{ resolveConversation: (id: string) => void } | null>(null);
   
   // Effect to update the state when navigation happens
   useEffect(() => {
@@ -42,8 +43,11 @@ const Inbox = () => {
   }, []);
 
   const handleEndConversation = useCallback((conversationId: string) => {
-    // Implementar lógica para encerrar conversa
     console.log("Encerrando conversa:", conversationId);
+    // Será implementado para marcar como resolvida
+    if (conversationListRef.current) {
+      conversationListRef.current.resolveConversation(conversationId);
+    }
   }, []);
 
   const handleRefresh = useCallback(() => {
@@ -81,6 +85,7 @@ const Inbox = () => {
             </div>
             <div className="flex-1 overflow-hidden">
             <ConversationList 
+              ref={conversationListRef}
               onSelectConversation={handleSelectConversation}
               selectedId={selectedConversation}
               refreshTrigger={refreshKey}
@@ -111,6 +116,7 @@ const Inbox = () => {
               </div>
             </div>
             <ConversationList 
+              ref={conversationListRef}
               onSelectConversation={handleSelectConversation}
               selectedId={selectedConversation}
               refreshTrigger={refreshKey}

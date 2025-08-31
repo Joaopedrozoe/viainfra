@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, forwardRef, useImperativeHandle } from "react";
 import { SearchHeader } from "./conversation/SearchHeader";
 import { ConversationItem } from "./conversation/ConversationItem";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,13 +11,17 @@ import { usePreviewConversation } from "@/contexts/PreviewConversationContext";
 // Forçar re-render quando há mudanças nas conversas de preview
 let conversationUpdateCounter = 0;
 
-type ConversationListProps = {
+interface ConversationListProps {
   onSelectConversation: (id: string) => void;
   selectedId?: string;
   refreshTrigger?: number;
-};
+}
 
-export const ConversationList = ({ onSelectConversation, selectedId, refreshTrigger }: ConversationListProps) => {
+interface ConversationListRef {
+  resolveConversation: (id: string) => void;
+}
+
+export const ConversationList = forwardRef<ConversationListRef, ConversationListProps>(({ onSelectConversation, selectedId, refreshTrigger }, ref) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -79,6 +83,11 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
       )
     );
   };
+
+  // Expose functions to parent via ref
+  useImperativeHandle(ref, () => ({
+    resolveConversation: handleConversationResolve
+  }), [handleConversationResolve]);
 
   // Apply filters when conversations, search term, channel or active tab changes
   useEffect(() => {
@@ -206,4 +215,6 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
       </div>
     </div>
   );
-};
+});
+
+ConversationList.displayName = "ConversationList";
