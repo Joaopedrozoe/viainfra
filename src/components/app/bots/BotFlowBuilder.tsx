@@ -30,7 +30,11 @@ import {
   Play,
   Save,
   Plus,
-  X
+  X,
+  GitBranch,
+  HelpCircle,
+  Zap,
+  Square
 } from "lucide-react";
 import { BotVersion } from "@/pages/app/BotBuilder";
 
@@ -154,6 +158,8 @@ export function BotFlowBuilder({ bot, onUpdateBot }: BotFlowBuilderProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingData, setEditingData] = useState<any>(null);
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge(params, eds)),
@@ -161,62 +167,154 @@ export function BotFlowBuilder({ bot, onUpdateBot }: BotFlowBuilderProps) {
   );
 
   const onNodeClick = useCallback((_: any, node: Node) => {
-    setSelectedNode(node);
+    if (bot.status === 'draft') {
+      setSelectedNode(node);
+      setEditingData({ ...node.data });
+      setIsEditing(true);
+    }
+  }, [bot.status]);
+
+  const addNode = useCallback((type: string) => {
+    const newNode: Node = {
+      id: `${type}-${Date.now()}`,
+      type,
+      position: { x: Math.random() * 400 + 50, y: Math.random() * 400 + 50 },
+      data: getDefaultNodeData(type)
+    };
+    setNodes((nds) => [...nds, newNode]);
+  }, [setNodes]);
+
+  const saveNodeEdit = useCallback(() => {
+    if (selectedNode && editingData) {
+      setNodes((nds) => nds.map(n => 
+        n.id === selectedNode.id 
+          ? { ...n, data: editingData }
+          : n
+      ));
+      setIsEditing(false);
+      setSelectedNode(null);
+      setEditingData(null);
+    }
+  }, [selectedNode, editingData, setNodes]);
+
+  const cancelNodeEdit = useCallback(() => {
+    setIsEditing(false);
+    setSelectedNode(null);
+    setEditingData(null);
   }, []);
 
-  // Salvar mudanças automaticamente
+  // Salvar mudanças automaticamente apenas se não estiver editando
   useEffect(() => {
-    const updatedBot = {
-      ...bot,
-      flows: { nodes, edges },
-      updatedAt: new Date().toISOString()
-    };
-    onUpdateBot(updatedBot);
-  }, [nodes, edges]);
+    if (!isEditing) {
+      const updatedBot = {
+        ...bot,
+        flows: { nodes, edges },
+        updatedAt: new Date().toISOString()
+      };
+      onUpdateBot(updatedBot);
+    }
+  }, [nodes, edges, isEditing]);
 
   const isEditable = bot.status === 'draft';
 
   return (
-    <div className="h-full flex">
-      {/* Flow Canvas */}
-      <div className="flex-1">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={isEditable ? onNodesChange : undefined}
-          onEdgesChange={isEditable ? onEdgesChange : undefined}
-          onConnect={isEditable ? onConnect : undefined}
-          onNodeClick={onNodeClick}
-          nodeTypes={nodeTypes}
-          fitView
-          className="bg-gray-50"
-          nodesDraggable={isEditable}
-          nodesConnectable={isEditable}
-          elementsSelectable={isEditable}
-        >
-          <Controls />
-          <MiniMap />
-          <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
-        </ReactFlow>
-        
-        {!isEditable && (
-          <div className="absolute top-4 left-4 bg-amber-100 border border-amber-200 rounded px-3 py-2 text-sm text-amber-800">
-            Versão publicada - somente leitura
+    <div className="h-full flex flex-col">
+      {/* Toolbar */}
+      {isEditable && (
+        <div className="border-b border-border p-3 bg-muted/50">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium mr-4">Adicionar Nó:</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => addNode('message')}
+              className="flex items-center gap-2"
+            >
+              <MessageSquare className="h-4 w-4" />
+              Mensagem
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => addNode('question')}
+              className="flex items-center gap-2"
+            >
+              <HelpCircle className="h-4 w-4" />
+              Pergunta
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => addNode('condition')}
+              className="flex items-center gap-2"
+            >
+              <GitBranch className="h-4 w-4" />
+              Condição
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => addNode('action')}
+              className="flex items-center gap-2"
+            >
+              <Zap className="h-4 w-4" />
+              Ação
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => addNode('end')}
+              className="flex items-center gap-2"
+            >
+              <Square className="h-4 w-4" />
+              Fim
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex-1 flex">
+        {/* Flow Canvas */}
+        <div className="flex-1">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={isEditable ? onNodesChange : undefined}
+            onEdgesChange={isEditable ? onEdgesChange : undefined}
+            onConnect={isEditable ? onConnect : undefined}
+            onNodeClick={onNodeClick}
+            nodeTypes={nodeTypes}
+            fitView
+            className="bg-gray-50"
+            nodesDraggable={isEditable}
+            nodesConnectable={isEditable}
+            elementsSelectable={isEditable}
+          >
+            <Controls />
+            <MiniMap />
+            <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
+          </ReactFlow>
+          
+          {!isEditable && (
+            <div className="absolute top-4 left-4 bg-amber-100 border border-amber-200 rounded px-3 py-2 text-sm text-amber-800">
+              Versão publicada - somente leitura
+            </div>
+          )}
+        </div>
+
+        {/* Properties Panel */}
+        {selectedNode && isEditing && (
+          <div className="w-80 border-l border-border bg-background">
+            <NodePropertiesPanel 
+              node={selectedNode}
+              editingData={editingData}
+              onUpdateData={setEditingData}
+              onSave={saveNodeEdit}
+              onCancel={cancelNodeEdit}
+            />
           </div>
         )}
       </div>
-
-      {/* Properties Panel */}
-      {selectedNode && (
-        <div className="w-80 border-l border-border bg-background p-4">
-          <NodePropertiesPanel 
-            node={selectedNode}
-            onUpdateNode={(updatedNode) => {
-              setNodes(nds => nds.map(n => n.id === updatedNode.id ? updatedNode : n));
-            }}
-          />
-        </div>
-      )}
     </div>
   );
 }
@@ -348,42 +446,86 @@ function EndNode({ data }: { data: any }) {
   );
 }
 
-// Painel de Propriedades do Nó
+// Função para obter dados padrão de um nó
+function getDefaultNodeData(type: string) {
+  switch (type) {
+    case 'start':
+      return { label: 'Início', message: 'Bem-vindo!' };
+    case 'message':
+      return { label: 'Nova Mensagem', message: 'Digite sua mensagem aqui...' };
+    case 'question':
+      return { label: 'Nova Pergunta', question: 'Digite sua pergunta...', options: ['Opção 1', 'Opção 2'] };
+    case 'condition':
+      return { label: 'Nova Condição', condition: 'Condição...' };
+    case 'action':
+      return { label: 'Nova Ação', action: 'Ação...', fields: [] };
+    case 'end':
+      return { label: 'Fim', message: 'Conversa encerrada!' };
+    default:
+      return { label: 'Novo Nó' };
+  }
+}
+
+// Painel de Propriedades do Nó Melhorado
 function NodePropertiesPanel({ 
   node, 
-  onUpdateNode 
+  editingData,
+  onUpdateData,
+  onSave,
+  onCancel
 }: { 
   node: Node; 
-  onUpdateNode: (node: Node) => void;
+  editingData: any;
+  onUpdateData: (data: any) => void;
+  onSave: () => void;
+  onCancel: () => void;
 }) {
+  const updateField = (field: string, value: any) => {
+    onUpdateData({ ...editingData, [field]: value });
+  };
+
+  const updateOption = (index: number, value: string) => {
+    const newOptions = [...(editingData.options || [])];
+    newOptions[index] = value;
+    updateField('options', newOptions);
+  };
+
+  const addOption = () => {
+    const newOptions = [...(editingData.options || []), 'Nova opção'];
+    updateField('options', newOptions);
+  };
+
+  const removeOption = (index: number) => {
+    const newOptions = (editingData.options || []).filter((_: any, i: number) => i !== index);
+    updateField('options', newOptions);
+  };
+
   return (
-    <Card className="h-full">
-      <div className="p-4">
-        <h3 className="font-semibold mb-4">Propriedades do Nó</h3>
+    <Card className="h-full m-4">
+      <div className="p-4 h-full flex flex-col">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold">Editar Nó</h3>
+          <Badge variant="secondary">{node.type}</Badge>
+        </div>
         
-        <div className="space-y-4">
+        <div className="flex-1 space-y-4 overflow-y-auto">
           <div>
             <Label htmlFor="node-label">Nome do Nó</Label>
             <Input
               id="node-label"
-              value={(node.data?.label as string) || ''}
-              onChange={(e) => onUpdateNode({
-                ...node,
-                data: { ...node.data, label: e.target.value }
-              })}
+              value={editingData?.label || ''}
+              onChange={(e) => updateField('label', e.target.value)}
             />
           </div>
 
-          {node.type === 'message' && (
+          {(node.type === 'message' || node.type === 'start') && (
             <div>
               <Label htmlFor="node-message">Mensagem</Label>
               <Textarea
                 id="node-message"
-                value={(node.data?.message as string) || ''}
-                onChange={(e) => onUpdateNode({
-                  ...node,
-                  data: { ...node.data, message: e.target.value }
-                })}
+                value={editingData?.message || ''}
+                onChange={(e) => updateField('message', e.target.value)}
+                rows={4}
               />
             </div>
           )}
@@ -394,30 +536,74 @@ function NodePropertiesPanel({
                 <Label htmlFor="node-question">Pergunta</Label>
                 <Textarea
                   id="node-question"
-                  value={(node.data?.question as string) || ''}
-                  onChange={(e) => onUpdateNode({
-                    ...node,
-                    data: { ...node.data, question: e.target.value }
-                  })}
+                  value={editingData?.question || ''}
+                  onChange={(e) => updateField('question', e.target.value)}
+                  rows={3}
                 />
               </div>
               <div>
-                <Label>Opções de Resposta</Label>
-                {(node.data?.options as string[] || []).map((option: string, index: number) => (
-                  <Input
-                    key={index}
-                    value={option}
-                    onChange={(e) => {
-                      const newOptions = [...((node.data?.options as string[]) || [])];
-                      newOptions[index] = e.target.value;
-                      onUpdateNode({
-                        ...node,
-                        data: { ...node.data, options: newOptions }
-                      });
-                    }}
-                    className="mt-2"
-                  />
+                <div className="flex items-center justify-between mb-2">
+                  <Label>Opções de Resposta</Label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={addOption}
+                    className="h-8"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </Button>
+                </div>
+                {(editingData?.options || []).map((option: string, index: number) => (
+                  <div key={index} className="flex gap-2 mb-2">
+                    <Input
+                      value={option}
+                      onChange={(e) => updateOption(index, e.target.value)}
+                      placeholder={`Opção ${index + 1}`}
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => removeOption(index)}
+                      className="h-9 w-9 p-0"
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
                 ))}
+              </div>
+            </>
+          )}
+
+          {node.type === 'condition' && (
+            <div>
+              <Label htmlFor="condition">Condição</Label>
+              <Textarea
+                id="condition"
+                value={editingData?.condition || ''}
+                onChange={(e) => updateField('condition', e.target.value)}
+                rows={3}
+              />
+            </div>
+          )}
+
+          {node.type === 'action' && (
+            <>
+              <div>
+                <Label htmlFor="action">Ação</Label>
+                <Input
+                  id="action"
+                  value={editingData?.action || ''}
+                  onChange={(e) => updateField('action', e.target.value)}
+                />
+              </div>
+              <div>
+                <Label>Campos</Label>
+                <Textarea
+                  value={(editingData?.fields || []).join('\n')}
+                  onChange={(e) => updateField('fields', e.target.value.split('\n').filter(Boolean))}
+                  rows={4}
+                  placeholder="Um campo por linha..."
+                />
               </div>
             </>
           )}
@@ -427,14 +613,23 @@ function NodePropertiesPanel({
               <Label htmlFor="end-message">Mensagem de Encerramento</Label>
               <Textarea
                 id="end-message"
-                value={(node.data?.message as string) || ''}
-                onChange={(e) => onUpdateNode({
-                  ...node,
-                  data: { ...node.data, message: e.target.value }
-                })}
+                value={editingData?.message || ''}
+                onChange={(e) => updateField('message', e.target.value)}
+                rows={3}
               />
             </div>
           )}
+        </div>
+
+        {/* Buttons */}
+        <div className="flex gap-2 pt-4 border-t">
+          <Button onClick={onSave} className="flex-1">
+            <Save className="h-4 w-4 mr-2" />
+            Salvar
+          </Button>
+          <Button variant="outline" onClick={onCancel} className="flex-1">
+            Cancelar
+          </Button>
         </div>
       </div>
     </Card>
