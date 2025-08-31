@@ -232,9 +232,17 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
       setState('abrindoChamado');
       setCurrentFieldIndex(0);
       setChamadoData({});
-      askNextField();
+      setTimeout(() => {
+        askNextField();
+      }, 500);
     } else if (option === "Falar com Atendente") {
-      escolherSetor();
+      setState('escolhendoSetor');
+      setTimeout(() => {
+        escolherSetor();
+      }, 500);
+    } else if (option.includes("💼") || option.includes("🔧") || option.includes("💰") || option.includes("📞")) {
+      // É uma escolha de setor - usar handleSetor em vez de handleSetorChoice
+      handleSetor(option);
     } else if (option === "Voltar ao início") {
       setState('start');
       returnToMenu();
@@ -359,9 +367,23 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
   };
 
   const escolherSetor = () => {
-    addMessage("Selecione o **setor** para transferência do atendimento:");
-    setState('escolhendoSetor');
-    setShowInput(false);
+    addMessage("Selecione o setor para transferência:");
+    
+    setTimeout(() => {
+      const setorMessage = {
+        id: Date.now().toString(),
+        content: "Escolha o setor:",
+        sender: 'bot' as const,
+        timestamp: new Date().toLocaleTimeString('pt-BR', { 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        }),
+        options: ["💼 Comercial", "🔧 Técnico", "💰 Financeiro", "📞 Suporte"]
+      };
+      
+      setMessages(prev => [...prev, setorMessage]);
+      setState('escolhendoSetor');
+    }, 1000);
   };
 
   const handleSetor = (setor: string) => {
@@ -452,7 +474,7 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     if (state === 'posResumo') {
       return ["Voltar ao início", "Falar com Atendente", "Encerrar Conversa"];
     } else if (state === 'escolhendoSetor') {
-      return ["Atendimento", "Comercial", "Manutenção", "Financeiro", "RH"];
+      return ["💼 Comercial", "🔧 Técnico", "💰 Financeiro", "📞 Suporte"];
     }
     return [];
   };
