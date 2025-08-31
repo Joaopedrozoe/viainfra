@@ -163,13 +163,59 @@ export function BotFlowBuilder({ bot, onUpdateBot, onFlowChange }: BotFlowBuilde
   const [isEditing, setIsEditing] = useState(false);
   const [editingData, setEditingData] = useState<any>(null);
 
-  const onConnect = useCallback(
-    (params: Connection) => {
-      setEdges((eds) => addEdge(params, eds));
-      onFlowChange?.(); // Marcar como modificado
-    },
-    [setEdges, onFlowChange],
-  );
+  // Função para atualizar label da edge quando opção é modificada
+  const updateEdgeLabel = useCallback((nodeId: string, optionIndex: number, oldLabel: string, newLabel: string) => {
+    setEdges((edges) => 
+      edges.map((edge) => {
+        // Buscar edge que sai do nó e corresponde à opção
+        if (edge.source === nodeId) {
+          // Se a edge já tem o label antigo, atualizar
+          if (edge.label === oldLabel) {
+            return { ...edge, label: newLabel };
+          }
+          // Se não tem label mas é a edge pelo índice
+          const sourceEdges = edges.filter(e => e.source === nodeId);
+          const edgeIndex = sourceEdges.indexOf(edge);
+          if (edgeIndex === optionIndex && !edge.label) {
+            return { ...edge, label: newLabel };
+          }
+        }
+        return edge;
+      })
+    );
+  }, [setEdges]);
+
+  // Função para remover edge por label
+  const removeEdgeByLabel = useCallback((nodeId: string, label: string) => {
+    setEdges((edges) => 
+      edges.filter((edge) => {
+        if (edge.source === nodeId && edge.label === label) {
+          return false;
+        }
+        return true;
+      })
+    );
+  }, [setEdges]);
+
+  const onConnect = useCallback((params: Connection) => {
+    const newEdge = addEdge({
+      ...params,
+      markerEnd: { type: MarkerType.ArrowClosed },
+      // Se o nó source é uma pergunta, adicionar label da opção correspondente
+      label: (() => {
+        const sourceNode = nodes.find(node => node.id === params.source);
+        if (sourceNode?.type === 'question' && sourceNode.data?.options) {
+          // Encontrar quantas edges já saem deste nó para determinar o índice
+          const existingEdgesFromSource = edges.filter(edge => edge.source === params.source);
+          const optionIndex = existingEdgesFromSource.length;
+          return sourceNode.data.options[optionIndex] || '';
+        }
+        return '';
+      })()
+    }, edges);
+    setEdges(newEdge);
+    onFlowChange?.(); // Marcar como modificado
+  }, [edges, nodes, setEdges, onFlowChange]);
 
   const onNodeClick = useCallback((_: any, node: Node) => {
     if (bot.status === 'draft') {
@@ -214,17 +260,36 @@ export function BotFlowBuilder({ bot, onUpdateBot, onFlowChange }: BotFlowBuilde
 
   const saveNodeEdit = useCallback(() => {
     if (selectedNode && editingData) {
-      setNodes((nds) => nds.map(n => 
-        n.id === selectedNode.id 
-          ? { ...n, data: editingData }
-          : n
-      ));
+      setNodes((nds) => 
+        nds.map((node) => 
+          node.id === selectedNode.id 
+            ? { ...node, data: editingData }
+            : node
+        )
+      );
+      
+      // Se é um nó de pergunta, atualizar labels das edges existentes
+      if (selectedNode.type === 'question' && editingData.options) {
+        const existingEdges = edges.filter(edge => edge.source === selectedNode.id);
+        existingEdges.forEach((edge, index) => {
+          if (editingData.options[index] && edge.label !== editingData.options[index]) {
+            setEdges((edges) => 
+              edges.map((e) => 
+                e.id === edge.id 
+                  ? { ...e, label: editingData.options[index] }
+                  : e
+              )
+            );
+          }
+        });
+      }
+      
       setIsEditing(false);
       setSelectedNode(null);
       setEditingData(null);
       onFlowChange?.(); // Marcar como modificado
     }
-  }, [selectedNode, editingData, setNodes, onFlowChange]);
+  }, [selectedNode, editingData, setNodes, edges, setEdges, onFlowChange]);
 
   const cancelNodeEdit = useCallback(() => {
     setIsEditing(false);
