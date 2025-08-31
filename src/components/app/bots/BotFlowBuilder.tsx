@@ -269,7 +269,7 @@ export function BotFlowBuilder({ bot, onUpdateBot, onFlowChange }: BotFlowBuilde
               variant="outline"
               size="sm"
               onClick={() => addNode('start')}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 border-green-600 text-green-700 hover:bg-green-50"
             >
               <Play className="h-4 w-4" />
               Início
@@ -278,7 +278,7 @@ export function BotFlowBuilder({ bot, onUpdateBot, onFlowChange }: BotFlowBuilde
               variant="outline"
               size="sm"
               onClick={() => addNode('message')}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 border-blue-600 text-blue-700 hover:bg-blue-50"
             >
               <MessageSquare className="h-4 w-4" />
               Mensagem
@@ -287,7 +287,7 @@ export function BotFlowBuilder({ bot, onUpdateBot, onFlowChange }: BotFlowBuilde
               variant="outline"
               size="sm"
               onClick={() => addNode('question')}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 border-purple-600 text-purple-700 hover:bg-purple-50"
             >
               <HelpCircle className="h-4 w-4" />
               Pergunta
@@ -296,7 +296,7 @@ export function BotFlowBuilder({ bot, onUpdateBot, onFlowChange }: BotFlowBuilde
               variant="outline"
               size="sm"
               onClick={() => addNode('condition')}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 border-yellow-600 text-yellow-700 hover:bg-yellow-50"
             >
               <GitBranch className="h-4 w-4" />
               Condição
@@ -305,18 +305,18 @@ export function BotFlowBuilder({ bot, onUpdateBot, onFlowChange }: BotFlowBuilde
               variant="outline"
               size="sm"
               onClick={() => addNode('action')}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 border-orange-600 text-orange-700 hover:bg-orange-50"
             >
-              <Zap className="h-4 w-4" />
+              <Settings className="h-4 w-4" />
               Ação
             </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={() => addNode('end')}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 border-red-600 text-red-700 hover:bg-red-50"
             >
-              <Square className="h-4 w-4" />
+              <X className="h-4 w-4" />
               Fim
             </Button>
           </div>
@@ -475,9 +475,9 @@ function ActionNode({ data }: { data: any }) {
         <Settings className="h-4 w-4 mr-2" />
         <div className="text-sm font-bold">{data.label}</div>
       </div>
-      {data.action && (
+      {data.actionType && (
         <div className="mt-1 text-xs">
-          {data.action}
+          {data.actionType === 'form' ? `${data.fields?.length || 0} campos` : data.actionType}
         </div>
       )}
       <Handle
@@ -517,7 +517,15 @@ function getDefaultNodeData(type: string) {
     case 'condition':
       return { label: 'Nova Condição', condition: 'Condição...' };
     case 'action':
-      return { label: 'Nova Ação', action: 'Ação...', fields: [] };
+      return { 
+        label: 'Nova Ação', 
+        actionType: 'form',
+        action: 'Ação...', 
+        fields: [
+          { key: 'Nome', placeholder: 'Digite seu nome', type: 'text', required: true },
+          { key: 'Email', placeholder: 'Digite seu email', type: 'email', required: true }
+        ] 
+      };
     case 'end':
       return { label: 'Fim', message: 'Conversa encerrada!' };
     default:
@@ -650,22 +658,136 @@ function NodePropertiesPanel({
           {node.type === 'action' && (
             <>
               <div>
-                <Label htmlFor="action">Ação</Label>
-                <Input
-                  id="action"
-                  value={editingData?.action || ''}
-                  onChange={(e) => updateField('action', e.target.value)}
-                />
+                <Label htmlFor="action-type">Tipo de Ação</Label>
+                <Select 
+                  value={editingData?.actionType || 'form'} 
+                  onValueChange={(value) => updateField('actionType', value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o tipo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="form">Formulário</SelectItem>
+                    <SelectItem value="redirect">Redirecionamento</SelectItem>
+                    <SelectItem value="api">Chamada API</SelectItem>
+                    <SelectItem value="custom">Customizada</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              <div>
-                <Label>Campos</Label>
-                <Textarea
-                  value={(editingData?.fields || []).join('\n')}
-                  onChange={(e) => updateField('fields', e.target.value.split('\n').filter(Boolean))}
-                  rows={4}
-                  placeholder="Um campo por linha..."
-                />
-              </div>
+
+              {editingData?.actionType === 'form' && (
+                <div>
+                  <Label>Campos do Formulário</Label>
+                  {editingData?.fields?.map((field: any, index: number) => (
+                    <div key={index} className="space-y-2 p-3 border rounded-md mb-3">
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Nome do campo"
+                          value={field.key || ''}
+                          onChange={(e) => {
+                            const newFields = [...(editingData.fields || [])];
+                            newFields[index] = { ...field, key: e.target.value };
+                            updateField('fields', newFields);
+                          }}
+                        />
+                        <Select 
+                          value={field.type || 'text'} 
+                          onValueChange={(value) => {
+                            const newFields = [...(editingData.fields || [])];
+                            newFields[index] = { ...field, type: value };
+                            updateField('fields', newFields);
+                          }}
+                        >
+                          <SelectTrigger className="w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="text">Texto</SelectItem>
+                            <SelectItem value="email">Email</SelectItem>
+                            <SelectItem value="phone">Telefone</SelectItem>
+                            <SelectItem value="textarea">Área de texto</SelectItem>
+                            <SelectItem value="select">Seleção</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => {
+                            const newFields = (editingData.fields || []).filter((_: any, i: number) => i !== index);
+                            updateField('fields', newFields);
+                          }}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <Input
+                        placeholder="Placeholder"
+                        value={field.placeholder || ''}
+                        onChange={(e) => {
+                          const newFields = [...(editingData.fields || [])];
+                          newFields[index] = { ...field, placeholder: e.target.value };
+                          updateField('fields', newFields);
+                        }}
+                      />
+                      {field.type === 'select' && (
+                        <Input
+                          placeholder="Opções (separadas por vírgula)"
+                          value={field.options?.join(', ') || ''}
+                          onChange={(e) => {
+                            const newFields = [...(editingData.fields || [])];
+                            newFields[index] = { ...field, options: e.target.value.split(',').map(opt => opt.trim()) };
+                            updateField('fields', newFields);
+                          }}
+                        />
+                      )}
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          id={`required-${index}`}
+                          checked={field.required || false}
+                          onChange={(e) => {
+                            const newFields = [...(editingData.fields || [])];
+                            newFields[index] = { ...field, required: e.target.checked };
+                            updateField('fields', newFields);
+                          }}
+                        />
+                        <Label htmlFor={`required-${index}`} className="text-sm">Campo obrigatório</Label>
+                      </div>
+                    </div>
+                  ))}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const newFields = [...(editingData.fields || []), { 
+                        key: '', 
+                        placeholder: '', 
+                        type: 'text',
+                        required: false 
+                      }];
+                      updateField('fields', newFields);
+                    }}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Adicionar Campo
+                  </Button>
+                </div>
+              )}
+
+              {editingData?.actionType !== 'form' && (
+                <div>
+                  <Label htmlFor="node-action">Configuração da Ação</Label>
+                  <Textarea
+                    id="node-action"
+                    value={editingData?.action || ''}
+                    onChange={(e) => updateField('action', e.target.value)}
+                    placeholder="Configure os detalhes da ação..."
+                    rows={3}
+                  />
+                </div>
+              )}
             </>
           )}
 

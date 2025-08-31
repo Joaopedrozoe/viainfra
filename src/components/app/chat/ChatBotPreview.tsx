@@ -95,8 +95,8 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
   };
 
   const startChatFromFlow = () => {
-    // Buscar nó de início no fluxo atual
-    const startNode = botData?.flows.nodes.find(node => node.type === 'start');
+    const startNode = getStartNode();
+    setCurrentNodeId(startNode?.id || 'start');
     
     if (startNode && startNode.data?.message && typeof startNode.data.message === 'string') {
       addMessage(startNode.data.message);
@@ -105,33 +105,105 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
       addMessage("Bem-vindo ao autoatendimento da ViaInfra 👋\nComo podemos ajudar hoje?");
     }
     
+    // Verificar se há próximo nó automaticamente
+    const nextNode = findNextNode(startNode?.id || 'start');
+    if (nextNode && nextNode.type === 'question') {
+      setTimeout(() => {
+        const questionText = typeof nextNode.data?.question === 'string' ? nextNode.data.question : 'Escolha uma opção:';
+        addMessage(questionText);
+        setCurrentNodeId(nextNode.id);
+      }, 1000);
+    }
+    
     setState('start');
     setShowInput(false);
   };
 
-  // Função para obter opções dinâmicas do fluxo
-  const getDynamicOptions = () => {
-    if (!botData?.flows.nodes) return [];
+  // Sistema de navegação dinâmica baseado no fluxo
+  const [currentNodeId, setCurrentNodeId] = useState<string>('start');
+  
+  // Função para encontrar o próximo nó baseado na opção selecionada
+  const findNextNode = (currentNodeId: string, selectedOption?: string) => {
+    if (!botData?.flows.nodes || !botData?.flows.edges) return null;
     
-    // Buscar nós de pergunta conectados ao nó atual
-    const questionNodes = botData.flows.nodes.filter(node => node.type === 'question');
+    const currentNode = botData.flows.nodes.find(node => node.id === currentNodeId);
+    if (!currentNode) return null;
     
-    if (questionNodes.length > 0) {
-      // Pegar opções do primeiro nó de pergunta encontrado
-      const firstQuestion = questionNodes[0];
-      if (firstQuestion.data?.options && Array.isArray(firstQuestion.data.options)) {
-        return firstQuestion.data.options;
+    // Se é um nó de pergunta, procurar edge que corresponde à opção
+    if (currentNode.type === 'question' && selectedOption) {
+      const options = Array.isArray(currentNode.data?.options) ? currentNode.data.options : [];
+      const optionIndex = options.indexOf(selectedOption);
+      const outgoingEdges = botData.flows.edges.filter(edge => edge.source === currentNodeId);
+      
+      // Se há edges rotuladas, usar a que corresponde à opção
+      const labeledEdge = outgoingEdges.find(edge => edge.label === selectedOption);
+      if (labeledEdge) {
+        return botData.flows.nodes.find(node => node.id === labeledEdge.target);
+      }
+      
+      // Senão, usar edge por índice
+      if (optionIndex !== -1 && outgoingEdges[optionIndex]) {
+        return botData.flows.nodes.find(node => node.id === outgoingEdges[optionIndex].target);
       }
     }
     
-    // Fallback para opções padrão
-    return ["Abertura de Chamado", "Falar com Atendente", "Encerrar Conversa"];
+    // Para outros tipos de nó, usar a primeira edge de saída
+    const nextEdge = botData.flows.edges.find(edge => edge.source === currentNodeId);
+    if (nextEdge) {
+      return botData.flows.nodes.find(node => node.id === nextEdge.target);
+    }
+    
+    return null;
+  };
+
+  // Função para obter o nó inicial
+  const getStartNode = () => {
+    if (!botData?.flows.nodes) return null;
+    return botData.flows.nodes.find(node => node.type === 'start') || botData.flows.nodes[0];
+  };
+
+  // Função para obter opções do nó atual
+  const getCurrentNodeOptions = () => {
+    if (!botData?.flows.nodes) return [];
+    
+    const currentNode = botData.flows.nodes.find(node => node.id === currentNodeId);
+    if (!currentNode) return [];
+    
+    if (currentNode.type === 'question' && Array.isArray(currentNode.data?.options)) {
+      return currentNode.data.options;
+    }
+    
+    // Para outros tipos de nó, ver se há próximos nós conectados
+    const connectedEdges = botData.flows.edges?.filter(edge => edge.source === currentNodeId) || [];
+    if (connectedEdges.length > 0) {
+      return ['Continuar'];
+    }
+    
+    return [];
   };
 
   const startChat = () => {
-    addMessage("Bem-vindo ao autoatendimento da ViaInfra 👋\nComo podemos ajudar hoje?");
-    setState('start');
-    setShowInput(false);
+    const startNode = getStartNode();
+    setCurrentNodeId(startNode?.id || 'start');
+    
+    const startMessage = typeof startNode?.data?.message === 'string' 
+      ? startNode.data.message 
+      : "Bem-vindo ao autoatendimento da ViaInfra 👋\nComo podemos ajudar hoje?";
+    
+    addMessage(startMessage);
+    
+    // Mostrar próxima mensagem ou pergunta automaticamente
+    const nextNode = findNextNode(startNode?.id || 'start');
+    if (nextNode && nextNode.type === 'question') {
+      setTimeout(() => {
+        const questionText = typeof nextNode.data?.question === 'string' ? nextNode.data.question : 'Escolha uma opção:';
+        addMessage(questionText);
+        setCurrentNodeId(nextNode.id);
+        setShowInput(false);
+      }, 1000);
+    } else {
+      setShowInput(false);
+    }
   };
 
   const handleOption = (option: string) => {
@@ -272,9 +344,14 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
   };
 
   const getActionButtons = () => {
-    if (state === 'start') {
-      return getDynamicOptions();
-    } else if (state === 'posResumo') {
+    // Usar o sistema de navegação dinâmica quando possível
+    const currentOptions = getCurrentNodeOptions();
+    if (Array.isArray(currentOptions) && currentOptions.length > 0) {
+      return currentOptions;
+    }
+    
+    // Fallback para estados específicos
+    if (state === 'posResumo') {
       return ["Voltar ao início", "Falar com Atendente", "Encerrar Conversa"];
     } else if (state === 'escolhendoSetor') {
       return ["Atendimento", "Comercial", "Manutenção", "Financeiro", "RH"];
@@ -294,14 +371,65 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {messages.map(renderMessage)}
           
-          {!showInput && getActionButtons().length > 0 && (
+          {!showInput && Array.isArray(getActionButtons()) && getActionButtons().length > 0 && (
             <div className="flex flex-wrap gap-2 mt-4">
               {getActionButtons().map((option) => (
                 <Button
                   key={option}
                   variant="outline"
                   size="sm"
-                  onClick={() => state === 'escolhendoSetor' ? handleSetor(option) : handleOption(option)}
+                  onClick={() => {
+                    addMessage(option, 'user');
+                    
+                    // Usar sistema de navegação dinâmica
+                    const nextNode = findNextNode(currentNodeId, option);
+                    
+                    if (nextNode) {
+                      setCurrentNodeId(nextNode.id);
+                      
+                      setTimeout(() => {
+                        if (nextNode.type === 'message') {
+                          const messageText = typeof nextNode.data?.message === 'string' ? nextNode.data.message : '';
+                          addMessage(messageText);
+                          // Continue automaticamente para o próximo nó
+                          const followUpNode = findNextNode(nextNode.id);
+                          if (followUpNode) {
+                            setCurrentNodeId(followUpNode.id);
+                            if (followUpNode.type === 'question') {
+                              setTimeout(() => {
+                                const questionText = typeof followUpNode.data?.question === 'string' ? followUpNode.data.question : '';
+                                addMessage(questionText);
+                              }, 1000);
+                            }
+                          }
+                        } else if (nextNode.type === 'question') {
+                          const questionText = typeof nextNode.data?.question === 'string' ? nextNode.data.question : 'Escolha uma opção:';
+                          addMessage(questionText);
+                        } else if (nextNode.type === 'action') {
+                          if (nextNode.data?.actionType === 'form') {
+                            setState('abrindoChamado');
+                            setCurrentFieldIndex(0);
+                            setChamadoData({});
+                            askNextField();
+                          } else {
+                            const actionText = typeof nextNode.data?.action === 'string' ? nextNode.data.action : 'Executando ação...';
+                            addMessage(actionText);
+                          }
+                        } else if (nextNode.type === 'end') {
+                          const endMessage = typeof nextNode.data?.message === 'string' ? nextNode.data.message : 'Obrigado por utilizar nosso atendimento! 👋';
+                          addMessage(endMessage);
+                          setShowInput(false);
+                        }
+                      }, 500);
+                    } else {
+                      // Fallback para comportamento antigo
+                      if (state === 'escolhendoSetor') {
+                        handleSetor(option);
+                      } else {
+                        handleOption(option);
+                      }
+                    }
+                  }}
                   className="text-xs"
                 >
                   {option}
