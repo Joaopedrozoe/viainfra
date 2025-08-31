@@ -26,7 +26,7 @@ interface ChatBotPreviewProps {
   botData?: BotVersion;
 }
 
-type ChatState = 'start' | 'abrindoChamado' | 'posResumo' | 'escolhendoSetor';
+type ChatState = 'start' | 'abrindoChamado' | 'posResumo' | 'escolhendoSetor' | 'atendimento';
 
 interface ChamadoData {
   [key: string]: string;
@@ -359,6 +359,11 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     
     if (state === 'abrindoChamado') {
       handleFormInput(input.trim());
+    } else if (state === 'atendimento') {
+      // Durante o atendimento, apenas resposta genérica para simular
+      setTimeout(() => {
+        addMessage("Recebido! Nossa equipe verificará sua solicitação e retornará em breve. 📝");
+      }, 1000);
     }
     
     setInput("");
@@ -410,12 +415,13 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     const nomeAtendente = atendentes[setor as keyof typeof atendentes] || "Atendimento";
     
     setTimeout(() => {
-      addMessage(`Aguarde um momento, você será atendido por **${nomeAtendente}** do setor ${setor.replace(/[💼🔧💰📞]\s/, '')}...`);
+      addMessage(`Aguarde um momento, você será atendido por **${nomeAtendente}** do setor ${setor.replace(/[💼🔧💰📞👥]\s/, '')}...`);
       
       setTimeout(() => {
         addMessage(`Olá! Você está sendo atendido por **${nomeAtendente}**. Como posso ajudá-lo?`);
+        // Manter a conversa ativa para continuar o atendimento
         setShowInput(true);
-        setState('start');
+        setState('atendimento'); // Novo estado para atendimento
       }, 2000);
     }, 500);
   };
@@ -593,7 +599,7 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
           <div ref={messagesEndRef} />
         </div>
         
-        {(showInput || state === 'start' || state === 'abrindoChamado') && (
+        {(showInput || state === 'start' || state === 'abrindoChamado' || state === 'atendimento') && (
           <div className="p-4 border-t border-border">
             <div className="flex gap-2">
               <Input

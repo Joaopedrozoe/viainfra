@@ -29,28 +29,33 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
   // SOLUÇÃO DIRETA: Sempre mostrar conversas de preview
   useEffect(() => {
     conversationUpdateCounter++;
-    console.log('📱 DIRECT: Setting preview conversations:', previewConversations.length, 'Update #', conversationUpdateCounter);
+    console.log('📱 ConversationList: Setting preview conversations:', previewConversations.length, 'Update #', conversationUpdateCounter);
     console.log('📱 Raw preview conversations:', previewConversations);
     
-    // Mapear conversas de preview para o formato correto
-    const processedConversations = previewConversations.map(conv => {
-      console.log('📱 Processing conversation:', conv);
-      return {
-        id: conv.id,
-        name: conv.name,
-        channel: conv.channel as Channel,
-        preview: conv.preview,
-        time: conv.time,
-        unread: conv.unread || 1,
-        is_preview: true
-      } as Conversation & { is_preview: boolean };
-    });
+    if (previewConversations.length > 0) {
+      // Mapear conversas de preview para o formato correto
+      const processedConversations = previewConversations.map(conv => {
+        console.log('📱 Processing conversation:', conv);
+        return {
+          id: conv.id,
+          name: conv.name,
+          channel: conv.channel as Channel,
+          preview: conv.preview,
+          time: conv.time,
+          unread: conv.unread || 1,
+          is_preview: true
+        } as Conversation & { is_preview: boolean };
+      });
+      
+      console.log('📱 Processed conversations:', processedConversations);
+      setConversations(processedConversations);
+    } else {
+      console.log('📱 No preview conversations found, setting empty array');
+      setConversations([]);
+    }
     
-    console.log('📱 Processed conversations:', processedConversations);
-    setConversations(processedConversations);
     setIsLoading(false);
-    
-    console.log('📱 Final conversations set:', processedConversations.length);
+    console.log('📱 Final conversations set');
   }, [previewConversations, refreshTrigger]);
 
   // Handle conversation selection
