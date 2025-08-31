@@ -37,13 +37,45 @@ export const calculateDashboardMetrics = (isDemoMode: boolean = true): Dashboard
   let channels: any[] = [];
   
   if (isDemoMode) {
-    // No modo demo, retorna dados zerados
+    // No modo demo, usa os mesmos dados zerados da página de canais
     conversations = [];
-    channels = getDemoChannelsExpanded();
+    channels = getDemoChannelsExpanded().map(channel => {
+      // Aplica a mesma lógica da página de canais - sem API real = desconectado
+      const hasRealApiConnection = false; // mesmo valor da função checkRealApiConnection
+      
+      if (!hasRealApiConnection) {
+        return {
+          ...channel,
+          status: 'disconnected',
+          metrics: {
+            ...channel.metrics,
+            totalMessages: 0,
+            todayMessages: 0,
+            responseTime: 0,
+            lastActivity: '',
+            deliveryRate: 0,
+            errorRate: 0
+          }
+        };
+      }
+      return channel;
+    });
   } else {
     // Para dados reais, retorna dados básicos (sem fetch async por enquanto)
     conversations = [];
-    channels = getDemoChannelsExpanded();
+    channels = getDemoChannelsExpanded().map(channel => ({
+      ...channel,
+      status: 'disconnected',
+      metrics: {
+        ...channel.metrics,
+        totalMessages: 0,
+        todayMessages: 0,
+        responseTime: 0,
+        lastActivity: '',
+        deliveryRate: 0,
+        errorRate: 0
+      }
+    }));
   }
   
   // Conversas ativas (consideramos conversas com unread > 0 como ativas)
