@@ -302,11 +302,20 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
       [fieldKey]: value
     }));
     
-    // Avançar para o próximo campo SEM duplicar mensagem
-    setCurrentFieldIndex(prev => prev + 1);
+    // Incrementar índice e verificar próximo campo
+    const nextIndex = currentFieldIndex + 1;
+    setCurrentFieldIndex(nextIndex);
     
     setTimeout(() => {
-      askNextField();
+      if (nextIndex < formFields.length) {
+        const nextField = formFields[nextIndex];
+        const nextFieldKey = typeof nextField === 'object' && nextField.label 
+          ? nextField.label 
+          : (typeof nextField === 'object' && nextField.key ? nextField.key : (typeof nextField === 'string' ? nextField : `Campo ${nextIndex + 1}`));
+        addMessage(`Por favor, informe **${nextFieldKey.toUpperCase()}**:`);
+      } else {
+        mostrarResumoChamado(formFields);
+      }
     }, 500);
   };
 
@@ -378,7 +387,7 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
           hour: '2-digit', 
           minute: '2-digit' 
         }),
-        options: ["💼 Comercial", "🔧 Técnico", "💰 Financeiro", "📞 Suporte"]
+        options: ["💼 Comercial", "🔧 Manutenção", "💰 Financeiro", "📞 Atendimento", "👥 RH"]
       };
       
       setMessages(prev => [...prev, setorMessage]);
@@ -392,9 +401,10 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     // Mapear setores para atendentes
     const atendentes = {
       "💼 Comercial": "Elisabete Silva",
-      "🔧 Técnico": "Suelem Souza", 
+      "🔧 Manutenção": "Suelem Souza", 
       "💰 Financeiro": "Giovanna Ferreira",
-      "📞 Suporte": "Joicy Souza"
+      "📞 Atendimento": "Joicy Souza",
+      "👥 RH": "Sandra Romano"
     };
     
     const nomeAtendente = atendentes[setor as keyof typeof atendentes] || "Atendimento";
@@ -481,7 +491,7 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     if (state === 'posResumo') {
       return ["Voltar ao início", "Falar com Atendente", "Encerrar Conversa"];
     } else if (state === 'escolhendoSetor') {
-      return ["💼 Comercial", "🔧 Técnico", "💰 Financeiro", "📞 Suporte"];
+      return ["💼 Comercial", "🔧 Manutenção", "💰 Financeiro", "📞 Atendimento", "👥 RH"];
     }
     return [];
   };
