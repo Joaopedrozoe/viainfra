@@ -79,13 +79,15 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         supabase.removeChannel(channel);
       };
     }
-  }, [isDemoMode, refreshTrigger, previewConversations]);
+  }, [isDemoMode, refreshTrigger]);
 
   // Separate effect to update conversations when preview conversations change
   useEffect(() => {
+    console.log('Preview conversations changed:', previewConversations.length);
     if (isDemoMode) {
       console.log('Atualizando conversas no modo demo com preview conversations:', previewConversations.length);
       setConversations(previewConversations);
+      setIsLoading(false); // Garantir que loading seja false
     } else {
       // In production mode, we need to combine both
       setConversations(prev => {
@@ -95,6 +97,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         console.log('Combinando conversas: preview=', previewConversations.length, 'reais=', realConversations.length);
         return combined;
       });
+      setIsLoading(false); // Garantir que loading seja false
     }
   }, [previewConversations, isDemoMode]);
 

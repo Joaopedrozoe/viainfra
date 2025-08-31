@@ -288,29 +288,31 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
       ? field.label 
       : (typeof field === 'object' && field.key ? field.key : (typeof field === 'string' ? field : `Campo ${currentFieldIndex + 1}`));
     
+    // Adicionar mensagem do usuário
+    addMessage(value, 'user');
+    
     setChamadoData(prev => ({
       ...prev,
       [fieldKey]: value
     }));
     
-    setCurrentFieldIndex(prev => prev + 1);
-    setShowInput(false);
-    
     // Validação básica
     const fieldConfig = typeof field === 'object' ? field : null;
     if (fieldConfig?.required && !value.trim()) {
       addMessage("❌ Este campo é obrigatório. Tente novamente:");
-      setCurrentFieldIndex(prev => prev - 1);
       setShowInput(true);
       return;
     }
     
     if (fieldConfig?.type === 'email' && !/\S+@\S+\.\S+/.test(value)) {
       addMessage("❌ Por favor, digite um email válido:");
-      setCurrentFieldIndex(prev => prev - 1);
       setShowInput(true);
       return;
     }
+    
+    // Avançar para o próximo campo apenas se a validação passou
+    setCurrentFieldIndex(prev => prev + 1);
+    setShowInput(false);
     
     setTimeout(() => {
       askNextField();
