@@ -128,32 +128,36 @@ const BotBuilder = () => {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowPreview(true)}
-              className="flex items-center gap-2"
-            >
-              <Play className="h-4 w-4" />
-              Preview
-            </Button>
-            {currentBot?.status === 'draft' ? (
-              <Button
-                onClick={handlePublish}
-                className="flex items-center gap-2"
-              >
-                <Upload className="h-4 w-4" />
-                Publicar
-              </Button>
-            ) : (
-              <Button
-                variant="destructive"
-                onClick={handleUnpublish}
-                className="flex items-center gap-2"
-              >
-                <Download className="h-4 w-4" />
-                Despublicar
-              </Button>
+            {selectedBot && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowPreview(true)}
+                  className="flex items-center gap-2"
+                >
+                  <Play className="h-4 w-4" />
+                  Preview
+                </Button>
+                {currentBot?.status === 'draft' ? (
+                  <Button
+                    onClick={handlePublish}
+                    className="flex items-center gap-2"
+                  >
+                    <Upload className="h-4 w-4" />
+                    Publicar
+                  </Button>
+                ) : (
+                  <Button
+                    variant="destructive"
+                    onClick={handleUnpublish}
+                    className="flex items-center gap-2"
+                  >
+                    <Download className="h-4 w-4" />
+                    Despublicar
+                  </Button>
+                )}
+              </>
             )}
           </div>
         </div>
