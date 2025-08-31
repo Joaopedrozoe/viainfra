@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useDemoMode } from "@/hooks/useDemoMode";
@@ -20,7 +21,8 @@ import {
 } from "@/data/mockChannelsExpanded";
 import { Channel } from '@/types/channels';
 import { ChannelWizard } from "@/components/app/channels/ChannelWizard";
-import { Plus, Instagram, Facebook, MessageCircle, Mail, Globe, Send, MoreVertical, Settings, Trash2 } from "lucide-react";
+import { ChannelBotConfig } from "@/components/app/channels/ChannelBotConfig";
+import { Plus, Instagram, Facebook, MessageCircle, Mail, Globe, Send, MoreVertical, Settings, Trash2, Bot } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -70,6 +72,7 @@ const Channels = () => {
   const { isDemoMode } = useDemoMode();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [isWizardOpen, setIsWizardOpen] = useState(false);
+  const [configChannelId, setConfigChannelId] = useState<string | null>(null);
 
   // Load channels on component mount
   useEffect(() => {
@@ -219,6 +222,19 @@ const Channels = () => {
     toast.success(`Canal deletado com sucesso${isDemoMode ? ' (Demo)' : ''}`);
   };
 
+  const updateChannel = (channelId: string, updates: Partial<Channel>) => {
+    if (isDemoMode) {
+      updateDemoChannelExpanded(channelId, updates);
+    }
+    
+    setChannels(prev => 
+      prev.map(channel => 
+        channel.id === channelId ? { ...channel, ...updates } : channel
+      )
+    );
+    toast.success("Configurações salvas com sucesso!");
+  };
+
   const getProviderByType = (type: string): string => {
     switch (type) {
       case 'whatsapp':
@@ -279,6 +295,10 @@ const Channels = () => {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setConfigChannelId(channel.id)}>
+                          <Bot className="mr-2 h-4 w-4" />
+                          Configurar Bot
+                        </DropdownMenuItem>
                         <DropdownMenuItem>
                           <Settings className="mr-2 h-4 w-4" />
                           Configurações
@@ -347,6 +367,21 @@ const Channels = () => {
             onClose={() => setIsWizardOpen(false)}
             onComplete={handleChannelComplete}
           />
+
+          {/* Bot Configuration Dialog */}
+          <Dialog open={!!configChannelId} onOpenChange={() => setConfigChannelId(null)}>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Configuração de Bot</DialogTitle>
+              </DialogHeader>
+              {configChannelId && (
+                <ChannelBotConfig
+                  channel={channels.find(c => c.id === configChannelId)!}
+                  onUpdateChannel={updateChannel}
+                />
+              )}
+            </DialogContent>
+          </Dialog>
         </div>
         </div>
       </main>

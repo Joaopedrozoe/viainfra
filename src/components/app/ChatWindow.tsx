@@ -12,9 +12,32 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   const navigate = useNavigate();
   
   useEffect(() => {
-    // TODO: Fetch real messages from API when backend is connected
-    // For now, always show empty messages
-    setMessages([]);
+    if (conversationId) {
+      // Para conversas de preview, buscar mensagens do contexto de preview
+      const previewConversation = localStorage.getItem('preview-conversations');
+      if (previewConversation) {
+        try {
+          const previewData = JSON.parse(previewConversation);
+          const conversation = previewData[conversationId];
+          if (conversation && conversation.messages) {
+            const mappedMessages = conversation.messages.map((msg: any, index: number) => ({
+              id: `${conversationId}-${index}`,
+              content: msg.content,
+              sender: msg.isBot ? 'bot' : 'user',
+              timestamp: msg.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }));
+            setMessages(mappedMessages);
+            return;
+          }
+        } catch (error) {
+          console.error('Erro ao carregar mensagens de preview:', error);
+        }
+      }
+      
+      // TODO: Fetch real messages from API when backend is connected
+      // For now, show empty messages if not a preview conversation
+      setMessages([]);
+    }
   }, [conversationId]);
   
   useEffect(() => {

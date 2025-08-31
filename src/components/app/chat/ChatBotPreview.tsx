@@ -240,8 +240,8 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
       setTimeout(() => {
         escolherSetor();
       }, 500);
-    } else if (option.includes("💼") || option.includes("🔧") || option.includes("💰") || option.includes("📞")) {
-      // É uma escolha de setor - usar handleSetor em vez de handleSetorChoice
+    } else if (option.includes("💼") || option.includes("🔧") || option.includes("💰") || option.includes("📞") || option.includes("👥")) {
+      // É uma escolha de setor - transferir diretamente
       handleSetor(option);
     } else if (option === "Menu Principal") {
       setState('start');
@@ -348,21 +348,21 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     
     addMessage(resumo);
     
-    setTimeout(() => {
-      const opcaoMessage = {
-        id: Date.now().toString(),
-        content: "O que deseja fazer agora?",
-        sender: 'bot' as const,
-        timestamp: new Date().toLocaleTimeString('pt-BR', { 
-          hour: '2-digit', 
-          minute: '2-digit' 
-        }),
-        options: ["Falar com Atendente", "Menu Principal"]
-      };
-      
-      setMessages(prev => [...prev, opcaoMessage]);
-      setState('posResumo');
-    }, 1500);
+      setTimeout(() => {
+        const opcaoMessage = {
+          id: Date.now().toString(),
+          content: "O que deseja fazer agora?",
+          sender: 'bot' as const,
+          timestamp: new Date().toLocaleTimeString('pt-BR', { 
+            hour: '2-digit', 
+            minute: '2-digit' 
+          }),
+          options: ["Falar com Atendente", "Menu Principal"]
+        };
+        
+        setMessages(prev => [...prev, opcaoMessage]);
+        setState('posResumo');
+      }, 1500);
   };
 
   const sendMessage = () => {
@@ -395,28 +395,22 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
   };
 
   const escolherSetor = () => {
-    addMessage("Selecione o setor para transferência:");
+    const setorMessage = {
+      id: Date.now().toString(),
+      content: "Selecione o setor para transferência:",
+      sender: 'bot' as const,
+      timestamp: new Date().toLocaleTimeString('pt-BR', { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      }),
+      options: ["📞 Atendimento", "💼 Comercial", "🔧 Manutenção", "💰 Financeiro", "👥 RH"]
+    };
     
-    setTimeout(() => {
-      const setorMessage = {
-        id: Date.now().toString(),
-        content: "Escolha o setor:",
-        sender: 'bot' as const,
-        timestamp: new Date().toLocaleTimeString('pt-BR', { 
-          hour: '2-digit', 
-          minute: '2-digit' 
-        }),
-        options: ["💼 Comercial", "🔧 Manutenção", "💰 Financeiro", "📞 Atendimento", "👥 RH"]
-      };
-      
-      setMessages(prev => [...prev, setorMessage]);
-      setState('escolhendoSetor');
-    }, 1000);
+    setMessages(prev => [...prev, setorMessage]);
+    setState('escolhendoSetor');
   };
 
   const handleSetor = (setor: string) => {
-    addMessage(setor, 'user');
-    
     // Mapear setores para atendentes
     const atendentes = {
       "💼 Comercial": "Elisabete Silva",
@@ -427,9 +421,10 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     };
     
     const nomeAtendente = atendentes[setor as keyof typeof atendentes] || "Atendimento";
+    const setorNome = setor.replace(/[💼🔧💰📞👥]\s/, '');
     
     setTimeout(() => {
-      addMessage(`Aguarde um momento, você será atendido por **${nomeAtendente}** do setor ${setor.replace(/[💼🔧💰📞👥]\s/, '')}...`);
+      addMessage(`Aguarde um momento, você será atendido por **${nomeAtendente}** do setor ${setorNome}...`);
       
       setTimeout(() => {
         addMessage(`Olá! Você está sendo atendido por **${nomeAtendente}**. Como posso ajudá-lo?`);

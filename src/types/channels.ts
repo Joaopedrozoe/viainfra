@@ -37,6 +37,9 @@ export interface ChannelSettings {
     email: boolean;
     push: boolean;
   };
+  // Bot configuration
+  selectedBotId?: string;
+  botEnabled?: boolean;
 }
 
 export interface ChannelMetrics {
