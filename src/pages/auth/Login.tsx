@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/auth";
+import { useDemoMode } from "@/hooks/useDemoMode";
+import { Switch } from "@/components/ui/switch";
 import { Loader2 } from "lucide-react";
 // import viainfraLogo from "@/assets/viainfra-logo.png";
 
@@ -14,6 +16,7 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { signIn, isAuthenticated } = useAuth();
+  const { isDemoMode, toggleDemoMode } = useDemoMode();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,6 +35,17 @@ const Login = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-white p-4">
+      {/* Demo Mode Toggle - Only visible in Lovable environment */}
+      {window.location.hostname.includes('sandbox.lovable.dev') && (
+        <div className="fixed top-4 right-4 flex items-center space-x-2 bg-white p-2 rounded shadow-lg border">
+          <span className="text-sm font-medium">Demo Mode</span>
+          <Switch 
+            checked={isDemoMode} 
+            onCheckedChange={toggleDemoMode}
+          />
+        </div>
+      )}
+      
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <img 
@@ -44,7 +58,9 @@ const Login = () => {
         <Card className="backdrop-blur-sm bg-white shadow-2xl border border-gray-100">
           <CardHeader className="text-center">
             <CardTitle className="text-2xl text-gray-800">Bem-vindo</CardTitle>
-            <CardDescription>Entre para acessar sua conta</CardDescription>
+            <CardDescription>
+              {isDemoMode ? 'Entre com suas credenciais de demonstração' : 'Entre para acessar sua conta'}
+            </CardDescription>
           </CardHeader>
           <form onSubmit={handleSubmit}>
             <CardContent className="space-y-4">
@@ -85,6 +101,13 @@ const Login = () => {
                   "Entrar"
                 )}
               </Button>
+              
+              {isDemoMode && (
+                <div className="mt-4 p-3 bg-blue-50 rounded text-sm text-blue-800 text-center">
+                  <strong>Modo Demo:</strong> Use qualquer email/senha para entrar<br/>
+                  <span className="text-xs">Sugestão: atendimento@viainfra.com.br / atendimento@25</span>
+                </div>
+              )}
             </CardFooter>
           </form>
         </Card>
