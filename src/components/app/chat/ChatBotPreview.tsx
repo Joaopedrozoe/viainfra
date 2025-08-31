@@ -296,21 +296,7 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
       [fieldKey]: value
     }));
     
-    // Validação básica
-    const fieldConfig = typeof field === 'object' ? field : null;
-    if (fieldConfig?.required && !value.trim()) {
-      addMessage("❌ Este campo é obrigatório. Tente novamente:");
-      setShowInput(true);
-      return;
-    }
-    
-    if (fieldConfig?.type === 'email' && !/\S+@\S+\.\S+/.test(value)) {
-      addMessage("❌ Por favor, digite um email válido:");
-      setShowInput(true);
-      return;
-    }
-    
-    // Avançar para o próximo campo apenas se a validação passou
+    // Avançar para o próximo campo (sem validação por enquanto)
     setCurrentFieldIndex(prev => prev + 1);
     setShowInput(false);
     
@@ -354,10 +340,10 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
   const sendMessage = () => {
     if (!input.trim()) return;
     
-    addMessage(input.trim(), 'user');
-    
     if (state === 'abrindoChamado') {
       handleFormInput(input.trim());
+    } else {
+      addMessage(input.trim(), 'user');
     }
     
     setInput("");

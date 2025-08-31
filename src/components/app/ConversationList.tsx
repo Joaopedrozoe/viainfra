@@ -28,9 +28,9 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
   // Fetch conversations from Supabase with real-time updates
   useEffect(() => {
     const fetchConversations = async () => {
-      setIsLoading(true);
-      try {
-        if (!isDemoMode) {
+      if (!isDemoMode) {
+        setIsLoading(true);
+        try {
           // Use real Supabase data
           const { data, error } = await supabase
             .from('conversations')
@@ -39,24 +39,20 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
             
           if (error) {
             console.error('Error fetching conversations:', error);
+            setConversations([]);
             return;
           }
           
           const mappedConversations = (data || []).map(mapDbConversationToConversation);
           // Combinar conversas reais com conversas de preview
-          console.log('Conversas de preview disponíveis:', previewConversations.length, previewConversations);
           const allConversations = [...previewConversations, ...mappedConversations];
-          console.log('Total de conversas (preview + reais):', allConversations.length);
           setConversations(allConversations);
-        } else {
-          // Em modo demo, usar apenas conversas de preview
-          console.log('Modo demo - usando conversas de preview:', previewConversations.length);
-          setConversations(previewConversations);
+        } catch (error) {
+          console.error('Error in conversation fetch:', error);
+          setConversations([]);
+        } finally {
+          setIsLoading(false);
         }
-      } catch (error) {
-        console.error('Error in conversation fetch:', error);
-      } finally {
-        setIsLoading(false);
       }
     };
     
@@ -81,23 +77,23 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     }
   }, [isDemoMode, refreshTrigger]);
 
-  // Separate effect to update conversations when preview conversations change
+  // Update conversations when preview conversations change
   useEffect(() => {
-    console.log('Preview conversations changed:', previewConversations.length);
+    console.log('Preview conversations changed:', previewConversations.length, previewConversations);
+    
     if (isDemoMode) {
-      console.log('Atualizando conversas no modo demo com preview conversations:', previewConversations.length);
+      // Em modo demo, usar apenas conversas de preview
+      console.log('Modo demo - definindo conversas de preview:', previewConversations.length);
       setConversations(previewConversations);
-      setIsLoading(false); // Garantir que loading seja false
+      setIsLoading(false);
     } else {
-      // In production mode, we need to combine both
+      // Em modo não-demo, combinar preview com reais
       setConversations(prev => {
-        // Filter out old preview conversations and add new ones
         const realConversations = prev.filter(conv => !(conv as any).is_preview);
         const combined = [...previewConversations, ...realConversations];
-        console.log('Combinando conversas: preview=', previewConversations.length, 'reais=', realConversations.length);
+        console.log('Modo produção - combinando conversas:', { preview: previewConversations.length, real: realConversations.length, total: combined.length });
         return combined;
       });
-      setIsLoading(false); // Garantir que loading seja false
     }
   }, [previewConversations, isDemoMode]);
 
