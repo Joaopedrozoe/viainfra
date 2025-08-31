@@ -302,7 +302,7 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
       [fieldKey]: value
     }));
     
-    // Avançar para o próximo campo
+    // Avançar para o próximo campo SEM duplicar mensagem
     setCurrentFieldIndex(prev => prev + 1);
     
     setTimeout(() => {
@@ -388,15 +388,22 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
 
   const handleSetor = (setor: string) => {
     addMessage(setor, 'user');
-    const agente = agentesSetor[setor as keyof typeof agentesSetor];
-    const num = chamadoData["Número Chamado"] ? ` (${Object.values(chamadoData)[0] || 'CH-' + String(chamadoCounter).padStart(4, "0")})` : "";
+    
+    // Mapear setores para atendentes
+    const atendentes = {
+      "💼 Comercial": "Elisabete Silva",
+      "🔧 Técnico": "Suelem Souza", 
+      "💰 Financeiro": "Giovanna Ferreira",
+      "📞 Suporte": "Joicy Souza"
+    };
+    
+    const nomeAtendente = atendentes[setor as keyof typeof atendentes] || "Atendimento";
     
     setTimeout(() => {
-      addMessage(`Seu atendimento${num} está sendo transferido para o setor de **${setor}**.\n\n*Por favor, aguarde um momento…*`);
+      addMessage(`Aguarde um momento, você será atendido por **${nomeAtendente}** do setor ${setor.replace(/[💼🔧💰📞]\s/, '')}...`);
       
       setTimeout(() => {
-        addMessage(`Olá! Você está sendo atendido por **${agente}** do setor de ${setor}. Como posso ajudá-lo?`);
-        // Manter o campo de input sempre disponível após transferência
+        addMessage(`Olá! Você está sendo atendido por **${nomeAtendente}**. Como posso ajudá-lo?`);
         setShowInput(true);
         setState('start');
       }, 2000);

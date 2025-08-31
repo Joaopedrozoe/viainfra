@@ -8,6 +8,9 @@ import { Conversation, Channel } from "@/types/conversation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePreviewConversation } from "@/contexts/PreviewConversationContext";
 
+// Forçar re-render quando há mudanças nas conversas de preview
+let conversationUpdateCounter = 0;
+
 type ConversationListProps = {
   onSelectConversation: (id: string) => void;
   selectedId?: string;
@@ -25,9 +28,25 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
 
   // SOLUÇÃO DIRETA: Sempre mostrar conversas de preview
   useEffect(() => {
-    console.log('📱 DIRECT: Setting preview conversations:', previewConversations.length);
-    setConversations(previewConversations);
+    conversationUpdateCounter++;
+    console.log('📱 DIRECT: Setting preview conversations:', previewConversations.length, 'Update #', conversationUpdateCounter);
+    
+    // Forçar que as conversas sejam sempre as de preview
+    const processedConversations = previewConversations.map(conv => ({
+      ...conv,
+      id: conv.id,
+      name: conv.name,
+      channel: conv.channel,
+      preview: conv.preview,
+      time: conv.time,
+      unread: conv.unread || 1,
+      is_preview: true
+    }));
+    
+    setConversations(processedConversations);
     setIsLoading(false);
+    
+    console.log('📱 Conversations set:', processedConversations.length);
   }, [previewConversations, refreshTrigger]);
 
   // Handle conversation selection
