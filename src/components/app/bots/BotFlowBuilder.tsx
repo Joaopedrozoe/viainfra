@@ -11,7 +11,9 @@ import {
   Edge,
   Node,
   MarkerType,
-  BackgroundVariant
+  BackgroundVariant,
+  Handle,
+  Position
 } from '@xyflow/react';
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -227,6 +229,11 @@ function StartNode({ data }: { data: any }) {
         <Play className="h-4 w-4 mr-2" />
         <div className="text-sm font-bold">{data.label}</div>
       </div>
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="w-3 h-3 !bg-green-600"
+      />
     </div>
   );
 }
@@ -234,10 +241,20 @@ function StartNode({ data }: { data: any }) {
 function MessageNode({ data }: { data: any }) {
   return (
     <div className="px-4 py-2 shadow-md rounded-md bg-blue-500 text-white border-2 border-blue-600">
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="w-3 h-3 !bg-blue-600"
+      />
       <div className="flex items-center">
         <MessageSquare className="h-4 w-4 mr-2" />
         <div className="text-sm font-bold">{data.label}</div>
       </div>
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="w-3 h-3 !bg-blue-600"
+      />
     </div>
   );
 }
@@ -245,6 +262,11 @@ function MessageNode({ data }: { data: any }) {
 function QuestionNode({ data }: { data: any }) {
   return (
     <div className="px-4 py-2 shadow-md rounded-md bg-purple-500 text-white border-2 border-purple-600">
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="w-3 h-3 !bg-purple-600"
+      />
       <div className="flex items-center">
         <MessageSquare className="h-4 w-4 mr-2" />
         <div className="text-sm font-bold">{data.label}</div>
@@ -254,6 +276,11 @@ function QuestionNode({ data }: { data: any }) {
           {data.options.length} opções
         </div>
       )}
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="w-3 h-3 !bg-purple-600"
+      />
     </div>
   );
 }
@@ -261,10 +288,20 @@ function QuestionNode({ data }: { data: any }) {
 function ConditionNode({ data }: { data: any }) {
   return (
     <div className="px-4 py-2 shadow-md rounded-md bg-yellow-500 text-white border-2 border-yellow-600">
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="w-3 h-3 !bg-yellow-600"
+      />
       <div className="flex items-center">
         <Settings className="h-4 w-4 mr-2" />
         <div className="text-sm font-bold">{data.label}</div>
       </div>
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="w-3 h-3 !bg-yellow-600"
+      />
     </div>
   );
 }
@@ -272,6 +309,11 @@ function ConditionNode({ data }: { data: any }) {
 function ActionNode({ data }: { data: any }) {
   return (
     <div className="px-4 py-2 shadow-md rounded-md bg-orange-500 text-white border-2 border-orange-600">
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="w-3 h-3 !bg-orange-600"
+      />
       <div className="flex items-center">
         <Settings className="h-4 w-4 mr-2" />
         <div className="text-sm font-bold">{data.label}</div>
@@ -281,6 +323,11 @@ function ActionNode({ data }: { data: any }) {
           {data.action}
         </div>
       )}
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="w-3 h-3 !bg-orange-600"
+      />
     </div>
   );
 }
@@ -288,6 +335,11 @@ function ActionNode({ data }: { data: any }) {
 function EndNode({ data }: { data: any }) {
   return (
     <div className="px-4 py-2 shadow-md rounded-md bg-red-500 text-white border-2 border-red-600">
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="w-3 h-3 !bg-red-600"
+      />
       <div className="flex items-center">
         <X className="h-4 w-4 mr-2" />
         <div className="text-sm font-bold">{data.label}</div>
