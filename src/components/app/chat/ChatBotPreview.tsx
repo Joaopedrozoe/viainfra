@@ -236,8 +236,13 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     
     if (currentFieldIndex < formFields.length) {
       const field = formFields[currentFieldIndex];
-      if (typeof field === 'object' && field.key) {
+      if (typeof field === 'object' && field.label) {
         // Novo formato de campo estruturado
+        const fieldPrompt = `Por favor, informe **${field.label}**:`;
+        addMessage(fieldPrompt);
+        setShowInput(true);
+      } else if (typeof field === 'object' && field.key) {
+        // Formato com key
         const fieldPrompt = `Por favor, informe **${field.key}**:`;
         addMessage(fieldPrompt);
         setShowInput(true);
@@ -260,7 +265,9 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
       : chamadoFields;
     
     const field = formFields[currentFieldIndex];
-    const fieldKey = typeof field === 'object' && field.key ? field.key : (typeof field === 'string' ? field : `Campo ${currentFieldIndex + 1}`);
+    const fieldKey = typeof field === 'object' && field.label 
+      ? field.label 
+      : (typeof field === 'object' && field.key ? field.key : (typeof field === 'string' ? field : `Campo ${currentFieldIndex + 1}`));
     
     setChamadoData(prev => ({
       ...prev,
@@ -299,7 +306,9 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     // Usar campos dinâmicos se disponíveis
     if (formFields && Array.isArray(formFields)) {
       formFields.forEach(field => {
-        const fieldKey = typeof field === 'object' && field.key ? field.key : (typeof field === 'string' ? field : '');
+        const fieldKey = typeof field === 'object' && field.label 
+          ? field.label 
+          : (typeof field === 'object' && field.key ? field.key : (typeof field === 'string' ? field : ''));
         if (fieldKey && chamadoData[fieldKey]) {
           resumo += `**${fieldKey}:** ${chamadoData[fieldKey]}\n`;
         }
