@@ -68,25 +68,28 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     scrollToBottom();
   }, [messages]);
 
-  // Reiniciar conversa sempre que o modal abrir
   useEffect(() => {
-    if (isOpen) {
-      // Limpar estado
+    if (isOpen && botData) {
       setMessages([]);
-      setInput("");
       setState('start');
       setCurrentFieldIndex(0);
       setChamadoData({});
       setShowInput(false);
       setPreviewConversationId(null);
-      
-      // Iniciar conversa com base no fluxo atual
-      setTimeout(() => {
-        startChatFromFlow();
-        createPreviewConversationLocal();
-      }, 100);
     }
   }, [isOpen, botData]);
+
+  useEffect(() => {
+    if (isOpen && botData && !previewConversationId) {
+      // Criar conversa de preview e iniciar chat após render
+      const timer = setTimeout(() => {
+        createPreviewConversationLocal();
+        startChatFromFlow();
+      }, 100);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, botData, previewConversationId]);
 
   const addMessage = (content: string, sender: 'bot' | 'user' = 'bot') => {
     const newMessage: Message = {
@@ -101,9 +104,9 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     setMessages(prev => {
       const updatedMessages = [...prev, newMessage];
       
-      // Atualizar conversa de preview em tempo real
+      // Atualizar conversa de preview em tempo real (com delay para evitar render cycle)
       if (previewConversationId) {
-        updatePreviewConversationLocal(updatedMessages);
+        setTimeout(() => updatePreviewConversationLocal(updatedMessages), 0);
       }
       
       return updatedMessages;
@@ -393,7 +396,7 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
   };
 
   const createPreviewConversationLocal = () => {
-    if (!botData) return;
+    if (!botData || previewConversationId) return;
     
     try {
       const id = createPreviewConversation(botData.name);

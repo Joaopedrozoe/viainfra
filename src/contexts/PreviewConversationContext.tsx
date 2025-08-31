@@ -37,13 +37,19 @@ export const PreviewConversationProvider: React.FC<{ children: React.ReactNode }
       messages: []
     };
 
-    setPreviewConversations(prev => [newConversation, ...prev]);
+    console.log('Criando nova conversa de preview:', newConversation);
+    setPreviewConversations(prev => {
+      const updated = [newConversation, ...prev];
+      console.log('Conversas de preview atualizadas:', updated.length, updated);
+      return updated;
+    });
     return id;
   }, []);
 
   const updatePreviewConversation = useCallback((id: string, messages: Message[]) => {
-    setPreviewConversations(prev => 
-      prev.map(conv => {
+    console.log('Atualizando conversa de preview:', id, 'com', messages.length, 'mensagens');
+    setPreviewConversations(prev => {
+      const updated = prev.map(conv => {
         if (conv.id === id) {
           const lastMessage = messages[messages.length - 1];
           const preview = lastMessage 
@@ -52,17 +58,21 @@ export const PreviewConversationProvider: React.FC<{ children: React.ReactNode }
                 : lastMessage.content)
             : 'Conversa de preview';
 
-          return {
+          const updatedConv = {
             ...conv,
             messages,
             preview,
             time: new Date().toISOString(),
             unread: 1
           };
+          console.log('Conversa atualizada:', updatedConv);
+          return updatedConv;
         }
         return conv;
-      })
-    );
+      });
+      console.log('Lista atualizada de conversas de preview:', updated.length);
+      return updated;
+    });
   }, []);
 
   const getPreviewConversation = useCallback((id: string) => {

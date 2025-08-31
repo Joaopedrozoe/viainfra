@@ -44,10 +44,13 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
           
           const mappedConversations = (data || []).map(mapDbConversationToConversation);
           // Combinar conversas reais com conversas de preview
+          console.log('Conversas de preview disponíveis:', previewConversations.length, previewConversations);
           const allConversations = [...previewConversations, ...mappedConversations];
+          console.log('Total de conversas (preview + reais):', allConversations.length);
           setConversations(allConversations);
         } else {
           // Em modo demo, usar apenas conversas de preview
+          console.log('Modo demo - usando conversas de preview:', previewConversations.length);
           setConversations(previewConversations);
         }
       } catch (error) {
