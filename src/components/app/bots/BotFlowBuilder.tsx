@@ -103,9 +103,35 @@ const getInitialNodes = (): Node[] => [
     }
   },
   {
+    id: 'transferencia-1',
+    type: 'action',
+    position: { x: 400, y: 420 },
+    data: {
+      label: 'Transferência para Atendente',
+      actionType: 'transfer',
+      action: 'Transferir conversa para atendente',
+      attendants: {
+        'Atendimento': 'Joicy Souza',
+        'Comercial': 'Elisabete Silva',
+        'Manutenção': 'Suelem Souza',
+        'Financeiro': 'Giovanna Ferreira',
+        'RH': 'Sandra Romano'
+      }
+    }
+  },
+  {
+    id: 'resumo-chamado',
+    type: 'message',
+    position: { x: 100, y: 420 },
+    data: {
+      label: 'Resumo do Chamado',
+      message: 'Chamado criado com sucesso! ✅\nEm breve nossa equipe entrará em contato.'
+    }
+  },
+  {
     id: 'end-conversation',
     type: 'end',
-    position: { x: 250, y: 440 },
+    position: { x: 250, y: 560 },
     data: {
       label: 'Encerrar Conversa',
       message: 'Obrigado por utilizar nosso atendimento! 👋'
@@ -138,16 +164,30 @@ const getInitialEdges = (): Edge[] => [
     markerEnd: { type: MarkerType.ArrowClosed }
   },
   {
-    id: 'e3-5',
+    id: 'e3-resumo',
     source: 'chamado-1',
+    target: 'resumo-chamado',
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed }
+  },
+  {
+    id: 'e4-transfer',
+    source: 'setor-1',
+    target: 'transferencia-1', 
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed }
+  },
+  {
+    id: 'e-resumo-end',
+    source: 'resumo-chamado',
     target: 'end-conversation',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
   {
-    id: 'e4-5',
-    source: 'setor-1',
-    target: 'end-conversation', 
+    id: 'e-transfer-end',
+    source: 'transferencia-1',
+    target: 'end-conversation',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   }

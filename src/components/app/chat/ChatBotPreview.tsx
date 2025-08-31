@@ -419,9 +419,13 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
       
       setTimeout(() => {
         addMessage(`Olá! Você está sendo atendido por **${nomeAtendente}**. Como posso ajudá-lo?`);
-        // Manter a conversa ativa para continuar o atendimento
-        setShowInput(true);
-        setState('atendimento'); // Novo estado para atendimento
+        
+        // Transferir conversa para a lista para atendimento humano
+        setTimeout(() => {
+          addMessage("Esta conversa foi transferida para nosso atendimento. Aguarde enquanto conectamos você com o atendente responsável. 📞");
+          setShowInput(true);
+          setState('atendimento');
+        }, 1500);
       }, 2000);
     }, 500);
   };

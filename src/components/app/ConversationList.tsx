@@ -28,35 +28,26 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
 
   // SOLUÇÃO DIRETA: Sempre mostrar conversas de preview
   useEffect(() => {
-    conversationUpdateCounter++;
-    console.log('📱 ConversationList: Setting preview conversations:', previewConversations.length, 'Update #', conversationUpdateCounter);
-    console.log('📱 Raw preview conversations:', previewConversations);
+    console.log('📱 ConversationList: Updating with preview conversations:', previewConversations.length);
     
-    if (previewConversations.length > 0) {
-      // Mapear conversas de preview para o formato correto
-      const processedConversations = previewConversations.map(conv => {
-        console.log('📱 Processing conversation:', conv);
-        return {
-          id: conv.id,
-          name: conv.name,
-          channel: conv.channel as Channel,
-          preview: conv.preview,
-          time: conv.time,
-          unread: conv.unread || 1,
-          is_preview: true
-        } as Conversation & { is_preview: boolean };
-      });
-      
-      console.log('📱 Processed conversations:', processedConversations);
-      setConversations(processedConversations);
-    } else {
-      console.log('📱 No preview conversations found, setting empty array');
-      setConversations([]);
-    }
+    // Mapear conversas de preview para o formato correto SEMPRE
+    const processedConversations = previewConversations.map(conv => {
+      console.log('📱 Processing conversation:', conv.id, conv.name);
+      return {
+        id: conv.id,
+        name: conv.name,
+        channel: conv.channel as Channel,
+        preview: conv.preview,
+        time: conv.time,
+        unread: conv.unread || 1,
+        is_preview: true
+      } as Conversation & { is_preview: boolean };
+    });
     
+    console.log('📱 Setting conversations:', processedConversations.length);
+    setConversations(processedConversations);
     setIsLoading(false);
-    console.log('📱 Final conversations set');
-  }, [previewConversations, refreshTrigger]);
+  }, [previewConversations]);
 
   // Handle conversation selection
   const handleConversationSelect = (conversationId: string) => {
