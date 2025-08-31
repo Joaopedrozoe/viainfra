@@ -21,6 +21,7 @@ const Landing = lazy(() => import("@/pages/landing/Landing"));
 // App
 const Dashboard = lazy(() => import("@/pages/app/Dashboard"));
 const Inbox = lazy(() => import("@/pages/app/Inbox"));
+const BotBuilder = lazy(() => import("@/pages/app/BotBuilder"));
 const Agents = lazy(() => import("@/pages/app/Agents"));
 const AgentDetails = lazy(() => import("@/pages/app/AgentDetails"));
 const Widget = lazy(() => import("@/pages/app/Widget"));
@@ -82,6 +83,7 @@ const App = () => (
               <Route element={<PrivateRoute />}>
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/inbox" element={<Inbox />} />
+                <Route path="/bot-builder" element={<BotBuilder />} />
                 <Route path="/channels" element={<Channels />} />
                 <Route path="/contacts" element={<Contacts />} />
                 <Route path="/ai" element={<AIRedirect />} />

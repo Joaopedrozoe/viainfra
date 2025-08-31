@@ -1,10 +1,17 @@
 
 import { memo } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, MoreVertical, User, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChannelIcon } from "../conversation/ChannelIcon";
 import { Channel } from "@/types/conversation";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface ChatHeaderProps {
   userName: string;
@@ -12,6 +19,7 @@ interface ChatHeaderProps {
   className?: string;
   onViewContactDetails?: () => void;
   onBackToList?: () => void;
+  onEndConversation?: () => void;
 }
 
 export const ChatHeader = memo(({ 
@@ -19,7 +27,8 @@ export const ChatHeader = memo(({
   channel, 
   className, 
   onViewContactDetails,
-  onBackToList 
+  onBackToList,
+  onEndConversation
 }: ChatHeaderProps) => {
   const isMobile = useIsMobile();
   
@@ -47,10 +56,35 @@ export const ChatHeader = memo(({
       >
         <ChannelIcon channel={channel} hasBackground />
       </div>
-      <div onClick={onViewContactDetails} className="cursor-pointer">
+      <div onClick={onViewContactDetails} className="cursor-pointer flex-1">
         <h2 className="font-medium text-gray-900">{userName}</h2>
         <p className="text-sm text-gray-500">Ver detalhes do contato</p>
       </div>
+      
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon">
+            <MoreVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {onViewContactDetails && (
+            <DropdownMenuItem onClick={onViewContactDetails}>
+              <User className="mr-2 h-4 w-4" />
+              Ver Contato
+            </DropdownMenuItem>
+          )}
+          {onEndConversation && (
+            <DropdownMenuItem 
+              onClick={onEndConversation}
+              className="text-destructive"
+            >
+              <X className="mr-2 h-4 w-4" />
+              Encerrar Conversa
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 });

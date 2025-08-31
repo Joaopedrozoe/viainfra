@@ -9,4 +9,5 @@ export interface Message {
 export interface ChatWindowProps {
   conversationId: string;
   onBack?: () => void;
+  onEndConversation?: (conversationId: string) => void;
 }

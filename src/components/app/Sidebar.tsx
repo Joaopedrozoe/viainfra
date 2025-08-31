@@ -9,7 +9,8 @@ import {
   HelpCircle,
   LogOut,
   BarChart3,
-  Users
+  Users,
+  Workflow
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { usePlanPermissions } from "@/hooks/usePlanPermissions";
@@ -51,6 +52,7 @@ export const AppSidebar = () => {
   const menuItems = [
     { title: "Dashboard", url: "/dashboard", icon: BarChart3, available: true },
     { title: "Conversas", url: "/inbox", icon: MessageSquare, available: hasFeature(PLAN_FEATURES.INBOX) },
+    { title: "Construtor de Bots", url: "/bot-builder", icon: Workflow, available: true },
     { title: "Canais", url: "/channels", icon: Share2, available: true },
     { title: "Relacionamento", url: "/contacts", icon: Users, available: true },
     { 

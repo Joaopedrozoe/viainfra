@@ -6,7 +6,7 @@ import { Message, ChatWindowProps } from "./chat/types";
 import { Channel } from "@/types/conversation";
 import { useNavigate } from "react-router-dom";
 
-export const ChatWindow = memo(({ conversationId, onBack }: ChatWindowProps) => {
+export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: ChatWindowProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -75,6 +75,7 @@ export const ChatWindow = memo(({ conversationId, onBack }: ChatWindowProps) => 
         channel={channel} 
         onViewContactDetails={handleViewContactDetails}
         onBackToList={handleBackToList}
+        onEndConversation={onEndConversation ? () => onEndConversation(conversationId) : undefined}
       />
       <div className="flex-1 p-4 overflow-y-auto bg-gray-50 pb-20">
         <div className="space-y-4">

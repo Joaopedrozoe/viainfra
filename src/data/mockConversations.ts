@@ -3,6 +3,24 @@ import { Conversation } from "@/types/conversation";
 
 export const mockConversations: Conversation[] = [
   {
+    id: "bot-preview-1",
+    name: "Bot ViaInfra - Preview",
+    channel: "whatsapp",
+    preview: "Bem-vindo ao autoatendimento da ViaInfra 👋",
+    time: "10:30",
+    unread: 0,
+    avatar: null
+  },
+  {
+    id: "bot-preview-2",
+    name: "Bot ViaInfra - Chamado CH-0001",
+    channel: "whatsapp", 
+    preview: "Chamado criado com sucesso - PLACA: ABC-1234",
+    time: "10:15",
+    unread: 1,
+    avatar: null
+  },
+  {
     id: "1",
     name: "João Silva",
     channel: "whatsapp",

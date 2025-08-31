@@ -99,6 +99,11 @@ export function ChatBotPreview({ isOpen, onClose }: ChatBotPreviewProps) {
     } else if (option === "Voltar ao início") {
       setState('start');
       returnToMenu();
+    } else if (option === "Encerrar Conversa") {
+      addMessage("Obrigado por utilizar nosso atendimento! A conversa foi encerrada. 👋");
+      setTimeout(() => {
+        onClose();
+      }, 2000);
     }
   };
 
@@ -220,9 +225,9 @@ export function ChatBotPreview({ isOpen, onClose }: ChatBotPreviewProps) {
 
   const getActionButtons = () => {
     if (state === 'start') {
-      return ["Abertura de Chamado", "Falar com Atendente"];
+      return ["Abertura de Chamado", "Falar com Atendente", "Encerrar Conversa"];
     } else if (state === 'posResumo') {
-      return ["Voltar ao início", "Falar com Atendente"];
+      return ["Voltar ao início", "Falar com Atendente", "Encerrar Conversa"];
     } else if (state === 'escolhendoSetor') {
       return ["Atendimento", "Comercial", "Manutenção", "Financeiro", "RH"];
     }
