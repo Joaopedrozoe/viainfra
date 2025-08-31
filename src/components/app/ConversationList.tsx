@@ -25,8 +25,15 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
 
   // Fetch conversations from Supabase and combine with preview conversations
   useEffect(() => {
+    console.log('🔍 ConversationList useEffect triggered');
+    console.log('📊 previewConversations.length:', previewConversations.length);
+    console.log('📋 previewConversations:', previewConversations);
+    console.log('🔄 refreshTrigger:', refreshTrigger);
+    
     const fetchConversations = async () => {
       setIsLoading(true);
+      console.log('⏳ Starting to fetch conversations...');
+      
       try {
         // Fetch real conversations from Supabase
         const { data, error } = await supabase
@@ -35,22 +42,27 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
           .order('time', { ascending: false });
           
         if (error) {
-          console.error('Error fetching conversations:', error);
+          console.error('❌ Error fetching conversations:', error);
         }
         
         const mappedConversations = (data || []).map(mapDbConversationToConversation);
         
         // Combine preview conversations with real conversations
         const allConversations = [...previewConversations, ...mappedConversations];
-        console.log('Total conversations loaded:', allConversations.length, '(Preview:', previewConversations.length, ', Real:', mappedConversations.length, ')');
+        console.log('✅ Total conversations loaded:', allConversations.length);
+        console.log('🎬 Preview:', previewConversations.length, '📡 Real:', mappedConversations.length);
+        console.log('📝 All conversations:', allConversations);
         
         setConversations(allConversations);
+        console.log('💾 Conversations state updated');
       } catch (error) {
-        console.error('Error in conversation fetch:', error);
+        console.error('💥 Error in conversation fetch:', error);
         // Even if Supabase fails, still show preview conversations
+        console.log('🔄 Fallback: Setting only preview conversations');
         setConversations(previewConversations);
       } finally {
         setIsLoading(false);
+        console.log('✅ Loading finished');
       }
     };
     
@@ -62,7 +74,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: 'conversations' }, 
         (payload) => {
-          console.log('Conversation change:', payload);
+          console.log('🔔 Conversation change:', payload);
           fetchConversations(); // Refresh conversations on any change
         }
       )
@@ -87,6 +99,11 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
 
   // Apply filters when conversations, search term, channel or active tab changes
   useEffect(() => {
+    console.log('🎯 Filtering conversations...');
+    console.log('📊 conversations.length:', conversations.length);
+    console.log('🔍 activeTab:', activeTab);
+    console.log('📝 conversations:', conversations);
+    
     let result = [...conversations];
 
     // Apply search filter if search term exists
@@ -95,20 +112,26 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         conversation.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         conversation.preview.toLowerCase().includes(searchTerm.toLowerCase())
       );
+      console.log('🔍 After search filter:', result.length);
     }
 
     // Apply channel filter
     if (selectedChannel !== "all") {
       result = result.filter((conversation) => conversation.channel === selectedChannel);
+      console.log('📡 After channel filter:', result.length);
     }
 
     // Apply tab filter
     if (activeTab === "unread") {
       result = result.filter((conversation) => conversation.unread > 0);
+      console.log('📬 After unread filter:', result.length);
     } else if (activeTab === "preview") {
       result = result.filter((conversation) => (conversation as any).is_preview === true);
+      console.log('🎬 After preview filter:', result.length);
+      console.log('🎬 Preview conversations found:', result);
     }
 
+    console.log('✅ Final filtered conversations:', result.length);
     setFilteredConversations(result);
   }, [conversations, searchTerm, selectedChannel, activeTab]);
 

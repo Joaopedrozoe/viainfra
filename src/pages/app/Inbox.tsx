@@ -5,6 +5,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { X, CheckCircle, RefreshCw } from "lucide-react";
+import { DebugConversations } from "@/components/DebugConversations";
 
 const Inbox = () => {
   const location = useLocation();
@@ -94,6 +95,7 @@ const Inbox = () => {
   
   return (
     <>
+      <DebugConversations />
       <div className="flex h-full">
         <div className="flex flex-1 transition-all duration-300">
           <div className="w-80 min-w-[20rem] border-r border-border">

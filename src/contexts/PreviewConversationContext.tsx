@@ -37,10 +37,11 @@ export const PreviewConversationProvider: React.FC<{ children: React.ReactNode }
       messages: []
     };
 
-    console.log('Criando nova conversa de preview:', newConversation);
+    console.log('🎬 CONTEXT: Criando nova conversa de preview:', newConversation);
     setPreviewConversations(prev => {
       const updated = [newConversation, ...prev];
-      console.log('Conversas de preview atualizadas:', updated.length, updated);
+      console.log('🎬 CONTEXT: Preview conversations atualizadas. Total:', updated.length);
+      console.log('🎬 CONTEXT: Lista completa:', updated);
       return updated;
     });
     return id;
