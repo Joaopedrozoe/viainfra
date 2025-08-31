@@ -64,9 +64,11 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
 
   // Handle conversation resolve
   const handleConversationResolve = (conversationId: string) => {
+    console.log('🔧 Resolvendo conversa:', conversationId);
     setResolvedConversations(prev => {
       const newSet = new Set(prev);
       newSet.add(conversationId);
+      console.log('🔧 Conversas resolvidas após adicionar:', Array.from(newSet));
       return newSet;
     });
     
@@ -113,6 +115,8 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     } else if (activeTab === "resolved") {
       result = result.filter((conversation) => resolvedConversations.has(conversation.id));
       console.log('✅ After resolved filter:', result.length);
+      console.log('✅ Resolved conversations IDs:', Array.from(resolvedConversations));
+      console.log('✅ Checking conversations:', result.map(c => c.id));
     } else if (activeTab === "all") {
       // Show all non-resolved conversations
       result = result.filter((conversation) => !resolvedConversations.has(conversation.id));
