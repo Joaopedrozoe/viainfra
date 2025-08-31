@@ -42,6 +42,7 @@ import { BotVersion } from "@/pages/app/BotBuilder";
 interface BotFlowBuilderProps {
   bot: BotVersion;
   onUpdateBot: (bot: BotVersion) => void;
+  onFlowChange?: () => void;
 }
 
 // Tipos de nós customizados
@@ -151,7 +152,7 @@ const getInitialEdges = (): Edge[] => [
   }
 ];
 
-export function BotFlowBuilder({ bot, onUpdateBot }: BotFlowBuilderProps) {
+export function BotFlowBuilder({ bot, onUpdateBot, onFlowChange }: BotFlowBuilderProps) {
   // Inicializar com o fluxo do bot ou com o fluxo padrão se estiver vazio
   const initialNodes = bot.flows.nodes.length > 0 ? bot.flows.nodes : getInitialNodes();
   const initialEdges = bot.flows.edges.length > 0 ? bot.flows.edges : getInitialEdges();
@@ -163,8 +164,11 @@ export function BotFlowBuilder({ bot, onUpdateBot }: BotFlowBuilderProps) {
   const [editingData, setEditingData] = useState<any>(null);
 
   const onConnect = useCallback(
-    (params: Connection) => setEdges((eds) => addEdge(params, eds)),
-    [setEdges],
+    (params: Connection) => {
+      setEdges((eds) => addEdge(params, eds));
+      onFlowChange?.(); // Marcar como modificado
+    },
+    [setEdges, onFlowChange],
   );
 
   const onNodeClick = useCallback((_: any, node: Node) => {
@@ -179,8 +183,9 @@ export function BotFlowBuilder({ bot, onUpdateBot }: BotFlowBuilderProps) {
     if (bot.status === 'draft') {
       // Excluir edge ao clicar nela
       setEdges((eds) => eds.filter((e) => e.id !== edge.id));
+      onFlowChange?.(); // Marcar como modificado
     }
-  }, [bot.status, setEdges]);
+  }, [bot.status, setEdges, onFlowChange]);
 
   const addNode = useCallback((type: string) => {
     const newNode: Node = {
@@ -190,7 +195,8 @@ export function BotFlowBuilder({ bot, onUpdateBot }: BotFlowBuilderProps) {
       data: getDefaultNodeData(type)
     };
     setNodes((nds) => [...nds, newNode]);
-  }, [setNodes]);
+    onFlowChange?.(); // Marcar como modificado
+  }, [setNodes, onFlowChange]);
 
   const deleteNode = useCallback(() => {
     if (selectedNode) {
@@ -202,8 +208,9 @@ export function BotFlowBuilder({ bot, onUpdateBot }: BotFlowBuilderProps) {
       setIsEditing(false);
       setSelectedNode(null);
       setEditingData(null);
+      onFlowChange?.(); // Marcar como modificado
     }
-  }, [selectedNode, setNodes, setEdges]);
+  }, [selectedNode, setNodes, setEdges, onFlowChange]);
 
   const saveNodeEdit = useCallback(() => {
     if (selectedNode && editingData) {
@@ -215,8 +222,9 @@ export function BotFlowBuilder({ bot, onUpdateBot }: BotFlowBuilderProps) {
       setIsEditing(false);
       setSelectedNode(null);
       setEditingData(null);
+      onFlowChange?.(); // Marcar como modificado
     }
-  }, [selectedNode, editingData, setNodes]);
+  }, [selectedNode, editingData, setNodes, onFlowChange]);
 
   const cancelNodeEdit = useCallback(() => {
     setIsEditing(false);

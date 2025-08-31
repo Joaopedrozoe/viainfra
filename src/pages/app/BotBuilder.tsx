@@ -60,7 +60,6 @@ const BotBuilder = () => {
   const [showPreview, setShowPreview] = useState(false);
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [initialFlowHash, setInitialFlowHash] = useState<string>("");
   const [originalBotData, setOriginalBotData] = useState<{ nodes: Node[]; edges: Edge[] } | null>(null);
   
   // Bot versions state - FLUXO-VIAINFRA já criado
@@ -91,22 +90,10 @@ const BotBuilder = () => {
     bot.id === selectedBot && bot.version === selectedVersion
   );
 
-  // Função para gerar hash simples dos dados do fluxo
-  const generateFlowHash = (flows: { nodes: Node[]; edges: Edge[] }) => {
-    return JSON.stringify({
-      nodes: flows.nodes.map(n => ({ id: n.id, type: n.type, position: n.position, data: n.data })),
-      edges: flows.edges.map(e => ({ id: e.id, source: e.source, target: e.target, type: e.type }))
-    });
-  };
-
-  // Detectar mudanças reais comparando com hash inicial
-  useEffect(() => {
-    if (currentBot && selectedBot && initialFlowHash) {
-      const currentFlowHash = generateFlowHash(currentBot.flows);
-      const hasChanges = currentFlowHash !== initialFlowHash;
-      setHasUnsavedChanges(hasChanges);
-    }
-  }, [currentBot?.flows, initialFlowHash]);
+  // Função chamada quando há mudanças reais no fluxo
+  const handleFlowChange = useCallback(() => {
+    setHasUnsavedChanges(true);
+  }, []);
 
   const handleCreateNewVersion = () => {
     if (!currentBot) return;
@@ -156,16 +143,11 @@ const BotBuilder = () => {
           nodes: JSON.parse(JSON.stringify(bot.flows.nodes)),
           edges: JSON.parse(JSON.stringify(bot.flows.edges))
         });
-        
-        // Gerar hash do estado inicial para comparação
-        const flowHash = generateFlowHash(bot.flows);
-        setInitialFlowHash(flowHash);
         setHasUnsavedChanges(false);
       }
     } else {
       // Limpar estado ao voltar
       setOriginalBotData(null);
-      setInitialFlowHash("");
       setHasUnsavedChanges(false);
     }
     setSelectedBot(botId);
@@ -325,6 +307,7 @@ const BotBuilder = () => {
                         : bot
                     ));
                   }}
+                  onFlowChange={handleFlowChange}
                 />
               ) : (
                 <div className="flex items-center justify-center h-full">
