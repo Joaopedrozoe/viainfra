@@ -22,8 +22,9 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
   const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedChannel, setSelectedChannel] = useState<Channel | "all">("all");
-  const [activeTab, setActiveTab] = useState<"all" | "unread" | "preview">("all");
+  const [activeTab, setActiveTab] = useState<"all" | "unread" | "preview" | "resolved">("all");
   const [isLoading, setIsLoading] = useState(true);
+  const [resolvedConversations, setResolvedConversations] = useState<Set<string>>(new Set());
   const { previewConversations } = usePreviewConversation();
 
   // SOLUÇÃO DIRETA: Sempre mostrar conversas de preview
@@ -61,6 +62,22 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     );
   };
 
+  // Handle conversation resolve
+  const handleConversationResolve = (conversationId: string) => {
+    setResolvedConversations(prev => {
+      const newSet = new Set(prev);
+      newSet.add(conversationId);
+      return newSet;
+    });
+    
+    // Mark as read when resolved
+    setConversations(prev => 
+      prev.map(conv => 
+        conv.id === conversationId ? { ...conv, unread: 0 } : conv
+      )
+    );
+  };
+
   // Apply filters when conversations, search term, channel or active tab changes
   useEffect(() => {
     console.log('🎯 Filtering conversations...');
@@ -87,12 +104,19 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
 
     // Apply tab filter
     if (activeTab === "unread") {
-      result = result.filter((conversation) => conversation.unread > 0);
+      result = result.filter((conversation) => conversation.unread > 0 && !resolvedConversations.has(conversation.id));
       console.log('📬 After unread filter:', result.length);
     } else if (activeTab === "preview") {
-      result = result.filter((conversation) => (conversation as any).is_preview === true);
+      result = result.filter((conversation) => (conversation as any).is_preview === true && !resolvedConversations.has(conversation.id));
       console.log('🎬 After preview filter:', result.length);
       console.log('🎬 Preview conversations found:', result);
+    } else if (activeTab === "resolved") {
+      result = result.filter((conversation) => resolvedConversations.has(conversation.id));
+      console.log('✅ After resolved filter:', result.length);
+    } else if (activeTab === "all") {
+      // Show all non-resolved conversations
+      result = result.filter((conversation) => !resolvedConversations.has(conversation.id));
+      console.log('📂 After all filter (excluding resolved):', result.length);
     }
 
     console.log('✅ Final filtered conversations:', result.length);
@@ -140,15 +164,18 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         onChannelChange={setSelectedChannel} 
       />
       <Tabs value={activeTab} onValueChange={setActiveTab as (value: string) => void} className="px-4 pt-2">
-        <TabsList className="w-full grid grid-cols-3">
+        <TabsList className="w-full grid grid-cols-4">
           <TabsTrigger value="all" className="text-xs">
             Todas
           </TabsTrigger>
           <TabsTrigger value="unread" className="text-xs">
-            Não lidas {conversations.filter(c => c.unread > 0).length > 0 && `(${conversations.filter(c => c.unread > 0).length})`}
+            Não lidas {conversations.filter(c => c.unread > 0 && !resolvedConversations.has(c.id)).length > 0 && `(${conversations.filter(c => c.unread > 0 && !resolvedConversations.has(c.id)).length})`}
           </TabsTrigger>
           <TabsTrigger value="preview" className="text-xs">
-            Preview {conversations.filter(c => (c as any).is_preview === true).length > 0 && `(${conversations.filter(c => (c as any).is_preview === true).length})`}
+            Preview {conversations.filter(c => (c as any).is_preview === true && !resolvedConversations.has(c.id)).length > 0 && `(${conversations.filter(c => (c as any).is_preview === true && !resolvedConversations.has(c.id)).length})`}
+          </TabsTrigger>
+          <TabsTrigger value="resolved" className="text-xs">
+            Resolvidas {resolvedConversations.size > 0 && `(${resolvedConversations.size})`}
           </TabsTrigger>
         </TabsList>
       </Tabs>
@@ -161,6 +188,8 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
               conversation={conversation}
               isSelected={selectedId === conversation.id}
               onClick={() => handleConversationSelect(conversation.id)}
+              onResolve={() => handleConversationResolve(conversation.id)}
+              showResolveButton={activeTab !== "resolved"}
             />
           ))
         ) : (
