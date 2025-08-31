@@ -34,7 +34,8 @@ import {
   GitBranch,
   HelpCircle,
   Zap,
-  Square
+  Square,
+  Trash2
 } from "lucide-react";
 import { BotVersion } from "@/pages/app/BotBuilder";
 
@@ -174,6 +175,13 @@ export function BotFlowBuilder({ bot, onUpdateBot }: BotFlowBuilderProps) {
     }
   }, [bot.status]);
 
+  const onEdgeClick = useCallback((_: any, edge: Edge) => {
+    if (bot.status === 'draft') {
+      // Excluir edge ao clicar nela
+      setEdges((eds) => eds.filter((e) => e.id !== edge.id));
+    }
+  }, [bot.status, setEdges]);
+
   const addNode = useCallback((type: string) => {
     const newNode: Node = {
       id: `${type}-${Date.now()}`,
@@ -183,6 +191,19 @@ export function BotFlowBuilder({ bot, onUpdateBot }: BotFlowBuilderProps) {
     };
     setNodes((nds) => [...nds, newNode]);
   }, [setNodes]);
+
+  const deleteNode = useCallback(() => {
+    if (selectedNode) {
+      // Remover o nó
+      setNodes((nds) => nds.filter((n) => n.id !== selectedNode.id));
+      // Remover todas as edges conectadas ao nó
+      setEdges((eds) => eds.filter((e) => e.source !== selectedNode.id && e.target !== selectedNode.id));
+      // Limpar seleção
+      setIsEditing(false);
+      setSelectedNode(null);
+      setEditingData(null);
+    }
+  }, [selectedNode, setNodes, setEdges]);
 
   const saveNodeEdit = useCallback(() => {
     if (selectedNode && editingData) {
@@ -202,6 +223,18 @@ export function BotFlowBuilder({ bot, onUpdateBot }: BotFlowBuilderProps) {
     setSelectedNode(null);
     setEditingData(null);
   }, []);
+
+  // Detectar tecla Delete para excluir nós
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Delete' && selectedNode && bot.status === 'draft' && !isEditing) {
+        deleteNode();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedNode, deleteNode, bot.status, isEditing]);
 
   // Salvar mudanças automaticamente apenas se não estiver editando
   useEffect(() => {
@@ -283,12 +316,14 @@ export function BotFlowBuilder({ bot, onUpdateBot }: BotFlowBuilderProps) {
             onEdgesChange={isEditable ? onEdgesChange : undefined}
             onConnect={isEditable ? onConnect : undefined}
             onNodeClick={onNodeClick}
+            onEdgeClick={onEdgeClick}
             nodeTypes={nodeTypes}
             fitView
             className="bg-gray-50"
             nodesDraggable={isEditable}
             nodesConnectable={isEditable}
             elementsSelectable={isEditable}
+            deleteKeyCode={isEditable ? 'Delete' : null}
           >
             <Controls />
             <MiniMap />
@@ -298,6 +333,12 @@ export function BotFlowBuilder({ bot, onUpdateBot }: BotFlowBuilderProps) {
           {!isEditable && (
             <div className="absolute top-4 left-4 bg-amber-100 border border-amber-200 rounded px-3 py-2 text-sm text-amber-800">
               Versão publicada - somente leitura
+            </div>
+          )}
+
+          {isEditable && (
+            <div className="absolute top-4 left-4 bg-blue-100 border border-blue-200 rounded px-3 py-2 text-sm text-blue-800">
+              💡 Dica: Clique em nós para editar, nas linhas para excluir, ou pressione Delete
             </div>
           )}
         </div>
@@ -311,6 +352,7 @@ export function BotFlowBuilder({ bot, onUpdateBot }: BotFlowBuilderProps) {
               onUpdateData={setEditingData}
               onSave={saveNodeEdit}
               onCancel={cancelNodeEdit}
+              onDelete={deleteNode}
             />
           </div>
         )}
@@ -472,13 +514,15 @@ function NodePropertiesPanel({
   editingData,
   onUpdateData,
   onSave,
-  onCancel
+  onCancel,
+  onDelete
 }: { 
   node: Node; 
   editingData: any;
   onUpdateData: (data: any) => void;
   onSave: () => void;
   onCancel: () => void;
+  onDelete: () => void;
 }) {
   const updateField = (field: string, value: any) => {
     onUpdateData({ ...editingData, [field]: value });
@@ -629,6 +673,14 @@ function NodePropertiesPanel({
           </Button>
           <Button variant="outline" onClick={onCancel} className="flex-1">
             Cancelar
+          </Button>
+          <Button 
+            variant="destructive" 
+            onClick={onDelete} 
+            className="w-10 h-10 p-0"
+            title="Excluir Nó"
+          >
+            <Trash2 className="h-4 w-4" />
           </Button>
         </div>
       </div>
