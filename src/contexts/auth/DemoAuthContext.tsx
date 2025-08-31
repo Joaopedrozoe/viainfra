@@ -18,10 +18,10 @@ export const useDemoAuth = () => {
 
 // ViaInfra attendant credentials
 const attendantCredentials = [
-  { email: "joicy.souza@vialogistic.com.br", password: "atendimento@25" },
+  { email: "atendimento@viainfra.com.br", password: "atendimento@25" },
   { email: "elisabete.silva@viainfra.com.br", password: "atendimento@25" },
-  { email: "suelem.souza@vialogistic.com.br", password: "atendimento@25" },
-  { email: "giovanna.ferreira@vialogistic.com.br", password: "atendimento@25" },
+  { email: "manutencao@viainfra.com.br", password: "atendimento@25" },
+  { email: "gestaofinanceira@viainfra.com.br", password: "atendimento@25" },
   { email: "sandra.romano@vialogistic.com.br", password: "atendimento@25" }
 ];
 

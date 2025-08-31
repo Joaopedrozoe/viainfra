@@ -5,7 +5,7 @@ export const attendantsProfiles: DbProfile[] = [
   {
     id: "demo-user-1",
     name: "Joicy Souza",
-    email: "joicy.souza@vialogistic.com.br",
+    email: "atendimento@viainfra.com.br",
     company_id: "demo-company-456",
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
@@ -21,7 +21,7 @@ export const attendantsProfiles: DbProfile[] = [
   {
     id: "demo-user-3",
     name: "Suelem Souza",
-    email: "suelem.souza@vialogistic.com.br",
+    email: "manutencao@viainfra.com.br",
     company_id: "demo-company-456",
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
@@ -29,7 +29,7 @@ export const attendantsProfiles: DbProfile[] = [
   {
     id: "demo-user-4",
     name: "Giovanna Ferreira",
-    email: "giovanna.ferreira@vialogistic.com.br",
+    email: "gestaofinanceira@viainfra.com.br",
     company_id: "demo-company-456",
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
