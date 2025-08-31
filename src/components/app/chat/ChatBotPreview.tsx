@@ -348,11 +348,11 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     
     addMessage(resumo);
     
-      setTimeout(() => {
-        addMessage("O que deseja fazer agora?");
-        setShowInput(false);
-        setState('posResumo');
-      }, 1500);
+    setTimeout(() => {
+      addMessage("O que deseja fazer agora?");
+      setShowInput(false);
+      setState('posResumo');
+    }, 1500);
   };
 
   const sendMessage = () => {

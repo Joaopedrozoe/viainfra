@@ -153,19 +153,9 @@ const getInitialNodes = (): Node[] => [
     }
   },
   {
-    id: 'resumo-chamado',
-    type: 'message',
-    position: { x: 100, y: 420 },
-    data: {
-      label: 'Resumo do Chamado',
-      message: 'Chamado criado! ✅\n\n📋 **Resumo:**\n• Placa: {placa}\n• Problema: {problema}\n• Setor: {setor}\n\nEm breve nossa equipe entrará em contato.',
-      variables: ['placa', 'problema', 'setor']
-    }
-  },
-  {
     id: 'opcoes-pos-chamado',
     type: 'question',
-    position: { x: 100, y: 520 },
+    position: { x: 100, y: 420 },
     data: {
       label: 'Opções Pós-Chamado',
       question: 'O que deseja fazer agora?',
@@ -210,7 +200,7 @@ const getInitialEdges = (): Edge[] => [
   {
     id: 'e3-resumo',
     source: 'chamado-1',
-    target: 'resumo-chamado',
+    target: 'opcoes-pos-chamado',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
@@ -219,7 +209,7 @@ const getInitialEdges = (): Edge[] => [
     id: 'e-setor-atendimento',
     source: 'setor-1',
     target: 'transfer-atendimento',
-    sourceHandle: 'atendimento',
+    label: 'Atendimento',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
@@ -227,7 +217,7 @@ const getInitialEdges = (): Edge[] => [
     id: 'e-setor-comercial',
     source: 'setor-1',
     target: 'transfer-comercial',
-    sourceHandle: 'comercial',
+    label: 'Comercial',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
@@ -235,7 +225,7 @@ const getInitialEdges = (): Edge[] => [
     id: 'e-setor-manutencao',
     source: 'setor-1',
     target: 'transfer-manutencao',
-    sourceHandle: 'manutencao',
+    label: 'Manutenção',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
@@ -243,7 +233,7 @@ const getInitialEdges = (): Edge[] => [
     id: 'e-setor-financeiro',
     source: 'setor-1',
     target: 'transfer-financeiro',
-    sourceHandle: 'financeiro',
+    label: 'Financeiro',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
@@ -251,31 +241,24 @@ const getInitialEdges = (): Edge[] => [
     id: 'e-setor-rh',
     source: 'setor-1',
     target: 'transfer-rh',
-    sourceHandle: 'rh',
+    label: 'RH',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
-  // Fluxo do resumo do chamado
-  {
-    id: 'e-chamado-resumo',
-    source: 'resumo-chamado',
-    target: 'opcoes-pos-chamado',
-    type: 'smoothstep',
-    markerEnd: { type: MarkerType.ArrowClosed }
-  },
+  // Fluxo das opções pós-chamado
   {
     id: 'e-opcoes-atendente',
     source: 'opcoes-pos-chamado',
     target: 'setor-1',
-    sourceHandle: 'atendente',
+    label: 'Falar com Atendente',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
   {
     id: 'e-opcoes-menu',
     source: 'opcoes-pos-chamado',
-    target: 'welcome',
-    sourceHandle: 'menu',
+    target: 'start-1',
+    label: 'Menu Principal',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   }
