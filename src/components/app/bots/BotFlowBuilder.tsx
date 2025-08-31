@@ -103,20 +103,53 @@ const getInitialNodes = (): Node[] => [
     }
   },
   {
-    id: 'transferencia-1',
+    id: 'transfer-atendimento',
     type: 'action',
-    position: { x: 400, y: 420 },
+    position: { x: 600, y: 320 },
     data: {
-      label: 'Transferência para Atendente',
+      label: 'Transferir - Atendimento',
       actionType: 'transfer',
-      action: 'Transferir conversa para atendente',
-      attendants: {
-        'Atendimento': 'Joicy Souza',
-        'Comercial': 'Elisabete Silva',
-        'Manutenção': 'Suelem Souza',
-        'Financeiro': 'Giovanna Ferreira',
-        'RH': 'Sandra Romano'
-      }
+      action: 'Transferir para Joicy Souza (Atendimento)'
+    }
+  },
+  {
+    id: 'transfer-comercial',
+    type: 'action',
+    position: { x: 600, y: 380 },
+    data: {
+      label: 'Transferir - Comercial',
+      actionType: 'transfer',
+      action: 'Transferir para Elisabete Silva (Comercial)'
+    }
+  },
+  {
+    id: 'transfer-manutencao',
+    type: 'action',
+    position: { x: 600, y: 440 },
+    data: {
+      label: 'Transferir - Manutenção',
+      actionType: 'transfer',
+      action: 'Transferir para Suelem Souza (Manutenção)'
+    }
+  },
+  {
+    id: 'transfer-financeiro',
+    type: 'action',
+    position: { x: 600, y: 500 },
+    data: {
+      label: 'Transferir - Financeiro',
+      actionType: 'transfer',
+      action: 'Transferir para Giovanna Ferreira (Financeiro)'
+    }
+  },
+  {
+    id: 'transfer-rh',
+    type: 'action',
+    position: { x: 600, y: 560 },
+    data: {
+      label: 'Transferir - RH',
+      actionType: 'transfer',
+      action: 'Transferir para Sandra Romano (RH)'
     }
   },
   {
@@ -125,13 +158,24 @@ const getInitialNodes = (): Node[] => [
     position: { x: 100, y: 420 },
     data: {
       label: 'Resumo do Chamado',
-      message: 'Chamado criado com sucesso! ✅\nEm breve nossa equipe entrará em contato.'
+      message: 'Chamado criado! ✅\n\n📋 **Resumo:**\n• Placa: {placa}\n• Problema: {problema}\n• Setor: {setor}\n\nEm breve nossa equipe entrará em contato.',
+      variables: ['placa', 'problema', 'setor']
+    }
+  },
+  {
+    id: 'opcoes-pos-chamado',
+    type: 'question',
+    position: { x: 100, y: 520 },
+    data: {
+      label: 'Opções Pós-Chamado',
+      question: 'O que deseja fazer agora?',
+      options: ['Falar com Atendente', 'Menu Principal']
     }
   },
   {
     id: 'end-conversation',
     type: 'end',
-    position: { x: 250, y: 560 },
+    position: { x: 250, y: 620 },
     data: {
       label: 'Encerrar Conversa',
       message: 'Obrigado por utilizar nosso atendimento! 👋'
@@ -170,24 +214,68 @@ const getInitialEdges = (): Edge[] => [
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
+  // Conexões para cada transferência específica
   {
-    id: 'e4-transfer',
+    id: 'e-setor-atendimento',
     source: 'setor-1',
-    target: 'transferencia-1', 
+    target: 'transfer-atendimento',
+    sourceHandle: 'atendimento',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
   {
-    id: 'e-resumo-end',
+    id: 'e-setor-comercial',
+    source: 'setor-1',
+    target: 'transfer-comercial',
+    sourceHandle: 'comercial',
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed }
+  },
+  {
+    id: 'e-setor-manutencao',
+    source: 'setor-1',
+    target: 'transfer-manutencao',
+    sourceHandle: 'manutencao',
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed }
+  },
+  {
+    id: 'e-setor-financeiro',
+    source: 'setor-1',
+    target: 'transfer-financeiro',
+    sourceHandle: 'financeiro',
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed }
+  },
+  {
+    id: 'e-setor-rh',
+    source: 'setor-1',
+    target: 'transfer-rh',
+    sourceHandle: 'rh',
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed }
+  },
+  // Fluxo do resumo do chamado
+  {
+    id: 'e-chamado-resumo',
     source: 'resumo-chamado',
-    target: 'end-conversation',
+    target: 'opcoes-pos-chamado',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
   {
-    id: 'e-transfer-end',
-    source: 'transferencia-1',
-    target: 'end-conversation',
+    id: 'e-opcoes-atendente',
+    source: 'opcoes-pos-chamado',
+    target: 'setor-1',
+    sourceHandle: 'atendente',
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed }
+  },
+  {
+    id: 'e-opcoes-menu',
+    source: 'opcoes-pos-chamado',
+    target: 'welcome',
+    sourceHandle: 'menu',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   }

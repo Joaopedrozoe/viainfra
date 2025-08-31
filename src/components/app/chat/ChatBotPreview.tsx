@@ -243,9 +243,9 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     } else if (option.includes("💼") || option.includes("🔧") || option.includes("💰") || option.includes("📞")) {
       // É uma escolha de setor - usar handleSetor em vez de handleSetorChoice
       handleSetor(option);
-    } else if (option === "Voltar ao início") {
+    } else if (option === "Menu Principal") {
       setState('start');
-      returnToMenu();
+      startChatFromFlow();
     } else if (option === "Encerrar Conversa") {
       addMessage("Obrigado por utilizar nosso atendimento! A conversa foi encerrada. 👋");
       setTimeout(() => {
@@ -347,8 +347,22 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     resumo += `**Número Chamado:** ${numeroChamado}`;
     
     addMessage(resumo);
-    setState('posResumo');
-    setShowInput(false);
+    
+    setTimeout(() => {
+      const opcaoMessage = {
+        id: Date.now().toString(),
+        content: "O que deseja fazer agora?",
+        sender: 'bot' as const,
+        timestamp: new Date().toLocaleTimeString('pt-BR', { 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        }),
+        options: ["Falar com Atendente", "Menu Principal"]
+      };
+      
+      setMessages(prev => [...prev, opcaoMessage]);
+      setState('posResumo');
+    }, 1500);
   };
 
   const sendMessage = () => {
@@ -499,7 +513,7 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     
     // Fallback para estados específicos
     if (state === 'posResumo') {
-      return ["Voltar ao início", "Falar com Atendente", "Encerrar Conversa"];
+      return ["Falar com Atendente", "Menu Principal"];
     } else if (state === 'escolhendoSetor') {
       return ["💼 Comercial", "🔧 Manutenção", "💰 Financeiro", "📞 Atendimento", "👥 RH"];
     }
