@@ -121,7 +121,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
 
     console.log('✅ Final filtered conversations:', result.length);
     setFilteredConversations(result);
-  }, [conversations, searchTerm, selectedChannel, activeTab]);
+  }, [conversations, searchTerm, selectedChannel, activeTab, resolvedConversations]);
 
   // Loading state
   if (isLoading) {
