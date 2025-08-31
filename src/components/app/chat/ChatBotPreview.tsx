@@ -9,6 +9,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Send } from "lucide-react";
 import { BotVersion } from "@/pages/app/BotBuilder";
+import { supabase } from "@/integrations/supabase/client";
+import { Channel } from "@/types/conversation";
 
 interface Message {
   id: string;
@@ -369,10 +371,38 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
       
       setTimeout(() => {
         addMessage(`Olá! Você está sendo atendido por **${agente}** do setor de ${setor}. Como posso ajudá-lo?`);
+        // Manter o campo de input sempre disponível após transferência
+        setShowInput(true);
         setState('start');
-        setShowInput(false);
+        
+        // Salvar conversa de preview para a inbox
+        savePreviewConversation();
       }, 2000);
     }, 500);
+  };
+
+  const savePreviewConversation = async () => {
+    if (!botData) return;
+    
+    try {
+      const conversationData = {
+        name: `Preview Bot - ${botData.name}`,
+        channel: 'whatsapp' as Channel,
+        preview: 'Conversa de preview do chatbot',
+        time: new Date().toISOString(),
+        unread: 1,
+        company_id: '1', // ID padrão para conversas de preview
+        is_preview: true
+      };
+
+      await supabase
+        .from('conversations')
+        .insert([conversationData]);
+        
+      console.log('Conversa de preview salva na inbox');
+    } catch (error) {
+      console.error('Erro ao salvar conversa de preview:', error);
+    }
   };
 
   const renderMessage = (message: Message) => {
@@ -520,7 +550,7 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
           <div ref={messagesEndRef} />
         </div>
         
-        {showInput && (
+        {(showInput || state === 'start') && (
           <div className="p-4 border-t border-border">
             <div className="flex gap-2">
               <Input

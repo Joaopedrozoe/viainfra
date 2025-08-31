@@ -18,7 +18,7 @@ export const ConversationList = ({ onSelectConversation, selectedId }: Conversat
   const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedChannel, setSelectedChannel] = useState<Channel | "all">("all");
-  const [activeTab, setActiveTab] = useState<"all" | "unread">("all");
+  const [activeTab, setActiveTab] = useState<"all" | "unread" | "preview">("all");
   const [isLoading, setIsLoading] = useState(true);
   const { isDemoMode } = useDemoMode();
 
@@ -90,6 +90,8 @@ export const ConversationList = ({ onSelectConversation, selectedId }: Conversat
     // Apply tab filter
     if (activeTab === "unread") {
       result = result.filter((conversation) => conversation.unread > 0);
+    } else if (activeTab === "preview") {
+      result = result.filter((conversation) => (conversation as any).is_preview === true);
     }
 
     setFilteredConversations(result);
@@ -136,12 +138,15 @@ export const ConversationList = ({ onSelectConversation, selectedId }: Conversat
         onChannelChange={setSelectedChannel} 
       />
       <Tabs value={activeTab} onValueChange={setActiveTab as (value: string) => void} className="px-4 pt-2">
-        <TabsList className="w-full">
-          <TabsTrigger value="all" className="flex-1">
+        <TabsList className="w-full grid grid-cols-3">
+          <TabsTrigger value="all" className="text-xs">
             Todas
           </TabsTrigger>
-          <TabsTrigger value="unread" className="flex-1">
+          <TabsTrigger value="unread" className="text-xs">
             Não lidas {conversations.filter(c => c.unread > 0).length > 0 && `(${conversations.filter(c => c.unread > 0).length})`}
+          </TabsTrigger>
+          <TabsTrigger value="preview" className="text-xs">
+            Preview {conversations.filter(c => (c as any).is_preview === true).length > 0 && `(${conversations.filter(c => (c as any).is_preview === true).length})`}
           </TabsTrigger>
         </TabsList>
       </Tabs>
