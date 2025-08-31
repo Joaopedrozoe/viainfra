@@ -90,13 +90,25 @@ const BotBuilder = () => {
     bot.id === selectedBot && bot.version === selectedVersion
   );
 
-  // Detectar mudanças no bot atual
+  // Detectar mudanças no bot atual - apenas quando há mudanças reais
   useEffect(() => {
-    if (currentBot && initialBotState) {
-      const hasChanges = JSON.stringify(currentBot.flows) !== JSON.stringify(initialBotState.flows);
+    if (currentBot && initialBotState && currentBot.id === initialBotState.id && currentBot.version === initialBotState.version) {
+      // Comparar apenas os fluxos de forma mais precisa
+      const currentFlowString = JSON.stringify({
+        nodes: currentBot.flows.nodes,
+        edges: currentBot.flows.edges
+      });
+      const initialFlowString = JSON.stringify({
+        nodes: initialBotState.flows.nodes,
+        edges: initialBotState.flows.edges
+      });
+      
+      const hasChanges = currentFlowString !== initialFlowString;
       setHasUnsavedChanges(hasChanges);
+    } else if (!currentBot || !initialBotState) {
+      setHasUnsavedChanges(false);
     }
-  }, [currentBot, initialBotState]);
+  }, [currentBot?.flows, initialBotState]);
 
   const handleCreateNewVersion = () => {
     if (!currentBot) return;
@@ -141,8 +153,15 @@ const BotBuilder = () => {
     if (botId) {
       const bot = botVersions.find(b => b.id === botId);
       if (bot) {
-        // Salvar estado inicial para detectar mudanças
-        setInitialBotState(JSON.parse(JSON.stringify(bot)));
+        // Salvar estado inicial para detectar mudanças - criar uma cópia profunda
+        const initialState = {
+          ...bot,
+          flows: {
+            nodes: bot.flows.nodes.map(node => ({ ...node, data: { ...node.data } })),
+            edges: bot.flows.edges.map(edge => ({ ...edge }))
+          }
+        };
+        setInitialBotState(initialState);
         setHasUnsavedChanges(false);
       }
     } else {
@@ -249,8 +268,13 @@ const BotBuilder = () => {
                     key={bot.id}
                     className="p-6 cursor-pointer hover:shadow-md transition-shadow"
                     onClick={() => {
-                      handleBotSelect(bot.id);
-                      setSelectedVersion(publishedVersion?.version || versions[0]?.version || 'v1');
+                      const targetVersion = publishedVersion?.version || versions[0]?.version || 'v1';
+                      setSelectedVersion(targetVersion);
+                      
+                      // Aguardar o setState e depois selecionar o bot
+                      setTimeout(() => {
+                        handleBotSelect(bot.id);
+                      }, 0);
                     }}
                   >
                     <div className="flex items-center justify-between mb-4">
