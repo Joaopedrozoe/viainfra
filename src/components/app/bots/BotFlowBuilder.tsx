@@ -244,15 +244,17 @@ export function BotFlowBuilder({ bot, onUpdateBot, onFlowChange }: BotFlowBuilde
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedNode, deleteNode, bot.status, isEditing]);
 
-  // Salvar mudanças automaticamente sempre que há alteração
+  // Salvar mudanças automaticamente apenas se não estiver editando
   useEffect(() => {
-    const updatedBot = {
-      ...bot,
-      flows: { nodes, edges },
-      updatedAt: new Date().toISOString()
-    };
-    onUpdateBot(updatedBot);
-  }, [nodes, edges, bot, onUpdateBot]);
+    if (!isEditing) {
+      const updatedBot = {
+        ...bot,
+        flows: { nodes, edges },
+        updatedAt: new Date().toISOString()
+      };
+      onUpdateBot(updatedBot);
+    }
+  }, [nodes, edges, isEditing]);
 
   const isEditable = bot.status === 'draft';
 
