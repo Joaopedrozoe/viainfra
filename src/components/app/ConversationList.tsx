@@ -6,7 +6,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { DbConversation, mapDbConversationToConversation } from "@/types/supabase";
 import { Conversation, Channel } from "@/types/conversation";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useDemoMode } from "@/hooks/useDemoMode";
 import { usePreviewConversation } from "@/contexts/PreviewConversationContext";
 
 type ConversationListProps = {
@@ -22,37 +21,68 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
   const [selectedChannel, setSelectedChannel] = useState<Channel | "all">("all");
   const [activeTab, setActiveTab] = useState<"all" | "unread" | "preview">("all");
   const [isLoading, setIsLoading] = useState(true);
-  const { isDemoMode } = useDemoMode();
   const { previewConversations } = usePreviewConversation();
 
-  // Simple effect to handle preview conversations
+  // Fetch conversations from Supabase and combine with preview conversations
   useEffect(() => {
-    console.log('=== CONVERSATION LIST DEBUG ===');
-    console.log('isDemoMode:', isDemoMode);
-    console.log('previewConversations length:', previewConversations.length);
-    console.log('previewConversations:', previewConversations);
+    const fetchConversations = async () => {
+      setIsLoading(true);
+      try {
+        // Fetch real conversations from Supabase
+        const { data, error } = await supabase
+          .from('conversations')
+          .select('*')
+          .order('time', { ascending: false });
+          
+        if (error) {
+          console.error('Error fetching conversations:', error);
+        }
+        
+        const mappedConversations = (data || []).map(mapDbConversationToConversation);
+        
+        // Combine preview conversations with real conversations
+        const allConversations = [...previewConversations, ...mappedConversations];
+        console.log('Total conversations loaded:', allConversations.length, '(Preview:', previewConversations.length, ', Real:', mappedConversations.length, ')');
+        
+        setConversations(allConversations);
+      } catch (error) {
+        console.error('Error in conversation fetch:', error);
+        // Even if Supabase fails, still show preview conversations
+        setConversations(previewConversations);
+      } finally {
+        setIsLoading(false);
+      }
+    };
     
-    // SEMPRE usar as conversas de preview, independente do modo
-    setConversations(previewConversations);
-    setIsLoading(false);
-    
-    console.log('Conversations set to:', previewConversations.length);
-    console.log('=== END DEBUG ===');
-  }, [previewConversations, isDemoMode, refreshTrigger]);
+    fetchConversations();
+
+    // Set up real-time subscription for conversations
+    const channel = supabase
+      .channel('conversations-changes')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'conversations' }, 
+        (payload) => {
+          console.log('Conversation change:', payload);
+          fetchConversations(); // Refresh conversations on any change
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [previewConversations, refreshTrigger]);
 
   // Handle conversation selection
   const handleConversationSelect = (conversationId: string) => {
     onSelectConversation(conversationId);
     
-    // Mark conversation as read in real mode (will be handled by backend)
-    if (!isDemoMode) {
-      // TODO: API call to mark as read when backend is connected
-      setConversations(prev => 
-        prev.map(conv => 
-          conv.id === conversationId ? { ...conv, unread: 0 } : conv
-        )
-      );
-    }
+    // Mark conversation as read (for preview conversations, update locally)
+    setConversations(prev => 
+      prev.map(conv => 
+        conv.id === conversationId ? { ...conv, unread: 0 } : conv
+      )
+    );
   };
 
   // Apply filters when conversations, search term, channel or active tab changes
@@ -150,7 +180,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
           <div className="p-4 text-center text-gray-500">
             {searchTerm || selectedChannel !== "all" ? "Nenhuma conversa encontrada" : 
              activeTab === "preview" ? "Teste o preview do bot para ver as conversas aqui" :
-             isDemoMode ? "Conecte uma API do WhatsApp para ver conversas reais" : "Nenhuma conversa disponível"}
+             "Nenhuma conversa disponível"}
           </div>
         )}
       </div>
