@@ -324,7 +324,7 @@ const BotBuilder = () => {
         isOpen={showPreview} 
         onClose={() => setShowPreview(false)}
         botData={currentBot}
-        key={showPreview ? `preview-${selectedBot}-${selectedVersion}` : 'preview-closed'}
+        key={`preview-${selectedBot}-${selectedVersion}-${hasUnsavedChanges ? 'modified' : 'original'}`}
       />
 
       {/* Unsaved Changes Dialog */}

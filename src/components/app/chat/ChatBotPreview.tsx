@@ -109,6 +109,25 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     setShowInput(false);
   };
 
+  // Função para obter opções dinâmicas do fluxo
+  const getDynamicOptions = () => {
+    if (!botData?.flows.nodes) return [];
+    
+    // Buscar nós de pergunta conectados ao nó atual
+    const questionNodes = botData.flows.nodes.filter(node => node.type === 'question');
+    
+    if (questionNodes.length > 0) {
+      // Pegar opções do primeiro nó de pergunta encontrado
+      const firstQuestion = questionNodes[0];
+      if (firstQuestion.data?.options && Array.isArray(firstQuestion.data.options)) {
+        return firstQuestion.data.options;
+      }
+    }
+    
+    // Fallback para opções padrão
+    return ["Abertura de Chamado", "Falar com Atendente", "Encerrar Conversa"];
+  };
+
   const startChat = () => {
     addMessage("Bem-vindo ao autoatendimento da ViaInfra 👋\nComo podemos ajudar hoje?");
     setState('start');
@@ -254,7 +273,7 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
 
   const getActionButtons = () => {
     if (state === 'start') {
-      return ["Abertura de Chamado", "Falar com Atendente", "Encerrar Conversa"];
+      return getDynamicOptions();
     } else if (state === 'posResumo') {
       return ["Voltar ao início", "Falar com Atendente", "Encerrar Conversa"];
     } else if (state === 'escolhendoSetor') {
