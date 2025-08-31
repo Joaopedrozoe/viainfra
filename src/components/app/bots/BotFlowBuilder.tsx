@@ -47,8 +47,7 @@ const nodeTypes = {
   end: EndNode
 };
 
-// Dados iniciais do fluxo baseados no ChatBotPreview existente
-const initialNodes: Node[] = [
+const getInitialNodes = (): Node[] => [
   {
     id: 'start-1',
     type: 'start',
@@ -105,7 +104,7 @@ const initialNodes: Node[] = [
   }
 ];
 
-const initialEdges: Edge[] = [
+const getInitialEdges = (): Edge[] => [
   {
     id: 'e1-2',
     source: 'start-1',
@@ -146,6 +145,10 @@ const initialEdges: Edge[] = [
 ];
 
 export function BotFlowBuilder({ bot, onUpdateBot }: BotFlowBuilderProps) {
+  // Inicializar com o fluxo do bot ou com o fluxo padrão se estiver vazio
+  const initialNodes = bot.flows.nodes.length > 0 ? bot.flows.nodes : getInitialNodes();
+  const initialEdges = bot.flows.edges.length > 0 ? bot.flows.edges : getInitialEdges();
+  
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);

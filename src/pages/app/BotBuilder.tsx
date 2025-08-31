@@ -59,7 +59,7 @@ const BotBuilder = () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       flows: {
-        nodes: [],
+        nodes: [], // Começa vazio, será carregado com o fluxo padrão no BotFlowBuilder
         edges: []
       }
     }
@@ -136,15 +136,6 @@ const BotBuilder = () => {
             >
               <Play className="h-4 w-4" />
               Preview
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleCreateNewVersion}
-              className="flex items-center gap-2"
-            >
-              <GitBranch className="h-4 w-4" />
-              Nova Versão
             </Button>
             {currentBot?.status === 'draft' ? (
               <Button
