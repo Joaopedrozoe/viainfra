@@ -38,10 +38,18 @@ export const PreviewConversationProvider: React.FC<{ children: React.ReactNode }
     };
 
     console.log('🎬 CONTEXT: Criando nova conversa de preview:', newConversation);
+    
     setPreviewConversations(prev => {
       const updated = [newConversation, ...prev];
       console.log('🎬 CONTEXT: Preview conversations atualizadas. Total:', updated.length);
-      console.log('🎬 CONTEXT: Lista completa:', updated);
+      
+      // Salvar no localStorage para compartilhar com ChatWindow
+      const storageData: { [key: string]: PreviewConversation } = {};
+      updated.forEach(conv => {
+        storageData[conv.id] = conv;
+      });
+      localStorage.setItem('preview-conversations', JSON.stringify(storageData));
+      
       return updated;
     });
     return id;
@@ -71,7 +79,15 @@ export const PreviewConversationProvider: React.FC<{ children: React.ReactNode }
         }
         return conv;
       });
-      console.log('Lista atualizada de conversas de preview:', updated.length);
+      
+      // Atualizar localStorage sempre que as conversas mudarem
+      const storageData: { [key: string]: PreviewConversation } = {};
+      updated.forEach(conv => {
+        storageData[conv.id] = conv;
+      });
+      localStorage.setItem('preview-conversations', JSON.stringify(storageData));
+      console.log('📦 localStorage atualizado com:', Object.keys(storageData).length, 'conversas');
+      
       return updated;
     });
   }, []);

@@ -385,19 +385,9 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
   };
 
   const escolherSetor = () => {
-    const setorMessage = {
-      id: Date.now().toString(),
-      content: "Selecione o setor para transferência:",
-      sender: 'bot' as const,
-      timestamp: new Date().toLocaleTimeString('pt-BR', { 
-        hour: '2-digit', 
-        minute: '2-digit' 
-      }),
-      options: ["📞 Atendimento", "💼 Comercial", "🔧 Manutenção", "💰 Financeiro", "👥 RH"]
-    };
-    
-    setMessages(prev => [...prev, setorMessage]);
+    addMessage("Selecione o setor para transferência:");
     setState('escolhendoSetor');
+    setShowInput(false);
   };
 
   const handleSetor = (setor: string) => {
