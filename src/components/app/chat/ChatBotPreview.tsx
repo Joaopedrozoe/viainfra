@@ -251,6 +251,9 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
       setTimeout(() => {
         onClose();
       }, 2000);
+    } else if (option === "Continuar") {
+      // Não fazer nada específico para "Continuar" - evitar duplicação
+      return;
     }
   };
 
