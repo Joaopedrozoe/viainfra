@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { AuthProvider } from "@/contexts/auth";
+import { PreviewConversationProvider } from "@/contexts/PreviewConversationContext";
 import { PrivateRoute } from "@/components/auth/PrivateRoute";
 
 // Import Login and Register eagerly to avoid lazy-loading issues
@@ -66,7 +67,8 @@ const queryClient = new QueryClient({
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <BrowserRouter>
-      <AuthProvider>
+      <PreviewConversationProvider>
+        <AuthProvider>
         <TooltipProvider>
           <Toaster />
           <Sonner />
@@ -107,6 +109,7 @@ const App = () => (
           </Suspense>
         </TooltipProvider>
       </AuthProvider>
+      </PreviewConversationProvider>
     </BrowserRouter>
   </QueryClientProvider>
 );

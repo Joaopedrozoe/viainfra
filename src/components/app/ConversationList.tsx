@@ -7,13 +7,15 @@ import { DbConversation, mapDbConversationToConversation } from "@/types/supabas
 import { Conversation, Channel } from "@/types/conversation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDemoMode } from "@/hooks/useDemoMode";
+import { usePreviewConversation } from "@/contexts/PreviewConversationContext";
 
 type ConversationListProps = {
   onSelectConversation: (id: string) => void;
   selectedId?: string;
+  refreshTrigger?: number;
 };
 
-export const ConversationList = ({ onSelectConversation, selectedId }: ConversationListProps) => {
+export const ConversationList = ({ onSelectConversation, selectedId, refreshTrigger }: ConversationListProps) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -21,6 +23,7 @@ export const ConversationList = ({ onSelectConversation, selectedId }: Conversat
   const [activeTab, setActiveTab] = useState<"all" | "unread" | "preview">("all");
   const [isLoading, setIsLoading] = useState(true);
   const { isDemoMode } = useDemoMode();
+  const { previewConversations } = usePreviewConversation();
 
   // Fetch conversations from Supabase with real-time updates
   useEffect(() => {
@@ -40,10 +43,12 @@ export const ConversationList = ({ onSelectConversation, selectedId }: Conversat
           }
           
           const mappedConversations = (data || []).map(mapDbConversationToConversation);
-          setConversations(mappedConversations);
+          // Combinar conversas reais com conversas de preview
+          const allConversations = [...previewConversations, ...mappedConversations];
+          setConversations(allConversations);
         } else {
-          // In demo mode, show empty state for conversations
-          setConversations([]);
+          // Em modo demo, usar apenas conversas de preview
+          setConversations(previewConversations);
         }
       } catch (error) {
         console.error('Error in conversation fetch:', error);
@@ -71,7 +76,7 @@ export const ConversationList = ({ onSelectConversation, selectedId }: Conversat
         supabase.removeChannel(channel);
       };
     }
-  }, [isDemoMode]);
+  }, [isDemoMode, refreshTrigger, previewConversations]);
 
   // Handle conversation selection
   const handleConversationSelect = (conversationId: string) => {

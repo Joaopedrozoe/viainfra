@@ -11,6 +11,7 @@ import { Send } from "lucide-react";
 import { BotVersion } from "@/pages/app/BotBuilder";
 import { supabase } from "@/integrations/supabase/client";
 import { Channel } from "@/types/conversation";
+import { usePreviewConversation } from "@/contexts/PreviewConversationContext";
 
 interface Message {
   id: string;
@@ -57,6 +58,7 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
   const [showInput, setShowInput] = useState(false);
   const [previewConversationId, setPreviewConversationId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { createPreviewConversation, updatePreviewConversation } = usePreviewConversation();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -81,7 +83,7 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
       // Iniciar conversa com base no fluxo atual
       setTimeout(() => {
         startChatFromFlow();
-        createPreviewConversation();
+        createPreviewConversationLocal();
       }, 100);
     }
   }, [isOpen, botData]);
@@ -101,7 +103,7 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
       
       // Atualizar conversa de preview em tempo real
       if (previewConversationId) {
-        updatePreviewConversation(updatedMessages);
+        updatePreviewConversationLocal(updatedMessages);
       }
       
       return updatedMessages;
@@ -390,58 +392,31 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     }, 500);
   };
 
-  const createPreviewConversation = async () => {
+  const createPreviewConversationLocal = () => {
     if (!botData) return;
     
     try {
-      const conversationData = {
-        name: `Preview Bot - ${botData.name}`,
-        channel: 'whatsapp' as Channel,
-        preview: 'Conversa de preview do chatbot iniciada...',
-        time: new Date().toISOString(),
-        unread: 1,
-        company_id: '1',
-        is_preview: true
-      };
-
-      const { data, error } = await supabase
-        .from('conversations')
-        .insert([conversationData])
-        .select()
-        .single();
-        
-      if (error) {
-        console.error('Erro ao criar conversa de preview:', error);
-        return;
-      }
-      
-      setPreviewConversationId(data.id);
-      console.log('Conversa de preview criada:', data.id);
+      const id = createPreviewConversation(botData.name);
+      setPreviewConversationId(id);
+      console.log('Conversa de preview criada localmente:', id);
     } catch (error) {
-      console.error('Erro ao criar conversa de preview:', error);
+      console.error('Erro ao criar conversa de preview local:', error);
     }
   };
 
-  const updatePreviewConversation = async (messages: Message[]) => {
-    if (!previewConversationId || messages.length === 0) return;
+  const updatePreviewConversationLocal = (messages: Message[]) => {
+    if (!previewConversationId) return;
     
     try {
-      const lastMessage = messages[messages.length - 1];
-      const preview = lastMessage.content.length > 50 
-        ? lastMessage.content.substring(0, 50) + '...'
-        : lastMessage.content;
+      const mappedMessages = messages.map(msg => ({
+        content: msg.content,
+        isBot: msg.sender === 'bot',
+        timestamp: msg.timestamp
+      }));
 
-      await supabase
-        .from('conversations')
-        .update({ 
-          preview: preview,
-          time: new Date().toISOString(),
-          unread: 1
-        })
-        .eq('id', previewConversationId);
-        
+      updatePreviewConversation(previewConversationId, mappedMessages);
     } catch (error) {
-      console.error('Erro ao atualizar conversa de preview:', error);
+      console.error('Erro ao atualizar conversa de preview local:', error);
     }
   };
 

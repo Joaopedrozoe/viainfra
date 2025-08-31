@@ -49,7 +49,7 @@ const Inbox = () => {
   const handleRefresh = useCallback(() => {
     setRefreshKey(prev => prev + 1);
   }, []);
-  
+
   if (isMobile) {
     return (
       <div className="flex flex-col h-full w-full bg-background overflow-hidden">
@@ -82,7 +82,7 @@ const Inbox = () => {
             <ConversationList 
               onSelectConversation={handleSelectConversation}
               selectedId={selectedConversation}
-              key={refreshKey}
+              refreshTrigger={refreshKey}
             />
             </div>
           </div>
@@ -112,7 +112,7 @@ const Inbox = () => {
             <ConversationList 
               onSelectConversation={handleSelectConversation}
               selectedId={selectedConversation}
-              key={refreshKey}
+              refreshTrigger={refreshKey}
             />
           </div>
           <div className="flex-1">
