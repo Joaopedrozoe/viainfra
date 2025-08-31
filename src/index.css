@@ -1,4 +1,3 @@
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -133,4 +132,33 @@
 
 .channel-icon:hover {
   transform: translateY(-2px);
+}
+
+/* React Flow Minimap Custom Colors */
+.react-flow__minimap .react-flow__minimap-node {
+  fill: #e2e8f0;
+}
+
+.react-flow__minimap .react-flow__minimap-node[data-testid="rf__minimap-node-start"] {
+  fill: #22c55e !important; /* Verde para start */
+}
+
+.react-flow__minimap .react-flow__minimap-node[data-testid="rf__minimap-node-message"] {
+  fill: #3b82f6 !important; /* Azul para message */
+}
+
+.react-flow__minimap .react-flow__minimap-node[data-testid="rf__minimap-node-question"] {
+  fill: #8b5cf6 !important; /* Roxo para question */
+}
+
+.react-flow__minimap .react-flow__minimap-node[data-testid="rf__minimap-node-condition"] {
+  fill: #eab308 !important; /* Amarelo para condition */
+}
+
+.react-flow__minimap .react-flow__minimap-node[data-testid="rf__minimap-node-action"] {
+  fill: #f97316 !important; /* Laranja para action */
+}
+
+.react-flow__minimap .react-flow__minimap-node[data-testid="rf__minimap-node-end"] {
+  fill: #ef4444 !important; /* Vermelho para end */
 }

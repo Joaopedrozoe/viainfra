@@ -228,16 +228,96 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
   };
 
   const askNextField = () => {
-    if (currentFieldIndex < chamadoFields.length) {
-      addMessage(chamadoFields[currentFieldIndex].question);
-      setShowInput(true);
+    // Buscar campos do nó de ação atual
+    const currentNode = botData?.flows.nodes.find(node => node.id === currentNodeId);
+    const formFields = currentNode?.data?.actionType === 'form' && Array.isArray(currentNode.data.fields) 
+      ? currentNode.data.fields 
+      : chamadoFields; // fallback para campos padrão
+    
+    if (currentFieldIndex < formFields.length) {
+      const field = formFields[currentFieldIndex];
+      if (typeof field === 'object' && field.key) {
+        // Novo formato de campo estruturado
+        const fieldPrompt = `Por favor, informe **${field.key}**:`;
+        addMessage(fieldPrompt);
+        setShowInput(true);
+      } else if (typeof field === 'string') {
+        // Formato antigo de campo (string)
+        const fieldPrompt = `Por favor, informe **${field}**:`;
+        addMessage(fieldPrompt);
+        setShowInput(true);
+      }
     } else {
-      mostrarResumoChamado();
+      mostrarResumoChamado(formFields);
     }
   };
 
-  const returnToMenu = () => {
-    addMessage("Escolha uma nova ação:");
+  const handleFormInput = (value: string) => {
+    // Buscar campos do nó de ação atual
+    const currentNode = botData?.flows.nodes.find(node => node.id === currentNodeId);
+    const formFields = currentNode?.data?.actionType === 'form' && Array.isArray(currentNode.data.fields) 
+      ? currentNode.data.fields 
+      : chamadoFields;
+    
+    const field = formFields[currentFieldIndex];
+    const fieldKey = typeof field === 'object' && field.key ? field.key : (typeof field === 'string' ? field : `Campo ${currentFieldIndex + 1}`);
+    
+    setChamadoData(prev => ({
+      ...prev,
+      [fieldKey]: value
+    }));
+    
+    setCurrentFieldIndex(prev => prev + 1);
+    setShowInput(false);
+    
+    // Validação básica
+    const fieldConfig = typeof field === 'object' ? field : null;
+    if (fieldConfig?.required && !value.trim()) {
+      addMessage("❌ Este campo é obrigatório. Tente novamente:");
+      setCurrentFieldIndex(prev => prev - 1);
+      setShowInput(true);
+      return;
+    }
+    
+    if (fieldConfig?.type === 'email' && !/\S+@\S+\.\S+/.test(value)) {
+      addMessage("❌ Por favor, digite um email válido:");
+      setCurrentFieldIndex(prev => prev - 1);
+      setShowInput(true);
+      return;
+    }
+    
+    setTimeout(() => {
+      askNextField();
+    }, 500);
+  };
+
+  const mostrarResumoChamado = (formFields?: any[]) => {
+    const numeroChamado = gerarNumeroChamado();
+    
+    let resumo = "**Resumo do chamado**\n\n";
+    
+    // Usar campos dinâmicos se disponíveis
+    if (formFields && Array.isArray(formFields)) {
+      formFields.forEach(field => {
+        const fieldKey = typeof field === 'object' && field.key ? field.key : (typeof field === 'string' ? field : '');
+        if (fieldKey && chamadoData[fieldKey]) {
+          resumo += `**${fieldKey}:** ${chamadoData[fieldKey]}\n`;
+        }
+      });
+    } else {
+      // Fallback para campos padrão
+      chamadoFields.forEach(field => {
+        const fieldKey = typeof field === 'string' ? field : field.key;
+        if (chamadoData[fieldKey]) {
+          resumo += `**${fieldKey}:** ${chamadoData[fieldKey]}\n`;
+        }
+      });
+    }
+    
+    resumo += `**Número Chamado:** ${numeroChamado}`;
+    
+    addMessage(resumo);
+    setState('posResumo');
     setShowInput(false);
   };
 
@@ -247,23 +327,7 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     addMessage(input.trim(), 'user');
     
     if (state === 'abrindoChamado') {
-      const newChamadoData = {
-        ...chamadoData,
-        [chamadoFields[currentFieldIndex].key]: input.trim()
-      };
-      setChamadoData(newChamadoData);
-      setCurrentFieldIndex(prev => prev + 1);
-      
-      // Check if we need to ask next field
-      if (currentFieldIndex + 1 < chamadoFields.length) {
-        setTimeout(() => {
-          addMessage(chamadoFields[currentFieldIndex + 1].question);
-        }, 500);
-      } else {
-        setTimeout(() => {
-          mostrarResumoChamado();
-        }, 500);
-      }
+      handleFormInput(input.trim());
     }
     
     setInput("");
@@ -275,17 +339,8 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     return numero;
   };
 
-  const mostrarResumoChamado = () => {
-    const numeroChamado = gerarNumeroChamado();
-    
-    let resumo = "**Resumo do chamado**\n\n";
-    chamadoFields.forEach(field => {
-      resumo += `**${field.key}:** ${chamadoData[field.key] || ''}\n`;
-    });
-    resumo += `**Número Chamado:** ${numeroChamado}`;
-    
-    addMessage(resumo);
-    setState('posResumo');
+  const returnToMenu = () => {
+    addMessage("Escolha uma nova ação:");
     setShowInput(false);
   };
 
@@ -411,6 +466,21 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
                             setCurrentFieldIndex(0);
                             setChamadoData({});
                             askNextField();
+                          } else if (nextNode.data?.actionType === 'transfer') {
+                            // Lógica de transferência
+                            const transferType = nextNode.data?.transferType || 'department';
+                            if (transferType === 'department') {
+                              addMessage("Selecione o **departamento** para transferência:");
+                              const departments = nextNode.data?.departments || ["Atendimento", "Comercial", "Manutenção", "Financeiro", "RH"];
+                              // Atualizar opções temporariamente
+                              setState('escolhendoSetor');
+                            } else {
+                              addMessage("Seu atendimento está sendo transferido...");
+                              setTimeout(() => {
+                                addMessage("Olá! Você está sendo atendido por um de nossos especialistas. Como posso ajudá-lo?");
+                                setState('start');
+                              }, 2000);
+                            }
                           } else {
                             const actionText = typeof nextNode.data?.action === 'string' ? nextNode.data.action : 'Executando ação...';
                             addMessage(actionText);

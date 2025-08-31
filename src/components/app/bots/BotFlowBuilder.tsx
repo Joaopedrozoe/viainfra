@@ -668,6 +668,7 @@ function NodePropertiesPanel({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="form">Formulário</SelectItem>
+                    <SelectItem value="transfer">Transferir para Atendente</SelectItem>
                     <SelectItem value="redirect">Redirecionamento</SelectItem>
                     <SelectItem value="api">Chamada API</SelectItem>
                     <SelectItem value="custom">Customizada</SelectItem>
@@ -776,7 +777,52 @@ function NodePropertiesPanel({
                 </div>
               )}
 
-              {editingData?.actionType !== 'form' && (
+              {editingData?.actionType === 'transfer' && (
+                <div>
+                  <Label htmlFor="transfer-options">Opções de Transferência</Label>
+                  <div className="space-y-2">
+                    <Select 
+                      value={editingData?.transferType || 'department'} 
+                      onValueChange={(value) => updateField('transferType', value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Tipo de transferência" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="department">Departamento</SelectItem>
+                        <SelectItem value="agent">Agente Específico</SelectItem>
+                        <SelectItem value="queue">Fila de Atendimento</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    
+                    {editingData?.transferType === 'department' && (
+                      <Input
+                        placeholder="Departamentos (separados por vírgula)"
+                        value={editingData?.departments?.join(', ') || ''}
+                        onChange={(e) => updateField('departments', e.target.value.split(',').map(dept => dept.trim()))}
+                      />
+                    )}
+                    
+                    {editingData?.transferType === 'agent' && (
+                      <Input
+                        placeholder="Agentes (separados por vírgula)"
+                        value={editingData?.agents?.join(', ') || ''}
+                        onChange={(e) => updateField('agents', e.target.value.split(',').map(agent => agent.trim()))}
+                      />
+                    )}
+                    
+                    {editingData?.transferType === 'queue' && (
+                      <Input
+                        placeholder="Nome da fila"
+                        value={editingData?.queueName || ''}
+                        onChange={(e) => updateField('queueName', e.target.value)}
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {(editingData?.actionType !== 'form' && editingData?.actionType !== 'transfer') && (
                 <div>
                   <Label htmlFor="node-action">Configuração da Ação</Label>
                   <Textarea
