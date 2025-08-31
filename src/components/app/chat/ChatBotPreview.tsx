@@ -518,70 +518,11 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    addMessage(option, 'user');
-                    
-                    // Usar sistema de navegação dinâmica
-                    const nextNode = findNextNode(currentNodeId, option);
-                    
-                    if (nextNode) {
-                      setCurrentNodeId(nextNode.id);
-                      
-                      setTimeout(() => {
-                        if (nextNode.type === 'message') {
-                          const messageText = typeof nextNode.data?.message === 'string' ? nextNode.data.message : '';
-                          addMessage(messageText);
-                          // Continue automaticamente para o próximo nó
-                          const followUpNode = findNextNode(nextNode.id);
-                          if (followUpNode) {
-                            setCurrentNodeId(followUpNode.id);
-                            if (followUpNode.type === 'question') {
-                              setTimeout(() => {
-                                const questionText = typeof followUpNode.data?.question === 'string' ? followUpNode.data.question : '';
-                                addMessage(questionText);
-                              }, 1000);
-                            }
-                          }
-                        } else if (nextNode.type === 'question') {
-                          const questionText = typeof nextNode.data?.question === 'string' ? nextNode.data.question : 'Escolha uma opção:';
-                          addMessage(questionText);
-                        } else if (nextNode.type === 'action') {
-                          if (nextNode.data?.actionType === 'form') {
-                            setState('abrindoChamado');
-                            setCurrentFieldIndex(0);
-                            setChamadoData({});
-                            askNextField();
-                          } else if (nextNode.data?.actionType === 'transfer') {
-                            // Lógica de transferência
-                            const transferType = nextNode.data?.transferType || 'department';
-                            if (transferType === 'department') {
-                              addMessage("Selecione o **departamento** para transferência:");
-                              const departments = nextNode.data?.departments || ["Atendimento", "Comercial", "Manutenção", "Financeiro", "RH"];
-                              // Atualizar opções temporariamente
-                              setState('escolhendoSetor');
-                            } else {
-                              addMessage("Seu atendimento está sendo transferido...");
-                              setTimeout(() => {
-                                addMessage("Olá! Você está sendo atendido por um de nossos especialistas. Como posso ajudá-lo?");
-                                setState('start');
-                              }, 2000);
-                            }
-                          } else {
-                            const actionText = typeof nextNode.data?.action === 'string' ? nextNode.data.action : 'Executando ação...';
-                            addMessage(actionText);
-                          }
-                        } else if (nextNode.type === 'end') {
-                          const endMessage = typeof nextNode.data?.message === 'string' ? nextNode.data.message : 'Obrigado por utilizar nosso atendimento! 👋';
-                          addMessage(endMessage);
-                          setShowInput(false);
-                        }
-                      }, 500);
+                    // Usar apenas a lógica manual para evitar duplicação
+                    if (state === 'escolhendoSetor') {
+                      handleSetor(option);
                     } else {
-                      // Fallback para comportamento antigo
-                      if (state === 'escolhendoSetor') {
-                        handleSetor(option);
-                      } else {
-                        handleOption(option);
-                      }
+                      handleOption(option);
                     }
                   }}
                   className="text-xs"
