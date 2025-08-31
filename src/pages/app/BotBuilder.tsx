@@ -248,7 +248,9 @@ const BotBuilder = () => {
       {/* Preview Modal */}
       <ChatBotPreview 
         isOpen={showPreview} 
-        onClose={() => setShowPreview(false)} 
+        onClose={() => setShowPreview(false)}
+        botData={currentBot}
+        key={showPreview ? `preview-${Date.now()}` : 'preview-closed'}
       />
     </div>
   );

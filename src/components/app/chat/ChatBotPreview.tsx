@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Send } from "lucide-react";
+import { BotVersion } from "@/pages/app/BotBuilder";
 
 interface Message {
   id: string;
@@ -19,6 +20,7 @@ interface Message {
 interface ChatBotPreviewProps {
   isOpen: boolean;
   onClose: () => void;
+  botData?: BotVersion;
 }
 
 type ChatState = 'start' | 'abrindoChamado' | 'posResumo' | 'escolhendoSetor';
@@ -43,7 +45,7 @@ const agentesSetor = {
   "RH": "Sandra Romano"
 };
 
-export function ChatBotPreview({ isOpen, onClose }: ChatBotPreviewProps) {
+export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [state, setState] = useState<ChatState>('start');
@@ -61,11 +63,23 @@ export function ChatBotPreview({ isOpen, onClose }: ChatBotPreviewProps) {
     scrollToBottom();
   }, [messages]);
 
+  // Reiniciar conversa sempre que o modal abrir
   useEffect(() => {
-    if (isOpen && messages.length === 0) {
-      startChat();
+    if (isOpen) {
+      // Limpar estado
+      setMessages([]);
+      setInput("");
+      setState('start');
+      setCurrentFieldIndex(0);
+      setChamadoData({});
+      setShowInput(false);
+      
+      // Iniciar conversa com base no fluxo atual
+      setTimeout(() => {
+        startChatFromFlow();
+      }, 100);
     }
-  }, [isOpen]);
+  }, [isOpen, botData]);
 
   const addMessage = (content: string, sender: 'bot' | 'user' = 'bot') => {
     const newMessage: Message = {
@@ -78,6 +92,21 @@ export function ChatBotPreview({ isOpen, onClose }: ChatBotPreviewProps) {
       })
     };
     setMessages(prev => [...prev, newMessage]);
+  };
+
+  const startChatFromFlow = () => {
+    // Buscar nó de início no fluxo atual
+    const startNode = botData?.flows.nodes.find(node => node.type === 'start');
+    
+    if (startNode && startNode.data?.message && typeof startNode.data.message === 'string') {
+      addMessage(startNode.data.message);
+    } else {
+      // Fallback para mensagem padrão
+      addMessage("Bem-vindo ao autoatendimento da ViaInfra 👋\nComo podemos ajudar hoje?");
+    }
+    
+    setState('start');
+    setShowInput(false);
   };
 
   const startChat = () => {
@@ -239,7 +268,7 @@ export function ChatBotPreview({ isOpen, onClose }: ChatBotPreviewProps) {
       <DialogContent className="max-w-md h-[600px] p-0 flex flex-col">
         <DialogHeader className="p-4 border-b border-border">
           <DialogTitle className="text-lg font-semibold text-viainfra-primary">
-            Preview: Autoatendimento ViaInfra
+            Preview: {botData?.name || 'Autoatendimento ViaInfra'}
           </DialogTitle>
         </DialogHeader>
         
