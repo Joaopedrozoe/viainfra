@@ -288,12 +288,13 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
       ? field.label 
       : (typeof field === 'object' && field.key ? field.key : (typeof field === 'string' ? field : `Campo ${currentFieldIndex + 1}`));
     
+    // Salvar dados do formulário
     setChamadoData(prev => ({
       ...prev,
       [fieldKey]: value
     }));
     
-    // Avançar para o próximo campo (sem validação por enquanto)
+    // Avançar para o próximo campo
     setCurrentFieldIndex(prev => prev + 1);
     
     setTimeout(() => {
@@ -336,10 +337,11 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
   const sendMessage = () => {
     if (!input.trim()) return;
     
+    // SEMPRE adicionar a mensagem do usuário primeiro
+    addMessage(input.trim(), 'user');
+    
     if (state === 'abrindoChamado') {
       handleFormInput(input.trim());
-    } else {
-      addMessage(input.trim(), 'user');
     }
     
     setInput("");
