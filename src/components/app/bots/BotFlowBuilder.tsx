@@ -198,13 +198,30 @@ const getInitialEdges = (): Edge[] => [
     markerEnd: { type: MarkerType.ArrowClosed }
   },
   {
-    id: 'e3-resumo',
+    id: 'e3-opcoes',
     source: 'chamado-1',
     target: 'opcoes-pos-chamado',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
-  // Conexões para cada transferência específica
+  // Fluxo das opções pós-chamado
+  {
+    id: 'e-opcoes-atendente',
+    source: 'opcoes-pos-chamado',
+    target: 'setor-1',
+    label: 'Falar com Atendente',
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed }
+  },
+  {
+    id: 'e-opcoes-menu',
+    source: 'opcoes-pos-chamado',
+    target: 'start-1',
+    label: 'Menu Principal',
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed }
+  },
+  // Conexões diretas para cada transferência específica
   {
     id: 'e-setor-atendimento',
     source: 'setor-1',
@@ -242,23 +259,6 @@ const getInitialEdges = (): Edge[] => [
     source: 'setor-1',
     target: 'transfer-rh',
     label: 'RH',
-    type: 'smoothstep',
-    markerEnd: { type: MarkerType.ArrowClosed }
-  },
-  // Fluxo das opções pós-chamado
-  {
-    id: 'e-opcoes-atendente',
-    source: 'opcoes-pos-chamado',
-    target: 'setor-1',
-    label: 'Falar com Atendente',
-    type: 'smoothstep',
-    markerEnd: { type: MarkerType.ArrowClosed }
-  },
-  {
-    id: 'e-opcoes-menu',
-    source: 'opcoes-pos-chamado',
-    target: 'start-1',
-    label: 'Menu Principal',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   }

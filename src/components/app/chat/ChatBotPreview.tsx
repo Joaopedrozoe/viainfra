@@ -236,7 +236,7 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
         askNextField();
       }, 500);
     } else if (option === "Falar com Atendente") {
-      // Ir direto para escolha de setor sem repetir pergunta
+      // Sempre vai para escolha de setor
       setTimeout(() => {
         escolherSetor();
       }, 500);
@@ -245,6 +245,8 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
       handleSetor(option);
     } else if (option === "Menu Principal") {
       setState('start');
+      setCurrentFieldIndex(0);
+      setChamadoData({});
       startChatFromFlow();
     } else if (option === "Encerrar Conversa") {
       addMessage("Obrigado por utilizar nosso atendimento! A conversa foi encerrada. 👋");
@@ -353,8 +355,8 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     
     setTimeout(() => {
       addMessage("O que deseja fazer agora?");
-      setShowInput(false);
       setState('posResumo');
+      setShowInput(false);
     }, 1500);
   };
 
@@ -483,18 +485,19 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
   };
 
   const getActionButtons = () => {
+    // Estados específicos têm prioridade
+    if (state === 'posResumo') {
+      return ["Falar com Atendente", "Menu Principal"];
+    } else if (state === 'escolhendoSetor') {
+      return ["📞 Atendimento", "💼 Comercial", "🔧 Manutenção", "💰 Financeiro", "👥 RH"];
+    }
+    
     // Usar o sistema de navegação dinâmica quando possível
     const currentOptions = getCurrentNodeOptions();
     if (Array.isArray(currentOptions) && currentOptions.length > 0) {
       return currentOptions;
     }
     
-    // Fallback para estados específicos
-    if (state === 'posResumo') {
-      return ["Falar com Atendente", "Menu Principal"];
-    } else if (state === 'escolhendoSetor') {
-      return ["💼 Comercial", "🔧 Manutenção", "💰 Financeiro", "📞 Atendimento", "👥 RH"];
-    }
     return [];
   };
 
