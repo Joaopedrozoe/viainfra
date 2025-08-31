@@ -169,6 +169,8 @@ export function BotFlowBuilder({ bot, onUpdateBot }: BotFlowBuilderProps) {
     onUpdateBot(updatedBot);
   }, [nodes, edges]);
 
+  const isEditable = bot.status === 'draft';
+
   return (
     <div className="h-full flex">
       {/* Flow Canvas */}
@@ -176,18 +178,27 @@ export function BotFlowBuilder({ bot, onUpdateBot }: BotFlowBuilderProps) {
         <ReactFlow
           nodes={nodes}
           edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
+          onNodesChange={isEditable ? onNodesChange : undefined}
+          onEdgesChange={isEditable ? onEdgesChange : undefined}
+          onConnect={isEditable ? onConnect : undefined}
           onNodeClick={onNodeClick}
           nodeTypes={nodeTypes}
           fitView
           className="bg-gray-50"
+          nodesDraggable={isEditable}
+          nodesConnectable={isEditable}
+          elementsSelectable={isEditable}
         >
           <Controls />
           <MiniMap />
           <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
         </ReactFlow>
+        
+        {!isEditable && (
+          <div className="absolute top-4 left-4 bg-amber-100 border border-amber-200 rounded px-3 py-2 text-sm text-amber-800">
+            Versão publicada - somente leitura
+          </div>
+        )}
       </div>
 
       {/* Properties Panel */}

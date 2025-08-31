@@ -45,7 +45,7 @@ export interface BotVersion {
 }
 
 const BotBuilder = () => {
-  const [selectedBot, setSelectedBot] = useState<string>("fluxo-viainfra");
+  const [selectedBot, setSelectedBot] = useState<string | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<string>("v1");
   const [showPreview, setShowPreview] = useState(false);
   
@@ -64,6 +64,14 @@ const BotBuilder = () => {
       }
     }
   ]);
+
+  // Get unique bots (by id)
+  const availableBots = botVersions.reduce((acc, bot) => {
+    if (!acc.find(b => b.id === bot.id)) {
+      acc.push(bot);
+    }
+    return acc;
+  }, [] as BotVersion[]);
 
   const currentBot = botVersions.find(bot => 
     bot.id === selectedBot && bot.version === selectedVersion
@@ -161,37 +169,85 @@ const BotBuilder = () => {
       </div>
 
       <div className="flex-1 flex">
-        {/* Sidebar - Version Control */}
-        <div className="w-80 border-r border-border bg-muted/50">
-          <BotVersionControl
-            botVersions={botVersions}
-            selectedBot={selectedBot}
-            selectedVersion={selectedVersion}
-            onSelectBot={setSelectedBot}
-            onSelectVersion={setSelectedVersion}
-            onCreateNewVersion={handleCreateNewVersion}
-          />
-        </div>
-
-        {/* Main Flow Builder */}
-        <div className="flex-1">
-          {currentBot ? (
-            <BotFlowBuilder
-              bot={currentBot}
-              onUpdateBot={(updatedBot) => {
-                setBotVersions(prev => prev.map(bot => 
-                  bot.id === updatedBot.id && bot.version === updatedBot.version
-                    ? updatedBot
-                    : bot
-                ));
-              }}
-            />
-          ) : (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-muted-foreground">Selecione um bot para começar</p>
+        {!selectedBot ? (
+          /* Lista de Bots */
+          <div className="flex-1 p-6">
+            <div className="mb-6 flex items-center justify-between">
+              <h2 className="text-xl font-semibold">Seus Bots</h2>
+              <Button className="flex items-center gap-2">
+                <Plus className="h-4 w-4" />
+                Criar Novo Bot
+              </Button>
             </div>
-          )}
-        </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {availableBots.map((bot) => {
+                const versions = botVersions.filter(v => v.id === bot.id);
+                const publishedVersion = versions.find(v => v.status === 'published');
+                
+                return (
+                  <Card 
+                    key={bot.id}
+                    className="p-6 cursor-pointer hover:shadow-md transition-shadow"
+                    onClick={() => {
+                      setSelectedBot(bot.id);
+                      setSelectedVersion(publishedVersion?.version || versions[0]?.version || 'v1');
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-semibold">{bot.name}</h3>
+                      <Badge variant={publishedVersion ? 'default' : 'secondary'}>
+                        {publishedVersion ? 'Publicado' : 'Rascunho'}
+                      </Badge>
+                    </div>
+                    
+                    <p className="text-sm text-muted-foreground mb-4">
+                      {versions.length} versão{versions.length !== 1 ? 'ões' : ''}
+                    </p>
+                    
+                    <div className="text-xs text-muted-foreground">
+                      Atualizado: {new Date(bot.updatedAt).toLocaleDateString('pt-BR')}
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Sidebar - Version Control */}
+            <div className="w-80 border-r border-border bg-muted/50">
+              <BotVersionControl
+                botVersions={botVersions}
+                selectedBot={selectedBot}
+                selectedVersion={selectedVersion}
+                onSelectBot={setSelectedBot}
+                onSelectVersion={setSelectedVersion}
+                onCreateNewVersion={handleCreateNewVersion}
+              />
+            </div>
+
+            {/* Main Flow Builder */}
+            <div className="flex-1">
+              {currentBot ? (
+                <BotFlowBuilder
+                  bot={currentBot}
+                  onUpdateBot={(updatedBot) => {
+                    setBotVersions(prev => prev.map(bot => 
+                      bot.id === updatedBot.id && bot.version === updatedBot.version
+                        ? updatedBot
+                        : bot
+                    ));
+                  }}
+                />
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-muted-foreground">Selecione uma versão para começar</p>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Preview Modal */}

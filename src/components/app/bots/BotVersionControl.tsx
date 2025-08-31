@@ -15,9 +15,9 @@ import { BotVersion } from "@/pages/app/BotBuilder";
 
 interface BotVersionControlProps {
   botVersions: BotVersion[];
-  selectedBot: string;
+  selectedBot: string | null;
   selectedVersion: string;
-  onSelectBot: (botId: string) => void;
+  onSelectBot: (botId: string | null) => void;
   onSelectVersion: (version: string) => void;
   onCreateNewVersion: () => void;
 }
@@ -36,16 +36,28 @@ export function BotVersionControl({
     bot.id === selectedBot && bot.version === selectedVersion
   );
 
+  const botInfo = currentBotVersions[0];
+
   return (
     <div className="h-full flex flex-col">
       <div className="p-4 border-b border-border">
-        <h3 className="font-semibold mb-2">Bots Disponíveis</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold">Bot Selecionado</h3>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onSelectBot(null)}
+            className="h-8 px-2"
+          >
+            ← Voltar
+          </Button>
+        </div>
         <Card className="p-3 bg-background">
           <div className="flex items-center justify-between">
             <div>
-              <p className="font-medium text-sm">FLUXO-VIAINFRA</p>
+              <p className="font-medium text-sm">{botInfo?.name}</p>
               <p className="text-xs text-muted-foreground">
-                Bot principal de atendimento
+                Bot de atendimento automatizado
               </p>
             </div>
             <Badge variant={selectedBotData?.status === 'published' ? 'default' : 'secondary'}>
