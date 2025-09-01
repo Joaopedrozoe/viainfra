@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ChevronDown, Code, Webhook, FileText } from "lucide-react";
 import { PlanUsageCard } from "@/components/app/PlanUsageCard";
-import { DebugInfo } from "@/components/debug/DebugInfo";
+
 
 const Settings = () => {
   const { toast } = useToast();
@@ -38,6 +38,14 @@ const Settings = () => {
   
   // Verificar se é a Elisabete (admin) para abas empresa, email e permissões
   const isAdmin = profile?.email === "elisabete.silva@viainfra.com.br";
+  
+  // Debug logs
+  console.log("Settings Debug:", { 
+    profileEmail: profile?.email, 
+    isAdmin, 
+    expectedEmail: "elisabete.silva@viainfra.com.br",
+    match: profile?.email === "elisabete.silva@viainfra.com.br"
+  });
   const tabsRef = useRef<HTMLDivElement>(null);
   const [isTabsOverflowing, setIsTabsOverflowing] = useState(false);
   
@@ -105,6 +113,9 @@ const Settings = () => {
   
   // Filter tabs based on admin permission
   const tabItems = allTabItems.filter(tab => !tab.adminOnly || isAdmin);
+  
+  // Debug filtered tabs
+  console.log("Filtered tabs:", tabItems.map(tab => tab.label));
   
   const handleTabChange = (value: string) => {
     setActiveTab(value);
@@ -625,7 +636,6 @@ const Settings = () => {
         </div>
         </div>
       </main>
-      <DebugInfo />
     </div>
   );
 };
