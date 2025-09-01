@@ -30,8 +30,8 @@ export const MOCK_USERS: User[] = [
   },
   {
     id: "2", 
-    name: "João Santos",
-    email: "joao.santos@viainfra.com.br",
+    name: "Joicy Souza",
+    email: "atendimento@viainfra.com.br",
     role: "attendant",
     isActive: true,
     createdAt: "2024-01-15T00:00:00Z",
@@ -49,8 +49,8 @@ export const MOCK_USERS: User[] = [
   },
   {
     id: "3",
-    name: "Maria Oliveira", 
-    email: "maria.oliveira@viainfra.com.br",
+    name: "Suelem Souza", 
+    email: "manutencao@viainfra.com.br",
     role: "attendant",
     isActive: true,
     createdAt: "2024-02-01T00:00:00Z",
@@ -66,15 +66,32 @@ export const MOCK_USERS: User[] = [
   },
   {
     id: "4",
-    name: "Pedro Costa",
-    email: "pedro.costa@viainfra.com.br", 
+    name: "Giovanna Ferreira",
+    email: "gestaofinanceira@vianfra.com.br", 
     role: "attendant",
-    isActive: false,
+    isActive: true,
     createdAt: "2024-01-10T00:00:00Z",
     lastLogin: "2024-01-18T16:45:00Z",
     permissions: {
       "conversations.view": true,
       "conversations.respond": true,
+      "contacts.view": true,
+      "settings.profile": true
+    }
+  },
+  {
+    id: "5",
+    name: "Sandra Romano",
+    email: "sandra.romano@vialogistic.com.br", 
+    role: "attendant",
+    isActive: true,
+    createdAt: "2024-03-01T00:00:00Z",
+    lastLogin: "2024-03-10T11:20:00Z",
+    permissions: {
+      "conversations.view": true,
+      "conversations.respond": true,
+      "contacts.view": true,
+      "schedule.view": true,
       "settings.profile": true
     }
   }
