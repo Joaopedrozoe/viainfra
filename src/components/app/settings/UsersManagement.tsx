@@ -313,14 +313,14 @@ export const UsersManagement = () => {
 
       {/* Permissions Modal */}
       <Dialog open={showPermissionsModal} onOpenChange={setShowPermissionsModal}>
-        <DialogContent className="sm:max-w-[700px] max-h-[80vh]">
+        <DialogContent className="sm:max-w-[700px] h-[90vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>
               Permissões - {selectedUser?.name}
             </DialogTitle>
           </DialogHeader>
-          <ScrollArea className="max-h-[60vh] pr-4">
-            <div className="space-y-6">
+          <ScrollArea className="flex-1 pr-4 -mx-6 px-6">
+            <div className="space-y-6 py-4">
               {getPermissionsByCategory().map((category) => (
                 <Card key={category.id} className="border-l-4 border-l-primary">
                   <CardHeader className="pb-3">
