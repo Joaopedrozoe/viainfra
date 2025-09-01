@@ -29,9 +29,11 @@ export const ProfileSettings = () => {
   // Load profile data
   useEffect(() => {
     if (profile) {
-      const [first, ...rest] = (profile.name || "").split(" ");
-      setFirstName(first || "");
-      setLastName(rest.join(" ") || "");
+      // Split full name into first and last name
+      const fullName = profile.name || "";
+      const nameParts = fullName.split(" ");
+      setFirstName(nameParts[0] || "");
+      setLastName(nameParts.slice(1).join(" ") || "");
       setEmail(profile.email || "");
     }
   }, [profile]);

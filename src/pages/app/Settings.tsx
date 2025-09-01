@@ -33,8 +33,8 @@ const Settings = () => {
   const isMobile = useIsMobile();
   const [activeTab, setActiveTab] = useState("profile");
   
-  // Verificar se é a Elisabete (pode editar perfil e empresa)
-  const canEditProfileAndCompany = profile?.email === "elisabete.silva@viainfra.com.br";
+  
+  // Agora todos podem editar perfil - removida a restrição da Elisabete
   const tabsRef = useRef<HTMLDivElement>(null);
   const [isTabsOverflowing, setIsTabsOverflowing] = useState(false);
   
@@ -53,6 +53,20 @@ const Settings = () => {
     
     return () => window.removeEventListener('resize', checkOverflow);
   }, [isMobile]);
+  
+  
+  // Carregar dados do perfil do usuário logado
+  useEffect(() => {
+    if (profile) {
+      const fullName = profile.name || "";
+      const nameParts = fullName.split(" ");
+      setName(nameParts[0] || "");
+      setEmail(profile.email || "");
+      
+      // Para empresa, usar um nome padrão se não tiver
+      setCompanyName("Via Infra");
+    }
+  }, [profile]);
   
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -233,13 +247,7 @@ const Settings = () => {
                       value={companyName} 
                       onChange={(e) => setCompanyName(e.target.value)}
                       aria-label="Nome da Empresa"
-                      disabled={!canEditProfileAndCompany}
                     />
-                    {!canEditProfileAndCompany && (
-                      <p className="text-xs text-amber-600">
-                        Apenas administradores podem editar essas informações
-                      </p>
-                    )}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -250,7 +258,6 @@ const Settings = () => {
                         value={timezone}
                         onChange={(e) => setTimezone(e.target.value)}
                         aria-label="Fuso Horário"
-                        disabled={!canEditProfileAndCompany}
                       >
                         <option value="America/Sao_Paulo">Brasília (GMT-3)</option>
                         <option value="America/Manaus">Manaus (GMT-4)</option>
@@ -267,7 +274,6 @@ const Settings = () => {
                         value={language}
                         onChange={(e) => setLanguage(e.target.value)}
                         aria-label="Idioma"
-                        disabled={!canEditProfileAndCompany}
                       >
                         <option value="pt-BR">Português (Brasil)</option>
                         <option value="en-US">English (United States)</option>
@@ -285,7 +291,7 @@ const Settings = () => {
                           <path d="M12 18v0"></path>
                         </svg>
                       </div>
-                      <Button variant="outline" className="flex-1 md:flex-none" disabled={!canEditProfileAndCompany}>
+                      <Button variant="outline" className="flex-1 md:flex-none">
                         Fazer Upload
                       </Button>
                     </div>
@@ -295,7 +301,6 @@ const Settings = () => {
                   <Button 
                     onClick={handleSaveCompany}
                     className="bg-viainfra-primary hover:bg-viainfra-primary/90 w-full md:w-auto"
-                    disabled={!canEditProfileAndCompany}
                   >
                     Salvar Alterações
                   </Button>
