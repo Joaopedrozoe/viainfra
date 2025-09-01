@@ -3,9 +3,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MessageSquare, Clock, CheckCircle, Share2, TrendingUp } from "lucide-react";
 import { calculateDashboardMetrics, formatResponseTime, getPerformanceColor, DashboardMetrics } from "./dashboardUtils";
 import { useDemoMode } from "@/hooks/useDemoMode";
+import { usePreviewConversation } from "@/contexts/PreviewConversationContext";
 
 export const MetricsOverview: React.FC = () => {
   const { isDemoMode } = useDemoMode();
+  const { previewConversations } = usePreviewConversation();
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
@@ -13,7 +15,7 @@ export const MetricsOverview: React.FC = () => {
     const loadMetrics = () => {
       setIsLoading(true);
       try {
-        const calculatedMetrics = calculateDashboardMetrics(isDemoMode);
+        const calculatedMetrics = calculateDashboardMetrics(isDemoMode, previewConversations);
         setMetrics(calculatedMetrics);
       } catch (error) {
         console.error('Error loading metrics:', error);
@@ -23,14 +25,14 @@ export const MetricsOverview: React.FC = () => {
     };
     
     loadMetrics();
-  }, [isDemoMode]);
+  }, [isDemoMode, previewConversations]);
   
   // Listen for dashboard refresh events
   useEffect(() => {
     const handleRefresh = () => {
       setIsLoading(true);
       try {
-        const calculatedMetrics = calculateDashboardMetrics(isDemoMode);
+        const calculatedMetrics = calculateDashboardMetrics(isDemoMode, previewConversations);
         setMetrics(calculatedMetrics);
       } catch (error) {
         console.error('Error refreshing metrics:', error);
@@ -41,7 +43,7 @@ export const MetricsOverview: React.FC = () => {
     
     window.addEventListener('dashboard-refresh', handleRefresh);
     return () => window.removeEventListener('dashboard-refresh', handleRefresh);
-  }, [isDemoMode]);
+  }, [isDemoMode, previewConversations]);
   
   if (isLoading || !metrics) {
     return (

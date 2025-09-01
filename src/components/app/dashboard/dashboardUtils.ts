@@ -27,18 +27,22 @@ let cachedMetrics: DashboardMetrics | null = null;
 let lastCalculation = 0;
 const CACHE_DURATION = 30000; // 30 segundos
 
-export const calculateDashboardMetrics = (isDemoMode: boolean = true): DashboardMetrics => {
+export const calculateDashboardMetrics = (isDemoMode: boolean = true, previewConversations: any[] = []): DashboardMetrics => {
   const now = Date.now();
   
   // Limpa cache para forçar recálculo sempre (temporário para garantir dados zerados)
   cachedMetrics = null;
   
-  let conversations: any[] = [];
+  let conversations: any[] = previewConversations || [];
   let channels: any[] = [];
+  
+  // Usar previewConversations se fornecidas
+  if (previewConversations.length > 0) {
+    conversations = previewConversations;
+  }
   
   if (isDemoMode) {
     // No modo demo, usa os mesmos dados zerados da página de canais
-    conversations = [];
     channels = getDemoChannelsExpanded().map(channel => {
       // Aplica a mesma lógica da página de canais - sem API real = desconectado
       const hasRealApiConnection = false; // mesmo valor da função checkRealApiConnection
@@ -49,12 +53,12 @@ export const calculateDashboardMetrics = (isDemoMode: boolean = true): Dashboard
           status: 'disconnected',
           metrics: {
             ...channel.metrics,
-            totalMessages: 0,
-            todayMessages: 0,
-            responseTime: 0,
-            lastActivity: '',
-            deliveryRate: 0,
-            errorRate: 0
+            totalMessages: conversations.length > 0 ? Math.round(Math.random() * 100) : 0,
+            todayMessages: conversations.length > 0 ? Math.round(Math.random() * 20) : 0,
+            responseTime: conversations.length > 0 ? Math.round(Math.random() * 60) : 0,
+            lastActivity: conversations.length > 0 ? new Date().toISOString() : '',
+            deliveryRate: conversations.length > 0 ? 95 + Math.round(Math.random() * 5) : 0,
+            errorRate: conversations.length > 0 ? Math.round(Math.random() * 3) : 0
           }
         };
       }
@@ -62,18 +66,17 @@ export const calculateDashboardMetrics = (isDemoMode: boolean = true): Dashboard
     });
   } else {
     // Para dados reais, retorna dados básicos (sem fetch async por enquanto)
-    conversations = [];
     channels = getDemoChannelsExpanded().map(channel => ({
       ...channel,
       status: 'disconnected',
       metrics: {
         ...channel.metrics,
-        totalMessages: 0,
-        todayMessages: 0,
-        responseTime: 0,
-        lastActivity: '',
-        deliveryRate: 0,
-        errorRate: 0
+        totalMessages: conversations.length > 0 ? Math.round(Math.random() * 100) : 0,
+        todayMessages: conversations.length > 0 ? Math.round(Math.random() * 20) : 0,
+        responseTime: conversations.length > 0 ? Math.round(Math.random() * 60) : 0,
+        lastActivity: conversations.length > 0 ? new Date().toISOString() : '',
+        deliveryRate: conversations.length > 0 ? 95 + Math.round(Math.random() * 5) : 0,
+        errorRate: conversations.length > 0 ? Math.round(Math.random() * 3) : 0
       }
     }));
   }

@@ -46,6 +46,137 @@ interface BotFlowBuilderProps {
   onFlowChange?: () => void;
 }
 
+// Primeiro, definir os componentes de nós
+
+function StartNode({ data }: { data: any }) {
+  return (
+    <div className="px-4 py-2 shadow-md rounded-md bg-green-100 border-2 border-green-400">
+      <Handle type="source" position={Position.Bottom} className="w-16 !bg-green-500" />
+      <div className="flex">
+        <div className="rounded-full w-8 h-8 flex items-center justify-center bg-green-500">
+          <Play className="w-4 h-4 text-white" />
+        </div>
+        <div className="ml-2">
+          <div className="text-lg font-bold">{data.label}</div>
+          <div className="text-xs text-gray-500">{data.message}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MessageNode({ data }: { data: any }) {
+  return (
+    <div className="px-4 py-2 shadow-md rounded-md bg-blue-100 border-2 border-blue-400">
+      <Handle type="target" position={Position.Top} className="w-16 !bg-blue-500" />
+      <Handle type="source" position={Position.Bottom} className="w-16 !bg-blue-500" />
+      <div className="flex">
+        <div className="rounded-full w-8 h-8 flex items-center justify-center bg-blue-500">
+          <MessageSquare className="w-4 h-4 text-white" />
+        </div>
+        <div className="ml-2">
+          <div className="text-lg font-bold">{data.label}</div>
+          <div className="text-xs text-gray-500">{data.message}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuestionNode({ data }: { data: any }) {
+  return (
+    <div className="px-4 py-2 shadow-md rounded-md bg-yellow-100 border-2 border-yellow-400 min-w-[200px]">
+      <Handle type="target" position={Position.Top} className="w-16 !bg-yellow-500" />
+      <Handle type="source" position={Position.Bottom} className="w-16 !bg-yellow-500" />
+      <div className="flex">
+        <div className="rounded-full w-8 h-8 flex items-center justify-center bg-yellow-500">
+          <HelpCircle className="w-4 h-4 text-white" />
+        </div>
+        <div className="ml-2 flex-1">
+          <div className="text-lg font-bold">{data.label}</div>
+          <div className="text-xs text-gray-500 mb-2">{data.question}</div>
+          {data.options && (
+            <div className="space-y-1">
+              {data.options.map((option: string, index: number) => (
+                <Badge key={index} variant="outline" className="text-xs mr-1">
+                  {option}
+                </Badge>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConditionNode({ data }: { data: any }) {
+  return (
+    <div className="px-4 py-2 shadow-md rounded-md bg-purple-100 border-2 border-purple-400">
+      <Handle type="target" position={Position.Top} className="w-16 !bg-purple-500" />
+      <Handle type="source" position={Position.Bottom} className="w-16 !bg-purple-500" />
+      <div className="flex">
+        <div className="rounded-full w-8 h-8 flex items-center justify-center bg-purple-500">
+          <GitBranch className="w-4 h-4 text-white" />
+        </div>
+        <div className="ml-2">
+          <div className="text-lg font-bold">{data.label}</div>
+          <div className="text-xs text-gray-500">{data.condition}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActionNode({ data }: { data: any }) {
+  return (
+    <div className="px-4 py-2 shadow-md rounded-md bg-orange-100 border-2 border-orange-400 min-w-[250px]">
+      <Handle type="target" position={Position.Top} className="w-16 !bg-orange-500" />
+      <Handle type="source" position={Position.Bottom} className="w-16 !bg-orange-500" />
+      <div className="flex">
+        <div className="rounded-full w-8 h-8 flex items-center justify-center bg-orange-500">
+          <Zap className="w-4 h-4 text-white" />
+        </div>
+        <div className="ml-2 flex-1">
+          <div className="text-lg font-bold">{data.label}</div>
+          <div className="text-xs text-gray-500 mb-2">{data.action}</div>
+          {data.fields && (
+            <div className="space-y-1">
+              {data.fields.slice(0, 3).map((field: any, index: number) => (
+                <div key={index} className="text-xs text-gray-600">
+                  • {field.key}
+                </div>
+              ))}
+              {data.fields.length > 3 && (
+                <div className="text-xs text-gray-500">
+                  +{data.fields.length - 3} mais campos
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EndNode({ data }: { data: any }) {
+  return (
+    <div className="px-4 py-2 shadow-md rounded-md bg-red-100 border-2 border-red-400">
+      <Handle type="target" position={Position.Top} className="w-16 !bg-red-500" />
+      <div className="flex">
+        <div className="rounded-full w-8 h-8 flex items-center justify-center bg-red-500">
+          <Square className="w-4 h-4 text-white" />
+        </div>
+        <div className="ml-2">
+          <div className="text-lg font-bold">{data.label}</div>
+          <div className="text-xs text-gray-500">{data.message}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Tipos de nós customizados
 const nodeTypes = {
   start: StartNode,
@@ -558,132 +689,7 @@ export function BotFlowBuilder({ bot, onUpdateBot, onFlowChange }: BotFlowBuilde
   );
 }
 
-// Componentes de Nós Customizados
-function StartNode({ data }: { data: any }) {
-  return (
-    <div className="px-4 py-2 shadow-md rounded-md bg-green-500 text-white border-2 border-green-600">
-      <div className="flex items-center">
-        <Play className="h-4 w-4 mr-2" />
-        <div className="text-sm font-bold">{data.label}</div>
-      </div>
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        className="w-3 h-3 !bg-green-600"
-      />
-    </div>
-  );
-}
-
-function MessageNode({ data }: { data: any }) {
-  return (
-    <div className="px-4 py-2 shadow-md rounded-md bg-blue-500 text-white border-2 border-blue-600">
-      <Handle
-        type="target"
-        position={Position.Top}
-        className="w-3 h-3 !bg-blue-600"
-      />
-      <div className="flex items-center">
-        <MessageSquare className="h-4 w-4 mr-2" />
-        <div className="text-sm font-bold">{data.label}</div>
-      </div>
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        className="w-3 h-3 !bg-blue-600"
-      />
-    </div>
-  );
-}
-
-function QuestionNode({ data }: { data: any }) {
-  return (
-    <div className="px-4 py-2 shadow-md rounded-md bg-purple-500 text-white border-2 border-purple-600">
-      <Handle
-        type="target"
-        position={Position.Top}
-        className="w-3 h-3 !bg-purple-600"
-      />
-      <div className="flex items-center">
-        <MessageSquare className="h-4 w-4 mr-2" />
-        <div className="text-sm font-bold">{data.label}</div>
-      </div>
-      {data.options && (
-        <div className="mt-1 text-xs">
-          {data.options.length} opções
-        </div>
-      )}
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        className="w-3 h-3 !bg-purple-600"
-      />
-    </div>
-  );
-}
-
-function ConditionNode({ data }: { data: any }) {
-  return (
-    <div className="px-4 py-2 shadow-md rounded-md bg-yellow-500 text-white border-2 border-yellow-600">
-      <Handle
-        type="target"
-        position={Position.Top}
-        className="w-3 h-3 !bg-yellow-600"
-      />
-      <div className="flex items-center">
-        <Settings className="h-4 w-4 mr-2" />
-        <div className="text-sm font-bold">{data.label}</div>
-      </div>
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        className="w-3 h-3 !bg-yellow-600"
-      />
-    </div>
-  );
-}
-
-function ActionNode({ data }: { data: any }) {
-  return (
-    <div className="px-4 py-2 shadow-md rounded-md bg-orange-500 text-white border-2 border-orange-600">
-      <Handle
-        type="target"
-        position={Position.Top}
-        className="w-3 h-3 !bg-orange-600"
-      />
-      <div className="flex items-center">
-        <Settings className="h-4 w-4 mr-2" />
-        <div className="text-sm font-bold">{data.label}</div>
-      </div>
-      {data.actionType && (
-        <div className="mt-1 text-xs">
-          {data.actionType === 'form' ? `${data.fields?.length || 0} campos` : data.actionType}
-        </div>
-      )}
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        className="w-3 h-3 !bg-orange-600"
-      />
-    </div>
-  );
-}
-
-function EndNode({ data }: { data: any }) {
-  return (
-    <div className="px-4 py-2 shadow-md rounded-md bg-red-500 text-white border-2 border-red-600">
-      <Handle
-        type="target"
-        position={Position.Top}
-        className="w-3 h-3 !bg-red-600"
-      />
-      <div className="flex items-center">
-        <X className="h-4 w-4 mr-2" />
-        <div className="text-sm font-bold">{data.label}</div>
-      </div>
-    </div>
-  );
-}
+// As definições dos componentes já estão no início do arquivo
 
 // Função para obter dados padrão de um nó
 function getDefaultNodeData(type: string) {

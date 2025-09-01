@@ -96,6 +96,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       <ChatHeader 
         userName={name} 
         channel={channel} 
+        conversationId={conversationId}
         onViewContactDetails={handleViewContactDetails}
         onBackToList={handleBackToList}
         onEndConversation={onEndConversation ? () => onEndConversation(conversationId) : undefined}
