@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ChevronDown, Code, Webhook, FileText } from "lucide-react";
 import { PlanUsageCard } from "@/components/app/PlanUsageCard";
+import { DebugInfo } from "@/components/debug/DebugInfo";
 
 const Settings = () => {
   const { toast } = useToast();
@@ -90,17 +91,20 @@ const Settings = () => {
   // Empty connections until real API is connected
   const activeConnections: any[] = [];
 
-  const tabItems = [
-    { id: "profile", label: "Perfil" },
-    { id: "company", label: "Empresa" },
-    { id: "email", label: "E-mail" },
-    { id: "permissions", label: "Permissões" },
-    { id: "notifications", label: "Notificações" },
-    { id: "integrations", label: "Integrações" },
-    { id: "api", label: "API" },
-    { id: "billing", label: "Faturas" },
-    { id: "schedule", label: "Agenda" }
+  const allTabItems = [
+    { id: "profile", label: "Perfil", adminOnly: false },
+    { id: "company", label: "Empresa", adminOnly: true },
+    { id: "email", label: "E-mail", adminOnly: true },
+    { id: "permissions", label: "Permissões", adminOnly: true },
+    { id: "notifications", label: "Notificações", adminOnly: false },
+    { id: "integrations", label: "Integrações", adminOnly: false },
+    { id: "api", label: "API", adminOnly: false },
+    { id: "billing", label: "Faturas", adminOnly: false },
+    { id: "schedule", label: "Agenda", adminOnly: false }
   ];
+  
+  // Filter tabs based on admin permission
+  const tabItems = allTabItems.filter(tab => !tab.adminOnly || isAdmin);
   
   const handleTabChange = (value: string) => {
     setActiveTab(value);
@@ -201,7 +205,7 @@ const Settings = () => {
       <div ref={tabsRef} className="relative mb-8 w-full overflow-x-auto">
         <TabsList className={cn(
           "w-full",
-          isMobile ? "grid grid-cols-3 grid-rows-3" : "flex justify-center flex-wrap"
+          isMobile ? "flex flex-wrap" : "flex justify-center flex-wrap"
         )}>
           {tabItems.map(tab => (
             <TabsTrigger 
@@ -621,6 +625,7 @@ const Settings = () => {
         </div>
         </div>
       </main>
+      <DebugInfo />
     </div>
   );
 };
