@@ -6,6 +6,7 @@ import { ApiDocsSidebar } from "@/components/app/api/ApiDocsSidebar";
 import { ApiDocsContent } from "@/components/app/api/ApiDocsContent";
 import { ProfileSettings } from "@/components/app/settings/ProfileSettings";
 import { EmailSettings } from "@/components/app/settings/EmailSettings";
+import { PermissionsSettings } from "@/components/app/settings/PermissionsSettings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -34,7 +35,8 @@ const Settings = () => {
   const [activeTab, setActiveTab] = useState("profile");
   
   
-  // Agora todos podem editar perfil - removida a restrição da Elisabete
+  // Verificar se é a Elisabete (admin) para abas empresa, email e permissões
+  const isAdmin = profile?.email === "elisabete.silva@viainfra.com.br";
   const tabsRef = useRef<HTMLDivElement>(null);
   const [isTabsOverflowing, setIsTabsOverflowing] = useState(false);
   
@@ -92,6 +94,7 @@ const Settings = () => {
     { id: "profile", label: "Perfil" },
     { id: "company", label: "Empresa" },
     { id: "email", label: "E-mail" },
+    { id: "permissions", label: "Permissões" },
     { id: "notifications", label: "Notificações" },
     { id: "integrations", label: "Integrações" },
     { id: "api", label: "API" },
@@ -198,7 +201,7 @@ const Settings = () => {
       <div ref={tabsRef} className="relative mb-8 w-full overflow-x-auto">
         <TabsList className={cn(
           "w-full",
-          isMobile ? "grid grid-cols-4 grid-rows-2" : "flex justify-center flex-wrap"
+          isMobile ? "grid grid-cols-3 grid-rows-3" : "flex justify-center flex-wrap"
         )}>
           {tabItems.map(tab => (
             <TabsTrigger 
@@ -247,7 +250,13 @@ const Settings = () => {
                       value={companyName} 
                       onChange={(e) => setCompanyName(e.target.value)}
                       aria-label="Nome da Empresa"
+                      disabled={!isAdmin}
                     />
+                    {!isAdmin && (
+                      <p className="text-xs text-amber-600">
+                        Apenas administradores podem editar essas informações
+                      </p>
+                    )}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -258,6 +267,7 @@ const Settings = () => {
                         value={timezone}
                         onChange={(e) => setTimezone(e.target.value)}
                         aria-label="Fuso Horário"
+                        disabled={!isAdmin}
                       >
                         <option value="America/Sao_Paulo">Brasília (GMT-3)</option>
                         <option value="America/Manaus">Manaus (GMT-4)</option>
@@ -274,6 +284,7 @@ const Settings = () => {
                         value={language}
                         onChange={(e) => setLanguage(e.target.value)}
                         aria-label="Idioma"
+                        disabled={!isAdmin}
                       >
                         <option value="pt-BR">Português (Brasil)</option>
                         <option value="en-US">English (United States)</option>
@@ -291,7 +302,7 @@ const Settings = () => {
                           <path d="M12 18v0"></path>
                         </svg>
                       </div>
-                      <Button variant="outline" className="flex-1 md:flex-none">
+                      <Button variant="outline" className="flex-1 md:flex-none" disabled={!isAdmin}>
                         Fazer Upload
                       </Button>
                     </div>
@@ -301,6 +312,7 @@ const Settings = () => {
                   <Button 
                     onClick={handleSaveCompany}
                     className="bg-viainfra-primary hover:bg-viainfra-primary/90 w-full md:w-auto"
+                    disabled={!isAdmin}
                   >
                     Salvar Alterações
                   </Button>
@@ -309,7 +321,19 @@ const Settings = () => {
             </TabsContent>
             
             <TabsContent value="email">
-              <EmailSettings />
+              {isAdmin ? (
+                <EmailSettings />
+              ) : (
+                <div className="flex items-center justify-center h-64">
+                  <div className="text-center">
+                    <p className="text-muted-foreground">Apenas administradores podem acessar as configurações de e-mail.</p>
+                  </div>
+                </div>
+              )}
+            </TabsContent>
+            
+            <TabsContent value="permissions">
+              <PermissionsSettings />
             </TabsContent>
             
             <TabsContent value="notifications">
