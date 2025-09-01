@@ -255,7 +255,7 @@ export const EventModal = ({ isOpen, onClose, event, defaultDate }: EventModalPr
         
         <DialogFooter className="mt-4">
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button className="bg-bonina hover:bg-bonina/90" onClick={handleSubmit}>
+          <Button variant="viainfra" onClick={handleSubmit}>
             {event ? "Atualizar Evento" : "Criar Evento"}
           </Button>
         </DialogFooter>
