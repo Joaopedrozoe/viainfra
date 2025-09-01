@@ -43,6 +43,8 @@ const Inbox = () => {
 
   const handleResolveConversation = useCallback((conversationId: string) => {
     console.log("✅ Conversa resolvida:", conversationId);
+    // Trigger refresh to update the conversation list
+    setRefreshKey(prev => prev + 1);
   }, []);
 
   const handleEndConversation = useCallback((conversationId: string) => {

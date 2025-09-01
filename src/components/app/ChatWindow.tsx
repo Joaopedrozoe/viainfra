@@ -5,6 +5,7 @@ import { ChatInput } from "./chat/ChatInput";
 import { Message, ChatWindowProps } from "./chat/types";
 import { Channel } from "@/types/conversation";
 import { useNavigate } from "react-router-dom";
+import { ConversationStorage } from "@/lib/conversation-storage";
 
 export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: ChatWindowProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -15,9 +16,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     if (conversationId) {
       // Para conversas de preview, buscar mensagens do contexto de preview
       try {
-        const storedConversations = localStorage.getItem('preview-conversations');
-        if (storedConversations) {
-          const previewData = JSON.parse(storedConversations);
+        const previewData = ConversationStorage.getPreviewConversations();
+        if (previewData && typeof previewData === 'object') {
           if (previewData[conversationId] && previewData[conversationId].messages) {
             const mappedMessages = previewData[conversationId].messages.map((msg: any, index: number) => ({
               id: `${conversationId}-${index}`,

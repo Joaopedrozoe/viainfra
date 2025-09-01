@@ -7,6 +7,7 @@ import { DbConversation, mapDbConversationToConversation } from "@/types/supabas
 import { Conversation, Channel } from "@/types/conversation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePreviewConversation } from "@/contexts/PreviewConversationContext";
+import { ConversationStorage } from "@/lib/conversation-storage";
 
 // Forçar re-render quando há mudanças nas conversas de preview
 let conversationUpdateCounter = 0;
@@ -18,6 +19,11 @@ interface ConversationListProps {
   onResolveConversation?: (id: string) => void;
 }
 
+// Função para expor o resolve conversation para componentes externos
+export const resolveConversation = (conversationId: string) => {
+  ConversationStorage.addResolvedConversation(conversationId);
+};
+
 export const ConversationList = ({ onSelectConversation, selectedId, refreshTrigger, onResolveConversation }: ConversationListProps) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
@@ -25,8 +31,15 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
   const [selectedChannel, setSelectedChannel] = useState<Channel | "all">("all");
   const [activeTab, setActiveTab] = useState<"all" | "unread" | "preview" | "resolved">("all");
   const [isLoading, setIsLoading] = useState(true);
-  const [resolvedConversations, setResolvedConversations] = useState<Set<string>>(new Set());
+  const [resolvedConversations, setResolvedConversations] = useState<Set<string>>(() => {
+    return ConversationStorage.getResolvedConversations();
+  });
   const { previewConversations } = usePreviewConversation();
+
+  // Sync resolved conversations from localStorage when component mounts or refreshes
+  useEffect(() => {
+    setResolvedConversations(ConversationStorage.getResolvedConversations());
+  }, [refreshTrigger]);
 
   // SOLUÇÃO DIRETA: Sempre mostrar conversas de preview
   useEffect(() => {
@@ -66,12 +79,8 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
   // Handle conversation resolve
   const handleConversationResolve = (conversationId: string) => {
     console.log('🔧 Resolvendo conversa:', conversationId);
-    setResolvedConversations(prev => {
-      const newSet = new Set(prev);
-      newSet.add(conversationId);
-      console.log('🔧 Conversas resolvidas após adicionar:', Array.from(newSet));
-      return newSet;
-    });
+    ConversationStorage.addResolvedConversation(conversationId);
+    setResolvedConversations(ConversationStorage.getResolvedConversations());
     
     // Mark as read when resolved
     setConversations(prev => 

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { Conversation } from '@/types/conversation';
+import { ConversationStorage } from '@/lib/conversation-storage';
 
 type Message = {
   content: string;
@@ -48,7 +49,7 @@ export const PreviewConversationProvider: React.FC<{ children: React.ReactNode }
       updated.forEach(conv => {
         storageData[conv.id] = conv;
       });
-      localStorage.setItem('preview-conversations', JSON.stringify(storageData));
+      ConversationStorage.savePreviewConversations(storageData);
       
       return updated;
     });
@@ -85,7 +86,7 @@ export const PreviewConversationProvider: React.FC<{ children: React.ReactNode }
       updated.forEach(conv => {
         storageData[conv.id] = conv;
       });
-      localStorage.setItem('preview-conversations', JSON.stringify(storageData));
+      ConversationStorage.savePreviewConversations(storageData);
       console.log('📦 localStorage atualizado com:', Object.keys(storageData).length, 'conversas');
       
       return updated;
