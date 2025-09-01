@@ -32,13 +32,9 @@ export const UsersProvider = ({ children }: { children: ReactNode }) => {
 
   // Load users from localStorage or initialize with mock data
   useEffect(() => {
-    const savedUsers = localStorage.getItem('system-users');
-    if (savedUsers) {
-      setUsers(JSON.parse(savedUsers));
-    } else {
-      setUsers(MOCK_USERS);
-      localStorage.setItem('system-users', JSON.stringify(MOCK_USERS));
-    }
+    // Force refresh with updated MOCK_USERS
+    setUsers(MOCK_USERS);
+    localStorage.setItem('system-users', JSON.stringify(MOCK_USERS));
   }, []);
 
   // Save users to localStorage whenever users change
