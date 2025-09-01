@@ -8,6 +8,7 @@ import { ProfileSettings } from "@/components/app/settings/ProfileSettings";
 import { EmailSettings } from "@/components/app/settings/EmailSettings";
 import { PermissionsSettings } from "@/components/app/settings/PermissionsSettings";
 import { UsersManagement } from "@/components/app/settings/UsersManagement";
+import { DepartmentsManagement } from "@/components/app/settings/DepartmentsManagement";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -105,6 +106,7 @@ const Settings = () => {
     { id: "company", label: "Empresa", adminOnly: true },
     { id: "email", label: "E-mail", adminOnly: true },
     { id: "users", label: "Usuários", adminOnly: true },
+    { id: "departments", label: "Departamentos", adminOnly: true },
     { id: "permissions", label: "Permissões", adminOnly: true },
     { id: "notifications", label: "Notificações", adminOnly: false },
     { id: "integrations", label: "Integrações", adminOnly: false },
@@ -351,6 +353,10 @@ const Settings = () => {
             
             <TabsContent value="users">
               <UsersManagement />
+            </TabsContent>
+            
+            <TabsContent value="departments">
+              <DepartmentsManagement />
             </TabsContent>
             
             <TabsContent value="permissions">

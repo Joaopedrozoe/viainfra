@@ -11,6 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useUsers } from "@/contexts/UsersContext";
+import { useDepartments } from "@/contexts/DepartmentsContext";
 import { useAuth } from "@/contexts/auth";
 import { DEFAULT_PERMISSIONS } from "@/types/permissions";
 import { User, CreateUserData } from "@/types/users";
@@ -32,6 +33,7 @@ import {
 export const UsersManagement = () => {
   const { profile } = useAuth();
   const { users, isAdmin, createUser, updateUser, deleteUser, updateUserPermissions, toggleUserStatus, toggleUserRole } = useUsers();
+  const { getUserDepartments } = useDepartments();
   
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
@@ -207,27 +209,47 @@ export const UsersManagement = () => {
                       )}
                     </div>
                     <p className="text-sm text-muted-foreground">{user.email}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Criado em: {new Date(user.createdAt).toLocaleDateString('pt-BR')}
+                    <div className="text-xs text-muted-foreground">
+                      <div>Criado em: {new Date(user.createdAt).toLocaleDateString('pt-BR')}
                       {user.lastLogin && (
                         <> • Último acesso: {new Date(user.lastLogin).toLocaleDateString('pt-BR')}</>
-                      )}
-                    </p>
+                      )}</div>
+                      <div className="mt-1">
+                        Departamentos: {getUserDepartments(user.id).map(dept => dept.name).join(', ') || 'Nenhum'}
+                      </div>
+                    </div>
                    </div>
                  </div>
-                 <div className="flex items-center gap-2">
-                   {user.email !== profile?.email && (
-                     <div className="flex items-center gap-2">
-                       <Label className="text-sm font-medium">
-                         {user.role === 'admin' ? 'Admin' : 'Atendente'}
-                       </Label>
-                       <Switch
-                         checked={user.role === 'admin'}
-                         onCheckedChange={() => handleToggleRole(user.id)}
-                         disabled={user.email === profile?.email}
-                       />
-                     </div>
-                   )}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {user.email !== profile?.email && (
+                      <div className="flex items-center gap-2">
+                        <Label className="text-sm font-medium">
+                          {user.role === 'admin' ? 'Admin' : 'Atendente'}
+                        </Label>
+                        <Switch
+                          checked={user.role === 'admin'}
+                          onCheckedChange={() => handleToggleRole(user.id)}
+                          disabled={user.email === profile?.email}
+                        />
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs font-medium">Ver todos os dept.</Label>
+                      <Switch
+                        checked={localStorage.getItem(`user-settings-${user.id}`) ? 
+                          JSON.parse(localStorage.getItem(`user-settings-${user.id}`) || '{}').viewAllDepartments || false : false}
+                        onCheckedChange={(checked) => {
+                          const settings = localStorage.getItem(`user-settings-${user.id}`);
+                          const currentSettings = settings ? JSON.parse(settings) : {};
+                          localStorage.setItem(`user-settings-${user.id}`, JSON.stringify({
+                            ...currentSettings,
+                            viewAllDepartments: checked
+                          }));
+                          // Trigger re-render
+                          window.dispatchEvent(new CustomEvent('user-settings-updated'));
+                        }}
+                      />
+                    </div>
                   <Button
                     variant="outline"
                     size="sm"

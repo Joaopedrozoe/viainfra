@@ -38,6 +38,7 @@ import {
   Trash2
 } from "lucide-react";
 import { BotVersion } from "@/pages/app/BotBuilder";
+import { useDepartments } from "@/contexts/DepartmentsContext";
 
 interface BotFlowBuilderProps {
   bot: BotVersion;
@@ -265,6 +266,8 @@ const getInitialEdges = (): Edge[] => [
 ];
 
 export function BotFlowBuilder({ bot, onUpdateBot, onFlowChange }: BotFlowBuilderProps) {
+  const { departments } = useDepartments();
+  
   // Inicializar com o fluxo do bot ou com o fluxo padrão se estiver vazio
   const initialNodes = bot.flows.nodes.length > 0 ? bot.flows.nodes : getInitialNodes();
   const initialEdges = bot.flows.edges.length > 0 ? bot.flows.edges : getInitialEdges();
@@ -976,11 +979,21 @@ function NodePropertiesPanel({
                     </Select>
                     
                     {editingData?.transferType === 'department' && (
-                      <Input
-                        placeholder="Departamentos (separados por vírgula)"
-                        value={editingData?.departments?.join(', ') || ''}
-                        onChange={(e) => updateField('departments', e.target.value.split(',').map(dept => dept.trim()))}
-                      />
+                      <Select 
+                        value={editingData?.departments?.[0] || ''} 
+                        onValueChange={(value) => updateField('departments', [value])}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione um departamento" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="atendimento">Atendimento</SelectItem>
+                          <SelectItem value="comercial">Comercial</SelectItem>
+                          <SelectItem value="manutencao">Manutenção</SelectItem>
+                          <SelectItem value="financeiro">Financeiro</SelectItem>
+                          <SelectItem value="rh">RH</SelectItem>
+                        </SelectContent>
+                      </Select>
                     )}
                     
                     {editingData?.transferType === 'agent' && (

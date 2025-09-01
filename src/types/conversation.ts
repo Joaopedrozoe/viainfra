@@ -9,4 +9,5 @@ export interface Conversation {
   time: string;
   unread: number;
   avatar?: string;
+  departmentId?: string;
 }

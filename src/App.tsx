@@ -7,6 +7,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { AuthProvider } from "@/contexts/auth";
 import { PreviewConversationProvider } from "@/contexts/PreviewConversationContext";
+import { UsersProvider } from "@/contexts/UsersContext";
+import { DepartmentsProvider } from "@/contexts/DepartmentsContext";
 import { PrivateRoute } from "@/components/auth/PrivateRoute";
 
 // Import Login and Register eagerly to avoid lazy-loading issues
@@ -69,7 +71,9 @@ const App = () => (
     <BrowserRouter>
       <PreviewConversationProvider>
         <AuthProvider>
-        <TooltipProvider>
+          <UsersProvider>
+            <DepartmentsProvider>
+              <TooltipProvider>
           <Toaster />
           <Sonner />
           <Suspense fallback={<LoadingFallback />}>
@@ -107,8 +111,10 @@ const App = () => (
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
-        </TooltipProvider>
-      </AuthProvider>
+              </TooltipProvider>
+            </DepartmentsProvider>
+          </UsersProvider>
+        </AuthProvider>
       </PreviewConversationProvider>
     </BrowserRouter>
   </QueryClientProvider>

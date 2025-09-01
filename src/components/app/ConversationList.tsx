@@ -29,6 +29,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
   const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedChannel, setSelectedChannel] = useState<Channel | "all">("all");
+  const [selectedDepartment, setSelectedDepartment] = useState<string | "all">("all");
   const [activeTab, setActiveTab] = useState<"all" | "unread" | "preview" | "resolved">("all");
   const [isLoading, setIsLoading] = useState(true);
   const [resolvedConversations, setResolvedConversations] = useState<Set<string>>(() => {
@@ -117,6 +118,19 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
       console.log('📡 After channel filter:', result.length);
     }
 
+    // Apply department filter if needed
+    if (selectedDepartment !== "all") {
+      // For now, we'll filter based on a random assignment since conversations don't have departments yet
+      // In a real implementation, conversations would have department assignment
+      result = result.filter((conversation) => {
+        // Simulate department assignment based on conversation ID
+        const departments = ["atendimento", "comercial", "manutencao", "financeiro", "rh"];
+        const assignedDept = departments[parseInt(conversation.id) % departments.length];
+        return assignedDept === selectedDepartment;
+      });
+      console.log('🏢 After department filter:', result.length);
+    }
+
     // Apply tab filter
     if (activeTab === "unread") {
       result = result.filter((conversation) => conversation.unread > 0 && !resolvedConversations.has(conversation.id));
@@ -138,7 +152,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
 
     console.log('✅ Final filtered conversations:', result.length);
     setFilteredConversations(result);
-  }, [conversations, searchTerm, selectedChannel, activeTab, resolvedConversations]);
+  }, [conversations, searchTerm, selectedChannel, selectedDepartment, activeTab, resolvedConversations]);
 
   // Loading state
   if (isLoading) {
@@ -149,6 +163,8 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
           onSearchChange={() => {}} 
           selectedChannel="all" 
           onChannelChange={() => {}} 
+          selectedDepartment="all"
+          onDepartmentChange={() => {}}
         />
         <Tabs defaultValue="all" className="px-4 pt-2">
           <TabsList className="w-full">
@@ -178,7 +194,9 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         searchTerm={searchTerm} 
         onSearchChange={setSearchTerm} 
         selectedChannel={selectedChannel} 
-        onChannelChange={setSelectedChannel} 
+        onChannelChange={setSelectedChannel}
+        selectedDepartment={selectedDepartment}
+        onDepartmentChange={setSelectedDepartment} 
       />
       <Tabs value={activeTab} onValueChange={setActiveTab as (value: string) => void} className="px-4 pt-2">
         <TabsList className="w-full grid grid-cols-4">
@@ -211,7 +229,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
           ))
         ) : (
           <div className="p-4 text-center text-gray-500">
-            {searchTerm || selectedChannel !== "all" ? "Nenhuma conversa encontrada" : 
+            {searchTerm || selectedChannel !== "all" || selectedDepartment !== "all" ? "Nenhuma conversa encontrada" : 
              activeTab === "preview" ? "Teste o preview do bot para ver as conversas aqui" :
              "Nenhuma conversa disponível"}
           </div>

@@ -305,6 +305,14 @@ export const DEFAULT_PERMISSIONS: PermissionCategory[] = [
         category: "settings",
         enabled: false,
         adminOnly: true
+      },
+      {
+        id: "settings.departments",
+        name: "Gerenciar Departamentos",
+        description: "Permite gerenciar departamentos e seus membros",
+        category: "settings",
+        enabled: false,
+        adminOnly: true
       }
     ]
   }
