@@ -3,13 +3,23 @@
 import { useState, useEffect } from 'react';
 
 export const useDemoMode = () => {
-  const [isDemoMode] = useState(true); // SEMPRE true para Lovable
+  // Check if running in production (not on lovable.dev)
+  const isProduction = !window.location.hostname.includes('lovable.dev');
+  const [isDemoMode] = useState(!isProduction);
 
   const toggleDemoMode = () => {
-    // No-op - sempre demo
+    if (isProduction) {
+      console.log('Demo mode disabled in production');
+      return;
+    }
+    // Allow toggle only in development
   };
 
   const resetDemoData = () => {
+    if (isProduction) {
+      console.log('Demo data reset disabled in production');
+      return;
+    }
     localStorage.removeItem('demo-conversations');
     localStorage.removeItem('demo-contacts');
     localStorage.removeItem('demo-channels');
@@ -18,7 +28,7 @@ export const useDemoMode = () => {
   };
 
   return {
-    isDemoMode: true, // SEMPRE true
+    isDemoMode: !isProduction,
     toggleDemoMode,
     resetDemoData
   };
