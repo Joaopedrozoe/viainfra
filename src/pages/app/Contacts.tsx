@@ -60,7 +60,9 @@ const Contacts = () => {
   // Função para verificar se há dados reais de contatos
   const checkRealContactsData = (): boolean => {
     // Verifica se há conversas reais ativas que geraram contatos
+    // TODO: Implementar verificação real quando API for conectada
     // Por enquanto, sempre retorna false até ter API conectada
+    // Quando conectar: verificar se há mensagens recentes na API do WhatsApp
     return false;
   };
 
@@ -271,7 +273,7 @@ const Contacts = () => {
                 <p className="text-lg font-medium">Nenhum contato encontrado</p>
                 <p className="text-sm">
                   {contacts.length === 0 
-                    ? "Conecte a API do WhatsApp para ver contatos das conversas" 
+                    ? "Os contatos aparecerão automaticamente quando você conectar a API do WhatsApp e receber mensagens reais" 
                     : "Tente ajustar os filtros ou adicionar um novo contato"
                   }
                 </p>

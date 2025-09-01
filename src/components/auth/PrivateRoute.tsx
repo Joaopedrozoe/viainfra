@@ -3,6 +3,7 @@ import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "@/contexts/auth";
 import { useState, useEffect } from "react";
 import { AppSidebar } from "@/components/app/Sidebar";
+import { ProductionStatus } from "@/components/app/ProductionStatus";
 
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -51,6 +52,8 @@ export const PrivateRoute = () => {
           {!isMobile && (
             <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
               <SidebarTrigger className="-ml-1" />
+              <div className="flex-1" />
+              <ProductionStatus />
             </header>
           )}
           

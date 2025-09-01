@@ -6,6 +6,7 @@ import { ChannelDistributionChart } from "@/components/app/dashboard/ChannelDist
 import { WeeklyTrendChart } from "@/components/app/dashboard/WeeklyTrendChart";
 import { ChannelHealthPanel } from "@/components/app/dashboard/ChannelHealthPanel";
 import { RecentActivity } from "@/components/app/dashboard/RecentActivity";
+import { SystemHealthCheck } from "@/components/app/SystemHealthCheck";
 
 const Dashboard = () => {
   return (
@@ -27,11 +28,18 @@ const Dashboard = () => {
           <WeeklyTrendChart />
         </div>
         <div className="w-full min-w-0">
-          <ChannelHealthPanel />
+          <SystemHealthCheck />
         </div>
       </div>
       
-      <RecentActivity />
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6">
+        <div className="w-full min-w-0">
+          <ChannelHealthPanel />
+        </div>
+        <div className="w-full min-w-0">
+          <RecentActivity />
+        </div>
+      </div>
     </div>
   );
 };
