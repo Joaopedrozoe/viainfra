@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { User, CreateUserData, MOCK_USERS } from "@/types/users";
 import { useAuth } from "@/contexts/auth";
+import { DEFAULT_PERMISSIONS } from "@/types/permissions";
 
 interface UsersContextType {
   users: User[];
@@ -11,6 +12,7 @@ interface UsersContextType {
   deleteUser: (userId: string) => Promise<void>;
   updateUserPermissions: (userId: string, permissions: Record<string, boolean>) => Promise<void>;
   toggleUserStatus: (userId: string) => Promise<void>;
+  toggleUserRole: (userId: string) => Promise<void>;
 }
 
 const UsersContext = createContext<UsersContextType | null>(null);
@@ -101,6 +103,33 @@ export const UsersProvider = ({ children }: { children: ReactNode }) => {
     ));
   };
 
+  const toggleUserRole = async (userId: string): Promise<void> => {
+    if (!isAdmin) throw new Error("Only admins can toggle user roles");
+    
+    const userToUpdate = users.find(user => user.id === userId);
+    if (userToUpdate?.email === profile?.email) {
+      throw new Error("Você não pode alterar sua própria função");
+    }
+
+    setUsers(prev => prev.map(user => 
+      user.id === userId ? { 
+        ...user, 
+        role: user.role === 'admin' ? 'attendant' : 'admin',
+        // Clear admin-only permissions if changing to attendant
+        permissions: user.role === 'admin' ? 
+          Object.fromEntries(
+            Object.entries(user.permissions).filter(([key]) => {
+              // Remove admin-only permissions when downgrading to attendant
+              const permission = DEFAULT_PERMISSIONS
+                .flatMap(cat => cat.permissions)
+                .find(p => p.id === key);
+              return !permission?.adminOnly;
+            })
+          ) : user.permissions
+      } : user
+    ));
+  };
+
   const value: UsersContextType = {
     users,
     currentUser,
@@ -109,7 +138,8 @@ export const UsersProvider = ({ children }: { children: ReactNode }) => {
     updateUser,
     deleteUser,
     updateUserPermissions,
-    toggleUserStatus
+    toggleUserStatus,
+    toggleUserRole
   };
 
   return (

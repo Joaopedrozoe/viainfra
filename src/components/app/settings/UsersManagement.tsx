@@ -31,7 +31,7 @@ import {
 
 export const UsersManagement = () => {
   const { profile } = useAuth();
-  const { users, isAdmin, createUser, updateUser, deleteUser, updateUserPermissions, toggleUserStatus } = useUsers();
+  const { users, isAdmin, createUser, updateUser, deleteUser, updateUserPermissions, toggleUserStatus, toggleUserRole } = useUsers();
   
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
@@ -128,6 +128,15 @@ export const UsersManagement = () => {
     }
   };
 
+  const handleToggleRole = async (userId: string) => {
+    try {
+      await toggleUserRole(userId);
+      toast.success("Função do usuário atualizada!");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Erro ao alterar função");
+    }
+  };
+
   const getPermissionsByCategory = () => {
     return DEFAULT_PERMISSIONS.map(category => ({
       ...category,
@@ -204,9 +213,21 @@ export const UsersManagement = () => {
                         <> • Último acesso: {new Date(user.lastLogin).toLocaleDateString('pt-BR')}</>
                       )}
                     </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
+                   </div>
+                 </div>
+                 <div className="flex items-center gap-2">
+                   {user.email !== profile?.email && (
+                     <div className="flex items-center gap-2">
+                       <Label className="text-sm font-medium">
+                         {user.role === 'admin' ? 'Admin' : 'Atendente'}
+                       </Label>
+                       <Switch
+                         checked={user.role === 'admin'}
+                         onCheckedChange={() => handleToggleRole(user.id)}
+                         disabled={user.email === profile?.email}
+                       />
+                     </div>
+                   )}
                   <Button
                     variant="outline"
                     size="sm"
@@ -345,15 +366,16 @@ export const UsersManagement = () => {
                                 {permission.description}
                               </p>
                             </div>
-                            <Switch
-                              checked={permission.currentValue}
-                              onCheckedChange={(checked) => {
-                                setUserPermissions(prev => ({
-                                  ...prev,
-                                  [permission.id]: checked
-                                }));
-                              }}
-                            />
+                             <Switch
+                               checked={permission.currentValue}
+                               disabled={selectedUser?.role === 'attendant' && permission.adminOnly}
+                               onCheckedChange={(checked) => {
+                                 setUserPermissions(prev => ({
+                                   ...prev,
+                                   [permission.id]: checked
+                                 }));
+                               }}
+                             />
                           </div>
                           {permission !== category.permissions[category.permissions.length - 1] && (
                             <Separator className="mt-4" />
