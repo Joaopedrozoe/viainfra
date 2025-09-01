@@ -6,12 +6,24 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { usePermissions } from "@/contexts/PermissionsContext";
+import { useAuth } from "@/contexts/auth";
 import { DEFAULT_PERMISSIONS, Permission } from "@/types/permissions";
 import { toast } from "sonner";
 import { Shield, Users, Settings, AlertTriangle, Save } from "lucide-react";
 
 export const PermissionsSettings = () => {
-  const { isAdmin, userPermissions, updatePermissions, getAllPermissions } = usePermissions();
+  const { profile } = useAuth();
+  const { userPermissions, updatePermissions, getAllPermissions } = usePermissions();
+  
+  // Direct admin check - same as Settings page
+  const isAdmin = profile?.email === "elisabete.silva@viainfra.com.br";
+  
+  // Debug logs
+  console.log("PermissionsSettings Debug:", { 
+    profileEmail: profile?.email, 
+    isAdmin, 
+    expectedEmail: "elisabete.silva@viainfra.com.br"
+  });
   const [localPermissions, setLocalPermissions] = useState<Record<string, boolean>>({});
   const [hasChanges, setHasChanges] = useState(false);
 
@@ -68,11 +80,14 @@ export const PermissionsSettings = () => {
   };
 
   if (!isAdmin) {
+    console.log("Access denied - not admin:", { isAdmin, profileEmail: profile?.email });
     return (
       <Alert>
         <AlertTriangle className="h-4 w-4" />
         <AlertDescription>
           Apenas administradores podem acessar as configurações de permissões.
+          <br />
+          <small>Debug: Email atual: {profile?.email || "Não logado"}</small>
         </AlertDescription>
       </Alert>
     );
