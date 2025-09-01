@@ -149,13 +149,13 @@ export const PermissionsSettings = () => {
                             {permission.description}
                           </p>
                         </div>
-                        <Switch
-                          checked={permission.currentValue}
-                          onCheckedChange={(checked) => 
-                            handlePermissionChange(permission.id, checked)
-                          }
-                          disabled={permission.adminOnly}
-                        />
+                            <Switch
+                              checked={permission.currentValue}
+                              onCheckedChange={(checked) => 
+                                handlePermissionChange(permission.id, checked)
+                              }
+                              // Admin can control all permissions - no disabled switches
+                            />
                       </div>
                       {permission !== category.permissions[category.permissions.length - 1] && (
                         <Separator className="mt-4" />

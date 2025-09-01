@@ -7,6 +7,7 @@ import { ApiDocsContent } from "@/components/app/api/ApiDocsContent";
 import { ProfileSettings } from "@/components/app/settings/ProfileSettings";
 import { EmailSettings } from "@/components/app/settings/EmailSettings";
 import { PermissionsSettings } from "@/components/app/settings/PermissionsSettings";
+import { UsersManagement } from "@/components/app/settings/UsersManagement";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -103,6 +104,7 @@ const Settings = () => {
     { id: "profile", label: "Perfil", adminOnly: false },
     { id: "company", label: "Empresa", adminOnly: true },
     { id: "email", label: "E-mail", adminOnly: true },
+    { id: "users", label: "Usuários", adminOnly: true },
     { id: "permissions", label: "Permissões", adminOnly: true },
     { id: "notifications", label: "Notificações", adminOnly: false },
     { id: "integrations", label: "Integrações", adminOnly: false },
@@ -345,6 +347,10 @@ const Settings = () => {
                   </div>
                 </div>
               )}
+            </TabsContent>
+            
+            <TabsContent value="users">
+              <UsersManagement />
             </TabsContent>
             
             <TabsContent value="permissions">
