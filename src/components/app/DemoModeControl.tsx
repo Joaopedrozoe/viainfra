@@ -6,10 +6,7 @@ import { Settings, RotateCcw } from "lucide-react";
 import { useDemoMode } from "@/hooks/useDemoMode";
 
 export const DemoModeControl = () => {
-  const { isDemoMode, toggleDemoMode, resetDemoData } = useDemoMode();
-
-  // Don't render in production
-  if (!isDemoMode) return null;
+  const { toggleDemoMode, resetDemoData } = useDemoMode();
 
   return (
     <Popover>
