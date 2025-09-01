@@ -4,6 +4,8 @@ import { N8nIntegration } from "@/components/app/integrations/N8nIntegration";
 import { APIUsage } from "@/components/app/integrations/APIUsage";
 import { ApiDocsSidebar } from "@/components/app/api/ApiDocsSidebar";
 import { ApiDocsContent } from "@/components/app/api/ApiDocsContent";
+import { ProfileSettings } from "@/components/app/settings/ProfileSettings";
+import { EmailSettings } from "@/components/app/settings/EmailSettings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -75,6 +77,7 @@ const Settings = () => {
   const tabItems = [
     { id: "profile", label: "Perfil" },
     { id: "company", label: "Empresa" },
+    { id: "email", label: "E-mail" },
     { id: "notifications", label: "Notificações" },
     { id: "integrations", label: "Integrações" },
     { id: "api", label: "API" },
@@ -181,7 +184,7 @@ const Settings = () => {
       <div ref={tabsRef} className="relative mb-8 w-full overflow-x-auto">
         <TabsList className={cn(
           "w-full",
-          isMobile ? "grid grid-cols-7" : "flex justify-center flex-wrap"
+          isMobile ? "grid grid-cols-4 grid-rows-2" : "flex justify-center flex-wrap"
         )}>
           {tabItems.map(tab => (
             <TabsTrigger 
@@ -211,80 +214,7 @@ const Settings = () => {
             {renderTabsNavigation()}
             
             <TabsContent value="profile">
-              <Card>
-                <CardHeader className="text-center md:text-left">
-                  <CardTitle>Informações de Perfil</CardTitle>
-                  <CardDescription className="text-center md:text-left">
-                    Atualize suas informações pessoais e credenciais de acesso.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Nome</Label>
-                    <Input 
-                      id="name" 
-                      value={name} 
-                      onChange={(e) => setName(e.target.value)}
-                      aria-label="Nome"
-                      disabled={!canEditProfileAndCompany}
-                    />
-                    {!canEditProfileAndCompany && (
-                      <p className="text-xs text-amber-600">
-                        Apenas administradores podem editar essas informações
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input 
-                      id="email" 
-                      type="email" 
-                      value={email} 
-                      onChange={(e) => setEmail(e.target.value)}
-                      aria-label="Email"
-                      disabled={!canEditProfileAndCompany}
-                    />
-                  </div>
-                  <div className="pt-4 border-t">
-                    <h3 className="font-medium mb-4">Alterar Senha</h3>
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="password">Nova Senha</Label>
-                        <Input 
-                          id="password" 
-                          type="password" 
-                          value={password} 
-                          onChange={(e) => setPassword(e.target.value)}
-                          placeholder="••••••••"
-                          aria-label="Nova Senha"
-                          disabled={!canEditProfileAndCompany}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="confirm-password">Confirmar Senha</Label>
-                        <Input 
-                          id="confirm-password" 
-                          type="password" 
-                          value={confirmPassword} 
-                          onChange={(e) => setConfirmPassword(e.target.value)}
-                          placeholder="••••••••"
-                          aria-label="Confirmar Senha"
-                          disabled={!canEditProfileAndCompany}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Button 
-                    onClick={handleSaveProfile}
-                    className="bg-viainfra-primary hover:bg-viainfra-primary/90 w-full md:w-auto"
-                    disabled={!canEditProfileAndCompany}
-                  >
-                    Salvar Alterações
-                  </Button>
-                </CardFooter>
-              </Card>
+              <ProfileSettings />
             </TabsContent>
             
             <TabsContent value="company">
@@ -371,6 +301,10 @@ const Settings = () => {
                   </Button>
                 </CardFooter>
               </Card>
+            </TabsContent>
+            
+            <TabsContent value="email">
+              <EmailSettings />
             </TabsContent>
             
             <TabsContent value="notifications">

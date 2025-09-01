@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { useAuth } from "@/contexts/auth";
 import { useDemoMode } from "@/hooks/useDemoMode";
 import { Switch } from "@/components/ui/switch";
+import { ForgotPasswordModal } from "@/components/auth/ForgotPasswordModal";
 import { Loader2 } from "lucide-react";
 // import viainfraLogo from "@/assets/viainfra-logo.png";
 
@@ -15,6 +16,7 @@ const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
   const { signIn, isAuthenticated } = useAuth();
   const { isDemoMode, toggleDemoMode } = useDemoMode();
 
@@ -84,6 +86,16 @@ const Login = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                 />
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="text-sm px-0 h-auto"
+                    onClick={() => setShowForgotPassword(true)}
+                  >
+                    Esqueci minha senha
+                  </Button>
+                </div>
               </div>
             </CardContent>
             <CardFooter className="flex flex-col">
@@ -111,6 +123,11 @@ const Login = () => {
             </CardFooter>
           </form>
         </Card>
+        
+        <ForgotPasswordModal 
+          isOpen={showForgotPassword}
+          onClose={() => setShowForgotPassword(false)}
+        />
       </div>
     </div>
   );
