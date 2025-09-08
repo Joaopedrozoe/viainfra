@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { MessageSquare, User, CheckCircle, Clock } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { apiClient } from "@/lib/api-client";
 import { useDemoMode } from "@/hooks/useDemoMode";
 import { Conversation } from "@/types/conversation";
 
@@ -17,13 +17,10 @@ export const RecentActivity: React.FC = () => {
       setIsLoading(true);
       try {
         if (!isDemoMode) {
-          // Buscar dados reais do Supabase
-          const { data } = await supabase
-            .from('conversations')
-            .select('*')
-            .order('updated_at', { ascending: false })
-            .limit(5);
-          setRecentConversations(data || []);
+          // Buscar dados reais da API (comentado até backend estar pronto)
+          // const data = await apiClient.getConversations();
+          // setRecentConversations(data || []);
+          setRecentConversations([]);
         } else {
           // No modo demo, mostrar lista vazia
           setRecentConversations([]);

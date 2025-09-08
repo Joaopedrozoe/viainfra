@@ -1,5 +1,5 @@
 import { getDemoChannelsExpanded } from "@/data/mockChannelsExpanded";
-import { supabase } from "@/integrations/supabase/client";
+import { apiClient } from "@/lib/api-client";
 import { useDemoMode } from "@/hooks/useDemoMode";
 
 export interface DashboardMetrics {

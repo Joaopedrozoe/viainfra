@@ -1,24 +1,26 @@
-
-// Sempre em modo demo para Lovable
 import { useState, useEffect } from 'react';
 
+// Hook para controlar modo demo
+// No novo sistema, sempre retorna false (modo real)
 export const useDemoMode = () => {
-  const [isDemoMode] = useState(true); // SEMPRE true para Lovable
+  const [isDemoMode, setIsDemoMode] = useState(false);
+
+  useEffect(() => {
+    // Por padrão, sempre usa modo real (conecta com backend)
+    setIsDemoMode(false);
+  }, []);
 
   const toggleDemoMode = () => {
-    // No-op - sempre demo
+    // Modo demo removido - sempre usa modo real
+    setIsDemoMode(false);
   };
 
   const resetDemoData = () => {
-    localStorage.removeItem('demo-conversations');
-    localStorage.removeItem('demo-contacts');
-    localStorage.removeItem('demo-channels');
-    localStorage.removeItem('demo-auth');
-    window.location.reload();
+    // No-op no modo real
   };
 
   return {
-    isDemoMode: true, // SEMPRE true
+    isDemoMode,
     toggleDemoMode,
     resetDemoData
   };
