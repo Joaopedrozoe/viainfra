@@ -179,17 +179,13 @@ ssh -i sua-chave.pem ubuntu@seu-ip-ec2
 sudo apt update
 sudo apt install nodejs npm nginx -y
 
-# 3. Instalar Bun (mais rápido)
-curl -fsSL https://bun.sh/install | bash
-source ~/.bashrc
-
-# 4. Clonar seu projeto
+# 3. Clonar seu projeto
 git clone seu-repositorio.git
 cd seu-projeto
 
-# 5. Instalar dependências e buildar
-bun install
-bun run build
+# 4. Instalar dependências e buildar
+npm install
+npm run build
 
 # 6. Configurar Nginx
 sudo nano /etc/nginx/sites-available/chatvia
@@ -228,7 +224,7 @@ sudo systemctl restart nginx`}</code></pre>
         <h4 className="font-semibold mb-3">☁️ Opção B: S3 + CloudFront</h4>
         <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg mb-6">
           <pre className="text-sm overflow-x-auto"><code>{`# 1. Buildar projeto
-bun run build
+npm run build
 
 # 2. Upload para S3
 aws s3 sync dist/ s3://seu-bucket --delete
@@ -517,17 +513,13 @@ ssh -i sua-chave.pem ubuntu@seu-ip-ec2
 sudo apt update
 sudo apt install nodejs npm nginx -y
 
-# 3. Instalar Bun (mais rápido)
-curl -fsSL https://bun.sh/install | bash
-source ~/.bashrc
-
-# 4. Clonar seu projeto
+# 3. Clonar seu projeto
 git clone seu-repositorio.git
 cd seu-projeto
 
-# 5. Instalar dependências e buildar
-bun install
-bun run build
+# 4. Instalar dependências e buildar
+npm install
+npm run build
 
 # 6. Configurar Nginx
 sudo nano /etc/nginx/sites-available/chatvia
@@ -566,7 +558,7 @@ sudo systemctl restart nginx`}</code></pre>
         <h4 className="font-semibold mb-3">☁️ Opção B: S3 + CloudFront</h4>
         <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg mb-6">
           <pre className="text-sm overflow-x-auto"><code>{`# 1. Buildar projeto
-bun run build
+npm run build
 
 # 2. Upload para S3
 aws s3 sync dist/ s3://seu-bucket --delete

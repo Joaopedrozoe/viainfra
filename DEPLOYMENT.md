@@ -5,7 +5,7 @@ Este projeto está preparado para deployment em produção com PostgreSQL.
 ## 🚀 Production Deployment
 
 ### Prerequisites
-- Node.js 18+ ou Bun
+- Node.js 18+
 - PostgreSQL database
 - Supabase project configured
 
@@ -19,8 +19,6 @@ cd <project-name>
 
 2. **Install dependencies:**
 ```bash
-bun install
-# ou
 npm install
 ```
 
@@ -48,8 +46,6 @@ VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 
 1. **Build for production:**
 ```bash
-bun run build
-# ou
 npm run build
 ```
 
