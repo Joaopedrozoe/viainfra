@@ -35,17 +35,52 @@ export class ApiClient {
       headers.Authorization = `Bearer ${this.token}`;
     }
 
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
+    // Add timeout to request
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), environment.API_TIMEOUT);
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: 'Network error' }));
-      throw new Error(error.message || `HTTP error! status: ${response.status}`);
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        // Try to get error details from response
+        let error;
+        try {
+          error = await response.json();
+        } catch {
+          error = { message: 'Network error' };
+        }
+        
+        // Handle specific HTTP errors
+        if (response.status === 401) {
+          // Unauthorized - remove invalid token
+          this.removeToken();
+          throw new Error('Sessão expirada. Faça login novamente.');
+        }
+        
+        if (response.status >= 500) {
+          throw new Error('Erro interno do servidor. Tente novamente.');
+        }
+        
+        throw new Error(error.message || `HTTP error! status: ${response.status}`);
+      }
+
+      return response.json();
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      
+      if (error.name === 'AbortError') {
+        throw new Error('Tempo limite da requisição excedido');
+      }
+      
+      throw error;
     }
-
-    return response.json();
   }
 
   // Auth methods
