@@ -107,6 +107,7 @@ const App = () => (
               </Route>
               
               {/* Public Routes */}
+              <Route path="/help-public" element={<Help />} />
               <Route path="/agendar/:companyId" element={<PublicBooking />} />
               
               {/* 404 Route */}
