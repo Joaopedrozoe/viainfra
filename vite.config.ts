@@ -9,6 +9,21 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
   },
+  build: {
+    outDir: 'dist',
+    sourcemap: mode === 'development',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          ui: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select'],
+          charts: ['recharts'],
+          router: ['react-router-dom']
+        }
+      }
+    },
+    chunkSizeWarningLimit: 1000
+  },
   plugins: [
     react(),
     mode === 'development' &&
@@ -19,4 +34,8 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  define: {
+    // Remove development-only code in production
+    __DEV__: mode === 'development'
+  }
 }));
