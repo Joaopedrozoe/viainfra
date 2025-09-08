@@ -3,10 +3,10 @@ import { Permission, DEFAULT_PERMISSIONS } from '@/types/permissions';
 import { useAuth } from '@/contexts/auth';
 
 interface PermissionsContextType {
-  userPermissions: Permission[];
+  userPermissions: Record<string, boolean>;
   hasPermission: (permission: string) => boolean;
   isAdmin: boolean;
-  updatePermissions: (userId: string, permissions: Permission[]) => void;
+  updatePermissions: (userId: string, permissions: Record<string, boolean>) => void;
   getAllPermissions: () => Permission[];
 }
 
@@ -21,7 +21,7 @@ export const usePermissions = () => {
 };
 
 export const PermissionsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [userPermissions, setUserPermissions] = useState<Permission[]>([]);
+  const [userPermissions, setUserPermissions] = useState<Record<string, boolean>>({});
   const { user, profile } = useAuth();
   
   // Check if user is admin based on email or role
@@ -35,9 +35,17 @@ export const PermissionsProvider: React.FC<{ children: ReactNode }> = ({ childre
         setUserPermissions(JSON.parse(storedPermissions));
       } else {
         // Set default permissions based on admin status
-        const defaultPerms = isAdmin 
-          ? DEFAULT_PERMISSIONS 
-          : DEFAULT_PERMISSIONS.filter(p => p.category !== 'admin');
+        const defaultPerms: Record<string, boolean> = {};
+        const allPermissions = getAllPermissions();
+        
+        allPermissions.forEach(permission => {
+          if (isAdmin) {
+            defaultPerms[permission.id] = true;
+          } else {
+            defaultPerms[permission.id] = permission.enabled && !permission.adminOnly;
+          }
+        });
+        
         setUserPermissions(defaultPerms);
         localStorage.setItem(`permissions_${user.id}`, JSON.stringify(defaultPerms));
       }
@@ -45,7 +53,7 @@ export const PermissionsProvider: React.FC<{ children: ReactNode }> = ({ childre
   }, [user, isAdmin]);
 
   const getAllPermissions = (): Permission[] => {
-    return DEFAULT_PERMISSIONS;
+    return DEFAULT_PERMISSIONS.flatMap(category => category.permissions);
   };
 
   const hasPermission = (permission: string): boolean => {
@@ -53,10 +61,10 @@ export const PermissionsProvider: React.FC<{ children: ReactNode }> = ({ childre
     if (isAdmin) return true;
     
     // Check if user has specific permission
-    return userPermissions.some(p => p.key === permission && p.enabled);
+    return userPermissions[permission] || false;
   };
 
-  const updatePermissions = (userId: string, permissions: Permission[]) => {
+  const updatePermissions = (userId: string, permissions: Record<string, boolean>) => {
     if (!isAdmin) {
       throw new Error('Apenas administradores podem atualizar permissões');
     }

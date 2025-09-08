@@ -29,16 +29,16 @@ export const PermissionsSettings = () => {
 
   // Load current permissions
   useEffect(() => {
-    if (userPermissions) {
-      setLocalPermissions({ ...userPermissions.permissions });
+    if (userPermissions && typeof userPermissions === 'object') {
+      setLocalPermissions({ ...userPermissions });
     }
   }, [userPermissions]);
 
   // Check for changes
   useEffect(() => {
-    if (userPermissions) {
+    if (userPermissions && typeof userPermissions === 'object') {
       const changed = Object.keys(localPermissions).some(
-        key => localPermissions[key] !== userPermissions.permissions[key]
+        key => localPermissions[key] !== userPermissions[key]
       );
       setHasChanges(changed);
     }
@@ -52,9 +52,11 @@ export const PermissionsSettings = () => {
   };
 
   const handleSaveChanges = () => {
-    updatePermissions(localPermissions);
-    setHasChanges(false);
-    toast.success("Permissões atualizadas com sucesso!");
+    if (profile?.id) {
+      updatePermissions(profile.id, localPermissions);
+      setHasChanges(false);
+      toast.success("Permissões atualizadas com sucesso!");
+    }
   };
 
   const handleResetToDefaults = () => {

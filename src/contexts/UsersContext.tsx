@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { User } from '@/types/users';
+import { User, CreateUserData } from '@/types/users';
 import { useAuth } from '@/contexts/auth';
 import { MOCK_USERS } from '@/data/mockUsers';
 
@@ -7,10 +7,10 @@ interface UsersContextType {
   users: User[];
   currentUser: User | null;
   isAdmin: boolean;
-  createUser: (user: Omit<User, 'id' | 'created_at' | 'updated_at'>) => void;
+  createUser: (user: CreateUserData) => void;
   updateUser: (id: string, updates: Partial<User>) => void;
   deleteUser: (id: string) => void;
-  updateUserPermissions: (id: string, permissions: string[]) => void;
+  updateUserPermissions: (id: string, permissions: Record<string, boolean>) => void;
   toggleUserStatus: (id: string) => void;
   toggleUserRole: (id: string) => void;
 }
@@ -50,16 +50,19 @@ export const UsersProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   }, [users]);
 
-  const createUser = (userData: Omit<User, 'id' | 'created_at' | 'updated_at'>) => {
+  const createUser = (userData: CreateUserData) => {
     if (!isAdmin) {
       throw new Error('Apenas administradores podem criar usuários');
     }
 
     const newUser: User = {
-      ...userData,
       id: `user-${Date.now()}`,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      name: userData.name,
+      email: userData.email,
+      role: userData.role,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      permissions: userData.permissions || {},
     };
 
     setUsers(prev => [...prev, newUser]);
@@ -73,7 +76,7 @@ export const UsersProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setUsers(prev => 
       prev.map(user => 
         user.id === id 
-          ? { ...user, ...updates, updated_at: new Date().toISOString() }
+          ? { ...user, ...updates }
           : user
       )
     );
@@ -91,7 +94,7 @@ export const UsersProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setUsers(prev => prev.filter(user => user.id !== id));
   };
 
-  const updateUserPermissions = (id: string, permissions: string[]) => {
+  const updateUserPermissions = (id: string, permissions: Record<string, boolean>) => {
     if (!isAdmin) {
       throw new Error('Apenas administradores podem atualizar permissões');
     }
@@ -99,7 +102,7 @@ export const UsersProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setUsers(prev => 
       prev.map(user => 
         user.id === id 
-          ? { ...user, permissions, updated_at: new Date().toISOString() }
+          ? { ...user, permissions }
           : user
       )
     );
@@ -115,8 +118,7 @@ export const UsersProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         user.id === id 
           ? { 
               ...user, 
-              status: user.status === 'active' ? 'inactive' : 'active',
-              updated_at: new Date().toISOString()
+              isActive: !user.isActive
             }
           : user
       )
@@ -133,8 +135,7 @@ export const UsersProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         user.id === id 
           ? { 
               ...user, 
-              role: user.role === 'admin' ? 'user' : 'admin',
-              updated_at: new Date().toISOString()
+              role: user.role === 'admin' ? 'attendant' : 'admin'
             }
           : user
       )

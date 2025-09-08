@@ -5,11 +5,11 @@ import { MOCK_DEPARTMENTS } from '@/data/mockDepartments';
 
 interface DepartmentsContextType {
   departments: Department[];
-  createDepartment: (department: Omit<Department, 'id' | 'created_at' | 'updated_at'>) => void;
+  createDepartment: (department: { name: string; description: string; members?: string[] }) => void;
   updateDepartment: (id: string, updates: Partial<Department>) => void;
   deleteDepartment: (id: string) => void;
   addMemberToDepartment: (departmentId: string, userId: string) => void;
-  removeMemberFromDepartment: (departmentId: string, memberId: string) => void;
+  removeMemberFromDepartment: (departmentId: string, userId: string) => void;
   getUserDepartments: (userId: string) => Department[];
   getDepartmentByUser: (userId: string) => Department | null;
   canViewAllDepartments: boolean;
@@ -51,16 +51,18 @@ export const DepartmentsProvider: React.FC<{ children: ReactNode }> = ({ childre
     }
   }, [departments]);
 
-  const createDepartment = (departmentData: Omit<Department, 'id' | 'created_at' | 'updated_at'>) => {
+  const createDepartment = (departmentData: { name: string; description: string; members?: string[] }) => {
     if (!isAdmin) {
       throw new Error('Apenas administradores podem criar departamentos');
     }
 
     const newDepartment: Department = {
-      ...departmentData,
       id: `dept-${Date.now()}`,
-      createdAt: new Date().toISOString(),
+      name: departmentData.name,
+      description: departmentData.description,
+      members: departmentData.members || [],
       isActive: true,
+      createdAt: new Date().toISOString(),
     };
 
     setDepartments(prev => [...prev, newDepartment]);
@@ -74,7 +76,7 @@ export const DepartmentsProvider: React.FC<{ children: ReactNode }> = ({ childre
     setDepartments(prev => 
       prev.map(dept => 
         dept.id === id 
-          ? { ...dept, ...updates, updated_at: new Date().toISOString() }
+          ? { ...dept, ...updates }
           : dept
       )
     );
@@ -88,30 +90,24 @@ export const DepartmentsProvider: React.FC<{ children: ReactNode }> = ({ childre
     setDepartments(prev => prev.filter(dept => dept.id !== id));
   };
 
-  const addMemberToDepartment = (departmentId: string, member: Omit<DepartmentMember, 'id'>) => {
+  const addMemberToDepartment = (departmentId: string, userId: string) => {
     if (!isAdmin) {
       throw new Error('Apenas administradores podem adicionar membros');
     }
-
-    const newMember: DepartmentMember = {
-      ...member,
-      id: `member-${Date.now()}`,
-    };
 
     setDepartments(prev => 
       prev.map(dept => 
         dept.id === departmentId 
           ? { 
               ...dept, 
-              members: [...dept.members, newMember],
-              updated_at: new Date().toISOString()
+              members: [...new Set([...dept.members, userId])]
             }
           : dept
       )
     );
   };
 
-  const removeMemberFromDepartment = (departmentId: string, memberId: string) => {
+  const removeMemberFromDepartment = (departmentId: string, userId: string) => {
     if (!isAdmin) {
       throw new Error('Apenas administradores podem remover membros');
     }
@@ -121,8 +117,7 @@ export const DepartmentsProvider: React.FC<{ children: ReactNode }> = ({ childre
         dept.id === departmentId 
           ? { 
               ...dept, 
-              members: dept.members.filter(member => member.id !== memberId),
-              updated_at: new Date().toISOString()
+              members: dept.members.filter(memberId => memberId !== userId)
             }
           : dept
       )
@@ -130,15 +125,11 @@ export const DepartmentsProvider: React.FC<{ children: ReactNode }> = ({ childre
   };
 
   const getUserDepartments = (userId: string): Department[] => {
-    return departments.filter(dept => 
-      dept.members.some(member => member.user_id === userId)
-    );
+    return departments.filter(dept => dept.members.includes(userId));
   };
 
   const getDepartmentByUser = (userId: string): Department | null => {
-    return departments.find(dept => 
-      dept.members.some(member => member.user_id === userId)
-    ) || null;
+    return departments.find(dept => dept.members.includes(userId)) || null;
   };
 
   const getFilteredDepartments = (userId?: string): Department[] => {
