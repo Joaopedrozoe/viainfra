@@ -158,7 +158,6 @@ const Contacts = () => {
           <div className="flex items-center gap-2">
             <Users className="h-5 w-5 text-muted-foreground" />
             <h1 className="text-lg font-semibold">Relacionamento</h1>
-            {isDemoMode && <DemoModeControl />}
           </div>
           
           <div className="ml-auto flex items-center gap-2">
