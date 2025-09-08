@@ -1,6 +1,7 @@
 import { environment } from './environment';
+import { logger } from './logger';
 
-// API Client para comunicação com o backend Node.js
+// Production-ready API client para comunicação com o backend Node.js
 export class ApiClient {
   private baseURL: string;
   private token: string | null = null;
@@ -79,6 +80,8 @@ export class ApiClient {
         throw new Error('Tempo limite da requisição excedido');
       }
       
+      // Log error only in development
+      logger.error('API Request failed:', { url, error: error.message });
       throw error;
     }
   }
@@ -126,6 +129,19 @@ export class ApiClient {
     });
   }
 
+  async resolveConversation(conversationId: string) {
+    return this.request(`/conversations/${conversationId}/resolve`, {
+      method: 'PUT',
+    });
+  }
+
+  async assignConversation(conversationId: string, userId: string) {
+    return this.request(`/conversations/${conversationId}/assign`, {
+      method: 'PUT',
+      body: JSON.stringify({ userId }),
+    });
+  }
+
   // Contacts
   async getContacts() {
     return this.request<any[]>('/contacts');
@@ -143,6 +159,10 @@ export class ApiClient {
       method: 'PUT',
       body: JSON.stringify(contact),
     });
+  }
+
+  async getContactHistory(id: string) {
+    return this.request<any[]>(`/contacts/${id}/history`);
   }
 
   // Agents
@@ -164,6 +184,16 @@ export class ApiClient {
     });
   }
 
+  async deleteAgent(id: string) {
+    return this.request(`/agents/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getAgentMetrics(id: string) {
+    return this.request<any>(`/agents/${id}/metrics`);
+  }
+
   // Channels
   async getChannels() {
     return this.request<any[]>('/channels');
@@ -176,8 +206,27 @@ export class ApiClient {
     });
   }
 
+  async updateChannel(id: string, channel: any) {
+    return this.request(`/channels/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(channel),
+    });
+  }
+
+  async deleteChannel(id: string) {
+    return this.request(`/channels/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
   async connectChannel(id: string) {
     return this.request(`/channels/${id}/connect`, {
+      method: 'PUT',
+    });
+  }
+
+  async disconnectChannel(id: string) {
+    return this.request(`/channels/${id}/disconnect`, {
       method: 'PUT',
     });
   }
@@ -194,6 +243,82 @@ export class ApiClient {
     });
   }
 
+  async updateCalendarEvent(id: string, event: any) {
+    return this.request(`/calendar/events/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(event),
+    });
+  }
+
+  async deleteCalendarEvent(id: string) {
+    return this.request(`/calendar/events/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Users Management
+  async getUsers() {
+    return this.request<any[]>('/users');
+  }
+
+  async createUser(user: any) {
+    return this.request('/users', {
+      method: 'POST',
+      body: JSON.stringify(user),
+    });
+  }
+
+  async updateUser(id: string, user: any) {
+    return this.request(`/users/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(user),
+    });
+  }
+
+  async deleteUser(id: string) {
+    return this.request(`/users/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Departments
+  async getDepartments() {
+    return this.request<any[]>('/departments');
+  }
+
+  async createDepartment(department: any) {
+    return this.request('/departments', {
+      method: 'POST',
+      body: JSON.stringify(department),
+    });
+  }
+
+  async updateDepartment(id: string, department: any) {
+    return this.request(`/departments/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(department),
+    });
+  }
+
+  async deleteDepartment(id: string) {
+    return this.request(`/departments/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Analytics and Metrics
+  async getDashboardMetrics() {
+    return this.request<any>('/analytics/dashboard');
+  }
+
+  async getChannelMetrics() {
+    return this.request<any>('/analytics/channels');
+  }
+
+  async getAgentPerformance() {
+    return this.request<any>('/analytics/agents');
+  }
+
   // WhatsApp Evolution API integration
   async getWhatsAppQRCode(instanceName: string) {
     return this.request<{ qrcode: string }>(`/whatsapp/${instanceName}/qrcode`);
@@ -201,6 +326,25 @@ export class ApiClient {
 
   async getWhatsAppStatus(instanceName: string) {
     return this.request<{ status: string }>(`/whatsapp/${instanceName}/status`);
+  }
+
+  async createWhatsAppInstance(instanceName: string, webhookUrl?: string) {
+    return this.request(`/whatsapp/instance`, {
+      method: 'POST',
+      body: JSON.stringify({ instanceName, webhookUrl }),
+    });
+  }
+
+  async sendWhatsAppMessage(instanceName: string, number: string, message: string) {
+    return this.request(`/whatsapp/${instanceName}/send`, {
+      method: 'POST',
+      body: JSON.stringify({ number, message }),
+    });
+  }
+
+  // Health check
+  async healthCheck() {
+    return this.request<{ status: string; timestamp: string }>('/health');
   }
 }
 

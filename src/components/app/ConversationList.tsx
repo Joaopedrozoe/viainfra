@@ -3,6 +3,7 @@ import { SearchHeader } from "./conversation/SearchHeader";
 import { ConversationItem } from "./conversation/ConversationItem";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiClient } from "@/lib/api-client";
+import { logger } from "@/lib/logger";
 import { Conversation, Channel } from "@/types/conversation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePreviewConversation } from "@/contexts/PreviewConversationContext";
@@ -43,11 +44,11 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
 
   // SOLUÇÃO DIRETA: Sempre mostrar conversas de preview
   useEffect(() => {
-    console.log('📱 ConversationList: Updating with preview conversations:', previewConversations.length);
+    logger.debug('ConversationList: Updating with preview conversations:', previewConversations.length);
     
     // Mapear conversas de preview para o formato correto SEMPRE
     const processedConversations = previewConversations.map(conv => {
-      console.log('📱 Processing conversation:', conv.id, conv.name);
+      logger.debug('Processing conversation:', conv.id, conv.name);
       return {
         id: conv.id,
         name: conv.name,
@@ -59,7 +60,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
       } as Conversation & { is_preview: boolean };
     });
     
-    console.log('📱 Setting conversations:', processedConversations.length);
+    logger.debug('Setting conversations:', processedConversations.length);
     setConversations(processedConversations);
     setIsLoading(false);
   }, [previewConversations]);
@@ -78,7 +79,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
 
   // Handle conversation resolve
   const handleConversationResolve = (conversationId: string) => {
-    console.log('🔧 Resolvendo conversa:', conversationId);
+    logger.debug('Resolvendo conversa:', conversationId);
     ConversationStorage.addResolvedConversation(conversationId);
     setResolvedConversations(ConversationStorage.getResolvedConversations());
     
@@ -95,10 +96,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
 
   // Apply filters when conversations, search term, channel or active tab changes
   useEffect(() => {
-    console.log('🎯 Filtering conversations...');
-    console.log('📊 conversations.length:', conversations.length);
-    console.log('🔍 activeTab:', activeTab);
-    console.log('📝 conversations:', conversations);
+    logger.debug('Filtering conversations...');
     
     let result = [...conversations];
 
@@ -108,13 +106,11 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         conversation.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         conversation.preview.toLowerCase().includes(searchTerm.toLowerCase())
       );
-      console.log('🔍 After search filter:', result.length);
     }
 
     // Apply channel filter
     if (selectedChannel !== "all") {
       result = result.filter((conversation) => conversation.channel === selectedChannel);
-      console.log('📡 After channel filter:', result.length);
     }
 
     // Apply department filter if needed
@@ -127,29 +123,21 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         const assignedDept = departments[parseInt(conversation.id) % departments.length];
         return assignedDept === selectedDepartment;
       });
-      console.log('🏢 After department filter:', result.length);
     }
 
     // Apply tab filter
     if (activeTab === "unread") {
       result = result.filter((conversation) => conversation.unread > 0 && !resolvedConversations.has(conversation.id));
-      console.log('📬 After unread filter:', result.length);
     } else if (activeTab === "preview") {
       result = result.filter((conversation) => (conversation as any).is_preview === true && !resolvedConversations.has(conversation.id));
-      console.log('🎬 After preview filter:', result.length);
-      console.log('🎬 Preview conversations found:', result);
     } else if (activeTab === "resolved") {
       result = result.filter((conversation) => resolvedConversations.has(conversation.id));
-      console.log('✅ After resolved filter:', result.length);
-      console.log('✅ Resolved conversations IDs:', Array.from(resolvedConversations));
-      console.log('✅ Checking conversations:', result.map(c => c.id));
     } else if (activeTab === "all") {
       // Show all non-resolved conversations
       result = result.filter((conversation) => !resolvedConversations.has(conversation.id));
-      console.log('📂 After all filter (excluding resolved):', result.length);
     }
 
-    console.log('✅ Final filtered conversations:', result.length);
+    logger.debug('Final filtered conversations:', result.length);
     setFilteredConversations(result);
   }, [conversations, searchTerm, selectedChannel, selectedDepartment, activeTab, resolvedConversations]);
 
