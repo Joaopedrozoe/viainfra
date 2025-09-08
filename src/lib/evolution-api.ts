@@ -1,51 +1,117 @@
-// Evolution API Integration
-import { EvolutionMessage, EvolutionWebhook } from '@/types/database';
+// Evolution API client for WhatsApp integration
+// Documentation: https://doc.evolution-api.com/v1/pt/get-started/introduction
+
+import { environment } from './environment';
+
+export interface EvolutionInstance {
+  instanceName: string;
+  status: 'open' | 'connecting' | 'close';
+  qrcode?: string;
+  phone?: string;
+}
+
+export interface EvolutionMessage {
+  key: {
+    id: string;
+    remoteJid: string;
+    fromMe: boolean;
+  };
+  message: {
+    conversation?: string;
+    extendedTextMessage?: {
+      text: string;
+    };
+    imageMessage?: {
+      url: string;
+      caption?: string;
+    };
+    audioMessage?: {
+      url: string;
+    };
+    videoMessage?: {
+      url: string;
+      caption?: string;
+    };
+    documentMessage?: {
+      title?: string;
+    };
+  };
+  messageTimestamp: number;
+  pushName?: string;
+}
+
+export interface EvolutionWebhook {
+  event: string;
+  instance: string;
+  data: EvolutionMessage | any;
+}
 
 export class EvolutionAPI {
   private baseUrl: string;
   private apiKey: string;
 
-  constructor(baseUrl: string, apiKey: string) {
-    this.baseUrl = baseUrl.replace(/\/$/, ''); // Remove trailing slash
-    this.apiKey = apiKey;
+  constructor(baseUrl?: string, apiKey?: string) {
+    this.baseUrl = (baseUrl || environment.EVOLUTION_API_URL).replace(/\/$/, '');
+    this.apiKey = apiKey || '';
   }
 
   private async request(endpoint: string, options: RequestInit = {}) {
     const url = `${this.baseUrl}${endpoint}`;
-    
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': this.apiKey,
-        ...options.headers,
-      },
-    });
+    const headers = {
+      'Content-Type': 'application/json',
+      'apikey': this.apiKey,
+      ...options.headers,
+    };
 
-    if (!response.ok) {
-      throw new Error(`Evolution API error: ${response.status} ${response.statusText}`);
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Evolution API error: ${response.status} ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Evolution API request failed:', error);
+      throw error;
     }
-
-    return response.json();
   }
 
-  // Gerenciar instâncias
+  // Instance Management
   async createInstance(instanceName: string, webhookUrl?: string) {
+    const payload: any = {
+      instanceName,
+      token: this.apiKey,
+      qrcode: true,
+      markMessagesRead: true,
+      delayMessage: 1000,
+      alwaysOnline: true,
+      readMessages: true,
+      readStatus: true,
+      syncFullHistory: true,
+    };
+
+    if (webhookUrl) {
+      payload.webhook = {
+        url: webhookUrl,
+        events: [
+          'MESSAGES_UPSERT',
+          'MESSAGES_UPDATE',
+          'MESSAGES_DELETE',
+          'SEND_MESSAGE',
+          'CONNECTION_UPDATE',
+          'CALL',
+          'NEW_JWT_TOKEN'
+        ],
+      };
+    }
+
     return this.request('/instance/create', {
       method: 'POST',
-      body: JSON.stringify({
-        instanceName,
-        webhook: webhookUrl ? {
-          webhook: {
-            url: webhookUrl,
-            events: [
-              'MESSAGES_UPSERT',
-              'CONNECTION_UPDATE',
-              'PRESENCE_UPDATE'
-            ]
-          }
-        } : undefined
-      })
+      body: JSON.stringify(payload),
     });
   }
 
@@ -63,27 +129,39 @@ export class EvolutionAPI {
     return this.request(`/instance/connectionState/${instanceName}`);
   }
 
-  // Enviar mensagens
+  async restartInstance(instanceName: string) {
+    return this.request(`/instance/restart/${instanceName}`, {
+      method: 'PUT',
+    });
+  }
+
+  // Message Operations
   async sendTextMessage(instanceName: string, number: string, text: string) {
     return this.request(`/message/sendText/${instanceName}`, {
       method: 'POST',
       body: JSON.stringify({
-        number: number,
-        text: text
-      })
+        number: this.formatPhoneNumber(number),
+        text,
+      }),
     });
   }
 
-  async sendMediaMessage(instanceName: string, number: string, mediaUrl: string, caption?: string) {
+  async sendMediaMessage(instanceName: string, number: string, mediaUrl: string, caption?: string, mediaType: 'image' | 'video' | 'audio' | 'document' = 'image') {
+    const payload: any = {
+      number: this.formatPhoneNumber(number),
+      mediaMessage: {
+        mediatype: mediaType,
+        media: mediaUrl,
+      },
+    };
+
+    if (caption) {
+      payload.mediaMessage.caption = caption;
+    }
+
     return this.request(`/message/sendMedia/${instanceName}`, {
       method: 'POST',
-      body: JSON.stringify({
-        number: number,
-        mediaMessage: {
-          media: mediaUrl,
-          caption: caption
-        }
-      })
+      body: JSON.stringify(payload),
     });
   }
 
@@ -91,42 +169,81 @@ export class EvolutionAPI {
     return this.request(`/message/sendButtons/${instanceName}`, {
       method: 'POST',
       body: JSON.stringify({
-        number: number,
+        number: this.formatPhoneNumber(number),
         buttonMessage: {
-          text: text,
+          text,
           buttons: buttons.map(btn => ({
+            buttonId: btn.id,
+            buttonText: { displayText: btn.displayText },
             type: 1,
-            reply: {
-              id: btn.id,
-              title: btn.displayText
-            }
-          }))
-        }
-      })
+          })),
+          headerType: 1,
+        },
+      }),
     });
   }
 
-  // Webhook handling
+  // Webhook Management
+  async setWebhook(instanceName: string, webhookUrl: string, events?: string[]) {
+    const defaultEvents = [
+      'MESSAGES_UPSERT',
+      'MESSAGES_UPDATE', 
+      'MESSAGES_DELETE',
+      'SEND_MESSAGE',
+      'CONNECTION_UPDATE',
+      'CALL',
+      'NEW_JWT_TOKEN'
+    ];
+
+    return this.request(`/webhook/set/${instanceName}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        url: webhookUrl,
+        events: events || defaultEvents,
+        webhook_by_events: true,
+      }),
+    });
+  }
+
+  // Utility Methods
+  private formatPhoneNumber(phone: string): string {
+    // Remove all non-numeric characters
+    const cleaned = phone.replace(/\D/g, '');
+    
+    // Add country code if not present (default to Brazil +55)
+    if (cleaned.length === 11 && cleaned.startsWith('55')) {
+      return cleaned;
+    }
+    
+    if (cleaned.length === 11 && !cleaned.startsWith('55')) {
+      return `55${cleaned}`;
+    }
+    
+    if (cleaned.length === 10) {
+      return `55${cleaned}`;
+    }
+    
+    return cleaned;
+  }
+
   static parseWebhookPayload(payload: any): EvolutionWebhook | null {
     try {
-      // Validate webhook structure
-      if (!payload.event || !payload.instance) {
+      if (!payload.event || !payload.instance || !payload.data) {
         return null;
       }
 
       return {
         event: payload.event,
         instance: payload.instance,
-        data: payload.data || {}
+        data: payload.data,
       };
     } catch (error) {
-      console.error('Error parsing Evolution webhook:', error);
+      console.error('Failed to parse webhook payload:', error);
       return null;
     }
   }
 
   static extractPhoneNumber(remoteJid: string): string {
-    // Remove @s.whatsapp.net suffix and return clean phone number
     return remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '');
   }
 
@@ -135,22 +252,34 @@ export class EvolutionAPI {
   }
 
   static extractMessageContent(message: EvolutionMessage): string {
-    const msg = message.message;
+    const msgContent = message.message;
     
-    if (msg.conversation) {
-      return msg.conversation;
+    if (msgContent.conversation) {
+      return msgContent.conversation;
     }
     
-    if (msg.imageMessage?.caption) {
-      return msg.imageMessage.caption;
+    if (msgContent.extendedTextMessage?.text) {
+      return msgContent.extendedTextMessage.text;
     }
     
-    if (msg.audioMessage) {
+    if (msgContent.imageMessage?.caption) {
+      return msgContent.imageMessage.caption;
+    }
+    
+    if (msgContent.videoMessage?.caption) {
+      return msgContent.videoMessage.caption;
+    }
+    
+    if (msgContent.imageMessage) {
+      return '[Imagem]';
+    }
+    
+    if (msgContent.videoMessage) {
+      return '[Vídeo]';
+    }
+    
+    if (msgContent.audioMessage) {
       return '[Áudio]';
-    }
-    
-    if (msg.documentMessage) {
-      return `[Documento: ${msg.documentMessage.title || 'Arquivo'}]`;
     }
     
     return '[Mensagem não suportada]';
@@ -160,11 +289,14 @@ export class EvolutionAPI {
 // Utility functions for webhook processing
 export const evolutionUtils = {
   normalizePhoneNumber: (phone: string): string => {
-    // Remove all non-numeric characters and add country code if missing
     const cleaned = phone.replace(/\D/g, '');
     
-    // If number doesn't start with country code, assume Brazil (+55)
+    // Add Brazil country code if needed
     if (cleaned.length === 11 && !cleaned.startsWith('55')) {
+      return `55${cleaned}`;
+    }
+    
+    if (cleaned.length === 10) {
       return `55${cleaned}`;
     }
     
@@ -177,7 +309,43 @@ export const evolutionUtils = {
   },
 
   isValidPhoneNumber: (phone: string): boolean => {
-    const normalized = evolutionUtils.normalizePhoneNumber(phone);
-    return normalized.length >= 10 && normalized.length <= 15;
+    const cleaned = phone.replace(/\D/g, '');
+    return cleaned.length >= 10 && cleaned.length <= 15;
+  },
+
+  createConversationFromMessage: (message: EvolutionMessage) => {
+    const phoneNumber = EvolutionAPI.extractPhoneNumber(message.key.remoteJid);
+    const content = EvolutionAPI.extractMessageContent(message);
+    
+    return {
+      id: `whatsapp-${phoneNumber}-${Date.now()}`,
+      contactId: phoneNumber,
+      phone: phoneNumber,
+      name: message.pushName || phoneNumber,
+      channel: 'whatsapp' as const,
+      lastMessage: content,
+      timestamp: new Date(message.messageTimestamp * 1000).toISOString(),
+      unread: !message.key.fromMe ? 1 : 0,
+      status: 'active' as const,
+    };
+  },
+
+  createMessageFromWebhook: (webhook: EvolutionWebhook) => {
+    const message = webhook.data as EvolutionMessage;
+    const phoneNumber = EvolutionAPI.extractPhoneNumber(message.key.remoteJid);
+    const content = EvolutionAPI.extractMessageContent(message);
+    
+    return {
+      id: message.key.id,
+      conversationId: `whatsapp-${phoneNumber}`,
+      content,
+      timestamp: new Date(message.messageTimestamp * 1000).toISOString(),
+      isFromUser: !message.key.fromMe,
+      senderName: message.pushName || phoneNumber,
+      channel: 'whatsapp' as const,
+      status: 'sent' as const,
+    };
   }
 };
+
+export default EvolutionAPI;

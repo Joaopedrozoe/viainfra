@@ -24,7 +24,7 @@ const ContactDetails = () => {
         setContactName(contact.name);
       }
     } else {
-      // Here you would fetch from real API/Supabase
+      // Here you would fetch from real API backend
       const contactData = getContactDataFromConversation(id || "");
       if (contactData) {
         setContactName(contactData.name);

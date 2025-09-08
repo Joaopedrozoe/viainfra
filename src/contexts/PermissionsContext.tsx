@@ -1,12 +1,12 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { Permission, UserPermissions, DEFAULT_PERMISSIONS } from "@/types/permissions";
-import { useAuth } from "@/contexts/auth";
+import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { Permission, DEFAULT_PERMISSIONS } from '@/types/permissions';
+import { useAuth } from '@/contexts/auth';
 
 interface PermissionsContextType {
-  userPermissions: UserPermissions | null;
-  hasPermission: (permissionId: string) => boolean;
+  userPermissions: Permission[];
+  hasPermission: (permission: string) => boolean;
   isAdmin: boolean;
-  updatePermissions: (permissions: Record<string, boolean>) => void;
+  updatePermissions: (userId: string, permissions: Permission[]) => void;
   getAllPermissions: () => Permission[];
 }
 
@@ -20,71 +20,54 @@ export const usePermissions = () => {
   return context;
 };
 
-export const PermissionsProvider = ({ children }: { children: ReactNode }) => {
-  const { profile } = useAuth();
-  const [userPermissions, setUserPermissions] = useState<UserPermissions | null>(null);
+export const PermissionsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [userPermissions, setUserPermissions] = useState<Permission[]>([]);
+  const { user, profile } = useAuth();
+  
+  // Check if user is admin based on email or role
+  const isAdmin = profile?.role === 'admin' || user?.email === 'admin@sistema.com';
 
-  // Check if user is admin (Elisabete)
-  const isAdmin = profile?.email === "elisabete.silva@viainfra.com.br";
-
-  // Load user permissions
   useEffect(() => {
-    if (profile) {
-      // Try to load from localStorage first
-      const savedPermissions = localStorage.getItem(`permissions_${profile.email}`);
-      
-      if (savedPermissions) {
-        setUserPermissions(JSON.parse(savedPermissions));
+    if (user) {
+      // Load permissions from localStorage or set defaults
+      const storedPermissions = localStorage.getItem(`permissions_${user.id}`);
+      if (storedPermissions) {
+        setUserPermissions(JSON.parse(storedPermissions));
       } else {
-        // Create default permissions for user
-        const defaultUserPermissions: UserPermissions = {
-          userId: profile.id,
-          email: profile.email,
-          isAdmin,
-          permissions: {},
-          lastUpdated: new Date().toISOString()
-        };
-
-        // Set default permissions based on user type
-        const allPermissions = getAllPermissions();
-        allPermissions.forEach(permission => {
-          if (isAdmin) {
-            // Admin has all permissions
-            defaultUserPermissions.permissions[permission.id] = true;
-          } else {
-            // Regular user gets only enabled permissions that are not admin-only
-            defaultUserPermissions.permissions[permission.id] = 
-              permission.enabled && !permission.adminOnly;
-          }
-        });
-
-        setUserPermissions(defaultUserPermissions);
-        localStorage.setItem(`permissions_${profile.email}`, JSON.stringify(defaultUserPermissions));
+        // Set default permissions based on admin status
+        const defaultPerms = isAdmin 
+          ? DEFAULT_PERMISSIONS 
+          : DEFAULT_PERMISSIONS.filter(p => p.category !== 'admin');
+        setUserPermissions(defaultPerms);
+        localStorage.setItem(`permissions_${user.id}`, JSON.stringify(defaultPerms));
       }
     }
-  }, [profile, isAdmin]);
+  }, [user, isAdmin]);
 
   const getAllPermissions = (): Permission[] => {
-    return DEFAULT_PERMISSIONS.flatMap(category => category.permissions);
+    return DEFAULT_PERMISSIONS;
   };
 
-  const hasPermission = (permissionId: string): boolean => {
-    if (!userPermissions) return false;
-    if (isAdmin) return true; // Admin always has all permissions
-    return userPermissions.permissions[permissionId] || false;
+  const hasPermission = (permission: string): boolean => {
+    // Admins have all permissions
+    if (isAdmin) return true;
+    
+    // Check if user has specific permission
+    return userPermissions.some(p => p.key === permission && p.enabled);
   };
 
-  const updatePermissions = (permissions: Record<string, boolean>) => {
-    if (!userPermissions || !isAdmin) return; // Only admin can update permissions
-
-    const updatedPermissions: UserPermissions = {
-      ...userPermissions,
-      permissions: { ...userPermissions.permissions, ...permissions },
-      lastUpdated: new Date().toISOString()
-    };
-
-    setUserPermissions(updatedPermissions);
-    localStorage.setItem(`permissions_${userPermissions.email}`, JSON.stringify(updatedPermissions));
+  const updatePermissions = (userId: string, permissions: Permission[]) => {
+    if (!isAdmin) {
+      throw new Error('Apenas administradores podem atualizar permissões');
+    }
+    
+    // Save permissions to localStorage
+    localStorage.setItem(`permissions_${userId}`, JSON.stringify(permissions));
+    
+    // Update current user's permissions if it's the same user
+    if (user?.id === userId) {
+      setUserPermissions(permissions);
+    }
   };
 
   const value: PermissionsContextType = {
@@ -92,7 +75,7 @@ export const PermissionsProvider = ({ children }: { children: ReactNode }) => {
     hasPermission,
     isAdmin,
     updatePermissions,
-    getAllPermissions
+    getAllPermissions,
   };
 
   return (

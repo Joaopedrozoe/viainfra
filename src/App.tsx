@@ -9,6 +9,7 @@ import { AuthProvider } from "@/contexts/auth";
 import { PreviewConversationProvider } from "@/contexts/PreviewConversationContext";
 import { UsersProvider } from "@/contexts/UsersContext";
 import { DepartmentsProvider } from "@/contexts/DepartmentsContext";
+import { PermissionsProvider } from "@/contexts/PermissionsContext";
 import { PrivateRoute } from "@/components/auth/PrivateRoute";
 
 // Import Login and Register eagerly to avoid lazy-loading issues
@@ -71,9 +72,10 @@ const App = () => (
     <BrowserRouter>
       <PreviewConversationProvider>
         <AuthProvider>
-          <UsersProvider>
-            <DepartmentsProvider>
-              <TooltipProvider>
+          <PermissionsProvider>
+            <UsersProvider>
+              <DepartmentsProvider>
+                <TooltipProvider>
           <Toaster />
           <Sonner />
           <Suspense fallback={<LoadingFallback />}>
@@ -111,9 +113,10 @@ const App = () => (
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>
-              </TooltipProvider>
-            </DepartmentsProvider>
-          </UsersProvider>
+                </TooltipProvider>
+              </DepartmentsProvider>
+            </UsersProvider>
+          </PermissionsProvider>
         </AuthProvider>
       </PreviewConversationProvider>
     </BrowserRouter>

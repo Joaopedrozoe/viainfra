@@ -15,7 +15,7 @@ import { PLAN_FEATURES } from "@/types/plans";
 
 const fetchAgents = async (): Promise<Agent[]> => {
   try {
-    // Verifica se há dados reais de agentes - para MVP sem Supabase, sempre retorna vazio
+    // Verifica se há dados reais de agentes - para MVP sem backend conectado, sempre retorna vazio
     const hasRealAgentsData = checkRealAgentsData();
     
     if (!hasRealAgentsData) {
@@ -35,8 +35,8 @@ const fetchAgents = async (): Promise<Agent[]> => {
 
 // Função para verificar se há dados reais de agentes
 const checkRealAgentsData = (): boolean => {
-  // Para MVP sem Supabase, sempre retorna false
-  // Quando integrar com seu PostgreSQL, esta função verificará se há agentes reais
+  // Para MVP sem backend conectado, sempre retorna false
+  // Quando integrar com PostgreSQL, esta função verificará se há agentes reais
   return false;
 };
 

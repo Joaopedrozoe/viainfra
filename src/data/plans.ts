@@ -85,7 +85,7 @@ export const PLANS: Plan[] = [
   }
 ];
 
-// Mock user plan data (será substituído pelo Supabase)
+// Mock user plan data (será substituído pelo backend Node.js/PostgreSQL)
 export const MOCK_USER_PLAN = {
   type: "inicial" as const,
   limits: PLANS[0].limits,

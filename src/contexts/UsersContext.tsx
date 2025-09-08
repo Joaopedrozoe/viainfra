@@ -1,18 +1,18 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { User, CreateUserData, MOCK_USERS } from "@/types/users";
-import { useAuth } from "@/contexts/auth";
-import { DEFAULT_PERMISSIONS } from "@/types/permissions";
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { User } from '@/types/users';
+import { useAuth } from '@/contexts/auth';
+import { MOCK_USERS } from '@/data/mockUsers';
 
 interface UsersContextType {
   users: User[];
   currentUser: User | null;
   isAdmin: boolean;
-  createUser: (userData: CreateUserData) => Promise<void>;
-  updateUser: (userId: string, userData: Partial<User>) => Promise<void>;
-  deleteUser: (userId: string) => Promise<void>;
-  updateUserPermissions: (userId: string, permissions: Record<string, boolean>) => Promise<void>;
-  toggleUserStatus: (userId: string) => Promise<void>;
-  toggleUserRole: (userId: string) => Promise<void>;
+  createUser: (user: Omit<User, 'id' | 'created_at' | 'updated_at'>) => void;
+  updateUser: (id: string, updates: Partial<User>) => void;
+  deleteUser: (id: string) => void;
+  updateUserPermissions: (id: string, permissions: string[]) => void;
+  toggleUserStatus: (id: string) => void;
+  toggleUserRole: (id: string) => void;
 }
 
 const UsersContext = createContext<UsersContextType | null>(null);
@@ -25,109 +25,120 @@ export const useUsers = () => {
   return context;
 };
 
-export const UsersProvider = ({ children }: { children: ReactNode }) => {
-  const { profile } = useAuth();
+export const UsersProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [users, setUsers] = useState<User[]>([]);
+  const { user: authUser, profile } = useAuth();
   
-  const isAdmin = profile?.email === "elisabete.silva@viainfra.com.br";
-  const currentUser = users.find(user => user.email === profile?.email) || null;
+  const isAdmin = profile?.role === 'admin';
+  const currentUser = users.find(u => u.id === authUser?.id) || null;
 
-  // Load users from localStorage or initialize with mock data
+  // Initialize users from localStorage or mock data
   useEffect(() => {
-    // Force refresh with updated MOCK_USERS
-    setUsers(MOCK_USERS);
-    localStorage.setItem('system-users', JSON.stringify(MOCK_USERS));
+    const storedUsers = localStorage.getItem('users');
+    if (storedUsers) {
+      setUsers(JSON.parse(storedUsers));
+    } else {
+      setUsers(MOCK_USERS);
+      localStorage.setItem('users', JSON.stringify(MOCK_USERS));
+    }
   }, []);
 
-  // Save users to localStorage whenever users change
+  // Save to localStorage whenever users change
   useEffect(() => {
     if (users.length > 0) {
-      localStorage.setItem('system-users', JSON.stringify(users));
+      localStorage.setItem('users', JSON.stringify(users));
     }
   }, [users]);
 
-  const createUser = async (userData: CreateUserData): Promise<void> => {
-    if (!isAdmin) throw new Error("Only admins can create users");
-    
-    // Check if email already exists
-    if (users.find(user => user.email === userData.email)) {
-      throw new Error("E-mail já está em uso");
+  const createUser = (userData: Omit<User, 'id' | 'created_at' | 'updated_at'>) => {
+    if (!isAdmin) {
+      throw new Error('Apenas administradores podem criar usuários');
     }
 
     const newUser: User = {
-      id: Date.now().toString(),
-      name: userData.name,
-      email: userData.email,
-      role: userData.role,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      permissions: userData.permissions || {}
+      ...userData,
+      id: `user-${Date.now()}`,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
 
     setUsers(prev => [...prev, newUser]);
   };
 
-  const updateUser = async (userId: string, userData: Partial<User>): Promise<void> => {
-    if (!isAdmin) throw new Error("Only admins can update users");
-    
-    setUsers(prev => prev.map(user => 
-      user.id === userId ? { ...user, ...userData } : user
-    ));
-  };
-
-  const deleteUser = async (userId: string): Promise<void> => {
-    if (!isAdmin) throw new Error("Only admins can delete users");
-    
-    // Don't allow deleting the current admin
-    const userToDelete = users.find(user => user.id === userId);
-    if (userToDelete?.email === profile?.email) {
-      throw new Error("Você não pode deletar sua própria conta");
+  const updateUser = (id: string, updates: Partial<User>) => {
+    if (!isAdmin && id !== authUser?.id) {
+      throw new Error('Você só pode editar seu próprio perfil');
     }
 
-    setUsers(prev => prev.filter(user => user.id !== userId));
+    setUsers(prev => 
+      prev.map(user => 
+        user.id === id 
+          ? { ...user, ...updates, updated_at: new Date().toISOString() }
+          : user
+      )
+    );
   };
 
-  const updateUserPermissions = async (userId: string, permissions: Record<string, boolean>): Promise<void> => {
-    if (!isAdmin) throw new Error("Only admins can update permissions");
-    
-    setUsers(prev => prev.map(user => 
-      user.id === userId ? { ...user, permissions } : user
-    ));
-  };
-
-  const toggleUserStatus = async (userId: string): Promise<void> => {
-    if (!isAdmin) throw new Error("Only admins can toggle user status");
-    
-    setUsers(prev => prev.map(user => 
-      user.id === userId ? { ...user, isActive: !user.isActive } : user
-    ));
-  };
-
-  const toggleUserRole = async (userId: string): Promise<void> => {
-    if (!isAdmin) throw new Error("Only admins can toggle user roles");
-    
-    const userToUpdate = users.find(user => user.id === userId);
-    if (userToUpdate?.email === profile?.email) {
-      throw new Error("Você não pode alterar sua própria função");
+  const deleteUser = (id: string) => {
+    if (!isAdmin) {
+      throw new Error('Apenas administradores podem deletar usuários');
     }
 
-    setUsers(prev => prev.map(user => 
-      user.id === userId ? { 
-        ...user, 
-        role: user.role === 'admin' ? 'attendant' : 'admin',
-        // Clear admin-only permissions if changing to attendant
-        permissions: user.role === 'admin' ? 
-          Object.fromEntries(
-            Object.entries(user.permissions).filter(([key]) => {
-              // Remove admin-only permissions when downgrading to attendant
-              const permission = DEFAULT_PERMISSIONS
-                .flatMap(cat => cat.permissions)
-                .find(p => p.id === key);
-              return !permission?.adminOnly;
-            })
-          ) : user.permissions
-      } : user
-    ));
+    if (id === authUser?.id) {
+      throw new Error('Você não pode deletar sua própria conta');
+    }
+
+    setUsers(prev => prev.filter(user => user.id !== id));
+  };
+
+  const updateUserPermissions = (id: string, permissions: string[]) => {
+    if (!isAdmin) {
+      throw new Error('Apenas administradores podem atualizar permissões');
+    }
+
+    setUsers(prev => 
+      prev.map(user => 
+        user.id === id 
+          ? { ...user, permissions, updated_at: new Date().toISOString() }
+          : user
+      )
+    );
+  };
+
+  const toggleUserStatus = (id: string) => {
+    if (!isAdmin) {
+      throw new Error('Apenas administradores podem alterar status de usuários');
+    }
+
+    setUsers(prev => 
+      prev.map(user => 
+        user.id === id 
+          ? { 
+              ...user, 
+              status: user.status === 'active' ? 'inactive' : 'active',
+              updated_at: new Date().toISOString()
+            }
+          : user
+      )
+    );
+  };
+
+  const toggleUserRole = (id: string) => {
+    if (!isAdmin) {
+      throw new Error('Apenas administradores podem alterar roles de usuários');
+    }
+
+    setUsers(prev => 
+      prev.map(user => 
+        user.id === id 
+          ? { 
+              ...user, 
+              role: user.role === 'admin' ? 'user' : 'admin',
+              updated_at: new Date().toISOString()
+            }
+          : user
+      )
+    );
   };
 
   const value: UsersContextType = {

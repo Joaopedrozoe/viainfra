@@ -1,18 +1,19 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { Department, CreateDepartmentData, MOCK_DEPARTMENTS } from "@/types/departments";
-import { useAuth } from "@/contexts/auth";
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { Department } from '@/types/departments';
+import { useAuth } from '@/contexts/auth';
+import { MOCK_DEPARTMENTS } from '@/data/mockDepartments';
 
 interface DepartmentsContextType {
   departments: Department[];
-  createDepartment: (departmentData: CreateDepartmentData) => Promise<void>;
-  updateDepartment: (departmentId: string, departmentData: Partial<Department>) => Promise<void>;
-  deleteDepartment: (departmentId: string) => Promise<void>;
-  addMemberToDepartment: (departmentId: string, userId: string) => Promise<void>;
-  removeMemberFromDepartment: (departmentId: string, userId: string) => Promise<void>;
+  createDepartment: (department: Omit<Department, 'id' | 'created_at' | 'updated_at'>) => void;
+  updateDepartment: (id: string, updates: Partial<Department>) => void;
+  deleteDepartment: (id: string) => void;
+  addMemberToDepartment: (departmentId: string, userId: string) => void;
+  removeMemberFromDepartment: (departmentId: string, memberId: string) => void;
   getUserDepartments: (userId: string) => Department[];
   getDepartmentByUser: (userId: string) => Department | null;
-  canViewAllDepartments: (userId: string) => boolean;
-  getFilteredDepartments: (userId: string) => Department[];
+  canViewAllDepartments: boolean;
+  getFilteredDepartments: (userId?: string) => Department[];
 }
 
 const DepartmentsContext = createContext<DepartmentsContextType | null>(null);
@@ -25,103 +26,131 @@ export const useDepartments = () => {
   return context;
 };
 
-export const DepartmentsProvider = ({ children }: { children: ReactNode }) => {
-  const { profile } = useAuth();
+export const DepartmentsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [departments, setDepartments] = useState<Department[]>([]);
+  const { profile } = useAuth();
   
-  const isAdmin = profile?.email === "elisabete.silva@viainfra.com.br";
+  const isAdmin = profile?.role === 'admin';
+  const canViewAllDepartments = isAdmin;
 
-  // Load departments from localStorage or initialize with mock data
+  // Initialize departments from localStorage or mock data
   useEffect(() => {
-    // Force refresh with updated MOCK_DEPARTMENTS
-    setDepartments(MOCK_DEPARTMENTS);
-    localStorage.setItem('system-departments', JSON.stringify(MOCK_DEPARTMENTS));
+    const storedDepartments = localStorage.getItem('departments');
+    if (storedDepartments) {
+      setDepartments(JSON.parse(storedDepartments));
+    } else {
+      setDepartments(MOCK_DEPARTMENTS);
+      localStorage.setItem('departments', JSON.stringify(MOCK_DEPARTMENTS));
+    }
   }, []);
 
-  // Save departments to localStorage whenever departments change
+  // Save to localStorage whenever departments change
   useEffect(() => {
     if (departments.length > 0) {
-      localStorage.setItem('system-departments', JSON.stringify(departments));
+      localStorage.setItem('departments', JSON.stringify(departments));
     }
   }, [departments]);
 
-  const createDepartment = async (departmentData: CreateDepartmentData): Promise<void> => {
-    if (!isAdmin) throw new Error("Only admins can create departments");
-    
-    // Check if name already exists
-    if (departments.find(dept => dept.name.toLowerCase() === departmentData.name.toLowerCase())) {
-      throw new Error("Departamento já existe");
+  const createDepartment = (departmentData: Omit<Department, 'id' | 'created_at' | 'updated_at'>) => {
+    if (!isAdmin) {
+      throw new Error('Apenas administradores podem criar departamentos');
     }
 
     const newDepartment: Department = {
-      id: Date.now().toString(),
-      name: departmentData.name,
-      description: departmentData.description,
-      members: departmentData.members || [],
+      ...departmentData,
+      id: `dept-${Date.now()}`,
+      createdAt: new Date().toISOString(),
       isActive: true,
-      createdAt: new Date().toISOString()
     };
 
     setDepartments(prev => [...prev, newDepartment]);
   };
 
-  const updateDepartment = async (departmentId: string, departmentData: Partial<Department>): Promise<void> => {
-    if (!isAdmin) throw new Error("Only admins can update departments");
-    
-    setDepartments(prev => prev.map(dept => 
-      dept.id === departmentId ? { ...dept, ...departmentData } : dept
-    ));
+  const updateDepartment = (id: string, updates: Partial<Department>) => {
+    if (!isAdmin) {
+      throw new Error('Apenas administradores podem editar departamentos');
+    }
+
+    setDepartments(prev => 
+      prev.map(dept => 
+        dept.id === id 
+          ? { ...dept, ...updates, updated_at: new Date().toISOString() }
+          : dept
+      )
+    );
   };
 
-  const deleteDepartment = async (departmentId: string): Promise<void> => {
-    if (!isAdmin) throw new Error("Only admins can delete departments");
-    
-    setDepartments(prev => prev.filter(dept => dept.id !== departmentId));
+  const deleteDepartment = (id: string) => {
+    if (!isAdmin) {
+      throw new Error('Apenas administradores podem deletar departamentos');
+    }
+
+    setDepartments(prev => prev.filter(dept => dept.id !== id));
   };
 
-  const addMemberToDepartment = async (departmentId: string, userId: string): Promise<void> => {
-    if (!isAdmin) throw new Error("Only admins can manage department members");
-    
-    setDepartments(prev => prev.map(dept => 
-      dept.id === departmentId 
-        ? { ...dept, members: [...new Set([...dept.members, userId])] }
-        : dept
-    ));
+  const addMemberToDepartment = (departmentId: string, member: Omit<DepartmentMember, 'id'>) => {
+    if (!isAdmin) {
+      throw new Error('Apenas administradores podem adicionar membros');
+    }
+
+    const newMember: DepartmentMember = {
+      ...member,
+      id: `member-${Date.now()}`,
+    };
+
+    setDepartments(prev => 
+      prev.map(dept => 
+        dept.id === departmentId 
+          ? { 
+              ...dept, 
+              members: [...dept.members, newMember],
+              updated_at: new Date().toISOString()
+            }
+          : dept
+      )
+    );
   };
 
-  const removeMemberFromDepartment = async (departmentId: string, userId: string): Promise<void> => {
-    if (!isAdmin) throw new Error("Only admins can manage department members");
-    
-    setDepartments(prev => prev.map(dept => 
-      dept.id === departmentId 
-        ? { ...dept, members: dept.members.filter(id => id !== userId) }
-        : dept
-    ));
+  const removeMemberFromDepartment = (departmentId: string, memberId: string) => {
+    if (!isAdmin) {
+      throw new Error('Apenas administradores podem remover membros');
+    }
+
+    setDepartments(prev => 
+      prev.map(dept => 
+        dept.id === departmentId 
+          ? { 
+              ...dept, 
+              members: dept.members.filter(member => member.id !== memberId),
+              updated_at: new Date().toISOString()
+            }
+          : dept
+      )
+    );
   };
 
   const getUserDepartments = (userId: string): Department[] => {
-    return departments.filter(dept => dept.members.includes(userId));
+    return departments.filter(dept => 
+      dept.members.some(member => member.user_id === userId)
+    );
   };
 
   const getDepartmentByUser = (userId: string): Department | null => {
-    return departments.find(dept => dept.members.includes(userId)) || null;
+    return departments.find(dept => 
+      dept.members.some(member => member.user_id === userId)
+    ) || null;
   };
 
-  const canViewAllDepartments = (userId: string): boolean => {
-    // Check if user has permission to view all departments (stored in localStorage)
-    const userSettings = localStorage.getItem(`user-settings-${userId}`);
-    if (userSettings) {
-      const settings = JSON.parse(userSettings);
-      return settings.viewAllDepartments || false;
-    }
-    return false;
-  };
-
-  const getFilteredDepartments = (userId: string): Department[] => {
-    if (isAdmin || canViewAllDepartments(userId)) {
+  const getFilteredDepartments = (userId?: string): Department[] => {
+    if (canViewAllDepartments) {
       return departments;
     }
-    return getUserDepartments(userId);
+    
+    if (userId) {
+      return getUserDepartments(userId);
+    }
+    
+    return [];
   };
 
   const value: DepartmentsContextType = {
@@ -134,7 +163,7 @@ export const DepartmentsProvider = ({ children }: { children: ReactNode }) => {
     getUserDepartments,
     getDepartmentByUser,
     canViewAllDepartments,
-    getFilteredDepartments
+    getFilteredDepartments,
   };
 
   return (

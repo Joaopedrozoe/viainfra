@@ -3,7 +3,7 @@ import { PlanFeature, PLAN_FEATURES } from "@/types/plans";
 import { MOCK_USER_PLAN, PLANS } from "@/data/plans";
 
 export const usePlanPermissions = () => {
-  // TODO: Substituir por dados reais do Supabase
+  // TODO: Substituir por dados reais do backend via API
   const userPlan = MOCK_USER_PLAN;
   
   const currentPlan = useMemo(() => {
