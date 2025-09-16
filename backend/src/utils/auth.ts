@@ -24,16 +24,14 @@ export const comparePassword = async (password: string, hash: string): Promise<b
  * Generate a JWT token for a user
  */
 export const generateToken = (user: Pick<User, 'id' | 'email' | 'role' | 'company_id'>): string => {
-  return jwt.sign(
-    {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-      company_id: user.company_id,
-    },
-    JWT_SECRET,
-    { expiresIn: JWT_EXPIRES_IN }
-  );
+  const payload = {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    company_id: user.company_id,
+  };
+  
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN } as any);
 };
 
 /**
