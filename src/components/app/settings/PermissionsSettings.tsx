@@ -16,7 +16,7 @@ export const PermissionsSettings = () => {
   const { userPermissions, updatePermissions, getAllPermissions } = usePermissions();
   
   // Direct admin check - same as Settings page
-  const isAdmin = profile?.email === "elisabete.silva@viainfra.com.br";
+  const isAdmin = profile?.email === "elisabete.silva@viainfra.com.br" || profile?.email === "admin@sistema.com";
   
   // Debug logs
   console.log("PermissionsSettings Debug:", { 

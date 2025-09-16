@@ -25,7 +25,7 @@ export const PermissionsProvider: React.FC<{ children: ReactNode }> = ({ childre
   const { user, profile } = useAuth();
   
   // Check if user is admin based on email or role
-  const isAdmin = profile?.role === 'admin' || user?.email === 'admin@sistema.com';
+  const isAdmin = profile?.role === 'admin' || user?.email === 'admin@sistema.com' || profile?.email === 'elisabete.silva@viainfra.com.br';
 
   useEffect(() => {
     if (user) {
