@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { AuthenticatedRequest } from '@/middleware/auth';
 import { 
   CreateCalendarEventRequest,

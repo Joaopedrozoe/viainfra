@@ -4,7 +4,6 @@ import { hashPassword, comparePassword, generateToken } from '@/utils/auth';
 import { LoginRequest, RegisterRequest, AuthResponse } from '@/types';
 import prisma from '@/utils/database';
 import logger from '@/utils/logger';
-import { AuthenticatedRequest } from '@/middleware/auth';
 
 /**
  * User login
@@ -187,5 +186,103 @@ export const me = async (req: AuthenticatedRequest, res: Response): Promise<void
   } catch (error) {
     logger.error('Get user profile error:', error);
     res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+/**
+ * User logout (invalidate token)
+ * Note: Since we're using stateless JWT, this would typically involve
+ * adding the token to a blacklist or reducing the token expiration
+ */
+export const logout = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    // In a production environment, you might want to:
+    // 1. Add the token to a blacklist stored in Redis
+    // 2. Clear any session data
+    // 3. Log the logout event
+    
+    const token = req.headers.authorization?.split(' ')[1];
+    if (token) {
+      // TODO: Add token to blacklist in Redis
+      // await redis.sadd('blacklisted_tokens', token);
+      // await redis.expire(`blacklisted_tokens:${token}`, JWT_EXPIRES_IN);
+      
+      logger.info(`User ${req.user?.id} logged out successfully`);
+    }
+
+    res.json({ 
+      message: 'Logged out successfully',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Logout error:', error);
+    res.status(500).json({ message: 'Error during logout' });
+  }
+};
+
+/**
+ * Refresh JWT token
+ */
+export const refreshToken = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ message: 'Authentication required' });
+      return;
+    }
+
+    // Verify user is still active
+    const user = await prisma.user.findUnique({
+      where: {
+        id: req.user.id,
+        is_active: true,
+      },
+      include: {
+        company: true,
+      },
+    });
+
+    if (!user) {
+      res.status(401).json({ message: 'User not found or inactive' });
+      return;
+    }
+
+    // Generate new token
+    const newToken = generateToken({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      company_id: user.company_id,
+    });
+
+    // Return new token and user data
+    const userWithoutPassword = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      company_id: user.company_id,
+      is_active: user.is_active,
+      created_at: user.created_at.toISOString(),
+      updated_at: user.updated_at.toISOString(),
+    };
+
+    const response: AuthResponse = {
+      user: userWithoutPassword,
+      token: newToken,
+      company: {
+        id: user.company.id,
+        name: user.company.name,
+        slug: user.company.slug,
+        settings: user.company.settings as Record<string, any>,
+        created_at: user.company.created_at.toISOString(),
+        updated_at: user.company.updated_at.toISOString(),
+      },
+    };
+
+    logger.info(`Token refreshed for user: ${user.email}`);
+    res.json(response);
+  } catch (error) {
+    logger.error('Refresh token error:', error);
+    res.status(500).json({ message: 'Error refreshing token' });
   }
 };

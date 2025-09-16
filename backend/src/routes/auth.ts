@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { login, register, me } from '@/controllers/authController';
+import { login, register, me, logout, refreshToken } from '@/controllers/authController';
 import { authenticateToken } from '@/middleware/auth';
 import { validateBody } from '@/middleware/validation';
 import { loginSchema, registerSchema } from '@/utils/validation';
@@ -27,5 +27,19 @@ router.post('/register', validateBody(registerSchema), asyncHandler(register));
  * @access Private
  */
 router.get('/me', authenticateToken, asyncHandler(me));
+
+/**
+ * @route POST /auth/logout
+ * @desc User logout
+ * @access Private
+ */
+router.post('/logout', authenticateToken, asyncHandler(logout));
+
+/**
+ * @route POST /auth/refresh
+ * @desc Refresh JWT token
+ * @access Private
+ */
+router.post('/refresh', authenticateToken, asyncHandler(refreshToken));
 
 export default router;
