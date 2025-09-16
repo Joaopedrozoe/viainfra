@@ -38,8 +38,8 @@ const Settings = () => {
   const [activeTab, setActiveTab] = useState("profile");
   
   
-  // Verificar se é a Elisabete (admin) para abas empresa, email e permissões
-  const isAdmin = profile?.email === "elisabete.silva@viainfra.com.br";
+  // Verificar se é admin para abas empresa, email e permissões
+  const isAdmin = profile?.email === "elisabete.silva@viainfra.com.br" || profile?.email === "admin@sistema.com";
   
   // Debug logs
   console.log("Settings Debug:", { 
