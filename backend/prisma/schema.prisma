@@ -68,6 +68,7 @@ model Channel {
   channel_bots  ChannelBot[]
   webhook_events WebhookEvent[]
 
+  @@unique([name, company_id], name: "name_company_id")
   @@map("channels")
 }
 
