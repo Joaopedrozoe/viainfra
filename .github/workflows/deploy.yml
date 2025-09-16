@@ -1,0 +1,70 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH Agent
+        uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add EC2 host to known_hosts
+        run: |
+          ssh-keyscan -H 18.217.14.91 >> ~/.ssh/known_hosts
+
+      - name: Deploy to EC2
+        run: |
+          ssh ubuntu@18.217.14.91 << 'EOF'
+            set -e  # Exit on any error
+            
+            echo "🚀 Starting deployment at $(date)"
+            
+            # Navigate to project directory
+            cd /opt/whitelabel
+            
+            # Pull latest changes
+            echo "📥 Pulling latest changes..."
+            git pull
+            
+            # Install frontend dependencies and build
+            echo "🎨 Building frontend..."
+            npm install
+            npm run build
+            
+            # Install backend dependencies and build
+            echo "⚙️ Building backend..."
+            cd backend
+            npm install
+            npm run build
+            cd ..
+            
+            # Deploy with Docker Compose
+            echo "🐳 Deploying with Docker Compose..."
+            docker-compose up -d
+            
+            echo "✅ Deploy completed successfully at $(date)"
+          EOF
+
+      - name: Verify deployment
+        run: |
+          ssh ubuntu@18.217.14.91 << 'EOF'
+            echo "📊 Checking container status:"
+            cd /opt/whitelabel
+            docker-compose ps
+            
+            echo ""
+            echo "🏥 Checking backend health:"
+            timeout 30 bash -c 'until curl -f http://localhost:4000/health >/dev/null 2>&1; do echo "Waiting for backend..."; sleep 2; done' || echo "Backend health check timeout"
+            
+            echo ""
+            echo "✅ Deployment verification completed"
+          EOF
