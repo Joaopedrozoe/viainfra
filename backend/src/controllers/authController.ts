@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { AuthenticatedRequest } from '@/middleware/auth';
 import { hashPassword, comparePassword, generateToken } from '@/utils/auth';
 import { LoginRequest, RegisterRequest, AuthResponse } from '@/types';
 import prisma from '@/utils/database';
