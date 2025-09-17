@@ -148,6 +148,7 @@ export const getConversationMessages = async (
       data: messages.reverse().map(message => ({
         ...message,
         message_type: message.message_type as 'text' | 'image' | 'audio' | 'document' | 'location' | 'contact',
+        sender_type: message.sender_type as 'contact' | 'agent' | 'bot',
         sender_id: message.sender_id || undefined,
         external_id: message.external_id || undefined,
         metadata: message.metadata as Record<string, any>,

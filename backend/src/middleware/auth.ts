@@ -41,7 +41,9 @@ export const authenticateToken = async (
 
     req.user = {
       ...user,
-      role: user.role as 'admin' | 'user' | 'agent' | 'attendant'
+      role: user.role as 'admin' | 'user' | 'agent' | 'attendant',
+      created_at: user.created_at.toISOString(),
+      updated_at: user.updated_at.toISOString()
     };
     next();
   } catch (error) {
