@@ -4,10 +4,13 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apk add --no-cache \
-    postgresql-client \
+# Install system dependencies including OpenSSL for Prisma
+RUN apk update && apk add --no-cache \
+    postgresql15-client \
     curl \
+    openssl \
+    openssl-dev \
+    libc6-compat \
     && rm -rf /var/cache/apk/*
 
 # Copy package files
@@ -34,10 +37,12 @@ FROM node:18-alpine AS production
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apk add --no-cache \
-    postgresql-client \
+# Install system dependencies including OpenSSL for Prisma runtime
+RUN apk update && apk add --no-cache \
+    postgresql15-client \
     curl \
+    openssl \
+    libc6-compat \
     && rm -rf /var/cache/apk/*
 
 # Copy package files

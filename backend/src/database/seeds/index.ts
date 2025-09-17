@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import logger from '../../utils/logger';
+import { seedTestUser } from './testUser';
 
 const prisma = new PrismaClient();
 
@@ -41,6 +42,9 @@ async function main() {
     });
 
     logger.info(`Admin user created/updated: ${adminUser.email}`);
+
+    // Seed test user for login verification
+    await seedTestUser();
 
     // Create sample users
     const sampleUsers = [
