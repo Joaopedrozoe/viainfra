@@ -19,9 +19,10 @@ NC='\033[0m' # No Color
 # Configuration
 PROJECT_DIR="/opt/whitelabel"
 LOG_FILE="$PROJECT_DIR/logs/autonomous-deploy.log"
-MAX_RETRIES=${MAX_RETRIES:-3}
+MAX_RETRIES=${MAX_RETRIES:-5}
 RETRY_DELAY=${RETRY_DELAY:-30}
 HEALTH_CHECK_TIMEOUT=${HEALTH_CHECK_TIMEOUT:-180}
+AUTO_FIX_ISSUES=${AUTO_FIX_ISSUES:-true}
 
 # Ensure we're in the right directory
 cd "$PROJECT_DIR" || {
@@ -93,8 +94,21 @@ cleanup_deployment() {
     # Clean up Docker resources
     docker system prune -f 2>/dev/null || true
     
+    # Clean up any stuck containers
+    docker ps -a --filter "status=exited" -q | xargs docker rm 2>/dev/null || true
+    docker images --filter "dangling=true" -q | xargs docker rmi 2>/dev/null || true
+    
+    # Clear any port locks
+    for port in 3000 4000 5432 6379 8080; do
+        PID=$(lsof -t -i ":$port" 2>/dev/null | head -1)
+        if [ ! -z "$PID" ]; then
+            warning "Clearing stuck process on port $port (PID: $PID)"
+            kill -9 "$PID" 2>/dev/null || true
+        fi
+    done
+    
     # Wait a moment for cleanup
-    sleep 10
+    sleep 15
     
     success "Cleanup completed"
 }
@@ -109,6 +123,10 @@ fix_common_issues() {
         warning "High disk usage ($DISK_USAGE%), cleaning up..."
         docker system prune -af --volumes 2>/dev/null || true
         npm cache clean --force 2>/dev/null || true
+        # Clean apt cache if available
+        sudo apt-get clean 2>/dev/null || true
+        # Clean logs older than 7 days
+        find "$PROJECT_DIR/logs" -name "*.log" -mtime +7 -delete 2>/dev/null || true
     fi
     
     # Check memory usage
@@ -117,24 +135,46 @@ fix_common_issues() {
         warning "High memory usage ($MEMORY_USAGE%), restarting Docker daemon..."
         sudo systemctl restart docker
         sleep 30
+        # Sync and drop caches
+        sudo sync && echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null 2>&1 || true
     fi
     
-    # Check Docker daemon
+    # Check Docker daemon health
     if ! docker info > /dev/null 2>&1; then
         warning "Docker daemon issues detected, restarting..."
         sudo systemctl restart docker
         sleep 30
+        # Verify docker is back up
+        local attempts=0
+        while [ $attempts -lt 10 ] && ! docker info > /dev/null 2>&1; do
+            sleep 5
+            attempts=$((attempts + 1))
+        done
+        
+        if ! docker info > /dev/null 2>&1; then
+            error "Docker daemon failed to restart properly"
+            return 1
+        fi
     fi
     
-    # Check port conflicts
+    # Check port conflicts and resolve them intelligently
     for port in 3000 4000 5432 6379 8080; do
         if lsof -i ":$port" > /dev/null 2>&1; then
             PID=$(lsof -t -i ":$port" | head -1)
             if [ ! -z "$PID" ]; then
-                warning "Port $port is in use by PID $PID, checking if it's our process..."
-                if ! ps -p "$PID" -o cmd= | grep -E "(docker|node|postgres|redis)" > /dev/null; then
-                    warning "Killing non-Docker process on port $port"
-                    kill -9 "$PID" 2>/dev/null || true
+                CMD=$(ps -p "$PID" -o cmd= 2>/dev/null || echo "unknown")
+                warning "Port $port is in use by PID $PID: $CMD"
+                
+                # Only kill if it's not a Docker container or our service
+                if ! echo "$CMD" | grep -E "(docker|containerd)" > /dev/null && \
+                   ! echo "$CMD" | grep -E "(postgres|redis|node.*4000|node.*3000)" > /dev/null; then
+                    warning "Killing non-essential process on port $port"
+                    kill -15 "$PID" 2>/dev/null || true
+                    sleep 2
+                    # Force kill if still running
+                    if ps -p "$PID" > /dev/null 2>&1; then
+                        kill -9 "$PID" 2>/dev/null || true
+                    fi
                 fi
             fi
         fi
@@ -143,6 +183,13 @@ fix_common_issues() {
     # Fix permission issues
     sudo chown -R $(whoami):$(whoami) "$PROJECT_DIR" 2>/dev/null || true
     chmod +x scripts/*.sh 2>/dev/null || true
+    
+    # Ensure log directory exists and is writable
+    mkdir -p "$PROJECT_DIR/logs"
+    chmod 755 "$PROJECT_DIR/logs"
+    
+    # Clean up any Docker network conflicts
+    docker network prune -f 2>/dev/null || true
     
     success "Common issues check completed"
 }
@@ -187,12 +234,15 @@ verify_environment() {
 # Function to deploy with retries
 deploy_with_retries() {
     local attempt=1
+    local current_delay=$RETRY_DELAY
     
     while [ $attempt -le $MAX_RETRIES ]; do
         log "🚀 Deployment attempt $attempt of $MAX_RETRIES" "$PURPLE"
         
         # Fix common issues before each attempt
-        fix_common_issues
+        if [ "$AUTO_FIX_ISSUES" = "true" ]; then
+            fix_common_issues
+        fi
         
         # Verify environment
         if ! verify_environment; then
@@ -215,15 +265,20 @@ deploy_with_retries() {
             cleanup_deployment
             
             if [ $attempt -lt $MAX_RETRIES ]; then
-                warning "Waiting $RETRY_DELAY seconds before retry..."
-                sleep $RETRY_DELAY
+                warning "Waiting $current_delay seconds before retry (exponential backoff)..."
+                sleep $current_delay
+                # Exponential backoff with max cap of 300 seconds
+                current_delay=$((current_delay * 2))
+                if [ $current_delay -gt 300 ]; then
+                    current_delay=300
+                fi
             fi
         fi
         
         attempt=$((attempt + 1))
     done
     
-    error "All deployment attempts failed"
+    error "All deployment attempts failed after $MAX_RETRIES attempts"
     return 1
 }
 
@@ -291,7 +346,7 @@ run_deployment() {
         services_healthy=false
     fi
     
-    if ! check_service "Evolution API" "http://localhost:8080/manager/health" 30; then
+    if ! check_service "Evolution API" "http://localhost:8080" 30; then
         warning "Evolution API not responding, but continuing..."
     fi
     

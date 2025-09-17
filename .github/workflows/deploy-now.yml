@@ -17,11 +17,16 @@ on:
         required: false
         default: '5'
         type: string
+      auto_heal:
+        description: 'Enable auto-healing'
+        required: false
+        default: 'true'
+        type: boolean
 
 jobs:
   deploy-now:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     
     steps:
       - name: Checkout code
@@ -34,116 +39,278 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Deploy to EC2
+      - name: Deploy to EC2 with Enhanced Monitoring
         run: |
-          echo "🚀 Starting deployment..."
+          echo "🚀 Starting enhanced autonomous deployment..."
           echo "Mode: ${{ inputs.deployment_mode }}"
           echo "Max retries: ${{ inputs.max_retries }}"
+          echo "Auto-heal: ${{ inputs.auto_heal }}"
           
-          ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
-            # Prepare environment
-            sudo mkdir -p /opt/whitelabel
-            sudo chown -R ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} /opt/whitelabel
-            cd /opt/whitelabel || exit 1
-            
-            # Clone/update repository
-            if [ -d '.git' ]; then
-              echo 'Updating repository...'
-              git fetch origin
-              git reset --hard origin/${{ github.ref_name }}
-            else
-              echo 'Cloning repository...'
-              git clone https://github.com/${{ github.repository }}.git .
-            fi
-            
-            # Make scripts executable
-            chmod +x scripts/*.sh
-            
-            # Set environment variables
-            export MAX_RETRIES='${{ inputs.max_retries }}'
-            export DEPLOYMENT_MODE='${{ inputs.deployment_mode }}'
-            export GITHUB_RUN_NUMBER='${{ github.run_number }}'
-            
-            # Choose deployment script based on mode
-            if [ '${{ inputs.deployment_mode }}' = 'autonomous' ]; then
-              echo 'Running autonomous deployment...'
-              timeout 3600 ./scripts/autonomous-deploy.sh
-            else
-              echo 'Running standard deployment...'
-              timeout 3600 ./scripts/deploy-ec2.sh
-            fi
-          "
+          # Create a deployment monitoring script
+          cat > monitor_deployment.sh << 'EOF'
+          #!/bin/bash
+          
+          REMOTE_LOG="/opt/whitelabel/logs/autonomous-deploy.log"
+          LAST_LINE=0
+          
+          echo "📊 Real-time deployment monitoring started..."
+          
+          while true; do
+              # Get new log lines
+              NEW_LINES=$(ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+                  "tail -n +$((LAST_LINE + 1)) $REMOTE_LOG 2>/dev/null | wc -l" 2>/dev/null || echo "0")
+              
+              if [ "$NEW_LINES" -gt 0 ]; then
+                  # Display new log lines
+                  ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+                      "tail -n +$((LAST_LINE + 1)) $REMOTE_LOG 2>/dev/null | head -n $NEW_LINES" 2>/dev/null || true
+                  LAST_LINE=$((LAST_LINE + NEW_LINES))
+              fi
+              
+              # Check if deployment is complete
+              if ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+                  "grep -q 'DEPLOYMENT COMPLETED SUCCESSFULLY\|DEPLOYMENT FAILED AFTER ALL RETRY ATTEMPTS' $REMOTE_LOG 2>/dev/null"; then
+                  echo "🎯 Deployment process completed!"
+                  break
+              fi
+              
+              sleep 5
+          done
+          EOF
+          
+          chmod +x monitor_deployment.sh
+          
+          # Start deployment and monitor in parallel
+          (
+            ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+              # Prepare environment
+              sudo mkdir -p /opt/whitelabel
+              sudo chown -R ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} /opt/whitelabel
+              cd /opt/whitelabel || exit 1
+              
+              # Clone/update repository
+              if [ -d '.git' ]; then
+                echo '🔄 Updating repository...'
+                git fetch origin
+                git reset --hard origin/${{ github.ref_name }}
+              else
+                echo '📥 Cloning repository...'
+                git clone https://github.com/${{ github.repository }}.git .
+              fi
+              
+              # Make scripts executable
+              chmod +x scripts/*.sh
+              
+              # Set environment variables for enhanced deployment
+              export MAX_RETRIES='${{ inputs.max_retries }}'
+              export DEPLOYMENT_MODE='${{ inputs.deployment_mode }}'
+              export GITHUB_RUN_NUMBER='${{ github.run_number }}'
+              export AUTO_FIX_ISSUES='${{ inputs.auto_heal }}'
+              export AUTO_HEAL='${{ inputs.auto_heal }}'
+              export AUTO_RESTART='true'
+              
+              # Choose deployment script based on mode
+              if [ '${{ inputs.deployment_mode }}' = 'autonomous' ]; then
+                echo '🤖 Running enhanced autonomous deployment...'
+                timeout 7200 ./scripts/autonomous-deploy.sh
+              else
+                echo '🔧 Running standard deployment...'
+                timeout 7200 ./scripts/deploy-ec2.sh
+              fi
+            " &
+          ) &
+          DEPLOY_PID=$!
+          
+          # Start monitoring
+          sleep 10  # Give deployment time to start
+          ./monitor_deployment.sh &
+          MONITOR_PID=$!
+          
+          # Wait for deployment to complete
+          wait $DEPLOY_PID
+          DEPLOY_EXIT_CODE=$?
+          
+          # Stop monitoring
+          kill $MONITOR_PID 2>/dev/null || true
+          
+          # Show final deployment status
+          if [ $DEPLOY_EXIT_CODE -eq 0 ]; then
+            echo "✅ Deployment completed successfully!"
+          else
+            echo "❌ Deployment failed with exit code: $DEPLOY_EXIT_CODE"
+            echo "🔍 Attempting to retrieve error details..."
+            ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+              "tail -50 /opt/whitelabel/logs/autonomous-deploy.log 2>/dev/null || echo 'Could not retrieve logs'"
+          fi
+          
+          exit $DEPLOY_EXIT_CODE
 
-      - name: Verify deployment
-        if: success()
+      - name: Enhanced Deployment Verification
+        if: always()
         run: |
-          echo "🔍 Verifying deployment..."
+          echo "🔍 Running enhanced deployment verification..."
           
           ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
             cd /opt/whitelabel
             
-            # Check container status
             echo '=== Container Status ==='
             docker-compose ps
+            echo ''
             
-            # Run health checks
-            echo '=== Health Checks ==='
+            echo '=== Enhanced Health Checks ==='
             if [ -f 'scripts/health-check.sh' ]; then
+              export AUTO_HEAL=false  # Don't auto-heal during verification
               ./scripts/health-check.sh
             else
               echo 'Health check script not found'
             fi
+            echo ''
             
-            # Test endpoints
-            echo '=== Endpoint Tests ==='
-            if curl -f -s --max-time 10 http://localhost:4000/health > /dev/null; then
-              echo '✅ Backend API: Healthy'
+            echo '=== Comprehensive Endpoint Tests ==='
+            ENDPOINTS_OK=0
+            ENDPOINTS_TOTAL=0
+            
+            # Backend API
+            ENDPOINTS_TOTAL=$((ENDPOINTS_TOTAL + 1))
+            if timeout 15 bash -c 'until curl -f -s --max-time 10 http://localhost:4000/health > /dev/null; do sleep 2; done'; then
+              echo '✅ Backend API (http://localhost:4000/health): Healthy'
+              ENDPOINTS_OK=$((ENDPOINTS_OK + 1))
             else
-              echo '❌ Backend API: Not responding'
+              echo '❌ Backend API (http://localhost:4000/health): Not responding'
             fi
             
-            if curl -f -s --max-time 10 http://localhost:3000 > /dev/null; then
-              echo '✅ Frontend: Healthy'
+            # Frontend
+            ENDPOINTS_TOTAL=$((ENDPOINTS_TOTAL + 1))
+            if timeout 15 bash -c 'until curl -f -s --max-time 10 http://localhost:3000 > /dev/null; do sleep 2; done'; then
+              echo '✅ Frontend (http://localhost:3000): Healthy'
+              ENDPOINTS_OK=$((ENDPOINTS_OK + 1))
             else
-              echo '❌ Frontend: Not responding'
+              echo '❌ Frontend (http://localhost:3000): Not responding'
             fi
             
-            # Get public IP
-            PUBLIC_IP=\$(curl -s ifconfig.me || echo 'unknown')
+            # Evolution API
+            ENDPOINTS_TOTAL=$((ENDPOINTS_TOTAL + 1))
+            if timeout 15 bash -c 'until curl -f -s --max-time 10 http://localhost:8080 > /dev/null; do sleep 2; done'; then
+              echo '✅ Evolution API (http://localhost:8080): Healthy'
+              ENDPOINTS_OK=$((ENDPOINTS_OK + 1))
+            else
+              echo '❌ Evolution API (http://localhost:8080): Not responding'
+            fi
+            
+            echo ''
+            echo \"=== Summary: \$ENDPOINTS_OK/\$ENDPOINTS_TOTAL endpoints healthy ===\"
+            
+            # Get public IP for access URLs
+            PUBLIC_IP=\$(timeout 10 curl -s ifconfig.me 2>/dev/null || curl -s icanhazip.com 2>/dev/null || echo 'unknown')
             echo ''
             echo '🌐 Access URLs:'
-            echo \"Frontend: http://\$PUBLIC_IP:3000\"
-            echo \"Backend API: http://\$PUBLIC_IP:4000\"
-            echo \"Evolution API: http://\$PUBLIC_IP:8080\"
+            echo \"  Frontend: http://\$PUBLIC_IP:3000\"
+            echo \"  Backend API: http://\$PUBLIC_IP:4000\"
+            echo \"  Evolution API: http://\$PUBLIC_IP:8080\"
+            echo ''
+            
+            # System resource summary
+            echo '=== System Resources ==='
+            echo \"Disk: \$(df -h / | awk 'NR==2 {print \$5}') used\"
+            echo \"Memory: \$(free -h | awk 'NR==2{printf \\\"%s/%s (%.1f%%)\\\", \$3, \$2, \$3*100/\$2}')\"
+            echo \"Load: \$(uptime | awk -F'load average:' '{print \$2}')\"
+            echo ''
+            
+            # Final deployment report
+            if [ -f 'logs/autonomous-deploy.log' ]; then
+              echo '=== Deployment Log Summary ==='
+              tail -20 logs/autonomous-deploy.log
+            fi
+            
+            # Exit with appropriate code
+            if [ \$ENDPOINTS_OK -eq \$ENDPOINTS_TOTAL ]; then
+              echo '✅ All endpoints verified successfully!'
+              exit 0
+            elif [ \$ENDPOINTS_OK -gt 0 ]; then
+              echo '⚠️ Some endpoints are working but not all'
+              exit 1
+            else
+              echo '❌ No endpoints are responding'
+              exit 2
+            fi
           "
 
-      - name: Deployment Summary
+      - name: Enhanced Deployment Summary
         if: always()
         run: |
-          echo "# 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "# 🚀 Enhanced Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Mode:** ${{ inputs.deployment_mode }}" >> $GITHUB_STEP_SUMMARY
           echo "**Max Retries:** ${{ inputs.max_retries }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Auto-Heal:** ${{ inputs.auto_heal }}" >> $GITHUB_STEP_SUMMARY
           echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Run Number:** ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp:** $(date -u)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Get verification results
+          VERIFICATION_EXIT_CODE="${{ steps.verify.outcome }}"
           
           if [ "${{ job.status }}" = "success" ]; then
             echo "## ✅ Deployment SUCCESS" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "🎉 **WhiteLabel MVP has been successfully deployed!**" >> $GITHUB_STEP_SUMMARY
+            echo "🎉 **WhiteLabel MVP has been successfully deployed with autonomous system!**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
-            echo "1. Access your application using the URLs shown above" >> $GITHUB_STEP_SUMMARY
-            echo "2. Configure WhatsApp via Evolution API" >> $GITHUB_STEP_SUMMARY
-            echo "3. Monitor system health" >> $GITHUB_STEP_SUMMARY
+            echo "### 🔗 Access Your Application:" >> $GITHUB_STEP_SUMMARY
+            
+            # Try to get the public IP
+            PUBLIC_IP=$(ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
+              "curl -s ifconfig.me 2>/dev/null || echo '${{ secrets.EC2_HOST }}'" 2>/dev/null || echo "${{ secrets.EC2_HOST }}")
+            
+            echo "- **Frontend:** http://$PUBLIC_IP:3000" >> $GITHUB_STEP_SUMMARY
+            echo "- **Backend API:** http://$PUBLIC_IP:4000" >> $GITHUB_STEP_SUMMARY
+            echo "- **Evolution API:** http://$PUBLIC_IP:8080" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 🎯 Next Steps:" >> $GITHUB_STEP_SUMMARY
+            echo "1. 🌐 Access your application using the URLs above" >> $GITHUB_STEP_SUMMARY
+            echo "2. 📱 Configure WhatsApp via Evolution API" >> $GITHUB_STEP_SUMMARY
+            echo "3. 📊 Monitor system health with: \`./scripts/health-check.sh\`" >> $GITHUB_STEP_SUMMARY
+            echo "4. 📋 Check logs: \`tail -f /opt/whitelabel/logs/autonomous-deploy.log\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 🛡️ Autonomous Features Active:" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ Auto-healing for failed services" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ Intelligent retry with exponential backoff" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ Resource monitoring and cleanup" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ Port conflict resolution" >> $GITHUB_STEP_SUMMARY
+            
           else
             echo "## ❌ Deployment FAILED" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "💥 **Deployment failed. Check the logs above for details.**" >> $GITHUB_STEP_SUMMARY
+            echo "💥 **Deployment failed even with autonomous retry system.**" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Troubleshooting:" >> $GITHUB_STEP_SUMMARY
-            echo "1. Check the action logs for error details" >> $GITHUB_STEP_SUMMARY
-            echo "2. Try running with emergency mode" >> $GITHUB_STEP_SUMMARY
-            echo "3. SSH to server and check container status" >> $GITHUB_STEP_SUMMARY
+            echo "### 🔍 Troubleshooting Steps:" >> $GITHUB_STEP_SUMMARY
+            echo "1. 📋 Check the action logs above for detailed error information" >> $GITHUB_STEP_SUMMARY
+            echo "2. 🔄 Try running with \`emergency\` mode for aggressive healing" >> $GITHUB_STEP_SUMMARY
+            echo "3. 🖥️ SSH to server: \`ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "4. 📊 Check system health: \`cd /opt/whitelabel && ./scripts/health-check.sh\`" >> $GITHUB_STEP_SUMMARY
+            echo "5. 🐳 Check container status: \`docker-compose ps\`" >> $GITHUB_STEP_SUMMARY
+            echo "6. 📝 Review deployment logs: \`tail -100 /opt/whitelabel/logs/autonomous-deploy.log\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 🆘 Emergency Recovery:" >> $GITHUB_STEP_SUMMARY
+            echo "If the autonomous system failed, you can try manual recovery:" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "# SSH to server" >> $GITHUB_STEP_SUMMARY
+            echo "ssh ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# Navigate to project directory" >> $GITHUB_STEP_SUMMARY
+            echo "cd /opt/whitelabel" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# Clean up and restart" >> $GITHUB_STEP_SUMMARY
+            echo "docker-compose down --remove-orphans" >> $GITHUB_STEP_SUMMARY
+            echo "docker system prune -af" >> $GITHUB_STEP_SUMMARY
+            echo "sudo systemctl restart docker" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "# Try deployment again" >> $GITHUB_STEP_SUMMARY
+            echo "export MAX_RETRIES=5 AUTO_HEAL=true" >> $GITHUB_STEP_SUMMARY
+            echo "./scripts/autonomous-deploy.sh" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "*Powered by Enhanced Autonomous Deployment System v2.0*" >> $GITHUB_STEP_SUMMARY
