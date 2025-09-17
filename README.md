@@ -121,9 +121,13 @@ docker-compose ps              # Status dos containers
 ./scripts/monitor.sh           # Verificação de saúde
 
 # Atualizações
-git pull origin main           # Atualizar código
-docker-compose build --no-cache # Rebuild containers
-docker-compose restart         # Reiniciar serviços
+./update.sh                       # Atualização completa para main
+./update.sh <branch-name>         # Atualização para branch específico
+./scripts/quick-update.sh <branch> # Atualização rápida com rollback
+./scripts/port-diagnostics.sh    # Diagnóstico de conflitos
+
+# Para instruções detalhadas, consulte:
+# 📖 INSTRUCOES_ATUALIZACAO.md
 ```
 
 ---

@@ -35,9 +35,29 @@
 ./scripts/auto-update-ec2.sh branch-name
 ```
 
+### 4. `./scripts/port-diagnostics.sh` - Diagnóstico de Portas
+
+**Uso:**
+```bash
+# Verificar quais portas estão em uso e detectar conflitos
+./scripts/port-diagnostics.sh
+```
+
+**Funcionalidades:**
+- Verifica portas 3000, 4000, 5432, 6379, 8080
+- Mostra processos usando cada porta
+- Sugere soluções para conflitos
+- Mostra status dos containers Docker
+
 ## 🛠️ Solução de Problemas
 
 ### Problema: "port is already allocated"
+
+**Diagnóstico:**
+```bash
+# Verificar quais portas estão em conflito
+./scripts/port-diagnostics.sh
+```
 
 **Solução automática:**
 Os novos scripts incluem limpeza automática de portas em conflito.
@@ -80,8 +100,9 @@ ssh -i sua-chave.pem ubuntu@SEU-IP-EC2
 # 2. Ir para o diretório do projeto
 cd /opt/whitelabel
 
-# 3. Verificar status atual
+# 3. Verificar status atual e possíveis conflitos
 docker-compose ps
+./scripts/port-diagnostics.sh
 
 # 4. Executar atualização
 ./update.sh copilot/fix-16492acf-49cc-45ba-8436-1e80c824d0a5
