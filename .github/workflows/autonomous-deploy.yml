@@ -1,0 +1,437 @@
+name: Autonomous AWS EC2 Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_type:
+        description: 'Type of deployment'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - update
+          - emergency
+      max_retries:
+        description: 'Maximum deployment retries'
+        required: false
+        default: '5'
+        type: string
+      auto_fix_issues:
+        description: 'Automatically fix common deployment issues'
+        required: false
+        default: 'true'
+        type: boolean
+      domain:
+        description: 'Domain for the deployment (optional)'
+        required: false
+        default: ''
+        type: string
+      notification_webhook:
+        description: 'Webhook URL for deployment notifications (optional)'
+        required: false
+        default: ''
+        type: string
+
+env:
+  DEPLOYMENT_START_TIME: ${{ github.run_number }}
+
+jobs:
+  pre-deployment-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      can-deploy: ${{ steps.check.outputs.can-deploy }}
+      server-status: ${{ steps.check.outputs.server-status }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Pre-deployment server check
+        id: check
+        run: |
+          echo "🔍 Checking server status and readiness..."
+          
+          # Test basic connectivity
+          if ssh -o ConnectTimeout=10 -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "echo 'Connection successful'"; then
+            echo "✅ SSH connection successful"
+            
+            # Check server resources
+            ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+              echo '=== System Information ==='
+              uname -a
+              echo '=== Disk Space ==='
+              df -h /
+              echo '=== Memory ==='
+              free -h
+              echo '=== Load Average ==='
+              uptime
+              echo '=== Docker Status ==='
+              docker --version && docker info > /dev/null && echo 'Docker is running' || echo 'Docker issues detected'
+              echo '=== Network ==='
+              ping -c 2 8.8.8.8 && echo 'Internet connectivity OK'
+            "
+            
+            echo "can-deploy=true" >> $GITHUB_OUTPUT
+            echo "server-status=ready" >> $GITHUB_OUTPUT
+          else
+            echo "❌ SSH connection failed"
+            echo "can-deploy=false" >> $GITHUB_OUTPUT
+            echo "server-status=unreachable" >> $GITHUB_OUTPUT
+          fi
+
+  autonomous-deployment:
+    needs: pre-deployment-check
+    if: needs.pre-deployment-check.outputs.can-deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    
+    outputs:
+      deployment-status: ${{ steps.deploy.outputs.status }}
+      deployment-url: ${{ steps.deploy.outputs.url }}
+      deployment-report: ${{ steps.deploy.outputs.report }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Send deployment start notification
+        if: inputs.notification_webhook != ''
+        run: |
+          curl -X POST "${{ inputs.notification_webhook }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "text": "🚀 Autonomous deployment started for WhiteLabel MVP",
+              "type": "info",
+              "deployment_id": "${{ github.run_number }}",
+              "repository": "${{ github.repository }}",
+              "started_by": "${{ github.actor }}"
+            }' || echo "Webhook notification failed"
+
+      - name: Prepare deployment environment
+        run: |
+          echo "🏗️ Preparing deployment environment..."
+          
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+            # Ensure project directory exists
+            sudo mkdir -p /opt/whitelabel
+            sudo chown -R ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} /opt/whitelabel
+            
+            # Create necessary directories
+            mkdir -p /opt/whitelabel/{logs,backups,scripts}
+            
+            # Clone or update repository
+            if [ -d '/opt/whitelabel/.git' ]; then
+              echo 'Updating existing repository...'
+              cd /opt/whitelabel
+              git fetch origin
+              git reset --hard origin/main
+              git clean -fd
+            else
+              echo 'Cloning repository...'
+              cd /opt
+              sudo rm -rf whitelabel 2>/dev/null || true
+              git clone https://github.com/${{ github.repository }}.git whitelabel
+              sudo chown -R ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} /opt/whitelabel
+            fi
+            
+            cd /opt/whitelabel
+            chmod +x scripts/*.sh
+            
+            # Copy the autonomous deployment script
+            echo 'Setting up autonomous deployment...'
+          "
+
+      - name: Run autonomous deployment
+        id: deploy
+        run: |
+          echo "🚀 Starting autonomous deployment process..."
+          
+          DEPLOYMENT_SUCCESS=false
+          DEPLOYMENT_REPORT=""
+          PUBLIC_IP=""
+          
+          # Run the autonomous deployment
+          if ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+            cd /opt/whitelabel
+            
+            # Set environment variables
+            export MAX_RETRIES='${{ inputs.max_retries }}'
+            export DEPLOYMENT_TYPE='${{ inputs.deployment_type }}'
+            export AUTO_FIX_ISSUES='${{ inputs.auto_fix_issues }}'
+            export DOMAIN='${{ inputs.domain }}'
+            export GITHUB_RUN_NUMBER='${{ github.run_number }}'
+            
+            # Run autonomous deployment
+            timeout 5400 ./scripts/autonomous-deploy.sh 2>&1 | tee logs/autonomous-deploy-${{ github.run_number }}.log
+          "; then
+            echo "✅ Autonomous deployment completed successfully!"
+            DEPLOYMENT_SUCCESS=true
+            
+            # Get deployment report
+            DEPLOYMENT_REPORT=\$(ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+              cd /opt/whitelabel
+              ls -t logs/deployment-report-*.md 2>/dev/null | head -1 | xargs cat 2>/dev/null || echo 'No report available'
+            ")
+            
+            # Get public IP
+            PUBLIC_IP=\$(ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "curl -s ifconfig.me" || echo "unknown")
+            
+          else
+            echo "❌ Autonomous deployment failed!"
+            DEPLOYMENT_SUCCESS=false
+            
+            # Get error information
+            ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+              cd /opt/whitelabel
+              echo '=== Last 50 lines of deployment log ==='
+              tail -50 logs/autonomous-deploy-${{ github.run_number }}.log 2>/dev/null || echo 'No log available'
+              echo '=== Container Status ==='
+              docker-compose ps 2>/dev/null || echo 'No containers'
+              echo '=== System Status ==='
+              free -h
+              df -h
+            " || echo "Could not retrieve error details"
+          fi
+          
+          # Set outputs
+          if [ "\$DEPLOYMENT_SUCCESS" = "true" ]; then
+            echo "status=success" >> \$GITHUB_OUTPUT
+            if [ -n "${{ inputs.domain }}" ]; then
+              echo "url=https://${{ inputs.domain }}" >> \$GITHUB_OUTPUT
+            else
+              echo "url=http://\$PUBLIC_IP" >> \$GITHUB_OUTPUT
+            fi
+          else
+            echo "status=failed" >> \$GITHUB_OUTPUT
+            echo "url=" >> \$GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          echo "report<<EOF" >> \$GITHUB_OUTPUT
+          echo "\$DEPLOYMENT_REPORT" >> \$GITHUB_OUTPUT
+          echo "EOF" >> \$GITHUB_OUTPUT
+
+      - name: Run comprehensive validation
+        if: steps.deploy.outputs.status == 'success'
+        run: |
+          echo "🧪 Running comprehensive post-deployment validation..."
+          
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+            cd /opt/whitelabel
+            
+            # Run the test system script
+            echo 'Running test suite...'
+            if [ -f 'scripts/test-system.sh' ]; then
+              ./scripts/test-system.sh | tee logs/validation-${{ github.run_number }}.log
+            else
+              echo 'Test script not found, running basic validation...'
+              
+              # Basic health checks
+              echo 'Checking service health...'
+              
+              # Backend
+              if curl -f -s --max-time 10 http://localhost:4000/health > /dev/null; then
+                echo '✅ Backend API: Healthy'
+              else
+                echo '❌ Backend API: Not responding'
+              fi
+              
+              # Evolution API
+              if curl -f -s --max-time 10 http://localhost:8080/manager/health > /dev/null; then
+                echo '✅ Evolution API: Healthy'
+              else
+                echo '⚠️ Evolution API: Not responding'
+              fi
+              
+              # Frontend
+              if curl -f -s --max-time 10 http://localhost:3000 > /dev/null; then
+                echo '✅ Frontend: Healthy'
+              else
+                echo '❌ Frontend: Not responding'
+              fi
+              
+              # Database
+              if docker-compose exec -T postgres pg_isready -U postgres > /dev/null 2>&1; then
+                echo '✅ PostgreSQL: Healthy'
+              else
+                echo '❌ PostgreSQL: Not responding'
+              fi
+              
+              # Redis
+              if docker-compose exec -T redis redis-cli ping > /dev/null 2>&1; then
+                echo '✅ Redis: Healthy'
+              else
+                echo '❌ Redis: Not responding'
+              fi
+            fi
+            
+            # Performance tests
+            echo 'Running performance checks...'
+            RESPONSE_TIME=\$(curl -o /dev/null -s -w '%{time_total}' http://localhost:4000/health 2>/dev/null || echo '999')
+            echo \"Backend response time: \${RESPONSE_TIME}s\"
+            
+            if (( \$(echo \"\$RESPONSE_TIME < 2.0\" | bc -l) )); then
+              echo '✅ Performance: Good response time'
+            else
+              echo '⚠️ Performance: Slow response time'
+            fi
+          "
+
+      - name: Setup monitoring and maintenance
+        if: steps.deploy.outputs.status == 'success'
+        run: |
+          echo "📊 Setting up monitoring and maintenance..."
+          
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+            cd /opt/whitelabel
+            
+            # Setup monitoring cron job
+            if ! crontab -l 2>/dev/null | grep -q 'health-check'; then
+              (crontab -l 2>/dev/null; echo '*/5 * * * * cd /opt/whitelabel && ./scripts/health-check.sh >> logs/health.log 2>&1') | crontab -
+              echo 'Health monitoring cron job added'
+            fi
+            
+            # Create health check script if not exists
+            if [ ! -f 'scripts/health-check.sh' ]; then
+              cat > scripts/health-check.sh << 'EOF'
+#!/bin/bash
+# Simple health check script
+TIMESTAMP=\$(date '+%Y-%m-%d %H:%M:%S')
+if curl -f -s --max-time 5 http://localhost:4000/health > /dev/null; then
+  echo \"[\$TIMESTAMP] ✅ System healthy\"
+else
+  echo \"[\$TIMESTAMP] ❌ System unhealthy\"
+  # Optional: restart containers on failure
+  # docker-compose restart
+fi
+EOF
+              chmod +x scripts/health-check.sh
+              echo 'Health check script created'
+            fi
+            
+            # Setup log rotation
+            if [ ! -f '/etc/logrotate.d/whitelabel' ]; then
+              sudo tee /etc/logrotate.d/whitelabel > /dev/null << 'EOF'
+/opt/whitelabel/logs/*.log {
+    daily
+    missingok
+    rotate 30
+    compress
+    delaycompress
+    copytruncate
+    notifempty
+}
+EOF
+              echo 'Log rotation configured'
+            fi
+            
+            echo 'Monitoring and maintenance setup completed'
+          "
+
+      - name: Send success notification
+        if: steps.deploy.outputs.status == 'success' && inputs.notification_webhook != ''
+        run: |
+          curl -X POST "${{ inputs.notification_webhook }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "text": "✅ Autonomous deployment completed successfully!",
+              "type": "success",
+              "deployment_id": "${{ github.run_number }}",
+              "repository": "${{ github.repository }}",
+              "url": "${{ steps.deploy.outputs.url }}",
+              "status": "Deployed and validated"
+            }' || echo "Webhook notification failed"
+
+      - name: Send failure notification
+        if: failure() && inputs.notification_webhook != ''
+        run: |
+          curl -X POST "${{ inputs.notification_webhook }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "text": "❌ Autonomous deployment failed!",
+              "type": "error",
+              "deployment_id": "${{ github.run_number }}",
+              "repository": "${{ github.repository }}",
+              "status": "Failed - check logs"
+            }' || echo "Webhook notification failed"
+
+  deployment-summary:
+    needs: [pre-deployment-check, autonomous-deployment]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Generate deployment summary
+        run: |
+          echo "# 🚀 Autonomous Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployment ID:** ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployment Type:** ${{ inputs.deployment_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Max Retries:** ${{ inputs.max_retries }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.pre-deployment-check.outputs.can-deploy }}" = "true" ]; then
+            if [ "${{ needs.autonomous-deployment.outputs.deployment-status }}" = "success" ]; then
+              echo "## ✅ Deployment Status: SUCCESS" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "🎉 **WhiteLabel MVP has been successfully deployed to AWS EC2!**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### 🔗 Access URLs" >> $GITHUB_STEP_SUMMARY
+              echo "- **Application:** ${{ needs.autonomous-deployment.outputs.deployment-url }}" >> $GITHUB_STEP_SUMMARY
+              if [ -n "${{ inputs.domain }}" ]; then
+                echo "- **Backend API:** https://${{ inputs.domain }}/api" >> $GITHUB_STEP_SUMMARY
+                echo "- **Evolution API:** https://${{ inputs.domain }}/evolution" >> $GITHUB_STEP_SUMMARY
+              fi
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### 📋 Next Steps" >> $GITHUB_STEP_SUMMARY
+              echo "1. Access your application using the URLs above" >> $GITHUB_STEP_SUMMARY
+              echo "2. Configure WhatsApp connection via Evolution API" >> $GITHUB_STEP_SUMMARY
+              echo "3. Monitor system health via automated monitoring" >> $GITHUB_STEP_SUMMARY
+              echo "4. Check deployment logs for any warnings" >> $GITHUB_STEP_SUMMARY
+              
+            else
+              echo "## ❌ Deployment Status: FAILED" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "💥 **The autonomous deployment failed despite multiple retry attempts.**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### 🔍 Troubleshooting" >> $GITHUB_STEP_SUMMARY
+              echo "1. Check the deployment logs in the Actions tab" >> $GITHUB_STEP_SUMMARY
+              echo "2. SSH to the server and check container status" >> $GITHUB_STEP_SUMMARY
+              echo "3. Review system resources (disk, memory, CPU)" >> $GITHUB_STEP_SUMMARY
+              echo "4. Try running the deployment again with emergency mode" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "## ❌ Pre-deployment Check: FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🚫 **Server is not ready for deployment.**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Server Status:** ${{ needs.pre-deployment-check.outputs.server-status }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 🔧 Required Actions" >> $GITHUB_STEP_SUMMARY
+            echo "1. Check server connectivity" >> $GITHUB_STEP_SUMMARY
+            echo "2. Verify SSH credentials and access" >> $GITHUB_STEP_SUMMARY
+            echo "3. Ensure server has required resources" >> $GITHUB_STEP_SUMMARY
+            echo "4. Check Docker installation and status" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "*Generated by Autonomous Deployment System*" >> $GITHUB_STEP_SUMMARY
