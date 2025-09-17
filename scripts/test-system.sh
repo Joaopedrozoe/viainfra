@@ -69,8 +69,8 @@ docker --version > /dev/null 2>&1
 test_result $? "Docker ($(docker --version 2>/dev/null | cut -d' ' -f3 | tr -d ',' || echo 'N/A'))"
 
 # Teste 1.3: Docker Compose
-docker-compose --version > /dev/null 2>&1
-test_result $? "Docker Compose ($(docker-compose --version 2>/dev/null | cut -d' ' -f3 | tr -d ',' || echo 'N/A'))"
+docker compose version > /dev/null 2>&1
+test_result $? "Docker Compose ($(docker compose version 2>/dev/null | grep version | awk '{print $4}' || echo 'N/A'))"
 
 # Teste 1.4: Node.js
 node --version > /dev/null 2>&1
@@ -87,8 +87,8 @@ test_result $? "Nginx ($(nginx -v 2>&1 | cut -d' ' -f3 | cut -d'/' -f2 || echo '
 echo -e "\n${YELLOW}🐳 CATEGORIA 2: CONTAINERS DOCKER${NC}"
 
 # Verificar se containers estão rodando
-CONTAINERS_RUNNING=$(docker-compose ps --services --filter "status=running" 2>/dev/null | wc -l)
-CONTAINERS_TOTAL=$(docker-compose ps --services 2>/dev/null | wc -l)
+CONTAINERS_RUNNING=$(docker compose ps --services --filter "status=running" 2>/dev/null | wc -l)
+CONTAINERS_TOTAL=$(docker compose ps --services 2>/dev/null | wc -l)
 
 # Teste 2.1: Containers em execução
 if [ "$CONTAINERS_RUNNING" -eq "$CONTAINERS_TOTAL" ] && [ "$CONTAINERS_TOTAL" -gt 0 ]; then
@@ -98,28 +98,28 @@ else
 fi
 
 # Teste 2.2: PostgreSQL
-if docker-compose ps postgres 2>/dev/null | grep -q "Up"; then
+if docker compose ps postgres 2>/dev/null | grep -q "Up"; then
     test_result 0 "Container PostgreSQL"
 else
     test_result 1 "Container PostgreSQL"
 fi
 
 # Teste 2.3: Backend
-if docker-compose ps whitelabel-backend 2>/dev/null | grep -q "Up"; then
+if docker compose ps whitelabel-backend 2>/dev/null | grep -q "Up"; then
     test_result 0 "Container Backend"
 else
     test_result 1 "Container Backend"
 fi
 
 # Teste 2.4: Evolution API
-if docker-compose ps evolution-api 2>/dev/null | grep -q "Up"; then
+if docker compose ps evolution-api 2>/dev/null | grep -q "Up"; then
     test_result 0 "Container Evolution API"
 else
     test_result 1 "Container Evolution API"
 fi
 
 # Teste 2.5: Redis
-if docker-compose ps redis 2>/dev/null | grep -q "Up"; then
+if docker compose ps redis 2>/dev/null | grep -q "Up"; then
     test_result 0 "Container Redis"
 else
     test_result 1 "Container Redis"
@@ -146,14 +146,14 @@ else
 fi
 
 # Teste 3.3: PostgreSQL Connection
-if docker-compose exec -T postgres pg_isready -U postgres > /dev/null 2>&1; then
+if docker compose exec -T postgres pg_isready -U postgres > /dev/null 2>&1; then
     test_result 0 "Conexão PostgreSQL"
 else
     test_result 1 "Conexão PostgreSQL"
 fi
 
 # Teste 3.4: Redis Connection
-if docker-compose exec -T redis redis-cli ping > /dev/null 2>&1; then
+if docker compose exec -T redis redis-cli ping > /dev/null 2>&1; then
     test_result 0 "Conexão Redis"
 else
     test_result 1 "Conexão Redis"
@@ -244,8 +244,8 @@ fi
 echo -e "\n${YELLOW}🗃️ CATEGORIA 6: BANCO DE DADOS${NC}"
 
 # Teste 6.1: Tabelas do banco
-if docker-compose exec -T postgres psql -U postgres -d whitelabel_mvp -c "\dt" > /dev/null 2>&1; then
-    TABLES_COUNT=$(docker-compose exec -T postgres psql -U postgres -d whitelabel_mvp -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ' || echo "0")
+if docker compose exec -T postgres psql -U postgres -d whitelabel_mvp -c "\dt" > /dev/null 2>&1; then
+    TABLES_COUNT=$(docker compose exec -T postgres psql -U postgres -d whitelabel_mvp -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | tr -d ' ' || echo "0")
     if [ "$TABLES_COUNT" -gt 0 ]; then
         test_result 0 "Tabelas do banco ($TABLES_COUNT tabelas)"
     else
@@ -391,10 +391,10 @@ fi
 
 echo ""
 echo -e "${BLUE}📋 Comandos úteis para diagnóstico:${NC}"
-echo "   - Ver logs: docker-compose logs -f"
-echo "   - Status containers: docker-compose ps"
+echo "   - Ver logs: docker compose logs -f"
+echo "   - Status containers: docker compose ps"
 echo "   - Status sistema: ./scripts/status.sh"
-echo "   - Reiniciar serviços: docker-compose restart"
+echo "   - Reiniciar serviços: docker compose restart"
 
 echo ""
 echo -e "${BLUE}📞 Para suporte:${NC}"
