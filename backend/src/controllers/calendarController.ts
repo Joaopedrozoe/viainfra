@@ -1,13 +1,13 @@
 import { Request, Response } from 'express';
-import { AuthenticatedRequest } from '@/middleware/auth';
+import { AuthenticatedRequest } from '../types';
 import { 
   CreateCalendarEventRequest,
   PaginationParams,
   PaginatedResponse,
   CalendarEvent,
-} from '@/types';
-import prisma from '@/utils/database';
-import logger from '@/utils/logger';
+} from '../types';
+import prisma from '../utils/database';
+import logger from '../utils/logger';
 
 export interface UpdateCalendarEventRequest {
   title?: string;

@@ -6,17 +6,17 @@ import {
   updateAgent,
   deleteAgent,
   getAgentMetrics,
-} from '@/controllers/agentController';
-import { authenticateToken } from '@/middleware/auth';
-import { multiTenant } from '@/middleware/multiTenant';
-import { validateBody, validateParams, validateQuery } from '@/middleware/validation';
+} from '../controllers/agentController';
+import { authenticateToken } from '../middleware/auth';
+import { multiTenant } from '../middleware/multiTenant';
+import { validateBody, validateParams, validateQuery } from '../middleware/validation';
 import {
   createAgentSchema,
   updateAgentSchema,
   paginationSchema,
   idParamSchema,
-} from '@/utils/validation';
-import { asyncHandler } from '@/middleware/errorHandler';
+} from '../utils/validation';
+import { asyncHandler } from '../middleware/errorHandler';
 
 const router = Router();
 

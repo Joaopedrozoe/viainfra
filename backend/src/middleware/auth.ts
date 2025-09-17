@@ -1,12 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
-import { verifyToken, extractTokenFromHeader } from '@/utils/auth';
-import { UserWithoutPassword } from '@/types';
-import prisma from '@/utils/database';
-import logger from '@/utils/logger';
-
-export interface AuthenticatedRequest extends Request {
-  user?: UserWithoutPassword & { company_id: string };
-}
+import { verifyToken, extractTokenFromHeader } from '../utils/auth';
+import { UserWithoutPassword, AuthenticatedRequest } from '../types';
+import prisma from '../utils/database';
+import logger from '../utils/logger';
 
 /**
  * Middleware to authenticate users using JWT tokens
@@ -43,7 +39,10 @@ export const authenticateToken = async (
       return;
     }
 
-    req.user = user;
+    req.user = {
+      ...user,
+      role: user.role as 'admin' | 'user' | 'agent' | 'attendant'
+    };
     next();
   } catch (error) {
     logger.error('Authentication error:', error);

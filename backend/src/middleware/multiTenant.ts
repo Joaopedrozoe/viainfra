@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { AuthenticatedRequest } from './auth';
-import logger from '@/utils/logger';
+import { AuthenticatedRequest } from '../types';
+import logger from '../utils/logger';
 
 /**
  * Middleware to ensure multi-tenant isolation

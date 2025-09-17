@@ -1,4 +1,7 @@
 // Database types for backend API responses
+import { Request } from 'express';
+import { Socket } from 'socket.io';
+
 export interface Company {
   id: string;
   name: string;
@@ -311,4 +314,13 @@ export interface ApiError {
 export interface ValidationError {
   field: string;
   message: string;
+}
+
+// Express Request types
+export interface AuthenticatedRequest extends Request {
+  user?: UserWithoutPassword & { company_id: string };
+}
+
+export interface AuthenticatedSocket extends Socket {
+  user?: UserWithoutPassword & { company_id: string };
 }

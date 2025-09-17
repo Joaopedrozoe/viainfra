@@ -1,9 +1,14 @@
 import { Request, Response } from 'express';
-import { AuthenticatedRequest } from '@/middleware/auth';
-import { hashPassword, comparePassword, generateToken } from '@/utils/auth';
-import { LoginRequest, RegisterRequest, AuthResponse } from '@/types';
-import prisma from '@/utils/database';
-import logger from '@/utils/logger';
+import bcrypt from 'bcryptjs';
+import { generateToken } from '../utils/auth';
+import logger from '../utils/logger';
+import prisma from '../utils/database';
+import { 
+  AuthResponse, 
+  LoginRequest, 
+  RegisterRequest, 
+  AuthenticatedRequest 
+} from '../types';
 
 /**
  * User login
@@ -31,7 +36,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     }
 
     // Check password
-    const isPasswordValid = await comparePassword(password, user.password_hash);
+    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
     if (!isPasswordValid) {
       res.status(401).json({ message: 'Invalid credentials' });
       return;
@@ -41,16 +46,22 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     const token = generateToken({
       id: user.id,
       email: user.email,
-      role: user.role,
+      role: user.role as 'admin' | 'user' | 'agent' | 'attendant',
       company_id: user.company_id,
     });
 
     // Prepare response
     const { password_hash, ...userWithoutPassword } = user;
     const response: AuthResponse = {
-      user: userWithoutPassword,
+      user: {
+        ...userWithoutPassword,
+        role: user.role as 'admin' | 'user' | 'agent' | 'attendant'
+      },
       token,
-      company: user.company,
+      company: {
+        ...user.company,
+        settings: user.company.settings as Record<string, any>
+      },
     };
 
     logger.info(`User ${user.email} logged in successfully`);
@@ -79,7 +90,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     }
 
     // Hash password
-    const password_hash = await hashPassword(password);
+    const password_hash = await bcrypt.hash(password, 10);
 
     // Create company if provided
     let company;
@@ -128,16 +139,22 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     const token = generateToken({
       id: user.id,
       email: user.email,
-      role: user.role,
+      role: user.role as 'admin' | 'user' | 'agent' | 'attendant',
       company_id: user.company_id,
     });
 
     // Prepare response
     const { password_hash: _, ...userWithoutPassword } = user;
     const response: AuthResponse = {
-      user: userWithoutPassword,
+      user: {
+        ...userWithoutPassword,
+        role: user.role as 'admin' | 'user' | 'agent' | 'attendant'
+      },
       token,
-      company: user.company,
+      company: {
+        ...user.company,
+        settings: user.company.settings as Record<string, any>
+      },
     };
 
     logger.info(`User ${user.email} registered successfully`);
@@ -164,17 +181,6 @@ export const me = async (req: AuthenticatedRequest, res: Response): Promise<void
       include: {
         company: true,
       },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        company_id: true,
-        is_active: true,
-        created_at: true,
-        updated_at: true,
-        company: true,
-      },
     });
 
     if (!user) {
@@ -182,7 +188,17 @@ export const me = async (req: AuthenticatedRequest, res: Response): Promise<void
       return;
     }
 
-    res.json({ user });
+    const { password_hash, ...userWithoutPassword } = user;
+    res.json({ 
+      user: {
+        ...userWithoutPassword,
+        role: user.role as 'admin' | 'user' | 'agent' | 'attendant',
+        company: {
+          ...user.company,
+          settings: user.company.settings as Record<string, any>
+        }
+      }
+    });
   } catch (error) {
     logger.error('Get user profile error:', error);
     res.status(500).json({ message: 'Internal server error' });
@@ -250,7 +266,7 @@ export const refreshToken = async (req: AuthenticatedRequest, res: Response): Pr
     const newToken = generateToken({
       id: user.id,
       email: user.email,
-      role: user.role,
+      role: user.role as 'admin' | 'user' | 'agent' | 'attendant',
       company_id: user.company_id,
     });
 
@@ -259,7 +275,7 @@ export const refreshToken = async (req: AuthenticatedRequest, res: Response): Pr
       id: user.id,
       email: user.email,
       name: user.name,
-      role: user.role,
+      role: user.role as 'admin' | 'user' | 'agent' | 'attendant',
       company_id: user.company_id,
       is_active: user.is_active,
       created_at: user.created_at.toISOString(),

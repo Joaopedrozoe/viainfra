@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
-import { hashPassword } from '@/utils/auth';
-import logger from '@/utils/logger';
+import bcrypt from 'bcryptjs';
+import logger from '../../utils/logger';
 
 const prisma = new PrismaClient();
 
@@ -26,7 +26,7 @@ async function main() {
     logger.info(`Company created/updated: ${company.name} (${company.slug})`);
 
     // Create admin user
-    const adminPassword = await hashPassword('admin123');
+    const adminPassword = await bcrypt.hash('admin123', 10);
     const adminUser = await prisma.user.upsert({
       where: { email: 'admin@viainfra.com' },
       update: {},
@@ -72,7 +72,7 @@ async function main() {
     ];
 
     for (const userData of sampleUsers) {
-      const userPassword = await hashPassword('123456'); // Default password
+      const userPassword = await bcrypt.hash('123456', 10); // Default password
       const user = await prisma.user.upsert({
         where: { email: userData.email },
         update: {},

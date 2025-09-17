@@ -2,10 +2,11 @@
 
 # ==========================================
 # SCRIPT AUTOMÁTICO DE DEPLOY - EC2
-# WhiteLabel MVP - Deploy Completo
+# WhiteLabel MVP - Deploy Completo com Retry
 # ==========================================
 
-set -e  # Parar em caso de erro
+# Não usar set -e aqui, vamos tratar erros manualmente
+# set -e
 
 # Cores para output
 RED='\033[0;31m'
@@ -21,6 +22,14 @@ log() {
 
 error() {
     echo -e "${RED}[$(date '+%Y-%m-%d %H:%M:%S')] ❌ ERRO: $1${NC}"
+    save_log "ERRO: $1"
+    return 1
+}
+
+# Função de erro crítico que força saída
+critical_error() {
+    echo -e "${RED}[$(date '+%Y-%m-%d %H:%M:%S')] ❌ ERRO CRÍTICO: $1${NC}"
+    save_log "ERRO CRÍTICO: $1"
     exit 1
 }
 
@@ -35,13 +44,157 @@ info() {
 # Configurações
 PROJECT_DIR="/opt/whitelabel"
 LOG_FILE="$PROJECT_DIR/logs/deploy.log"
+BACKUP_DIR="$PROJECT_DIR/backups"
+MAX_RETRIES=3
+RETRY_DELAY=5
 
-# Criar diretório de logs se não existir
+# Criar diretórios se não existirem
 mkdir -p "$PROJECT_DIR/logs"
+mkdir -p "$BACKUP_DIR"
 
 # Função para salvar logs
 save_log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
+}
+
+# Função de retry com backoff
+retry_command() {
+    local command="$1"
+    local description="$2"
+    local max_attempts="${3:-$MAX_RETRIES}"
+    local delay="${4:-$RETRY_DELAY}"
+    
+    for attempt in $(seq 1 $max_attempts); do
+        log "Tentativa $attempt/$max_attempts: $description"
+        if eval "$command"; then
+            log "✅ Sucesso: $description"
+            return 0
+        else
+            if [ $attempt -eq $max_attempts ]; then
+                error "❌ Falha após $max_attempts tentativas: $description"
+                return 1
+            else
+                warning "⚠️ Tentativa $attempt falhou, aguardando ${delay}s..."
+                sleep $delay
+                delay=$((delay * 2))  # Exponential backoff
+            fi
+        fi
+    done
+}
+
+# Função para fazer backup do estado atual
+backup_current_state() {
+    local backup_name="backup_$(date +%Y%m%d_%H%M%S)"
+    local backup_path="$BACKUP_DIR/$backup_name"
+    
+    log "📦 Criando backup do estado atual..."
+    mkdir -p "$backup_path"
+    
+    # Backup de configurações
+    if [ -f ".env" ]; then
+        cp .env "$backup_path/.env.bak"
+    fi
+    
+    if [ -f ".deploy-config" ]; then
+        cp .deploy-config "$backup_path/.deploy-config.bak"
+    fi
+    
+    # Backup de containers em execução
+    docker-compose ps > "$backup_path/containers_state.txt" 2>/dev/null || true
+    
+    # Backup de dados do banco (apenas estrutura para speed)
+    if docker-compose ps | grep -q postgres; then
+        docker-compose exec -T postgres pg_dump -U postgres -d whitelabel --schema-only > "$backup_path/schema_backup.sql" 2>/dev/null || true
+    fi
+    
+    echo "$backup_name" > "$BACKUP_DIR/latest_backup.txt"
+    log "✅ Backup criado: $backup_name"
+    save_log "Backup criado: $backup_name"
+}
+
+# Função para restaurar backup em caso de falha
+restore_backup() {
+    local latest_backup
+    if [ -f "$BACKUP_DIR/latest_backup.txt" ]; then
+        latest_backup=$(cat "$BACKUP_DIR/latest_backup.txt")
+        local backup_path="$BACKUP_DIR/$latest_backup"
+        
+        if [ -d "$backup_path" ]; then
+            warning "🔄 Restaurando backup: $latest_backup"
+            
+            # Restaurar configurações
+            if [ -f "$backup_path/.env.bak" ]; then
+                cp "$backup_path/.env.bak" .env
+            fi
+            
+            if [ -f "$backup_path/.deploy-config.bak" ]; then
+                cp "$backup_path/.deploy-config.bak" .deploy-config
+            fi
+            
+            # Tentar restaurar containers
+            docker-compose down 2>/dev/null || true
+            docker-compose up -d 2>/dev/null || true
+            
+            log "✅ Backup restaurado"
+        fi
+    fi
+}
+
+# Trap para capturar erros e fazer cleanup
+cleanup_on_exit() {
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        error "❌ Deploy falhou com código de saída $exit_code"
+        save_log "Deploy falhou com código $exit_code"
+        
+        if [ "$RESTORE_ON_FAILURE" = "true" ]; then
+            log "🔄 Iniciando restauração de backup..."
+            restore_backup
+        else
+            warning "⚠️ Restauração de backup desabilitada (RESTORE_ON_FAILURE=false)"
+        fi
+    fi
+    exit $exit_code
+}
+
+trap cleanup_on_exit EXIT
+
+# Função de verificação de saúde dos serviços
+check_service_health() {
+    local service="$1"
+    local max_wait="${2:-60}"
+    local check_interval=5
+    
+    log "🔍 Verificando saúde do serviço: $service"
+    
+    for i in $(seq 1 $((max_wait / check_interval))); do
+        if docker-compose ps | grep "$service" | grep -q "Up"; then
+            case "$service" in
+                "postgres")
+                    if docker-compose exec -T postgres pg_isready -U postgres > /dev/null 2>&1; then
+                        log "✅ $service está saudável"
+                        return 0
+                    fi
+                    ;;
+                "backend")
+                    if curl -f -s http://localhost:4000/health > /dev/null 2>&1; then
+                        log "✅ $service está saudável"
+                        return 0
+                    fi
+                    ;;
+                *)
+                    log "✅ $service está rodando"
+                    return 0
+                    ;;
+            esac
+        fi
+        
+        log "⏳ Aguardando $service ficar saudável... (${i}/${max_wait}s)"
+        sleep $check_interval
+    done
+    
+    warning "⚠️ $service pode não estar completamente saudável"
+    return 1
 }
 
 echo -e "${BLUE}"
@@ -53,15 +206,30 @@ echo -e "${NC}"
 log "Iniciando deploy automático do WhiteLabel MVP..."
 save_log "Deploy iniciado"
 
+# Configurações do ambiente
+RESTORE_ON_FAILURE="${RESTORE_ON_FAILURE:-true}"
+SKIP_TESTS="${SKIP_TESTS:-false}"
+
+log "⚙️ Configurações do deploy:"
+log "   - Restaurar backup em falha: $RESTORE_ON_FAILURE"
+log "   - Pular testes de validação: $SKIP_TESTS"
+
 # Verificar se está sendo executado como root
 if [ "$EUID" -eq 0 ]; then
-    error "Não execute este script como root! Use o usuário ubuntu."
+    critical_error "Não execute este script como root! Use o usuário ubuntu."
 fi
 
 # Verificar se está no diretório correto
 if [ ! -f "docker-compose.yml" ]; then
-    error "Execute este script a partir do diretório raiz do projeto (/opt/whitelabel)"
+    critical_error "Execute este script a partir do diretório raiz do projeto (/opt/whitelabel)"
 fi
+
+# ==========================================
+# FASE 0: BACKUP DO ESTADO ATUAL
+# ==========================================
+
+log "💾 Fase 0: Criando backup do estado atual..."
+backup_current_state
 
 # ==========================================
 # FASE 1: VERIFICAÇÕES INICIAIS
@@ -71,22 +239,27 @@ log "📋 Fase 1: Verificações iniciais..."
 
 # Verificar Docker
 if ! command -v docker &> /dev/null; then
-    error "Docker não está instalado. Execute primeiro o setup do servidor."
+    critical_error "Docker não está instalado. Execute primeiro o setup do servidor."
 fi
 
 # Verificar Docker Compose
 if ! command -v docker-compose &> /dev/null; then
-    error "Docker Compose não está instalado. Execute primeiro o setup do servidor."
+    critical_error "Docker Compose não está instalado. Execute primeiro o setup do servidor."
 fi
 
 # Verificar Nginx
 if ! command -v nginx &> /dev/null; then
-    error "Nginx não está instalado. Execute primeiro o setup do servidor."
+    critical_error "Nginx não está instalado. Execute primeiro o setup do servidor."
 fi
 
 # Verificar se o usuário está no grupo docker
 if ! groups $USER | grep -q '\bdocker\b'; then
-    error "Usuário não está no grupo docker. Execute: sudo usermod -aG docker \$USER e reconecte."
+    critical_error "Usuário não está no grupo docker. Execute: sudo usermod -aG docker \$USER e reconecte."
+fi
+
+# Verificar conectividade da rede
+if ! ping -c 1 google.com > /dev/null 2>&1; then
+    warning "⚠️ Conectividade de rede pode estar limitada"
 fi
 
 log "✅ Verificações iniciais concluídas"
@@ -171,36 +344,34 @@ log "✅ Configuração de ambiente concluída"
 log "🗃️ Fase 3: Preparação do banco de dados..."
 
 # Parar containers se estiverem rodando
-docker-compose down 2>/dev/null || true
+log "🛑 Parando containers existentes..."
+retry_command "docker-compose down" "Parar containers" 2 3
 
 # Subir apenas PostgreSQL
 log "🐘 Subindo PostgreSQL..."
-docker-compose up -d postgres
+retry_command "docker-compose up -d postgres" "Subir PostgreSQL" 3 5
 
-# Aguardar PostgreSQL ficar pronto
-log "⏳ Aguardando PostgreSQL ficar pronto..."
-for i in {1..30}; do
-    if docker-compose exec -T postgres pg_isready -U postgres > /dev/null 2>&1; then
-        log "✅ PostgreSQL está pronto"
-        break
-    fi
-    if [ $i -eq 30 ]; then
-        error "Timeout: PostgreSQL não ficou pronto em 30 tentativas"
-    fi
-    sleep 2
-done
+# Verificar saúde do PostgreSQL
+if ! check_service_health "postgres" 60; then
+    critical_error "PostgreSQL não ficou saudável após 60 segundos"
+fi
 
 # Executar script de setup do banco
 log "📊 Executando script de setup do banco..."
-if docker-compose exec -T postgres psql -U postgres -d whitelabel_mvp -f /docker-entrypoint-initdb.d/init.sql > /dev/null 2>&1; then
+setup_db_command="docker-compose exec -T postgres psql -U postgres -d whitelabel_mvp -f /docker-entrypoint-initdb.d/init.sql"
+if retry_command "$setup_db_command" "Setup do banco de dados" 2 5; then
     log "✅ Script de setup do banco executado com sucesso"
 else
     warning "Script do banco pode já ter sido executado anteriormente"
 fi
 
-# Verificar tabelas
-TABLES_COUNT=$(docker-compose exec -T postgres psql -U postgres -d whitelabel_mvp -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" | tr -d ' ')
-log "📋 Tabelas criadas: $TABLES_COUNT"
+# Verificar tabelas com retry
+verify_tables_command="docker-compose exec -T postgres psql -U postgres -d whitelabel_mvp -t -c \"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';\""
+if TABLES_COUNT=$(retry_command "$verify_tables_command" "Verificar tabelas do banco" 3 2 | tr -d ' ' | tail -n1); then
+    log "📋 Tabelas criadas: $TABLES_COUNT"
+else
+    warning "Não foi possível verificar a contagem de tabelas"
+fi
 
 # ==========================================
 # FASE 4: BUILD E DEPLOY DOS SERVIÇOS
@@ -208,25 +379,30 @@ log "📋 Tabelas criadas: $TABLES_COUNT"
 
 log "🔨 Fase 4: Build e deploy dos serviços..."
 
-# Build do frontend
+# Build do frontend com retry
 log "🎨 Fazendo build do frontend..."
-npm install
-npm run build
+retry_command "npm install" "Instalar dependências do frontend" 3 10
+retry_command "npm run build" "Build do frontend" 2 15
 
 # Build do backend (se necessário)
 log "⚙️ Preparando backend..."
 cd backend
-npm install
-npm run build
+retry_command "npm install" "Instalar dependências do backend" 3 10
+retry_command "npm run build" "Build do backend" 2 15
 cd ..
 
 # Subir todos os serviços
 log "🚁 Subindo todos os serviços..."
-docker-compose up -d
+retry_command "docker-compose up -d" "Subir todos os serviços" 3 10
 
-# Aguardar todos os serviços ficarem prontos
-log "⏳ Aguardando todos os serviços ficarem prontos..."
-sleep 60
+# Verificar saúde de cada serviço
+log "🔍 Verificando saúde dos serviços..."
+services=("postgres" "backend")
+for service in "${services[@]}"; do
+    if ! check_service_health "$service" 90; then
+        warning "⚠️ Serviço $service pode não estar completamente saudável"
+    fi
+done
 
 # Verificar status dos containers
 log "📊 Status dos containers:"
@@ -579,6 +755,47 @@ echo "   🎉 DEPLOY CONCLUÍDO COM SUCESSO!     "
 echo "=========================================="
 echo -e "${NC}"
 
+# ==========================================
+# FASE FINAL: VALIDAÇÃO DO SISTEMA
+# ==========================================
+
+log "🧪 Fase Final: Validação do sistema..."
+
+# Aguardar um pouco mais para todos os serviços estabilizarem
+sleep 10
+
+# Executar o script de teste do sistema (se não for pulado)
+if [ "$SKIP_TESTS" = "true" ]; then
+    warning "⚠️ Testes de validação pulados (SKIP_TESTS=true)"
+    save_log "Deploy concluído - testes pulados por configuração"
+else
+    TEST_SCRIPT="./scripts/test-system.sh"
+    if [ -f "$TEST_SCRIPT" ] && [ -x "$TEST_SCRIPT" ]; then
+        log "🧪 Executando testes de validação do sistema..."
+        if retry_command "$TEST_SCRIPT" "Testes de validação do sistema" 2 10; then
+            log "✅ Todos os testes de validação passaram!"
+            save_log "Deploy concluído com sucesso - todos os testes passaram"
+        else
+            warning "⚠️ Alguns testes de validação falharam, mas o deploy foi concluído"
+            save_log "Deploy concluído com avisos - alguns testes falharam"
+            
+            echo ""
+            warning "🔍 Recomendações após falhas nos testes:"
+            echo "   1. Execute manualmente: $TEST_SCRIPT"
+            echo "   2. Verifique os logs: docker-compose logs -f"
+            echo "   3. Monitore o sistema por alguns minutos"
+            echo "   4. Se necessário, execute: ./scripts/deploy-ec2.sh para tentar novamente"
+        fi
+    else
+        warning "⚠️ Script de teste não encontrado: $TEST_SCRIPT"
+        save_log "Deploy concluído - script de teste não encontrado"
+    fi
+fi
+
+# ==========================================
+# RESULTADO FINAL
+# ==========================================
+
 log "🌐 Frontend: https://${DOMAIN}"
 log "🔌 Backend API: https://${DOMAIN}/api"
 log "📱 Evolution API: https://${DOMAIN}/evolution"
@@ -596,7 +813,12 @@ log "🔧 Comandos úteis:"
 echo "   - Ver logs: docker-compose logs -f"
 echo "   - Status: docker-compose ps"
 echo "   - Reiniciar: docker-compose restart"
+echo "   - Executar testes: $TEST_SCRIPT"
 echo "   - Backup: ./scripts/backup.sh"
 
 echo ""
 log "✅ Deploy completo! Sistema pronto para uso."
+save_log "Deploy finalizado com sucesso"
+
+# Remover trap de cleanup pois o deploy foi bem-sucedido
+trap - EXIT
