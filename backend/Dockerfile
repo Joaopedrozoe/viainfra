@@ -1,7 +1,7 @@
-# Use Node.js 18 Alpine image
-FROM node:18-alpine
+# Multi-stage build for backend
+# Etapa de build
+FROM node:18-alpine AS builder
 
-# Set working directory
 WORKDIR /app
 
 # Install system dependencies
@@ -14,8 +14,8 @@ RUN apk add --no-cache \
 COPY package*.json ./
 COPY tsconfig.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install ALL dependencies (including devDependencies for TypeScript compilation)
+RUN npm ci
 
 # Copy Prisma schema
 COPY prisma/ ./prisma/
@@ -28,6 +28,29 @@ COPY src/ ./src/
 
 # Build TypeScript
 RUN npm run build
+
+# Etapa final (produção)
+FROM node:18-alpine AS production
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apk add --no-cache \
+    postgresql-client \
+    curl \
+    && rm -rf /var/cache/apk/*
+
+# Copy package files
+COPY package*.json ./
+
+# Install only production dependencies
+RUN npm ci --only=production
+
+# Copy built application and necessary files from builder stage
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 # Create logs directory
 RUN mkdir -p logs
@@ -50,4 +73,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:4000/health || exit 1
 
 # Start the application
-CMD ["npm", "start"]
+CMD ["node", "dist/index.js"]
