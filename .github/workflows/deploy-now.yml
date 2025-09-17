@@ -1,0 +1,149 @@
+name: 🚀 Deploy Now - Manual Trigger
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_mode:
+        description: 'Deployment mode'
+        required: true
+        default: 'autonomous'
+        type: choice
+        options:
+          - autonomous
+          - standard
+          - emergency
+      max_retries:
+        description: 'Max retries (1-10)'
+        required: false
+        default: '5'
+        type: string
+
+jobs:
+  deploy-now:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to EC2
+        run: |
+          echo "🚀 Starting deployment..."
+          echo "Mode: ${{ inputs.deployment_mode }}"
+          echo "Max retries: ${{ inputs.max_retries }}"
+          
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+            # Prepare environment
+            sudo mkdir -p /opt/whitelabel
+            sudo chown -R ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} /opt/whitelabel
+            cd /opt/whitelabel || exit 1
+            
+            # Clone/update repository
+            if [ -d '.git' ]; then
+              echo 'Updating repository...'
+              git fetch origin
+              git reset --hard origin/${{ github.ref_name }}
+            else
+              echo 'Cloning repository...'
+              git clone https://github.com/${{ github.repository }}.git .
+            fi
+            
+            # Make scripts executable
+            chmod +x scripts/*.sh
+            
+            # Set environment variables
+            export MAX_RETRIES='${{ inputs.max_retries }}'
+            export DEPLOYMENT_MODE='${{ inputs.deployment_mode }}'
+            export GITHUB_RUN_NUMBER='${{ github.run_number }}'
+            
+            # Choose deployment script based on mode
+            if [ '${{ inputs.deployment_mode }}' = 'autonomous' ]; then
+              echo 'Running autonomous deployment...'
+              timeout 3600 ./scripts/autonomous-deploy.sh
+            else
+              echo 'Running standard deployment...'
+              timeout 3600 ./scripts/deploy-ec2.sh
+            fi
+          "
+
+      - name: Verify deployment
+        if: success()
+        run: |
+          echo "🔍 Verifying deployment..."
+          
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+            cd /opt/whitelabel
+            
+            # Check container status
+            echo '=== Container Status ==='
+            docker-compose ps
+            
+            # Run health checks
+            echo '=== Health Checks ==='
+            if [ -f 'scripts/health-check.sh' ]; then
+              ./scripts/health-check.sh
+            else
+              echo 'Health check script not found'
+            fi
+            
+            # Test endpoints
+            echo '=== Endpoint Tests ==='
+            if curl -f -s --max-time 10 http://localhost:4000/health > /dev/null; then
+              echo '✅ Backend API: Healthy'
+            else
+              echo '❌ Backend API: Not responding'
+            fi
+            
+            if curl -f -s --max-time 10 http://localhost:3000 > /dev/null; then
+              echo '✅ Frontend: Healthy'
+            else
+              echo '❌ Frontend: Not responding'
+            fi
+            
+            # Get public IP
+            PUBLIC_IP=\$(curl -s ifconfig.me || echo 'unknown')
+            echo ''
+            echo '🌐 Access URLs:'
+            echo \"Frontend: http://\$PUBLIC_IP:3000\"
+            echo \"Backend API: http://\$PUBLIC_IP:4000\"
+            echo \"Evolution API: http://\$PUBLIC_IP:8080\"
+          "
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "# 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Mode:** ${{ inputs.deployment_mode }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Max Retries:** ${{ inputs.max_retries }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Run Number:** ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "## ✅ Deployment SUCCESS" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🎉 **WhiteLabel MVP has been successfully deployed!**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+            echo "1. Access your application using the URLs shown above" >> $GITHUB_STEP_SUMMARY
+            echo "2. Configure WhatsApp via Evolution API" >> $GITHUB_STEP_SUMMARY
+            echo "3. Monitor system health" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## ❌ Deployment FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "💥 **Deployment failed. Check the logs above for details.**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Troubleshooting:" >> $GITHUB_STEP_SUMMARY
+            echo "1. Check the action logs for error details" >> $GITHUB_STEP_SUMMARY
+            echo "2. Try running with emergency mode" >> $GITHUB_STEP_SUMMARY
+            echo "3. SSH to server and check container status" >> $GITHUB_STEP_SUMMARY
+          fi
