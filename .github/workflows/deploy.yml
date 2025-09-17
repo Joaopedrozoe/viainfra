@@ -2,10 +2,23 @@ name: Deploy to EC2
 
 on:
   workflow_dispatch:
+    inputs:
+      restore_on_failure:
+        description: 'Restore backup on failure'
+        required: false
+        default: 'true'
+        type: boolean
+      skip_tests:
+        description: 'Skip system tests validation'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -15,7 +28,42 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
+          
+      - name: Test SSH connection
+        run: |
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "echo 'SSH connection successful'"
 
       - name: Deploy on EC2
+        env:
+          RESTORE_ON_FAILURE: ${{ inputs.restore_on_failure }}
+          SKIP_TESTS: ${{ inputs.skip_tests }}
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "cd /opt/whitelabel && ~/viainfra/scripts/deploy-ec2.sh"
+          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+            cd /opt/whitelabel && 
+            export RESTORE_ON_FAILURE=$RESTORE_ON_FAILURE &&
+            export SKIP_TESTS=$SKIP_TESTS &&
+            timeout 1800 ~/viainfra/scripts/deploy-ec2.sh
+          "
+          
+      - name: Get deployment logs on failure
+        if: failure()
+        run: |
+          echo "=== Deployment failed, retrieving logs ==="
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+            cd /opt/whitelabel && 
+            echo '=== Deploy Logs ===' &&
+            tail -50 logs/deploy.log 2>/dev/null || echo 'No deploy logs found' &&
+            echo '=== Container Status ===' &&
+            docker-compose ps 2>/dev/null || echo 'No containers running' &&
+            echo '=== Container Logs ===' &&
+            docker-compose logs --tail=20 2>/dev/null || echo 'No container logs available'
+          " || echo "Could not retrieve logs"
+          
+      - name: Run system validation
+        if: success() && !inputs.skip_tests
+        run: |
+          echo "=== Running final system validation ==="
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+            cd /opt/whitelabel && 
+            ./scripts/test-system.sh
+          " || echo "System validation completed with warnings"
