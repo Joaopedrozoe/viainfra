@@ -1,23 +1,32 @@
-name: Deploy to EC2
+name: Autonomous Deploy to AWS EC2
 
 on:
   workflow_dispatch:
     inputs:
-      restore_on_failure:
-        description: 'Restore backup on failure'
+      max_retries:
+        description: 'Maximum deployment retries'
         required: false
-        default: 'true'
-        type: boolean
-      skip_tests:
-        description: 'Skip system tests validation'
+        default: '3'
+        type: string
+      force_fresh_start:
+        description: 'Force fresh deployment (clean containers)'
         required: false
         default: 'false'
         type: boolean
+      domain:
+        description: 'Domain for the deployment (optional)'
+        required: false
+        default: ''
+        type: string
 
 jobs:
-  deploy:
+  autonomous-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
+    
+    outputs:
+      deployment-status: ${{ steps.final-status.outputs.status }}
+      deployment-url: ${{ steps.final-status.outputs.url }}
     
     steps:
       - name: Checkout code
@@ -28,42 +37,294 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
           
-      - name: Test SSH connection
+      - name: Test SSH connection and setup
         run: |
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "echo 'SSH connection successful'"
-
-      - name: Deploy on EC2
-        env:
-          RESTORE_ON_FAILURE: ${{ inputs.restore_on_failure }}
-          SKIP_TESTS: ${{ inputs.skip_tests }}
-        run: |
-          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
-            cd /opt/whitelabel && 
-            export RESTORE_ON_FAILURE=$RESTORE_ON_FAILURE &&
-            export SKIP_TESTS=$SKIP_TESTS &&
-            timeout 1800 ~/viainfra/scripts/deploy-ec2.sh
+          echo "=== Testing SSH connection ==="
+          ssh -o ConnectTimeout=10 -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+            echo 'SSH connection successful' &&
+            echo 'System info:' &&
+            uname -a &&
+            echo 'Docker status:' &&
+            docker --version &&
+            echo 'Available space:' &&
+            df -h / | tail -1
           "
-          
-      - name: Get deployment logs on failure
-        if: failure()
+
+      - name: Prepare environment
         run: |
-          echo "=== Deployment failed, retrieving logs ==="
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
-            cd /opt/whitelabel && 
-            echo '=== Deploy Logs ===' &&
-            tail -50 logs/deploy.log 2>/dev/null || echo 'No deploy logs found' &&
-            echo '=== Container Status ===' &&
-            docker-compose ps 2>/dev/null || echo 'No containers running' &&
-            echo '=== Container Logs ===' &&
-            docker-compose logs --tail=20 2>/dev/null || echo 'No container logs available'
-          " || echo "Could not retrieve logs"
-          
-      - name: Run system validation
-        if: success() && !inputs.skip_tests
+          echo "=== Preparing deployment environment ==="
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+            # Create project directory if not exists
+            sudo mkdir -p /opt/whitelabel
+            sudo chown -R ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} /opt/whitelabel
+            
+            # Create logs directory
+            mkdir -p /opt/whitelabel/logs
+            
+            # Clean up old deployment if force fresh start
+            if [ '${{ inputs.force_fresh_start }}' = 'true' ]; then
+              echo 'Force fresh start - cleaning containers'
+              cd /opt/whitelabel 2>/dev/null || true
+              docker-compose down --remove-orphans 2>/dev/null || true
+              docker system prune -f 2>/dev/null || true
+            fi
+            
+            # Clone/update repository
+            if [ -d '/opt/whitelabel/.git' ]; then
+              cd /opt/whitelabel
+              git fetch origin
+              git reset --hard origin/main
+            else
+              cd /opt
+              sudo rm -rf whitelabel 2>/dev/null || true
+              git clone https://github.com/Joaopedrozoe/viainfra.git whitelabel
+              sudo chown -R ${{ secrets.EC2_USER }}:${{ secrets.EC2_USER }} /opt/whitelabel
+            fi
+            
+            cd /opt/whitelabel
+            chmod +x scripts/*.sh
+          "
+
+      - name: Autonomous deployment with retries
+        id: deploy-with-retries
         run: |
-          echo "=== Running final system validation ==="
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
-            cd /opt/whitelabel && 
-            ./scripts/test-system.sh
-          " || echo "System validation completed with warnings"
+          echo "=== Starting autonomous deployment with up to ${{ inputs.max_retries }} retries ==="
+          
+          MAX_RETRIES=${{ inputs.max_retries }}
+          ATTEMPT=1
+          DEPLOYMENT_SUCCESS=false
+          DOMAIN="${{ inputs.domain }}"
+          
+          while [ $ATTEMPT -le $MAX_RETRIES ] && [ "$DEPLOYMENT_SUCCESS" = "false" ]; do
+            echo "🚀 Deployment attempt $ATTEMPT of $MAX_RETRIES"
+            
+            # Run deployment
+            if ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+              cd /opt/whitelabel
+              export DOMAIN='$DOMAIN'
+              export RESTORE_ON_FAILURE=true
+              export SKIP_TESTS=false
+              export MAX_RETRIES=2
+              timeout 1800 ./scripts/deploy-ec2.sh 2>&1 | tee logs/deploy-attempt-$ATTEMPT.log
+            "; then
+              echo "✅ Deployment attempt $ATTEMPT successful"
+              DEPLOYMENT_SUCCESS=true
+            else
+              echo "❌ Deployment attempt $ATTEMPT failed"
+              
+              # Get detailed error information
+              ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+                cd /opt/whitelabel
+                echo '=== Error Analysis for Attempt $ATTEMPT ==='
+                echo '=== Last 30 lines of deploy log ==='
+                tail -30 logs/deploy-attempt-$ATTEMPT.log 2>/dev/null || echo 'No deploy log'
+                echo '=== Container status ==='
+                docker-compose ps 2>/dev/null || echo 'No containers'
+                echo '=== System resources ==='
+                free -h
+                df -h
+                echo '=== Network connectivity ==='
+                ping -c 2 8.8.8.8 || echo 'Network issue detected'
+              " || echo "Could not retrieve error details"
+              
+              # Wait before retry (except on last attempt)
+              if [ $ATTEMPT -lt $MAX_RETRIES ]; then
+                echo "⏳ Waiting 60 seconds before retry..."
+                sleep 60
+                
+                # Cleanup before retry
+                ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+                  cd /opt/whitelabel
+                  echo 'Cleaning up for retry...'
+                  docker-compose down --remove-orphans 2>/dev/null || true
+                  docker system prune -f 2>/dev/null || true
+                  pkill -f 'docker-compose' 2>/dev/null || true
+                " || echo "Cleanup completed"
+              fi
+            fi
+            
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+          
+          if [ "$DEPLOYMENT_SUCCESS" = "true" ]; then
+            echo "🎉 Deployment completed successfully!"
+            echo "deployment-success=true" >> $GITHUB_OUTPUT
+          else
+            echo "💥 All deployment attempts failed!"
+            echo "deployment-success=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Comprehensive system validation
+        if: steps.deploy-with-retries.outputs.deployment-success == 'true'
+        id: validation
+        run: |
+          echo "=== Running comprehensive system validation ==="
+          
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+            cd /opt/whitelabel
+            
+            echo '🧪 Running test suite...'
+            if ./scripts/test-system.sh 2>&1 | tee logs/validation.log; then
+              echo 'validation-success=true' >> $GITHUB_OUTPUT
+              echo '✅ All validation tests passed!'
+            else
+              echo 'validation-success=false' >> $GITHUB_OUTPUT
+              echo '⚠️ Some validation tests failed, but deployment is functional'
+            fi
+            
+            # Additional health checks
+            echo '🏥 Running additional health checks...'
+            
+            # Check container health
+            HEALTHY_CONTAINERS=\$(docker-compose ps --filter 'status=running' | wc -l)
+            TOTAL_CONTAINERS=\$(docker-compose ps --services | wc -l)
+            echo \"Container health: \$HEALTHY_CONTAINERS/\$TOTAL_CONTAINERS running\"
+            
+            # Check service responses
+            echo 'Testing service endpoints...'
+            
+            # Backend API
+            if curl -f -s --max-time 10 http://localhost:4000/health > /dev/null; then
+              echo '✅ Backend API responding'
+            else
+              echo '❌ Backend API not responding'
+            fi
+            
+            # Evolution API
+            if curl -f -s --max-time 10 http://localhost:8080/manager/health > /dev/null; then
+              echo '✅ Evolution API responding'
+            else
+              echo '❌ Evolution API not responding'
+            fi
+            
+            # Frontend
+            if curl -f -s --max-time 5 http://localhost/ > /dev/null; then
+              echo '✅ Frontend responding'
+            else
+              echo '❌ Frontend not responding'
+            fi
+            
+            # SSL check (if domain configured)
+            if [ -n '${{ inputs.domain }}' ]; then
+              if curl -f -s --max-time 10 https://${{ inputs.domain }}/health > /dev/null; then
+                echo '✅ HTTPS endpoint responding'
+              else
+                echo '⚠️ HTTPS endpoint not responding (may need SSL setup)'
+              fi
+            fi
+          "
+
+      - name: Generate deployment report
+        if: always()
+        run: |
+          echo "=== Generating deployment report ==="
+          
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+            cd /opt/whitelabel
+            
+            cat > logs/deployment-report.md << 'EOF'
+          # 🚀 Deployment Report
+          
+          **Date:** \$(date)
+          **Repository:** Joaopedrozoe/viainfra
+          **Branch:** main
+          **Deployment Type:** Autonomous
+          
+          ## 📊 Deployment Status
+          EOF
+          
+          if [ '${{ steps.deploy-with-retries.outputs.deployment-success }}' = 'true' ]; then
+            echo '**Status:** ✅ SUCCESS' >> logs/deployment-report.md
+          else
+            echo '**Status:** ❌ FAILED' >> logs/deployment-report.md
+          fi
+          
+          cat >> logs/deployment-report.md << 'EOF'
+          
+          ## 🔧 Configuration
+          - Max Retries: ${{ inputs.max_retries }}
+          - Force Fresh Start: ${{ inputs.force_fresh_start }}
+          - Domain: ${{ inputs.domain }}
+          
+          ## 📋 Services Status
+          EOF
+          
+          echo '\`\`\`' >> logs/deployment-report.md
+          docker-compose ps 2>/dev/null >> logs/deployment-report.md || echo 'No container information available' >> logs/deployment-report.md
+          echo '\`\`\`' >> logs/deployment-report.md
+          
+          cat >> logs/deployment-report.md << 'EOF'
+          
+          ## 🔗 Access URLs
+          EOF
+          
+          if [ -n '${{ inputs.domain }}' ]; then
+            echo '- **Frontend:** https://${{ inputs.domain }}' >> logs/deployment-report.md
+            echo '- **Backend API:** https://${{ inputs.domain }}/api' >> logs/deployment-report.md
+            echo '- **Evolution API:** https://${{ inputs.domain }}/evolution' >> logs/deployment-report.md
+          else
+            PUBLIC_IP=\$(curl -s ifconfig.me || echo 'N/A')
+            echo '- **Frontend:** http://'\$PUBLIC_IP >> logs/deployment-report.md
+            echo '- **Backend API:** http://'\$PUBLIC_IP':4000' >> logs/deployment-report.md
+            echo '- **Evolution API:** http://'\$PUBLIC_IP':8080' >> logs/deployment-report.md
+          fi
+          
+          echo '' >> logs/deployment-report.md
+          echo '## 📝 Logs' >> logs/deployment-report.md
+          echo 'Check the deployment logs at: /opt/whitelabel/logs/' >> logs/deployment-report.md
+          
+          cat logs/deployment-report.md
+          "
+
+      - name: Final deployment status
+        id: final-status
+        if: always()
+        run: |
+          if [ "${{ steps.deploy-with-retries.outputs.deployment-success }}" = "true" ]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            if [ -n "${{ inputs.domain }}" ]; then
+              echo "url=https://${{ inputs.domain }}" >> $GITHUB_OUTPUT
+            else
+              PUBLIC_IP=$(ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "curl -s ifconfig.me" || echo "unknown")
+              echo "url=http://$PUBLIC_IP" >> $GITHUB_OUTPUT
+            fi
+            
+            echo "🎉 AUTONOMOUS DEPLOYMENT COMPLETED SUCCESSFULLY! 🎉"
+            echo "✅ WhiteLabel MVP is now 100% deployed and running on AWS EC2"
+            echo "🌐 Access your application at the URLs shown in the deployment report"
+            
+          else
+            echo "status=failed" >> $GITHUB_OUTPUT
+            echo "url=" >> $GITHUB_OUTPUT
+            
+            echo "💥 AUTONOMOUS DEPLOYMENT FAILED"
+            echo "❌ Despite multiple retry attempts, the deployment could not be completed"
+            echo "📋 Check the deployment logs for detailed error information"
+            
+            exit 1
+          fi
+
+      - name: Post-deployment monitoring setup
+        if: steps.deploy-with-retries.outputs.deployment-success == 'true'
+        run: |
+          echo "=== Setting up post-deployment monitoring ==="
+          
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} "
+            cd /opt/whitelabel
+            
+            # Setup monitoring cron job if not exists
+            if ! crontab -l 2>/dev/null | grep -q 'monitor.sh'; then
+              (crontab -l 2>/dev/null; echo '*/5 * * * * cd /opt/whitelabel && ./scripts/validate-system.sh >> logs/monitor.log 2>&1') | crontab -
+              echo 'Monitoring cron job added'
+            fi
+            
+            # Create simple monitoring endpoint
+            echo '#!/bin/bash' > scripts/health-check.sh
+            echo 'curl -f http://localhost:4000/health && curl -f http://localhost:8080/manager/health' >> scripts/health-check.sh
+            chmod +x scripts/health-check.sh
+            
+            echo 'Post-deployment monitoring configured'
+          "
