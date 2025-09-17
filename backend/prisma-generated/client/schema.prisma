@@ -1,0 +1,205 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  id         String   @id @default(uuid()) @db.Uuid
+  name       String   @db.VarChar(255)
+  slug       String   @unique @db.VarChar(100)
+  settings   Json     @default("{}")
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // Relations
+  users         User[]
+  channels      Channel[]
+  bots          Bot[]
+  contacts      Contact[]
+  conversations Conversation[]
+  tickets       Ticket[]
+
+  @@map("companies")
+}
+
+model User {
+  id            String   @id @default(uuid()) @db.Uuid
+  email         String   @unique @db.VarChar(255)
+  password_hash String   @db.VarChar(255)
+  name          String   @db.VarChar(255)
+  role          String   @default("user") @db.VarChar(50)
+  company_id    String   @db.Uuid
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // Relations
+  company                Company        @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  assigned_conversations Conversation[] @relation("AssignedConversations")
+  assigned_tickets       Ticket[]       @relation("AssignedTickets")
+
+  @@map("users")
+}
+
+model Channel {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String   @db.VarChar(255)
+  type         String   @db.VarChar(50) // 'whatsapp', 'facebook', 'instagram', etc
+  status       String   @default("disconnected") @db.VarChar(50) // 'connected', 'disconnected', 'pending', 'error'
+  phone_number String?  @db.VarChar(20)
+  instance_id  String?  @db.VarChar(100) // Para Evolution API
+  api_key      String?  @db.VarChar(255)
+  webhook_url  String?  @db.Text
+  settings     Json     @default("{}")
+  company_id   String   @db.Uuid
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // Relations
+  company        Company        @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  conversations  Conversation[]
+  channel_bots   ChannelBot[]
+  webhook_events WebhookEvent[]
+
+  @@unique([name, company_id], name: "name_company_id")
+  @@map("channels")
+}
+
+model Bot {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  is_active   Boolean  @default(false)
+  flow_data   Json     @default("{}")
+  company_id  String   @db.Uuid
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // Relations
+  company       Company        @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+  channel_bots  ChannelBot[]
+
+  @@map("bots")
+}
+
+model ChannelBot {
+  id                 String   @id @default(uuid()) @db.Uuid
+  channel_id         String   @db.Uuid
+  bot_id             String   @db.Uuid
+  is_active          Boolean  @default(true)
+  trigger_conditions Json     @default("{}")
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  // Relations
+  channel Channel @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  bot     Bot     @relation(fields: [bot_id], references: [id], onDelete: Cascade)
+
+  @@unique([channel_id, bot_id])
+  @@map("channel_bots")
+}
+
+model Contact {
+  id         String   @id @default(uuid()) @db.Uuid
+  name       String?  @db.VarChar(255)
+  phone      String   @db.VarChar(20)
+  email      String?  @db.VarChar(255)
+  avatar_url String?  @db.Text
+  metadata   Json     @default("{}")
+  company_id String   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // Relations
+  company       Company        @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+
+  @@unique([phone, company_id])
+  @@map("contacts")
+}
+
+model Conversation {
+  id              String   @id @default(uuid()) @db.Uuid
+  contact_id      String   @db.Uuid
+  channel_id      String   @db.Uuid
+  bot_id          String?  @db.Uuid
+  status          String   @default("active") @db.VarChar(50) // 'active', 'closed', 'transferred'
+  assigned_to     String?  @db.Uuid
+  last_message_at DateTime @default(now()) @db.Timestamptz(6)
+  company_id      String   @db.Uuid
+  metadata        Json     @default("{}")
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // Relations
+  contact       Contact   @relation(fields: [contact_id], references: [id], onDelete: Cascade)
+  channel       Channel   @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  bot           Bot?      @relation(fields: [bot_id], references: [id], onDelete: SetNull)
+  assigned_user User?     @relation("AssignedConversations", fields: [assigned_to], references: [id], onDelete: SetNull)
+  company       Company   @relation(fields: [company_id], references: [id], onDelete: Cascade)
+  messages      Message[]
+  tickets       Ticket[]
+
+  @@map("conversations")
+}
+
+model Message {
+  id              String   @id @default(uuid()) @db.Uuid
+  conversation_id String   @db.Uuid
+  content         String   @db.Text
+  message_type    String   @default("text") @db.VarChar(50) // 'text', 'image', 'audio', 'document', etc
+  sender_type     String   @db.VarChar(50) // 'contact', 'agent', 'bot'
+  sender_id       String?  @db.Uuid
+  external_id     String?  @db.VarChar(255)
+  metadata        Json     @default("{}")
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+
+  // Relations
+  conversation Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
+
+model Ticket {
+  id              String   @id @default(uuid()) @db.Uuid
+  ticket_number   String   @unique @db.VarChar(50)
+  conversation_id String   @db.Uuid
+  title           String   @db.VarChar(255)
+  description     String?  @db.Text
+  status          String   @default("open") @db.VarChar(50) // 'open', 'in_progress', 'resolved', 'closed'
+  priority        String   @default("medium") @db.VarChar(50) // 'low', 'medium', 'high', 'urgent'
+  assigned_to     String?  @db.Uuid
+  form_data       Json     @default("{}")
+  company_id      String   @db.Uuid
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  // Relations
+  conversation  Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  assigned_user User?        @relation("AssignedTickets", fields: [assigned_to], references: [id], onDelete: SetNull)
+  company       Company      @relation(fields: [company_id], references: [id], onDelete: Cascade)
+
+  @@map("tickets")
+}
+
+model WebhookEvent {
+  id               String   @id @default(uuid()) @db.Uuid
+  channel_id       String   @db.Uuid
+  event_type       String   @db.VarChar(100)
+  payload          Json     @default("{}")
+  processed        Boolean  @default(false)
+  processing_error String?  @db.Text
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+
+  // Relations
+  channel Channel @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+
+  @@map("webhook_events")
+}
