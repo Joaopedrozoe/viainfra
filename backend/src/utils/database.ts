@@ -24,11 +24,11 @@ const prisma = globalThis.__prisma || new PrismaClient({
       level: 'warn',
     },
   ],
-});
+}) as any;
 
 // Log database queries in development
 if (process.env.NODE_ENV === 'development') {
-  prisma.$on('query' as any, (e: any) => {
+  (prisma as any).$on('query', (e: any) => {
     logger.debug('Query: ' + e.query);
     logger.debug('Params: ' + e.params);
     logger.debug('Duration: ' + e.duration + 'ms');
@@ -36,18 +36,18 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // Log database errors
-prisma.$on('error' as any, (e: any) => {
+(prisma as any).$on('error', (e: any) => {
   logger.error('Database error:', e);
 });
 
 // Log database info
-prisma.$on('info' as any, (e: any) => {
-  logger.info('Database info:', e.message);
+(prisma as any).$on('info', (e: any) => {
+  logger.info('Database info: ' + e.message);
 });
 
 // Log database warnings
-prisma.$on('warn' as any, (e: any) => {
-  logger.warn('Database warning:', e.message);
+(prisma as any).$on('warn', (e: any) => {
+  logger.warn('Database warning: ' + e.message);
 });
 
 if (process.env.NODE_ENV === 'development') {
