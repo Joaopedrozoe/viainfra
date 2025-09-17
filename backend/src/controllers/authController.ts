@@ -55,12 +55,16 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     const response: AuthResponse = {
       user: {
         ...userWithoutPassword,
-        role: user.role as 'admin' | 'user' | 'agent' | 'attendant'
+        role: user.role as 'admin' | 'user' | 'agent' | 'attendant',
+        created_at: user.created_at.toISOString(),
+        updated_at: user.updated_at.toISOString()
       },
       token,
       company: {
         ...user.company,
-        settings: user.company.settings as Record<string, any>
+        settings: user.company.settings as Record<string, any>,
+        created_at: user.company.created_at.toISOString(),
+        updated_at: user.company.updated_at.toISOString()
       },
     };
 
@@ -148,12 +152,16 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     const response: AuthResponse = {
       user: {
         ...userWithoutPassword,
-        role: user.role as 'admin' | 'user' | 'agent' | 'attendant'
+        role: user.role as 'admin' | 'user' | 'agent' | 'attendant',
+        created_at: user.created_at.toISOString(),
+        updated_at: user.updated_at.toISOString()
       },
       token,
       company: {
         ...user.company,
-        settings: user.company.settings as Record<string, any>
+        settings: user.company.settings as Record<string, any>,
+        created_at: user.company.created_at.toISOString(),
+        updated_at: user.company.updated_at.toISOString()
       },
     };
 
@@ -193,9 +201,13 @@ export const me = async (req: AuthenticatedRequest, res: Response): Promise<void
       user: {
         ...userWithoutPassword,
         role: user.role as 'admin' | 'user' | 'agent' | 'attendant',
+        created_at: user.created_at.toISOString(),
+        updated_at: user.updated_at.toISOString(),
         company: {
           ...user.company,
-          settings: user.company.settings as Record<string, any>
+          settings: user.company.settings as Record<string, any>,
+          created_at: user.company.created_at.toISOString(),
+          updated_at: user.company.updated_at.toISOString()
         }
       }
     });
