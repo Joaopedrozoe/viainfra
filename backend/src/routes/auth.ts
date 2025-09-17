@@ -1,9 +1,9 @@
 import { Router } from 'express';
-import { login, register, me, logout, refreshToken } from '@/controllers/authController';
-import { authenticateToken } from '@/middleware/auth';
-import { validateBody } from '@/middleware/validation';
-import { loginSchema, registerSchema } from '@/utils/validation';
-import { asyncHandler } from '@/middleware/errorHandler';
+import { login, register, me, logout, refreshToken } from '../controllers/authController';
+import { authenticateToken } from '../middleware/auth';
+import { validateBody } from '../middleware/validation';
+import { loginSchema, registerSchema } from '../utils/validation';
+import { asyncHandler } from '../middleware/errorHandler';
 
 const router = Router();
 

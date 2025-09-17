@@ -5,17 +5,17 @@ import {
   createDepartment,
   updateDepartment,
   deleteDepartment,
-} from '@/controllers/departmentController';
-import { authenticateToken } from '@/middleware/auth';
-import { multiTenant } from '@/middleware/multiTenant';
-import { validateBody, validateParams, validateQuery } from '@/middleware/validation';
+} from '../controllers/departmentController';
+import { authenticateToken } from '../middleware/auth';
+import { multiTenant } from '../middleware/multiTenant';
+import { validateBody, validateParams, validateQuery } from '../middleware/validation';
 import {
   createDepartmentSchema,
   updateDepartmentSchema,
   paginationSchema,
   idParamSchema,
-} from '@/utils/validation';
-import { asyncHandler } from '@/middleware/errorHandler';
+} from '../utils/validation';
+import { asyncHandler } from '../middleware/errorHandler';
 
 const router = Router();
 

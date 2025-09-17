@@ -9,12 +9,12 @@ import dotenv from 'dotenv';
 import 'express-async-errors';
 
 // Import utilities and middleware
-import logger from '@/utils/logger';
-import { errorHandler, notFoundHandler } from '@/middleware/errorHandler';
-import WebSocketServer from '@/websocket/server';
+import logger from './utils/logger';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler';
+import WebSocketServer from './websocket/server';
 
 // Import routes
-import routes from '@/routes';
+import routes from './routes';
 
 // Load environment variables
 dotenv.config();

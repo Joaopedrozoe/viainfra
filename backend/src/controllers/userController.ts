@@ -1,13 +1,13 @@
 import { Request, Response } from 'express';
-import { AuthenticatedRequest } from '@/middleware/auth';
+import { AuthenticatedRequest } from '../types';
 import { 
   PaginationParams,
   PaginatedResponse,
   UserWithoutPassword,
-} from '@/types';
-import { hashPassword } from '@/utils/auth';
-import prisma from '@/utils/database';
-import logger from '@/utils/logger';
+} from '../types';
+import { hashPassword } from '../utils/auth';
+import prisma from '../utils/database';
+import logger from '../utils/logger';
 
 export interface CreateUserRequest {
   name: string;
@@ -77,7 +77,12 @@ export const getUsers = async (
     });
 
     const response: PaginatedResponse<UserWithoutPassword> = {
-      data: users,
+      data: users.map(user => ({
+        ...user,
+        role: user.role as 'admin' | 'user' | 'agent' | 'attendant',
+        created_at: user.created_at.toISOString(),
+        updated_at: user.updated_at.toISOString(),
+      })),
       total,
       page: page!,
       limit: limit!,

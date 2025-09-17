@@ -5,17 +5,17 @@ import {
   createCalendarEvent,
   updateCalendarEvent,
   deleteCalendarEvent,
-} from '@/controllers/calendarController';
-import { authenticateToken } from '@/middleware/auth';
-import { multiTenant } from '@/middleware/multiTenant';
-import { validateBody, validateParams, validateQuery } from '@/middleware/validation';
+} from '../controllers/calendarController';
+import { authenticateToken } from '../middleware/auth';
+import { multiTenant } from '../middleware/multiTenant';
+import { validateBody, validateParams, validateQuery } from '../middleware/validation';
 import {
   createCalendarEventSchema,
   updateCalendarEventSchema,
   paginationSchema,
   idParamSchema,
-} from '@/utils/validation';
-import { asyncHandler } from '@/middleware/errorHandler';
+} from '../utils/validation';
+import { asyncHandler } from '../middleware/errorHandler';
 
 const router = Router();
 

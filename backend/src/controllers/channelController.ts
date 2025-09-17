@@ -1,14 +1,14 @@
 import { Request, Response } from 'express';
-import { AuthenticatedRequest } from '@/middleware/auth';
+import { AuthenticatedRequest } from '../types';
 import { 
   CreateChannelRequest, 
   UpdateChannelRequest, 
   PaginationParams,
   PaginatedResponse,
   Channel 
-} from '@/types';
-import prisma from '@/utils/database';
-import logger from '@/utils/logger';
+} from '../types';
+import prisma from '../utils/database';
+import logger from '../utils/logger';
 
 /**
  * Get all channels for the user's company

@@ -1,8 +1,8 @@
 import { Server as HTTPServer } from 'http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
-import { verifyToken } from '@/utils/auth';
-import prisma from '@/utils/database';
-import logger from '@/utils/logger';
+import { verifyToken } from '../utils/auth';
+import prisma from '../utils/database';
+import logger from '../utils/logger';
 
 interface AuthenticatedSocket extends Socket {
   user?: {

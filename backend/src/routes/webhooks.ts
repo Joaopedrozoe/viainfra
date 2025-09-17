@@ -2,8 +2,8 @@ import { Router } from 'express';
 import {
   handleWhatsAppWebhook,
   getWhatsAppQRCode,
-} from '@/controllers/whatsappController';
-import { asyncHandler } from '@/middleware/errorHandler';
+} from '../controllers/whatsappController';
+import { asyncHandler } from '../middleware/errorHandler';
 
 const router = Router();
 

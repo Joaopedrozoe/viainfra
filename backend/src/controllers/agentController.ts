@@ -1,13 +1,13 @@
 import { Request, Response } from 'express';
-import { AuthenticatedRequest } from '@/middleware/auth';
+import { AuthenticatedRequest } from '../types';
 import { 
   CreateAgentRequest, 
   PaginationParams,
   PaginatedResponse,
   Agent,
-} from '@/types';
-import prisma from '@/utils/database';
-import logger from '@/utils/logger';
+} from '../types';
+import prisma from '../utils/database';
+import logger from '../utils/logger';
 
 // Extended types for agent management
 export interface CreateAgentRequestFull extends CreateAgentRequest {

@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { AuthenticatedRequest } from '@/middleware/auth';
+import { AuthenticatedRequest } from '../types';
 import { 
   CreateConversationRequest, 
   SendMessageRequest, 
@@ -7,9 +7,9 @@ import {
   PaginatedResponse,
   Conversation,
   Message 
-} from '@/types';
-import prisma from '@/utils/database';
-import logger from '@/utils/logger';
+} from '../types';
+import prisma from '../utils/database';
+import logger from '../utils/logger';
 
 /**
  * Get all conversations for the user's company
@@ -145,7 +145,14 @@ export const getConversationMessages = async (
     });
 
     const response: PaginatedResponse<Message> = {
-      data: messages.reverse(), // Reverse to show oldest first
+      data: messages.reverse().map(message => ({
+        ...message,
+        message_type: message.message_type as 'text' | 'image' | 'audio' | 'document' | 'location' | 'contact',
+        sender_id: message.sender_id || undefined,
+        external_id: message.external_id || undefined,
+        metadata: message.metadata as Record<string, any>,
+        created_at: message.created_at.toISOString(),
+      })), // Reverse to show oldest first
       total,
       page: page!,
       limit: limit!,

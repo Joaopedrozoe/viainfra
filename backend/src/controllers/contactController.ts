@@ -1,14 +1,14 @@
 import { Request, Response } from 'express';
-import { AuthenticatedRequest } from '@/middleware/auth';
+import { AuthenticatedRequest } from '../types';
 import { 
   CreateContactRequest, 
   UpdateContactRequest, 
   PaginationParams,
   PaginatedResponse,
   Contact 
-} from '@/types';
-import prisma from '@/utils/database';
-import logger from '@/utils/logger';
+} from '../types';
+import prisma from '../utils/database';
+import logger from '../utils/logger';
 
 /**
  * Get all contacts for the user's company
@@ -54,7 +54,15 @@ export const getContacts = async (
     });
 
     const response: PaginatedResponse<Contact> = {
-      data: contacts,
+      data: contacts.map(contact => ({
+        ...contact,
+        name: contact.name || undefined,
+        email: contact.email || undefined,
+        avatar_url: contact.avatar_url || undefined,
+        metadata: contact.metadata as Record<string, any>,
+        created_at: contact.created_at.toISOString(),
+        updated_at: contact.updated_at.toISOString(),
+      })),
       total,
       page: page!,
       limit: limit!,

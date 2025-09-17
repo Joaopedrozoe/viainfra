@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
-import { EvolutionWebhook, EvolutionMessage } from '@/types';
-import prisma from '@/utils/database';
-import logger from '@/utils/logger';
+import { EvolutionWebhook, EvolutionMessage } from '../types';
+import prisma from '../utils/database';
+import logger from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -40,7 +40,7 @@ export const handleWhatsAppWebhook = async (
       data: {
         channel_id: channel.id,
         event_type: event,
-        payload: webhookData,
+        payload: webhookData as any,
         processed: false,
       },
     });
