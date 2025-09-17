@@ -319,6 +319,10 @@ export interface ValidationError {
 // Express Request types
 export interface AuthenticatedRequest extends Request {
   user?: UserWithoutPassword & { company_id: string };
+  body: any;
+  query: any;
+  params: any;
+  headers: any;
 }
 
 export interface AuthenticatedSocket extends Socket {
