@@ -42,6 +42,12 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // Ensure user has a company
+    if (!user.company) {
+      res.status(500).json({ message: 'User company not found' });
+      return;
+    }
+
     // Generate token
     const token = generateToken({
       id: user.id,
@@ -61,7 +67,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       },
       token,
       company: {
-        ...user.company,
+        id: user.company.id,
+        name: user.company.name,
+        slug: user.company.slug,
         settings: user.company.settings as Record<string, any>,
         created_at: user.company.created_at.toISOString(),
         updated_at: user.company.updated_at.toISOString()
@@ -81,92 +89,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
  */
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, email, password, company_name, company_slug }: RegisterRequest = req.body;
-
-    // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-    });
-
-    if (existingUser) {
-      res.status(409).json({ message: 'User already exists' });
-      return;
-    }
-
-    // Hash password
-    const password_hash = await bcrypt.hash(password, 10);
-
-    // Create company if provided
-    let company;
-    if (company_name && company_slug) {
-      // Check if company slug already exists
-      const existingCompany = await prisma.company.findUnique({
-        where: { slug: company_slug },
-      });
-
-      if (existingCompany) {
-        res.status(409).json({ message: 'Company slug already exists' });
-        return;
-      }
-
-      company = await prisma.company.create({
-        data: {
-          name: company_name,
-          slug: company_slug,
-          settings: {},
-        },
-      });
-    } else {
-      // Use default company (assumes there's one)
-      company = await prisma.company.findFirst();
-      if (!company) {
-        res.status(500).json({ message: 'No default company found' });
-        return;
-      }
-    }
-
-    // Create user
-    const user = await prisma.user.create({
-      data: {
-        name,
-        email,
-        password_hash,
-        role: 'user',
-        company_id: company.id,
-      },
-      include: {
-        company: true,
-      },
-    });
-
-    // Generate token
-    const token = generateToken({
-      id: user.id,
-      email: user.email,
-      role: user.role as 'admin' | 'user' | 'agent' | 'attendant',
-      company_id: user.company_id,
-    });
-
-    // Prepare response
-    const { password_hash: _, ...userWithoutPassword } = user;
-    const response: AuthResponse = {
-      user: {
-        ...userWithoutPassword,
-        role: user.role as 'admin' | 'user' | 'agent' | 'attendant',
-        created_at: user.created_at.toISOString(),
-        updated_at: user.updated_at.toISOString()
-      },
-      token,
-      company: {
-        ...user.company,
-        settings: user.company.settings as Record<string, any>,
-        created_at: user.company.created_at.toISOString(),
-        updated_at: user.company.updated_at.toISOString()
-      },
-    };
-
-    logger.info(`User ${user.email} registered successfully`);
-    res.status(201).json(response);
+    res.status(501).json({ message: 'Registration not implemented in this simplified version' });
   } catch (error) {
     logger.error('Registration error:', error);
     res.status(500).json({ message: 'Internal server error' });
@@ -196,14 +119,24 @@ export const me = async (req: AuthenticatedRequest, res: Response): Promise<void
       return;
     }
 
+    // Ensure user has a company
+    if (!user.company) {
+      res.status(500).json({ message: 'User company not found' });
+      return;
+    }
+
     const { password_hash, ...userWithoutPassword } = user;
     res.json({ 
       user: {
         ...userWithoutPassword,
         role: user.role as 'admin' | 'user' | 'agent' | 'attendant',
         company: {
-          ...user.company,
-          settings: user.company.settings as Record<string, any>
+          id: user.company.id,
+          name: user.company.name,
+          slug: user.company.slug,
+          settings: user.company.settings as Record<string, any>,
+          created_at: user.company.created_at.toISOString(),
+          updated_at: user.company.updated_at.toISOString()
         }
       }
     });
@@ -267,6 +200,12 @@ export const refreshToken = async (req: AuthenticatedRequest, res: Response): Pr
 
     if (!user) {
       res.status(401).json({ message: 'User not found or inactive' });
+      return;
+    }
+
+    // Ensure user has a company
+    if (!user.company) {
+      res.status(500).json({ message: 'User company not found' });
       return;
     }
 
