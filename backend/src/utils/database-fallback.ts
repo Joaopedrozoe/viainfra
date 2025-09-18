@@ -1,7 +1,6 @@
-// Database utility with automatic fallback to mock when Prisma is not available
-import logger from './logger';
-
 // Mock database implementation for when Prisma is not available
+// This allows the server to start and provide proper error messages
+
 interface MockUser {
   id: string;
   email: string;
@@ -22,12 +21,12 @@ interface MockUser {
   };
 }
 
-// Mock data for testing (password hash for "SenhaSegura@123")
+// Mock data for testing
 const mockUsers: MockUser[] = [
   {
     id: 'mock-user-id-1',
     email: 'novo.usuario@exemplo.com',
-    password_hash: '$2a$12$6TPe65eVtahzWau5PzAGAuMDacEFz/bFiQfEkfd9cOs5w.HRgAHU.', // SenhaSegura@123
+    password_hash: '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LeO.f3GyHV3mLM.hO', // SenhaSegura@123
     name: 'Usuário Teste',
     role: 'user',
     company_id: 'mock-company-id-1',
@@ -45,7 +44,7 @@ const mockUsers: MockUser[] = [
   }
 ];
 
-const mockPrisma = {
+export const mockPrisma = {
   user: {
     findUnique: async ({ where, include }: { where: { email: string }, include?: any }) => {
       const user = mockUsers.find(u => u.email === where.email);
@@ -93,64 +92,19 @@ const mockPrisma = {
   }
 };
 
-// Try to initialize real Prisma, fall back to mock
+// Export both real and mock prisma based on availability
 let prisma: any;
 
 try {
+  // Try to use real Prisma
   const { PrismaClient } = require('@prisma/client');
-  
-  prisma = new PrismaClient({
-    log: [
-      {
-        emit: 'event',
-        level: 'query',
-      },
-      {
-        emit: 'event',
-        level: 'error',
-      },
-      {
-        emit: 'event',
-        level: 'info',
-      },
-      {
-        emit: 'event',
-        level: 'warn',
-      },
-    ],
-  }) as any;
-
-  // Log database queries in development
-  if (process.env.NODE_ENV === 'development') {
-    (prisma as any).$on('query', (e: any) => {
-      logger.debug('Query: ' + e.query);
-      logger.debug('Params: ' + e.params);
-      logger.debug('Duration: ' + e.duration + 'ms');
-    });
-  }
-
-  // Log database errors
-  (prisma as any).$on('error', (e: any) => {
-    logger.error('Database error:', e);
-  });
-
-  // Log database info
-  (prisma as any).$on('info', (e: any) => {
-    logger.info('Database info: ' + e.message);
-  });
-
-  // Log database warnings
-  (prisma as any).$on('warn', (e: any) => {
-    logger.warn('Database warning: ' + e.message);
-  });
-
-  logger.info('✅ Using real Prisma client');
-  
+  prisma = new PrismaClient();
+  console.log('✅ Using real Prisma client');
 } catch (error) {
   // Fall back to mock
   prisma = mockPrisma;
-  logger.warn('⚠️  Using mock Prisma client - database operations will be simulated');
-  logger.warn('   To use real database: npx prisma generate && npx prisma migrate dev');
+  console.log('⚠️  Using mock Prisma client - database operations will be simulated');
+  console.log('   Run "npx prisma generate" to use real database');
 }
 
 export { prisma };

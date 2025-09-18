@@ -72,7 +72,17 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     res.json(response);
   } catch (error) {
     logger.error('Login error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    
+    // Provide more detailed error information in development
+    if (process.env.NODE_ENV === 'development') {
+      res.status(500).json({ 
+        message: 'Internal server error',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
+    } else {
+      res.status(500).json({ message: 'Internal server error' });
+    }
   }
 };
 
@@ -169,7 +179,17 @@ export const register = async (req: Request, res: Response): Promise<void> => {
     res.status(201).json(response);
   } catch (error) {
     logger.error('Registration error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    
+    // Provide more detailed error information in development
+    if (process.env.NODE_ENV === 'development') {
+      res.status(500).json({ 
+        message: 'Internal server error',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
+    } else {
+      res.status(500).json({ message: 'Internal server error' });
+    }
   }
 };
 
