@@ -4,11 +4,10 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# Install system dependencies including OpenSSL compatibility for Prisma
+# Install system dependencies
 RUN apk add --no-cache \
     postgresql-client \
     curl \
-    openssl1.1-compat \
     && rm -rf /var/cache/apk/*
 
 # Copy package files
@@ -35,11 +34,10 @@ FROM node:18-alpine AS production
 
 WORKDIR /app
 
-# Install system dependencies including OpenSSL compatibility for Prisma
+# Install system dependencies
 RUN apk add --no-cache \
     postgresql-client \
     curl \
-    openssl1.1-compat \
     && rm -rf /var/cache/apk/*
 
 # Copy package files

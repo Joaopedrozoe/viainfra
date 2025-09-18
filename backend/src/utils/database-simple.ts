@@ -16,7 +16,7 @@ const pool = new Pool({
 // Simple database interface that mimics Prisma's user operations
 export const db = {
   user: {
-    findUnique: async (options: { where: { email?: string; id?: string; is_active?: boolean }, include?: any }) => {
+    findUnique: async (options: { where: { email?: string; id?: string; is_active?: boolean }, include?: any, select?: any }) => {
       try {
         let query = '';
         let values: any[] = [];
@@ -87,6 +87,32 @@ export const db = {
     create: async (options: { data: any, include?: any }) => {
       // Simplified create method - can be extended as needed
       throw new Error('Create user not implemented in simple database adapter');
+    },
+    
+    update: async (options: { where: any, data: any, include?: any }) => {
+      throw new Error('Update user not implemented in simple database adapter');
+    },
+    
+    findFirst: async (options?: any) => {
+      // Return first user for compatibility
+      try {
+        const result = await pool.query('SELECT * FROM users LIMIT 1');
+        return result.rows[0] || null;
+      } catch (error) {
+        logger.error('Database query error:', error);
+        return null;
+      }
+    },
+    
+    count: async (options?: any) => {
+      // Return count of users
+      try {
+        const result = await pool.query('SELECT COUNT(*) as count FROM users');
+        return parseInt(result.rows[0].count);
+      } catch (error) {
+        logger.error('Database query error:', error);
+        return 0;
+      }
     }
   },
   
@@ -108,6 +134,20 @@ export const db = {
       } catch (error) {
         logger.error('Database query error:', error);
         throw error;
+      }
+    },
+    
+    create: async (options: { data: any }) => {
+      throw new Error('Create company not implemented in simple database adapter');
+    },
+    
+    count: async () => {
+      try {
+        const result = await pool.query('SELECT COUNT(*) as count FROM companies');
+        return parseInt(result.rows[0].count);
+      } catch (error) {
+        logger.error('Database query error:', error);
+        return 0;
       }
     }
   }
