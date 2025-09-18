@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import authRoutes from './auth';
+import testRoutes from './test';
 import conversationRoutes from './conversations';
 import contactRoutes from './contacts';
 import channelRoutes from './channels';
@@ -23,6 +24,7 @@ router.get('/health', (req, res) => {
 
 // API routes
 router.use('/auth', authRoutes);
+router.use('/test', testRoutes);
 router.use('/conversations', conversationRoutes);
 router.use('/contacts', contactRoutes);
 router.use('/channels', channelRoutes);
