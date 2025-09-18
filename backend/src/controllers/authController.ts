@@ -42,6 +42,12 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // Ensure user has a company
+    if (!user.company) {
+      res.status(500).json({ message: 'User company not found' });
+      return;
+    }
+
     // Generate token
     const token = generateToken({
       id: user.id,
@@ -61,7 +67,9 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       },
       token,
       company: {
-        ...user.company,
+        id: user.company.id,
+        name: user.company.name,
+        slug: user.company.slug,
         settings: user.company.settings as Record<string, any>,
         created_at: user.company.created_at.toISOString(),
         updated_at: user.company.updated_at.toISOString()
@@ -196,14 +204,24 @@ export const me = async (req: AuthenticatedRequest, res: Response): Promise<void
       return;
     }
 
+    // Ensure user has a company
+    if (!user.company) {
+      res.status(500).json({ message: 'User company not found' });
+      return;
+    }
+
     const { password_hash, ...userWithoutPassword } = user;
     res.json({ 
       user: {
         ...userWithoutPassword,
         role: user.role as 'admin' | 'user' | 'agent' | 'attendant',
         company: {
-          ...user.company,
-          settings: user.company.settings as Record<string, any>
+          id: user.company.id,
+          name: user.company.name,
+          slug: user.company.slug,
+          settings: user.company.settings as Record<string, any>,
+          created_at: user.company.created_at.toISOString(),
+          updated_at: user.company.updated_at.toISOString()
         }
       }
     });
@@ -267,6 +285,12 @@ export const refreshToken = async (req: AuthenticatedRequest, res: Response): Pr
 
     if (!user) {
       res.status(401).json({ message: 'User not found or inactive' });
+      return;
+    }
+
+    // Ensure user has a company
+    if (!user.company) {
+      res.status(500).json({ message: 'User company not found' });
       return;
     }
 

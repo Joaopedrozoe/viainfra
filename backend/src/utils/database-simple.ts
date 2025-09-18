@@ -71,7 +71,7 @@ export const db = {
             id: row.company_id,
             name: row.company_name,
             slug: row.company_slug,
-            settings: row.company_settings,
+            settings: row.company_settings || {},
             created_at: row.company_created_at,
             updated_at: row.company_updated_at
           } : undefined
@@ -85,8 +85,45 @@ export const db = {
     },
     
     create: async (options: { data: any, include?: any }) => {
-      // Simplified create method - can be extended as needed
-      throw new Error('Create user not implemented in simple database adapter');
+      try {
+        const { name, email, password_hash, role = 'user', company_id } = options.data;
+        const result = await pool.query(
+          'INSERT INTO users (name, email, password_hash, role, company_id) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+          [name, email, password_hash, role, company_id]
+        );
+        
+        const row = result.rows[0];
+        
+        // If include company is requested, fetch it
+        let companyData: any = null;
+        if (options.include?.company && row.company_id) {
+          const companyResult = await pool.query('SELECT * FROM companies WHERE id = $1', [row.company_id]);
+          companyData = companyResult.rows[0] || null;
+        }
+        
+        return {
+          id: row.id,
+          email: row.email,
+          password_hash: row.password_hash,
+          name: row.name,
+          role: row.role,
+          company_id: row.company_id,
+          is_active: row.is_active,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+          company: companyData ? {
+            id: companyData.id,
+            name: companyData.name,
+            slug: companyData.slug,
+            settings: companyData.settings || {},
+            created_at: companyData.created_at,
+            updated_at: companyData.updated_at
+          } : undefined
+        };
+      } catch (error) {
+        logger.error('Database create user error:', error);
+        throw error;
+      }
     }
   },
   
@@ -107,6 +144,20 @@ export const db = {
         return result.rows[0] || null;
       } catch (error) {
         logger.error('Database query error:', error);
+        throw error;
+      }
+    },
+    
+    create: async (options: { data: any }) => {
+      try {
+        const { name, slug, settings = {} } = options.data;
+        const result = await pool.query(
+          'INSERT INTO companies (name, slug, settings) VALUES ($1, $2, $3) RETURNING *',
+          [name, slug, JSON.stringify(settings)]
+        );
+        return result.rows[0];
+      } catch (error) {
+        logger.error('Database create company error:', error);
         throw error;
       }
     }
