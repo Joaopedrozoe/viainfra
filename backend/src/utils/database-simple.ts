@@ -3,11 +3,7 @@ import logger from './logger';
 
 // Create a connection pool with explicit configuration
 const pool = new Pool({
-  host: 'localhost',
-  port: 5432,
-  database: 'whitelabel_mvp',
-  user: 'postgres',
-  password: 'password',
+  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/whitelabel_mvp',
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
