@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { login, register, me, logout, refreshToken } from '../controllers/authController';
+import { login, /* register, */ me, logout, refreshToken } from '../controllers/authController';
 import { authenticateToken } from '../middleware/auth';
 import { validateBody } from '../middleware/validation';
-import { loginSchema, registerSchema } from '../utils/validation';
+import { loginSchema, /* registerSchema */ } from '../utils/validation';
 import { asyncHandler } from '../middleware/errorHandler';
 
 const router = Router();
@@ -19,7 +19,7 @@ router.post('/login', validateBody(loginSchema), asyncHandler(login));
  * @desc User registration
  * @access Public
  */
-router.post('/register', validateBody(registerSchema), asyncHandler(register));
+// router.post('/register', validateBody(registerSchema), asyncHandler(register)); // Temporarily disabled
 
 /**
  * @route GET /auth/me
