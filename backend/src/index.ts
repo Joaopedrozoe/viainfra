@@ -11,7 +11,7 @@ import 'express-async-errors';
 // Import utilities and middleware
 import logger from './utils/logger';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
-import WebSocketServer from './websocket/server';
+// import WebSocketServer from './websocket/server'; // Commented out to avoid Prisma dependency
 
 // Import routes
 import routes from './routes';
@@ -24,7 +24,7 @@ const httpServer = createServer(app);
 const PORT = process.env.PORT || 4000;
 
 // Initialize WebSocket server
-const wsServer = new WebSocketServer(httpServer);
+// const wsServer = new WebSocketServer(httpServer); // Commented out to avoid Prisma dependency
 
 // Trust proxy (for rate limiting behind reverse proxy)
 app.set('trust proxy', 1);

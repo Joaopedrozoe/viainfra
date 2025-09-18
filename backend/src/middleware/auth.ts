@@ -18,30 +18,21 @@ export const authenticateToken = async (
 
     // Fetch user from database to ensure they still exist and are active
     const user = await prisma.user.findUnique({
-      where: {
-        id: decoded.id,
-        is_active: true,
-      },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        company_id: true,
-        is_active: true,
-        created_at: true,
-        updated_at: true,
-      },
+      where: { id: decoded.id },
     });
 
-    if (!user) {
+    if (!user || !user.is_active) {
       res.status(401).json({ message: 'User not found or inactive' });
       return;
     }
 
     req.user = {
-      ...user,
+      id: user.id,
+      email: user.email,
+      name: user.name,
       role: user.role as 'admin' | 'user' | 'agent' | 'attendant',
+      company_id: user.company_id,
+      is_active: user.is_active,
       created_at: user.created_at.toISOString(),
       updated_at: user.updated_at.toISOString()
     };

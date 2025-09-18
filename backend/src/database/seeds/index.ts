@@ -71,6 +71,23 @@ async function main() {
       },
     ];
 
+    // Add the test user for login validation
+    const testUserPassword = await bcrypt.hash('SenhaSegura@123', 10);
+    const testUser = await prisma.user.upsert({
+      where: { email: 'novo.usuario@exemplo.com' },
+      update: {},
+      create: {
+        email: 'novo.usuario@exemplo.com',
+        password_hash: testUserPassword,
+        name: 'Test User',
+        role: 'user',
+        company_id: company.id,
+        is_active: true,
+      },
+    });
+
+    logger.info(`Test user created/updated: ${testUser.email}`);
+
     for (const userData of sampleUsers) {
       const userPassword = await bcrypt.hash('123456', 10); // Default password
       const user = await prisma.user.upsert({
