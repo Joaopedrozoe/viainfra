@@ -5,8 +5,11 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:auth": "tsx watch src/auth-index.ts",
     "build": "tsc",
+    "build:auth": "npx tsc src/auth-index.ts --outDir dist --target es2020 --module commonjs --esModuleInterop --skipLibCheck",
     "start": "node dist/index.js",
+    "start:auth": "node dist/auth-index.js",
     "migrate": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
     "seed": "tsx src/database/seeds/index.ts",

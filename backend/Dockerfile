@@ -4,13 +4,6 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# Install system dependencies including OpenSSL compatibility for Prisma
-RUN apk add --no-cache \
-    postgresql-client \
-    curl \
-    openssl1.1-compat \
-    && rm -rf /var/cache/apk/*
-
 # Copy package files
 COPY package*.json ./
 COPY tsconfig.json ./
@@ -18,29 +11,16 @@ COPY tsconfig.json ./
 # Install ALL dependencies (including devDependencies for TypeScript compilation)
 RUN npm ci
 
-# Copy Prisma schema
-COPY prisma/ ./prisma/
-
-# Generate Prisma client
-RUN npx prisma generate
-
 # Copy source code
 COPY src/ ./src/
 
-# Build TypeScript
-RUN npm run build
+# Build TypeScript (auth version only)
+RUN npm run build:auth
 
 # Etapa final (produção)
 FROM node:18-alpine AS production
 
 WORKDIR /app
-
-# Install system dependencies including OpenSSL compatibility for Prisma
-RUN apk add --no-cache \
-    postgresql-client \
-    curl \
-    openssl1.1-compat \
-    && rm -rf /var/cache/apk/*
 
 # Copy package files
 COPY package*.json ./
@@ -48,11 +28,8 @@ COPY package*.json ./
 # Install only production dependencies
 RUN npm ci --only=production
 
-# Copy built application and necessary files from builder stage
+# Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 # Create logs directory
 RUN mkdir -p logs
@@ -70,9 +47,5 @@ USER backend
 # Expose port
 EXPOSE 4000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:4000/health || exit 1
-
 # Start the application
-CMD ["node", "dist/index.js"]
+CMD ["node", "dist/auth-index.js"]
