@@ -431,15 +431,17 @@
           btn.className = 'quick-reply-btn';
           btn.textContent = option;
           btn.onclick = () => {
-            // Extrair número da opção (ex: "1️⃣ Abrir Chamado" -> "1")
-            const match = option.match(/^(\d+)/);
+            // Extrair apenas o número do início (ex: "1️⃣ Abrir Chamado" -> "1")
+            const match = option.match(/(\d+)/);
             if (match) {
+              // Envia apenas o número
               messageInput.value = match[1];
-              enviarMensagem();
+              console.log('Quick reply clicked, sending:', match[1]);
             } else {
+              // Se não encontrar número, envia o texto completo
               messageInput.value = option;
-              enviarMensagem();
             }
+            enviarMensagem();
           };
           quickRepliesContainer.appendChild(btn);
         });
@@ -496,6 +498,9 @@
         const message = messageInput.value.trim();
         if (!message || isProcessing) return;
 
+        console.log('Enviando mensagem:', message);
+        console.log('Estado atual:', botState);
+
         addMessage(message, false);
         messageInput.value = '';
         isProcessing = true;
@@ -505,27 +510,34 @@
         showTyping();
 
         try {
+          const payload = {
+            action: 'message',
+            state: botState,
+            userMessage: message,
+            companyId: COMPANY_ID,
+          };
+          
+          console.log('Payload enviado:', payload);
+
           const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'apikey': SUPABASE_KEY,
             },
-            body: JSON.stringify({
-              action: 'message',
-              state: botState,
-              userMessage: message,
-              companyId: COMPANY_ID,
-            }),
+            body: JSON.stringify(payload),
           });
 
           const data = await response.json();
           
+          console.log('Resposta recebida:', data);
+
           hideTyping();
           addMessage(data.message, true);
           botState = data.state;
 
           if (data.options) {
+            console.log('Exibindo quick replies:', data.options);
             showQuickReplies(data.options);
           }
         } catch (error) {

@@ -292,11 +292,15 @@ const Channels = () => {
                     
                     <div className="grid grid-cols-2 gap-4 pt-2 border-t">
                       <div className="text-center">
-                        <div className="text-2xl font-bold text-primary">{channel.metrics.totalMessages}</div>
+                        <div className="text-2xl font-bold text-primary">
+                          {channel.status === 'connected' ? channel.metrics.totalMessages : 0}
+                        </div>
                         <div className="text-xs text-muted-foreground">Mensagens</div>
                       </div>
                       <div className="text-center">
-                        <div className="text-2xl font-bold text-gray-600">{channel.metrics.responseTime}s</div>
+                        <div className="text-2xl font-bold text-gray-600">
+                          {channel.status === 'connected' ? channel.metrics.responseTime : 0}s
+                        </div>
                         <div className="text-xs text-muted-foreground">Tempo Resp.</div>
                       </div>
                     </div>

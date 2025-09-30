@@ -317,11 +317,14 @@
       btn.className = 'viainfra-quick-reply-btn';
       btn.textContent = option;
       btn.onclick = () => {
-        const match = option.match(/^(\d+)/);
+        // Extrair apenas o número do início (ex: "1️⃣ Abrir Chamado" -> "1")
+        const match = option.match(/(\d+)/);
         if (match) {
           messageInput.value = match[1];
-          enviarMensagem();
+        } else {
+          messageInput.value = option;
         }
+        enviarMensagem();
       };
       quickRepliesContainer.appendChild(btn);
     });
