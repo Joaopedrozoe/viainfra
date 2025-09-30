@@ -5,6 +5,9 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { X, CheckCircle, RefreshCw } from "lucide-react";
+import { InternalChatWindow } from "@/components/app/InternalChatWindow";
+import { useInternalChat } from "@/hooks/useInternalChat";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 
 const Inbox = () => {
   const location = useLocation();
@@ -15,6 +18,8 @@ const Inbox = () => {
   const isMobile = useIsMobile();
   const [showChat, setShowChat] = useState(shouldShowChat !== undefined ? shouldShowChat : false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [selectedInternalChat, setSelectedInternalChat] = useState<string | null>(null);
+  const { conversations: internalConversations } = useInternalChat();
   
   // Effect to update the state when navigation happens
   useEffect(() => {
@@ -58,6 +63,12 @@ const Inbox = () => {
     setRefreshKey(prev => prev + 1);
   }, []);
 
+  const handleSelectInternalChat = useCallback((conversationId: string) => {
+    setSelectedInternalChat(conversationId);
+  }, []);
+
+  const selectedInternalConversation = internalConversations.find(c => c.id === selectedInternalChat);
+
   if (isMobile) {
     return (
       <div className="flex flex-col h-full w-full bg-background overflow-hidden">
@@ -92,6 +103,7 @@ const Inbox = () => {
               selectedId={selectedConversation}
               refreshTrigger={refreshKey}
               onResolveConversation={handleResolveConversation}
+              onSelectInternalChat={handleSelectInternalChat}
             />
             </div>
           </div>
@@ -123,6 +135,7 @@ const Inbox = () => {
               selectedId={selectedConversation}
               refreshTrigger={refreshKey}
               onResolveConversation={handleResolveConversation}
+              onSelectInternalChat={handleSelectInternalChat}
             />
           </div>
           <div className="flex-1">
@@ -134,6 +147,17 @@ const Inbox = () => {
           </div>
         </div>
       </div>
+
+      <Sheet open={!!selectedInternalChat} onOpenChange={(open) => !open && setSelectedInternalChat(null)}>
+        <SheetContent side="right" className="w-full sm:w-[500px] p-0">
+          {selectedInternalConversation && (
+            <InternalChatWindow 
+              conversation={selectedInternalConversation} 
+              onBack={() => setSelectedInternalChat(null)}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
     </>
   );
 };

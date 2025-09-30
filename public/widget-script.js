@@ -20,7 +20,7 @@
       width: 60px;
       height: 60px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, hsl(134, 61%, 31%) 0%, hsl(134, 61%, 41%) 100%);
       border: none;
       cursor: pointer;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
@@ -69,7 +69,7 @@
     }
 
     .viainfra-chat-header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, hsl(134, 61%, 31%) 0%, hsl(134, 61%, 41%) 100%);
       color: white;
       padding: 20px;
       display: flex;
@@ -132,7 +132,7 @@
     }
 
     .viainfra-message.user .viainfra-message-content {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, hsl(134, 61%, 31%) 0%, hsl(134, 61%, 41%) 100%);
       color: white;
     }
 
@@ -140,7 +140,7 @@
       width: 32px;
       height: 32px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, hsl(134, 61%, 31%) 0%, hsl(134, 61%, 41%) 100%);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -156,9 +156,9 @@
 
     .viainfra-quick-reply-btn {
       padding: 8px 16px;
-      border: 1px solid #667eea;
+      border: 1px solid hsl(134, 61%, 41%);
       background: white;
-      color: #667eea;
+      color: hsl(134, 61%, 31%);
       border-radius: 20px;
       font-size: 13px;
       cursor: pointer;
@@ -166,7 +166,7 @@
     }
 
     .viainfra-quick-reply-btn:hover {
-      background: #667eea;
+      background: hsl(134, 61%, 41%);
       color: white;
     }
 
@@ -188,14 +188,14 @@
     }
 
     .viainfra-chat-input input:focus {
-      border-color: #667eea;
+      border-color: hsl(134, 61%, 41%);
     }
 
     .viainfra-chat-input button {
       width: 40px;
       height: 40px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, hsl(134, 61%, 31%) 0%, hsl(134, 61%, 41%) 100%);
       border: none;
       color: white;
       cursor: pointer;

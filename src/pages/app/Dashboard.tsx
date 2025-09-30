@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { DashboardHeader } from "@/components/app/dashboard/DashboardHeader";
 import { MetricsOverview } from "@/components/app/dashboard/MetricsOverview";
 import { ActivityChart } from "@/components/app/dashboard/ActivityChart";
@@ -7,8 +7,31 @@ import { WeeklyTrendChart } from "@/components/app/dashboard/WeeklyTrendChart";
 import { ChannelHealthPanel } from "@/components/app/dashboard/ChannelHealthPanel";
 import { RecentActivity } from "@/components/app/dashboard/RecentActivity";
 import { SystemHealthCheck } from "@/components/app/SystemHealthCheck";
+import { TeamPresence } from "@/components/app/TeamPresence";
+import { InternalChatWindow } from "@/components/app/InternalChatWindow";
+import { useInternalChat, InternalConversation } from "@/hooks/useInternalChat";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 
 const Dashboard = () => {
+  const [selectedChat, setSelectedChat] = useState<InternalConversation | null>(null);
+  const { conversations, createConversation } = useInternalChat();
+
+  const handleStartChat = async (userId: string) => {
+    // Check if conversation already exists
+    const existingConversation = conversations.find(
+      conv => !conv.is_group && conv.participants.includes(userId)
+    );
+
+    if (existingConversation) {
+      setSelectedChat(existingConversation);
+    } else {
+      const newConversation = await createConversation([userId]);
+      if (newConversation) {
+        setSelectedChat(newConversation);
+      }
+    }
+  };
+
   return (
     <div className="p-3 sm:p-6 space-y-4 sm:space-y-6 bg-gray-50 min-h-full overflow-hidden">
       <DashboardHeader />
@@ -37,9 +60,24 @@ const Dashboard = () => {
           <ChannelHealthPanel />
         </div>
         <div className="w-full min-w-0">
-          <RecentActivity />
+          <TeamPresence onStartChat={handleStartChat} />
         </div>
       </div>
+
+      <div className="w-full min-w-0">
+        <RecentActivity />
+      </div>
+
+      <Sheet open={!!selectedChat} onOpenChange={(open) => !open && setSelectedChat(null)}>
+        <SheetContent side="right" className="w-full sm:w-[500px] p-0">
+          {selectedChat && (
+            <InternalChatWindow 
+              conversation={selectedChat} 
+              onBack={() => setSelectedChat(null)}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 };

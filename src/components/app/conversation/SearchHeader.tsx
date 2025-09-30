@@ -28,7 +28,9 @@ const channelLabels: Record<Channel | "all", string> = {
   whatsapp: "WhatsApp",
   instagram: "Instagram",
   messenger: "Messenger",
-  telegram: "Telegram"
+  telegram: "Telegram",
+  web: "Website",
+  internal: "Equipe"
 };
 
 export const SearchHeader = ({
@@ -77,7 +79,7 @@ export const SearchHeader = ({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            {(["all", "whatsapp", "instagram", "messenger", "telegram"] as const).map(channel => (
+            {(["all", "whatsapp", "instagram", "messenger", "telegram", "web", "internal"] as const).map(channel => (
               <DropdownMenuItem 
                 key={channel} 
                 onClick={() => onChannelChange(channel)}

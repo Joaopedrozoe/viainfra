@@ -1,5 +1,5 @@
 
-export type Channel = "whatsapp" | "instagram" | "messenger" | "telegram";
+export type Channel = "whatsapp" | "instagram" | "messenger" | "telegram" | "web" | "internal";
 
 export interface Conversation {
   id: string;

@@ -8,6 +8,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { usePreviewConversation } from "@/contexts/PreviewConversationContext";
 import { ConversationStorage } from "@/lib/conversation-storage";
 import { useConversations } from "@/hooks/useConversations";
+import { useInternalChat } from "@/hooks/useInternalChat";
+import { Users } from "lucide-react";
 
 let conversationUpdateCounter = 0;
 
@@ -16,24 +18,26 @@ interface ConversationListProps {
   selectedId?: string;
   refreshTrigger?: number;
   onResolveConversation?: (id: string) => void;
+  onSelectInternalChat?: (conversationId: string) => void;
 }
 
 export const resolveConversation = (conversationId: string) => {
   ConversationStorage.addResolvedConversation(conversationId);
 };
 
-export const ConversationList = ({ onSelectConversation, selectedId, refreshTrigger, onResolveConversation }: ConversationListProps) => {
+export const ConversationList = ({ onSelectConversation, selectedId, refreshTrigger, onResolveConversation, onSelectInternalChat }: ConversationListProps) => {
   const [allConversations, setAllConversations] = useState<Conversation[]>([]);
   const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedChannel, setSelectedChannel] = useState<Channel | "all">("all");
   const [selectedDepartment, setSelectedDepartment] = useState<string | "all">("all");
-  const [activeTab, setActiveTab] = useState<"all" | "unread" | "preview" | "resolved">("all");
+  const [activeTab, setActiveTab] = useState<"all" | "unread" | "preview" | "resolved" | "internal">("all");
   const [resolvedConversations, setResolvedConversations] = useState<Set<string>>(() => {
     return ConversationStorage.getResolvedConversations();
   });
   const { previewConversations } = usePreviewConversation();
   const { conversations: supabaseConversations, loading: supabaseLoading, refetch } = useConversations();
+  const { conversations: internalConversations } = useInternalChat();
 
   // Sync resolved conversations from localStorage when component mounts or refreshes
   useEffect(() => {
@@ -143,7 +147,10 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     }
 
     // Apply tab filter
-    if (activeTab === "unread") {
+    if (activeTab === "internal") {
+      // Show internal chats
+      result = [];
+    } else if (activeTab === "unread") {
       result = result.filter((conversation) => conversation.unread > 0 && !resolvedConversations.has(conversation.id));
     } else if (activeTab === "preview") {
       result = result.filter((conversation) => (conversation as any).is_preview === true && !resolvedConversations.has(conversation.id));
@@ -202,12 +209,16 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         onDepartmentChange={setSelectedDepartment} 
       />
       <Tabs value={activeTab} onValueChange={setActiveTab as (value: string) => void} className="px-4 pt-2">
-        <TabsList className="w-full grid grid-cols-4">
+        <TabsList className="w-full grid grid-cols-5 text-xs">
           <TabsTrigger value="all" className="text-xs">
             Todas
           </TabsTrigger>
           <TabsTrigger value="unread" className="text-xs">
             Não lidas {allConversations.filter(c => c.unread > 0 && !resolvedConversations.has(c.id)).length > 0 && `(${allConversations.filter(c => c.unread > 0 && !resolvedConversations.has(c.id)).length})`}
+          </TabsTrigger>
+          <TabsTrigger value="internal" className="text-xs flex items-center gap-1">
+            <Users className="h-3 w-3" />
+            Equipe {internalConversations.length > 0 && `(${internalConversations.length})`}
           </TabsTrigger>
           <TabsTrigger value="preview" className="text-xs">
             Preview {allConversations.filter(c => (c as any).is_preview === true && !resolvedConversations.has(c.id)).length > 0 && `(${allConversations.filter(c => (c as any).is_preview === true && !resolvedConversations.has(c.id)).length})`}
@@ -219,7 +230,35 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
       </Tabs>
 
       <div className="flex-1 overflow-y-auto">
-        {filteredConversations.length > 0 ? (
+        {activeTab === "internal" ? (
+          internalConversations.length > 0 ? (
+            internalConversations.map((conv) => {
+              const otherParticipants = conv.profiles?.filter(p => p.email !== conv.profiles?.[0]?.email) || [];
+              const title = conv.title || otherParticipants.map(p => p.name).join(', ') || 'Chat Interno';
+              
+              return (
+                <ConversationItem
+                  key={conv.id}
+                  conversation={{
+                    id: conv.id,
+                    name: title,
+                    channel: 'internal' as Channel,
+                    preview: conv.last_message?.content || 'Nova conversa',
+                    time: new Date(conv.last_message?.created_at || conv.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+                    unread: conv.unread_count || 0,
+                  }}
+                  isSelected={selectedId === conv.id}
+                  onClick={() => onSelectInternalChat?.(conv.id)}
+                  showResolveButton={false}
+                />
+              );
+            })
+          ) : (
+            <div className="p-4 text-center text-gray-500">
+              Clique em um colega da Equipe no Dashboard para iniciar uma conversa interna
+            </div>
+          )
+        ) : filteredConversations.length > 0 ? (
           filteredConversations.map((conversation) => (
             <ConversationItem
               key={conversation.id}
