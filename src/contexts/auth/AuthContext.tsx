@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { toast } from 'sonner';
-import { apiClient } from '@/lib/api-client';
+import { supabase } from '@/integrations/supabase/client';
 import { AuthContextType, User, Profile, Company } from './types';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -25,19 +25,38 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const initializeAuth = async () => {
     try {
-      const token = localStorage.getItem('auth_token');
-      if (token) {
-        apiClient.setToken(token);
-        const data = await apiClient.getProfile();
-        setUser(data.user);
-        setProfile(data.profile);
-        setCompany(data.company);
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session?.user) {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('*, companies(*)')
+          .eq('user_id', session.user.id)
+          .single();
+
+        if (profileData) {
+          setUser({
+            id: session.user.id,
+            email: session.user.email!,
+            name: profileData.name,
+            created_at: session.user.created_at,
+            updated_at: profileData.updated_at,
+          });
+          
+          setProfile({
+            ...profileData,
+            role: profileData.role as 'admin' | 'user' | 'manager',
+            permissions: (profileData.permissions as any) || [],
+          });
+          setCompany({
+            ...profileData.companies,
+            plan: profileData.companies.plan as 'free' | 'pro' | 'enterprise',
+            settings: (profileData.companies.settings as any) || {},
+          });
+        }
       }
     } catch (error) {
       console.error('Failed to initialize auth:', error);
-      // Remove invalid token
-      localStorage.removeItem('auth_token');
-      apiClient.removeToken();
     } finally {
       setIsLoading(false);
     }
@@ -45,63 +64,58 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   useEffect(() => {
     initializeAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setProfile(null);
+        setCompany(null);
+      } else if (event === 'SIGNED_IN' && session) {
+        initializeAuth();
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const signIn = async (email: string, password: string) => {
     try {
-      // Try API first, fallback to mock if failed
-      try {
-        const data = await apiClient.signIn(email, password);
-        
-        apiClient.setToken(data.token);
-        setUser(data.user);
-        setProfile(data.profile);
-        setCompany(data.company);
-        
-        toast.success('Login realizado com sucesso!');
-        return;
-      } catch (apiError) {
-        // API failed, use mock authentication
-        if (email === 'admin@sistema.com' && (password === '123456' || password === '123456 ')) {
-          const mockUser = {
-            id: 'user-1',
-            email: 'admin@sistema.com',
-            name: 'Admin Sistema',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          };
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+
+      if (data.user) {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('*, companies(*)')
+          .eq('user_id', data.user.id)
+          .single();
+
+        if (profileData) {
+          setUser({
+            id: data.user.id,
+            email: data.user.email!,
+            name: profileData.name,
+            created_at: data.user.created_at,
+            updated_at: profileData.updated_at,
+          });
           
-          const mockProfile = {
-            id: 'profile-1',
-            user_id: 'user-1',
-            name: 'Admin Sistema',
-            email: 'admin@sistema.com',
-            role: 'admin' as const,
-            permissions: ['all'],
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          };
+          setProfile({
+            ...profileData,
+            role: profileData.role as 'admin' | 'user' | 'manager',
+            permissions: (profileData.permissions as any) || [],
+          });
+          setCompany({
+            ...profileData.companies,
+            plan: profileData.companies.plan as 'free' | 'pro' | 'enterprise',
+            settings: (profileData.companies.settings as any) || {},
+          });
           
-          const mockCompany = {
-            id: 'company-1',
-            name: 'ViaInfra',
-            plan: 'enterprise' as const,
-            settings: {},
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          };
-          
-          localStorage.setItem('auth_token', 'mock-token-123456');
-          apiClient.setToken('mock-token-123456');
-          setUser(mockUser);
-          setProfile(mockProfile);
-          setCompany(mockCompany);
-          
-          toast.success('Login realizado com sucesso (modo demo)!');
-          return;
+          toast.success('Login realizado com sucesso!');
         }
-        
-        throw new Error('Credenciais inválidas');
       }
     } catch (error: any) {
       console.error('Sign in error:', error);
@@ -112,11 +126,41 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const signUp = async (email: string, password: string, name: string) => {
     try {
-      const data = await apiClient.signUp(email, password, name);
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { name }
+        }
+      });
+
+      if (error) throw error;
+
+      // Criar empresa e perfil padrão
+      if (data.user) {
+        const { data: companyData } = await supabase
+          .from('companies')
+          .insert({ name: 'Minha Empresa', plan: 'free' })
+          .select()
+          .single();
+
+        if (companyData) {
+          await supabase
+            .from('profiles')
+            .insert({
+              user_id: data.user.id,
+              company_id: companyData.id,
+              name,
+              email,
+              role: 'admin',
+              permissions: ['all'],
+            });
+        }
+      }
       
       toast.success('Conta criada com sucesso! Por favor, faça login.');
       
-      return data;
+      return { user: data.user, error: null };
     } catch (error: any) {
       console.error('Sign up error:', error);
       toast.error(error.message || 'Erro ao criar conta');
@@ -126,7 +170,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const signOut = async () => {
     try {
-      await apiClient.signOut();
+      await supabase.auth.signOut();
       setUser(null);
       setProfile(null);
       setCompany(null);
