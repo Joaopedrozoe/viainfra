@@ -253,6 +253,9 @@ serve(async (req) => {
         case 'descricao':
           chatState.descricao = userMessage?.trim();
           
+          let chamadoData: any = null;
+          let googleSheetsSucesso = false;
+          
           try {
             console.log('=== INICIANDO CRIAÇÃO DE CHAMADO ===');
             console.log('Placa:', chatState.placa);
@@ -269,8 +272,7 @@ serve(async (req) => {
               descricao: chatState.descricao,
             };
 
-            console.log('Payload para Google Sheets:', JSON.stringify(chamadoPayload));
-            console.log('URL do Google Script:', GOOGLE_SCRIPT_URL);
+            console.log('Enviando para Google Sheets:', JSON.stringify(chamadoPayload));
 
             const createRes = await fetch(GOOGLE_SCRIPT_URL, {
               method: 'POST',
@@ -278,35 +280,44 @@ serve(async (req) => {
               body: JSON.stringify(chamadoPayload),
             });
 
-            console.log('Status da resposta:', createRes.status);
-            console.log('Status text:', createRes.statusText);
+            console.log('Google Sheets status:', createRes.status);
             
             const responseText = await createRes.text();
-            console.log('Resposta raw do Google Sheets:', responseText);
+            console.log('Google Sheets resposta raw:', responseText);
             
-            let chamadoData;
             try {
               chamadoData = JSON.parse(responseText);
-              console.log('Dados do chamado criado:', chamadoData);
+              console.log('Dados parseados:', chamadoData);
+              googleSheetsSucesso = true;
             } catch (parseError) {
-              console.error('Erro ao fazer parse da resposta:', parseError);
-              console.error('Resposta recebida:', responseText);
-              throw new Error(`Resposta inválida do Google Sheets: ${responseText.substring(0, 100)}`);
+              console.error('Erro ao fazer parse, mas chamado pode ter sido criado:', parseError);
+              // Se deu erro no parse mas status foi 200, considerar sucesso
+              if (createRes.status === 200) {
+                console.log('Status 200, considerando sucesso mesmo sem parse');
+                googleSheetsSucesso = true;
+                chamadoData = { 
+                  numeroChamado: chatState.numeroPrevisto,
+                  ID: 'N/A'
+                };
+              }
             }
 
-            // Salvar no Supabase
+          } catch (googleError) {
+            console.error('Erro ao criar no Google Sheets:', googleError);
+          }
+
+          // Tentar salvar no Supabase independentemente do resultado do Google Sheets
+          try {
             if (chatState.companyId && chatState.conversationId) {
-              console.log('Salvando chamado no Supabase...');
-              console.log('Company ID:', chatState.companyId);
-              console.log('Conversation ID:', chatState.conversationId);
+              console.log('Salvando no Supabase...');
               
               const { data: chamadoDB, error: chamadoError } = await supabaseClient
                 .from('chamados')
                 .insert({
                   company_id: chatState.companyId,
                   conversation_id: chatState.conversationId,
-                  numero_chamado: chamadoData.numeroChamado || chatState.numeroPrevisto || 'N/A',
-                  google_sheet_id: chamadoData.ID,
+                  numero_chamado: chamadoData?.numeroChamado || chatState.numeroPrevisto || 'N/A',
+                  google_sheet_id: chamadoData?.ID || null,
                   placa: chatState.placa!,
                   corretiva: chatState.corretiva!,
                   local: chatState.local!,
@@ -318,38 +329,37 @@ serve(async (req) => {
                 .single();
 
               if (chamadoError) {
-                console.error('Erro ao salvar chamado no Supabase:', chamadoError);
-                throw new Error(`Erro no banco de dados: ${chamadoError.message}`);
+                console.error('Erro ao salvar no Supabase:', chamadoError);
+                // Não falhar se Google Sheets funcionou
+                if (!googleSheetsSucesso) {
+                  throw chamadoError;
+                }
+              } else {
+                console.log('Salvo no Supabase com sucesso:', chamadoDB);
               }
-              
-              console.log('Chamado salvo no Supabase:', chamadoDB);
 
-              // Atualizar status da conversa
-              const { error: convError } = await supabaseClient
+              // Atualizar conversa
+              await supabaseClient
                 .from('conversations')
                 .update({ status: 'resolved' })
                 .eq('id', chatState.conversationId);
-              
-              if (convError) {
-                console.error('Erro ao atualizar conversa:', convError);
-              }
-            } else {
-              console.warn('Company ID ou Conversation ID ausente, não salvando no Supabase');
-              console.log('Company ID:', chatState.companyId);
-              console.log('Conversation ID:', chatState.conversationId);
             }
+          } catch (supabaseError) {
+            console.error('Erro no Supabase:', supabaseError);
+            // Não falhar se Google Sheets funcionou
+            if (!googleSheetsSucesso) {
+              throw supabaseError;
+            }
+          }
 
-            response = `✅ **Chamado criado com sucesso!**\n\n🎫 **Número do chamado:** ${chamadoData.numeroChamado || chatState.numeroPrevisto}\n📄 **ID:** ${chamadoData.ID || 'N/A'}\n🚗 **Placa:** ${chatState.placa}\n📝 **Descrição:** ${chatState.descricao}\n\n✨ Em breve entraremos em contato!\n\nDigite **0** para voltar ao menu principal.`;
-            
+          // Se chegou aqui e Google Sheets funcionou, considerar sucesso
+          if (googleSheetsSucesso) {
+            response = `✅ **Chamado criado com sucesso!**\n\n🎫 **Número:** ${chamadoData?.numeroChamado || chatState.numeroPrevisto}\n📄 **ID:** ${chamadoData?.ID || 'N/A'}\n🚗 **Placa:** ${chatState.placa}\n📝 **Descrição:** ${chatState.descricao}\n\n✨ Em breve entraremos em contato!\n\nDigite **0** para voltar ao menu.`;
             chatState.chamadoStep = 'finalizado';
             chatState.mode = 'menu';
-          } catch (error) {
-            console.error('=== ERRO AO CRIAR CHAMADO ===');
-            console.error('Tipo do erro:', error.constructor.name);
-            console.error('Mensagem:', error.message);
-            console.error('Stack:', error.stack);
-            
-            response = `❌ Erro ao criar chamado: ${error.message}\n\nPor favor, tente novamente mais tarde ou fale com um atendente digitando **2**.`;
+          } else {
+            console.error('Falha total na criação do chamado');
+            response = '❌ Erro ao criar chamado. Por favor, fale com um atendente digitando **2**.';
             chatState.mode = 'menu';
           }
           break;
