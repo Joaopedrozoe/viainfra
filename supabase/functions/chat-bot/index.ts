@@ -9,7 +9,7 @@ const corsHeaders = {
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz0viYlAJ_-v00BzqRgMROE0wdvixohvQ4d949mTvRQk_eRdqN-CsxQeAldpV6HR2xlBQ/exec';
 
 interface ChatState {
-  mode: 'menu' | 'chamado' | 'atendente';
+  mode: 'menu' | 'chamado' | 'atendente' | 'escolhendoSetor';
   chamadoStep?: 'inicio' | 'placa' | 'corretiva' | 'local' | 'agendamento' | 'descricao' | 'finalizado';
   numeroPrevisto?: string;
   placas?: string[];
@@ -22,6 +22,8 @@ interface ChatState {
   contactId?: string;
   companyId?: string;
   waitingForAgent?: boolean;
+  selectedSetor?: string;
+  selectedAgent?: string;
 }
 
 serve(async (req) => {
@@ -114,6 +116,8 @@ serve(async (req) => {
       chatState.mode = 'menu';
       chatState.chamadoStep = undefined;
       chatState.waitingForAgent = false;
+      chatState.selectedSetor = undefined;
+      chatState.selectedAgent = undefined;
       delete chatState.placas;
       response = `👋 Voltando ao menu principal...\n\nComo posso ajudar você hoje?\n\n`;
       options = [
@@ -164,19 +168,16 @@ serve(async (req) => {
           chatState.mode = 'menu';
         }
       } else if (input === '2' || input?.includes('atendente') || input?.includes('falar')) {
-        chatState.mode = 'atendente';
-        chatState.waitingForAgent = true;
+        chatState.mode = 'escolhendoSetor';
         
-        // Atribuir conversa para atendente
-        if (chatState.conversationId) {
-          await supabaseClient
-            .from('conversations')
-            .update({ status: 'pending' })
-            .eq('id', chatState.conversationId);
-        }
-
-        response = `👤 **Transferindo para atendente humano...**\n\n✅ Sua solicitação foi encaminhada para nossa equipe.\n\n💬 Um atendente responderá em breve. Você pode descrever sua necessidade ou aguardar o contato.\n\nDigite **0** para voltar ao menu.`;
-        options = [];
+        response = `Selecione o setor para transferência:`;
+        options = [
+          '📞 Atendimento',
+          '💼 Comercial',
+          '🔧 Manutenção',
+          '💰 Financeiro',
+          '👥 RH'
+        ];
       } else if (input === '3' || input?.includes('consultar')) {
         response = `🔍 **Consulta de Chamado**\n\nPor favor, informe o **número do chamado** que deseja consultar:`;
         options = [];
@@ -188,6 +189,50 @@ serve(async (req) => {
         response += options.join('\n');
       } else {
         response = `Desculpe, não entendi. Escolha uma das opções acima digitando o número correspondente.`;
+      }
+
+    } else if (chatState.mode === 'escolhendoSetor') {
+      // Mapear setores para atendentes
+      const agentesSetor: Record<string, string> = {
+        "📞 Atendimento": "Joicy Souza",
+        "💼 Comercial": "Elisabete Silva",
+        "🔧 Manutenção": "Suelem Souza",
+        "💰 Financeiro": "Giovanna Ferreira",
+        "👥 RH": "Sandra Romano"
+      };
+
+      const input = userMessage?.trim();
+      const nomeAtendente = agentesSetor[input || ''] || "Atendimento";
+      const setorNome = input?.replace(/[📞💼🔧💰👥]\s/, '') || 'Atendimento';
+
+      chatState.selectedSetor = setorNome;
+      chatState.selectedAgent = nomeAtendente;
+      chatState.mode = 'atendente';
+      chatState.waitingForAgent = true;
+
+      // Atribuir conversa para atendente
+      if (chatState.conversationId) {
+        await supabaseClient
+          .from('conversations')
+          .update({ 
+            status: 'pending',
+            metadata: { 
+              setor: setorNome, 
+              atendente: nomeAtendente 
+            }
+          })
+          .eq('id', chatState.conversationId);
+      }
+
+      // Sequência de mensagens conforme especificado
+      response = `Aguarde um momento, você será atendido por **${nomeAtendente}** do setor ${setorNome}...\n\nOlá! Você está sendo atendido por **${nomeAtendente}**. Como posso ajudá-lo?\n\nEsta conversa foi transferida para nosso atendimento. Aguarde enquanto conectamos você com o atendente responsável. 📞\n\nDigite sua mensagem ou digite **0** para voltar ao menu.`;
+      options = [];
+
+    } else if (chatState.mode === 'atendente') {
+      // Modo atendimento humano - apenas confirma recebimento
+      if (userMessage && userMessage.trim() !== '0') {
+        response = `Recebido! Nossa equipe verificará sua solicitação e retornará em breve. 📝\n\nDigite **0** para voltar ao menu principal.`;
+        options = [];
       }
 
     } else if (chatState.mode === 'chamado') {

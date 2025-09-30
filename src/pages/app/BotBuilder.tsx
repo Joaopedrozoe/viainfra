@@ -50,13 +50,13 @@ const BotBuilder = () => {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [originalBotData, setOriginalBotData] = useState<{ nodes: Node[]; edges: Edge[] } | null>(null);
   
-  // Bot versions state - FLUXO-VIAINFRA já criado
+  // Bot versions state - FLUXO-VIAINFRA já criado e PUBLICADO
   const [botVersions, setBotVersions] = useState<BotVersion[]>([
     {
       id: "fluxo-viainfra",
       name: "FLUXO-VIAINFRA", 
       version: "v1",
-      status: 'draft',
+      status: 'published',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       flows: {
