@@ -169,8 +169,10 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     setFilteredConversations(result);
   }, [allConversations, searchTerm, selectedChannel, selectedDepartment, activeTab, resolvedConversations]);
 
-  // Loading state
-  if (supabaseLoading && allConversations.length === 0) {
+  // Loading state - only show skeleton on initial load (when there are no conversations at all)
+  const isInitialLoad = supabaseLoading && allConversations.length === 0 && !refreshTrigger;
+  
+  if (isInitialLoad) {
     return (
       <div className="flex flex-col h-full">
         <SearchHeader 
@@ -181,10 +183,14 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
           selectedDepartment="all"
           onDepartmentChange={() => {}}
         />
-        <Tabs defaultValue="all" className="px-4 pt-2">
-          <TabsList className="w-full">
-            <TabsTrigger value="all" className="flex-1">Todas</TabsTrigger>
-            <TabsTrigger value="unread" className="flex-1">Não lidas</TabsTrigger>
+        <Tabs defaultValue="all" className="px-3 pt-2">
+          <TabsList className="w-full grid grid-cols-6 gap-1 h-auto p-1">
+            <TabsTrigger value="all" className="text-[10px] px-1 py-1.5 h-auto">Todas</TabsTrigger>
+            <TabsTrigger value="unread" className="text-[10px] px-1 py-1.5 h-auto">Não lidas</TabsTrigger>
+            <TabsTrigger value="bot" className="text-[10px] px-1 py-1.5 h-auto">Bot</TabsTrigger>
+            <TabsTrigger value="internal" className="text-[10px] px-1 py-1.5 h-auto">Equipe</TabsTrigger>
+            <TabsTrigger value="preview" className="text-[10px] px-1 py-1.5 h-auto">Preview</TabsTrigger>
+            <TabsTrigger value="resolved" className="text-[10px] px-1 py-1.5 h-auto">Resolvidas</TabsTrigger>
           </TabsList>
         </Tabs>
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
