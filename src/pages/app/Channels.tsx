@@ -85,17 +85,15 @@ const Channels = () => {
     
     loadChannels();
     
-    // Listen for changes in channels (for updates from other tabs or refresh)
+    // Listen for storage changes from other tabs only
     const handleStorageChange = () => {
       loadChannels();
     };
     
     window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('channels-updated', handleStorageChange);
     
     return () => {
       window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('channels-updated', handleStorageChange);
     };
   }, [isDemoMode]);
 
@@ -158,10 +156,10 @@ const Channels = () => {
     
     const newStatus = channelToUpdate.status === 'connected' ? 'disconnected' : 'connected';
     
-    if (isDemoMode) {
-      updateDemoChannelExpanded(id, { status: newStatus });
-    }
+    // Sempre atualiza localStorage para persistir
+    updateDemoChannelExpanded(id, { status: newStatus });
     
+    // Atualiza estado local
     setChannels(prev => 
       prev.map(channel => 
         channel.id === id 
@@ -170,11 +168,10 @@ const Channels = () => {
       )
     );
     
-    // Dispatch event to notify dashboard
-    window.dispatchEvent(new CustomEvent('channels-updated'));
+    // Apenas notifica o dashboard (não recarrega esta página)
     window.dispatchEvent(new CustomEvent('dashboard-refresh'));
     
-    toast.success(`Canal ${newStatus === 'connected' ? 'ativado' : 'desativado'} com sucesso${isDemoMode ? ' (Demo)' : ''}`);
+    toast.success(`Canal ${newStatus === 'connected' ? 'ativado' : 'desativado'} com sucesso`);
   };
 
   const deleteChannel = (id: string) => {
