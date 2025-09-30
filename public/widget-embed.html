@@ -40,6 +40,24 @@
       fill: white;
     }
 
+    #viainfra-chat-button.has-notification::after {
+      content: '';
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 12px;
+      height: 12px;
+      background: #ff4444;
+      border-radius: 50%;
+      border: 2px solid white;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.2); opacity: 0.8; }
+    }
+
     #viainfra-chat-widget {
       position: fixed;
       bottom: 90px;
@@ -80,11 +98,24 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      flex-shrink: 0;
     }
 
     .chat-header h3 {
       font-size: 18px;
       font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .status-indicator {
+      width: 8px;
+      height: 8px;
+      background: #4ade80;
+      border-radius: 50%;
+      display: inline-block;
+      animation: pulse 2s infinite;
     }
 
     .chat-header button {
@@ -94,6 +125,12 @@
       cursor: pointer;
       font-size: 24px;
       line-height: 1;
+      padding: 0;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     .chat-messages {
@@ -101,6 +138,7 @@
       overflow-y: auto;
       padding: 20px;
       background: #f8f9fa;
+      scroll-behavior: smooth;
     }
 
     .message {
@@ -129,6 +167,7 @@
       border-radius: 12px;
       line-height: 1.5;
       font-size: 14px;
+      white-space: pre-wrap;
     }
 
     .message.bot .message-content {
@@ -153,12 +192,37 @@
       flex-shrink: 0;
     }
 
+    .quick-replies {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+      padding: 0 20px;
+    }
+
+    .quick-reply-btn {
+      padding: 8px 16px;
+      border: 1px solid #667eea;
+      background: white;
+      color: #667eea;
+      border-radius: 20px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .quick-reply-btn:hover {
+      background: #667eea;
+      color: white;
+    }
+
     .chat-input {
       padding: 16px;
       background: white;
       border-top: 1px solid #e0e0e0;
       display: flex;
       gap: 8px;
+      flex-shrink: 0;
     }
 
     .chat-input input {
@@ -186,6 +250,7 @@
       align-items: center;
       justify-content: center;
       transition: transform 0.2s;
+      flex-shrink: 0;
     }
 
     .chat-input button:hover {
@@ -197,6 +262,32 @@
       cursor: not-allowed;
     }
 
+    .typing-indicator {
+      display: flex;
+      gap: 4px;
+      padding: 12px 16px;
+      background: white;
+      border-radius: 12px;
+      border: 1px solid #e0e0e0;
+      width: fit-content;
+    }
+
+    .typing-dot {
+      width: 8px;
+      height: 8px;
+      background: #667eea;
+      border-radius: 50%;
+      animation: typing 1.4s infinite;
+    }
+
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes typing {
+      0%, 60%, 100% { transform: translateY(0); }
+      30% { transform: translateY(-10px); }
+    }
+
     @media (max-width: 480px) {
       #viainfra-chat-widget {
         width: calc(100vw - 20px);
@@ -204,12 +295,6 @@
         right: 10px;
         bottom: 80px;
       }
-    }
-
-    .loading {
-      text-align: center;
-      padding: 20px;
-      color: #666;
     }
   </style>
 </head>
@@ -222,10 +307,14 @@
 
   <div id="viainfra-chat-widget">
     <div class="chat-header">
-      <h3>💬 Viainfra - Suporte</h3>
+      <h3>
+        <span class="status-indicator"></span>
+        Viainfra - Suporte
+      </h3>
       <button id="close-chat" aria-label="Fechar chat">&times;</button>
     </div>
     <div class="chat-messages" id="chat-messages"></div>
+    <div class="quick-replies" id="quick-replies"></div>
     <div class="chat-input">
       <input 
         type="text" 
@@ -250,6 +339,7 @@
 
       let botState = null;
       let isProcessing = false;
+      let conversationId = null;
 
       const button = document.getElementById('viainfra-chat-button');
       const widget = document.getElementById('viainfra-chat-widget');
@@ -257,11 +347,16 @@
       const messagesContainer = document.getElementById('chat-messages');
       const messageInput = document.getElementById('message-input');
       const sendButton = document.getElementById('send-button');
+      const quickRepliesContainer = document.getElementById('quick-replies');
 
       button.addEventListener('click', () => {
         widget.classList.toggle('open');
-        if (widget.classList.contains('open') && messagesContainer.children.length === 0) {
-          iniciarBot();
+        if (widget.classList.contains('open')) {
+          button.classList.remove('has-notification');
+          if (messagesContainer.children.length === 0) {
+            iniciarChat();
+          }
+          messageInput.focus();
         }
       });
 
@@ -300,12 +395,58 @@
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
       }
 
-      async function iniciarBot() {
+      function showTyping() {
+        const typingDiv = document.createElement('div');
+        typingDiv.className = 'message bot';
+        typingDiv.id = 'typing-indicator';
+        typingDiv.innerHTML = `
+          <div class="bot-avatar">🤖</div>
+          <div class="typing-indicator">
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+          </div>
+        `;
+        messagesContainer.appendChild(typingDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }
+
+      function hideTyping() {
+        const typingIndicator = document.getElementById('typing-indicator');
+        if (typingIndicator) {
+          typingIndicator.remove();
+        }
+      }
+
+      function showQuickReplies(options) {
+        quickRepliesContainer.innerHTML = '';
+        if (!options || options.length === 0) return;
+
+        options.forEach(option => {
+          const btn = document.createElement('button');
+          btn.className = 'quick-reply-btn';
+          btn.textContent = option;
+          btn.onclick = () => {
+            // Extrair número da opção (ex: "1️⃣ Abrir Chamado" -> "1")
+            const match = option.match(/^(\d+)/);
+            if (match) {
+              messageInput.value = match[1];
+              enviarMensagem();
+            } else {
+              messageInput.value = option;
+              enviarMensagem();
+            }
+          };
+          quickRepliesContainer.appendChild(btn);
+        });
+      }
+
+      async function iniciarChat() {
         isProcessing = true;
-        addMessage('Iniciando atendimento...', true);
+        showTyping();
         
         try {
-          const response = await fetch(`${SUPABASE_URL}/functions/v1/bot-chamados`, {
+          const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -325,13 +466,22 @@
 
           const data = await response.json();
           
-          // Remover mensagem de carregamento
-          messagesContainer.innerHTML = '';
-          
+          hideTyping();
           addMessage(data.message, true);
           botState = data.state;
+          conversationId = data.state?.conversationId;
+          
+          if (data.options) {
+            showQuickReplies(data.options);
+          }
+
+          // Iniciar polling para mensagens de atendente
+          if (conversationId) {
+            startPollingForAgentMessages();
+          }
         } catch (error) {
-          console.error('Erro ao iniciar bot:', error);
+          console.error('Erro ao iniciar chat:', error);
+          hideTyping();
           addMessage('Desculpe, ocorreu um erro. Tente novamente.', true);
         } finally {
           isProcessing = false;
@@ -346,9 +496,12 @@
         messageInput.value = '';
         isProcessing = true;
         sendButton.disabled = true;
+        quickRepliesContainer.innerHTML = '';
+
+        showTyping();
 
         try {
-          const response = await fetch(`${SUPABASE_URL}/functions/v1/bot-chamados`, {
+          const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -363,23 +516,74 @@
           });
 
           const data = await response.json();
+          
+          hideTyping();
           addMessage(data.message, true);
           botState = data.state;
 
-          if (data.finished) {
-            setTimeout(() => {
-              addMessage('Deseja abrir outro chamado? Digite "sim" para começar novamente.', true);
-              botState = null;
-            }, 2000);
+          if (data.options) {
+            showQuickReplies(data.options);
           }
         } catch (error) {
           console.error('Erro ao enviar mensagem:', error);
+          hideTyping();
           addMessage('Desculpe, ocorreu um erro. Tente novamente.', true);
         } finally {
           isProcessing = false;
           sendButton.disabled = false;
+          messageInput.focus();
         }
       }
+
+      // Polling para mensagens de atendente
+      let pollingInterval = null;
+      let lastMessageTimestamp = null;
+
+      async function startPollingForAgentMessages() {
+        if (pollingInterval) return;
+
+        pollingInterval = setInterval(async () => {
+          if (!conversationId || !botState?.waitingForAgent) return;
+
+          try {
+            const response = await fetch(
+              `${SUPABASE_URL}/rest/v1/messages?conversation_id=eq.${conversationId}&sender_type=eq.agent&order=created_at.desc&limit=1`,
+              {
+                headers: {
+                  'apikey': SUPABASE_KEY,
+                  'Content-Type': 'application/json',
+                },
+              }
+            );
+
+            const messages = await response.json();
+            if (messages && messages.length > 0) {
+              const latestMessage = messages[0];
+              
+              if (!lastMessageTimestamp || latestMessage.created_at > lastMessageTimestamp) {
+                lastMessageTimestamp = latestMessage.created_at;
+                
+                // Notificar novo mensagem se widget fechado
+                if (!widget.classList.contains('open')) {
+                  button.classList.add('has-notification');
+                }
+                
+                // Adicionar mensagem do atendente
+                addMessage(`👤 **Atendente**: ${latestMessage.content}`, true);
+              }
+            }
+          } catch (error) {
+            console.error('Erro ao buscar mensagens:', error);
+          }
+        }, 3000); // Poll a cada 3 segundos
+      }
+
+      // Limpar polling ao fechar
+      window.addEventListener('beforeunload', () => {
+        if (pollingInterval) {
+          clearInterval(pollingInterval);
+        }
+      });
     })();
   </script>
 </body>
