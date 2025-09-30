@@ -109,8 +109,22 @@ serve(async (req) => {
         });
     }
 
+    // Verificar se usuário quer voltar ao menu (funciona em qualquer modo)
+    if (userMessage?.trim() === '0' && chatState.mode !== 'menu') {
+      chatState.mode = 'menu';
+      chatState.chamadoStep = undefined;
+      chatState.waitingForAgent = false;
+      delete chatState.placas;
+      response = `👋 Voltando ao menu principal...\n\nComo posso ajudar você hoje?\n\n`;
+      options = [
+        '1️⃣ Abrir Chamado',
+        '2️⃣ Falar com Atendente',
+        '3️⃣ Consultar Chamado',
+        '4️⃣ FAQ / Dúvidas',
+      ];
+    }
     // Roteamento de conversa
-    if (chatState.mode === 'menu') {
+    else if (chatState.mode === 'menu') {
       response = `👋 Olá! Bem-vindo à **Viainfra**!\n\nComo posso ajudar você hoje?\n\n`;
       options = [
         '1️⃣ Abrir Chamado',
@@ -154,12 +168,14 @@ serve(async (req) => {
         chatState.waitingForAgent = true;
         
         // Atribuir conversa para atendente
-        await supabaseClient
-          .from('conversations')
-          .update({ status: 'pending' })
-          .eq('id', chatState.conversationId);
+        if (chatState.conversationId) {
+          await supabaseClient
+            .from('conversations')
+            .update({ status: 'pending' })
+            .eq('id', chatState.conversationId);
+        }
 
-        response = `👤 **Aguarde um momento...**\n\nEstou transferindo você para um de nossos atendentes. Em breve alguém irá responder!\n\n💬 Enquanto isso, pode descrever sua necessidade que o atendente verá quando entrar.`;
+        response = `👤 **Transferindo para atendente humano...**\n\n✅ Sua solicitação foi encaminhada para nossa equipe.\n\n💬 Um atendente responderá em breve. Você pode descrever sua necessidade ou aguardar o contato.\n\nDigite **0** para voltar ao menu.`;
         options = [];
       } else if (input === '3' || input?.includes('consultar')) {
         response = `🔍 **Consulta de Chamado**\n\nPor favor, informe o **número do chamado** que deseja consultar:`;
@@ -372,15 +388,8 @@ serve(async (req) => {
       }
 
     } else if (chatState.mode === 'atendente') {
-      // Modo atendente - apenas salvar mensagem
-      if (userMessage === '0') {
-        chatState.mode = 'menu';
-        chatState.waitingForAgent = false;
-        response = '👋 Retornando ao menu principal...\n\n';
-        response += '1️⃣ Abrir Chamado\n2️⃣ Falar com Atendente\n3️⃣ Consultar Chamado\n4️⃣ FAQ / Dúvidas';
-      } else {
-        response = '📩 Mensagem recebida! Um atendente responderá em breve.\n\nDigite **0** para voltar ao menu.';
-      }
+      // Modo atendente - apenas salvar mensagem (0 já é tratado no início)
+      response = '📩 Mensagem recebida! Um atendente responderá em breve.\n\nDigite **0** para voltar ao menu.';
     }
 
     // Salvar resposta do bot

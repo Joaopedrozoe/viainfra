@@ -5,55 +5,107 @@ import { ChatInput } from "./chat/ChatInput";
 import { Message, ChatWindowProps } from "./chat/types";
 import { Channel } from "@/types/conversation";
 import { useNavigate } from "react-router-dom";
-import { ConversationStorage } from "@/lib/conversation-storage";
+import { supabase } from "@/integrations/supabase/client";
 
 export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: ChatWindowProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [contactName, setContactName] = useState<string>("");
+  const [conversationChannel, setConversationChannel] = useState<Channel>("web");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   
   useEffect(() => {
     if (conversationId) {
-      // Para conversas de preview, buscar mensagens do contexto de preview
-      try {
-        const previewData = ConversationStorage.getPreviewConversations();
-        if (previewData && typeof previewData === 'object') {
-          if (previewData[conversationId] && previewData[conversationId].messages) {
-            const mappedMessages = previewData[conversationId].messages.map((msg: any, index: number) => ({
-              id: `${conversationId}-${index}`,
-              content: msg.content,
-              sender: msg.isBot ? 'bot' : 'user',
-              timestamp: msg.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-            }));
-            console.log('📱 ChatWindow: Carregando mensagens para', conversationId, mappedMessages.length, 'mensagens');
-            setMessages(mappedMessages);
-            return;
-          }
-        }
-      } catch (error) {
-        console.error('Erro ao carregar mensagens de preview:', error);
-      }
-      
-      // TODO: Fetch real messages from API when backend is connected
-      // For now, show empty messages if not a preview conversation
-      setMessages([]);
+      loadConversationData();
     }
   }, [conversationId]);
+
+  const loadConversationData = async () => {
+    try {
+      // Buscar conversa com mensagens e contato
+      const { data: conversation, error } = await supabase
+        .from('conversations')
+        .select(`
+          *,
+          contacts (
+            id,
+            name,
+            phone,
+            email
+          ),
+          messages (
+            id,
+            content,
+            sender_type,
+            created_at
+          )
+        `)
+        .eq('id', conversationId)
+        .single();
+
+      if (error) {
+        console.error('Erro ao carregar conversa:', error);
+        return;
+      }
+
+      if (conversation) {
+        // Mapear mensagens
+        const mappedMessages: Message[] = (conversation.messages || [])
+          .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+          .map((msg: any) => ({
+            id: msg.id,
+            content: msg.content,
+            sender: msg.sender_type === 'user' ? 'user' : msg.sender_type === 'agent' ? 'agent' : 'bot',
+            timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }));
+
+        setMessages(mappedMessages);
+        
+        // Definir nome do contato
+        if (conversation.contacts) {
+          setContactName(conversation.contacts.name || 'Cliente Web');
+        }
+
+        // Definir canal
+        setConversationChannel(conversation.channel as Channel || 'web');
+      }
+    } catch (error) {
+      console.error('Erro ao carregar dados da conversa:', error);
+    }
+  };
   
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
   
-  const handleSendMessage = useCallback((content: string) => {
-    const message: Message = {
-      id: Date.now().toString(),
-      content,
-      sender: "agent",
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-    
-    // TODO: Send message via API when backend is connected
-    setMessages(prev => [...prev, message]);
+  const handleSendMessage = useCallback(async (content: string) => {
+    if (!conversationId) return;
+
+    try {
+      // Adicionar mensagem localmente primeiro para feedback instantâneo
+      const tempMessage: Message = {
+        id: Date.now().toString(),
+        content,
+        sender: "agent",
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      
+      setMessages(prev => [...prev, tempMessage]);
+
+      // Enviar mensagem para o banco
+      await supabase
+        .from('messages')
+        .insert({
+          conversation_id: conversationId,
+          sender_type: 'agent',
+          content,
+        });
+
+      // Recarregar mensagens para garantir sincronização
+      await loadConversationData();
+    } catch (error) {
+      console.error('Erro ao enviar mensagem:', error);
+    }
   }, [conversationId]);
 
   const handleViewContactDetails = useCallback(() => {
@@ -81,21 +133,17 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       <div className="flex-1 flex items-center justify-center bg-gray-50 p-4">
         <div className="text-center">
           <p className="text-xl text-gray-500 mb-3">Selecione uma conversa para começar</p>
-          <p className="text-gray-400">Conecte uma API do WhatsApp para receber conversas reais</p>
+          <p className="text-gray-400">As conversas aparecerão aqui</p>
         </div>
       </div>
     );
   }
   
-  // TODO: Get real user data from API when backend is connected
-  const name = `Usuário ${conversationId}`;
-  const channel: Channel = "whatsapp";
-  
   return (
     <div className="flex flex-col h-full relative">
       <ChatHeader 
-        userName={name} 
-        channel={channel} 
+        userName={contactName || 'Cliente Web'} 
+        channel={conversationChannel} 
         conversationId={conversationId}
         onViewContactDetails={handleViewContactDetails}
         onBackToList={handleBackToList}
