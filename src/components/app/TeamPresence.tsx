@@ -21,7 +21,7 @@ const statusConfig = {
 
 export const TeamPresence = ({ onStartChat }: TeamPresenceProps) => {
   const { userPresences, loading } = useUserPresence();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   const getInitials = (name: string) => {
     return name
@@ -64,14 +64,51 @@ export const TeamPresence = ({ onStartChat }: TeamPresenceProps) => {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Equipe Online</CardTitle>
+        <CardTitle>Equipe</CardTitle>
         <CardDescription>
-          {userPresences.filter(p => p.status !== 'offline').length} de {userPresences.length} online
+          {userPresences.filter(p => p.status !== 'offline').length} online • {userPresences.length} total
         </CardDescription>
       </CardHeader>
       <CardContent>
         <ScrollArea className="h-[400px] pr-4">
           <div className="space-y-3">
+            {/* Adicionar botão para conversa consigo mesmo */}
+            {user && (
+              <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-accent/50 transition-colors border border-dashed">
+                <div className="relative">
+                  <Avatar className="h-10 w-10">
+                    <AvatarFallback className="text-xs">
+                      {getInitials(profile?.name || 'U')}
+                    </AvatarFallback>
+                  </Avatar>
+                  <Circle className="absolute bottom-0 right-0 w-3 h-3 bg-blue-500 fill-current border-2 border-background rounded-full" />
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium truncate">
+                      Minhas Anotações
+                    </p>
+                    <Badge variant="secondary" className="text-xs">Privado</Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Espaço pessoal para anotações
+                  </p>
+                </div>
+
+                {onStartChat && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onStartChat(user.id)}
+                    className="h-8 w-8 p-0"
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            )}
+
             {sortedPresences.map((presence) => {
               const config = statusConfig[presence.status];
               const isCurrentUser = presence.user_id === user?.id;
@@ -118,12 +155,13 @@ export const TeamPresence = ({ onStartChat }: TeamPresenceProps) => {
                     )}
                   </div>
 
-                  {!isCurrentUser && presence.status !== 'offline' && onStartChat && (
+                  {!isCurrentUser && onStartChat && (
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => onStartChat(presence.user_id)}
                       className="h-8 w-8 p-0"
+                      title={presence.status === 'offline' ? 'Iniciar conversa (offline)' : 'Iniciar conversa'}
                     >
                       <MessageCircle className="h-4 w-4" />
                     </Button>

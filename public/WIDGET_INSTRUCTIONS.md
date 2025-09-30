@@ -195,6 +195,21 @@ Para dúvidas sobre implementação:
 - Email: suporte@viainfra.com
 - Documentação: [Link do painel]
 
+## 🔄 Como Atualizar o Widget
+
+**IMPORTANTE**: Você **NÃO** precisa atualizar o código embedado quando:
+- Mudar configurações internas do sistema
+- Adicionar/remover usuários ou departamentos  
+- Modificar canais de atendimento
+- Ajustar workflows e bots
+
+**Você SÓ precisa atualizar quando:**
+- Houver nova versão do widget com recursos visuais
+- Mudar o Company ID
+- Atualizar chaves de segurança
+
+📚 **Veja o guia completo**: `WIDGET_UPDATE_GUIDE.md`
+
 ---
 
 **Última atualização**: 2025-01-30

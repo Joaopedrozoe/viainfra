@@ -51,6 +51,12 @@ export const InternalChatWindow = ({ conversation, onBack }: InternalChatWindowP
   const getConversationTitle = () => {
     if (conversation.title) return conversation.title;
     
+    // Check if it's a self-conversation (all participants are the same user)
+    const isSelfConversation = conversation.participants.length === 1 || 
+      conversation.participants.every(id => id === user?.id);
+    
+    if (isSelfConversation) return 'Minhas Anotações';
+    
     const otherParticipants = conversation.profiles?.filter(
       p => p.email !== user?.email
     );
@@ -75,7 +81,11 @@ export const InternalChatWindow = ({ conversation, onBack }: InternalChatWindowP
         <div className="flex-1">
           <h3 className="font-semibold">{getConversationTitle()}</h3>
           <p className="text-xs text-muted-foreground">
-            {conversation.is_group ? `${conversation.participants.length} participantes` : 'Chat direto'}
+            {conversation.participants.length === 1 || conversation.participants.every(id => id === user?.id)
+              ? 'Anotações pessoais'
+              : conversation.is_group 
+                ? `${conversation.participants.length} participantes` 
+                : 'Chat direto'}
           </p>
         </div>
       </div>
