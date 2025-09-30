@@ -13,9 +13,15 @@ serve(async (req) => {
 
   try {
     // Usar service role para ter permissões de admin
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    
+    if (!serviceRoleKey) {
+      throw new Error('SUPABASE_SERVICE_ROLE_KEY não configurada. Configure em: https://supabase.com/dashboard/project/xxojpfhnkxpbznbmhmua/settings/functions');
+    }
+    
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      serviceRoleKey,
       {
         auth: {
           autoRefreshToken: false,

@@ -1,1 +1,7 @@
 project_id = "xxojpfhnkxpbznbmhmua"
+
+[functions.setup-users]
+verify_jwt = false
+
+[functions.chat-bot]
+verify_jwt = false
