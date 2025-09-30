@@ -324,6 +324,8 @@
           } else {
             messageInput.value = option;
           }
+          // Limpar botões imediatamente antes de enviar
+          quickRepliesContainer.innerHTML = '';
           enviarMensagem();
         };
         quickRepliesContainer.appendChild(btn);
@@ -352,6 +354,8 @@
         btn.onclick = () => {
           console.log('Placa selecionada:', index + 1, placa);
           messageInput.value = (index + 1).toString();
+          // Limpar botões imediatamente antes de enviar
+          quickRepliesContainer.innerHTML = '';
           enviarMensagem();
         };
         quickRepliesContainer.appendChild(btn);
