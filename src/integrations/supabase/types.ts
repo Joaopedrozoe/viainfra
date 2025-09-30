@@ -458,7 +458,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_user_company_id: {
+        Args: { _user_id: string }
+        Returns: string
+      }
     }
     Enums: {
       user_status: "online" | "away" | "busy" | "offline"
