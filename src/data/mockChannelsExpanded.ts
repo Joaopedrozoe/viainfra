@@ -16,7 +16,7 @@ export const mockChannelsExpanded: Channel[] = [
     id: '1',
     name: 'WhatsApp Business',
     type: 'whatsapp',
-    status: 'connected',
+    status: 'disconnected',
     description: 'Canal oficial do WhatsApp Business',
     integration: {
       provider: 'WhatsApp Cloud API',
@@ -55,7 +55,7 @@ export const mockChannelsExpanded: Channel[] = [
     id: '2',
     name: 'Instagram Direct',
     type: 'instagram',
-    status: 'connected',
+    status: 'disconnected',
     description: 'Mensagens diretas do Instagram',
     integration: {
       provider: 'Meta',
@@ -134,7 +134,7 @@ export const mockChannelsExpanded: Channel[] = [
     id: '4',
     name: 'Email Corporativo',
     type: 'email',
-    status: 'connected',
+    status: 'disconnected',
     description: 'Atendimento por email',
     integration: {
       provider: 'SendGrid',
@@ -174,7 +174,7 @@ export const mockChannelsExpanded: Channel[] = [
     id: '5',
     name: 'Chat do Site',
     type: 'website',
-    status: 'connected',
+    status: 'disconnected',
     description: 'Widget de chat incorporado no site',
     integration: {
       provider: 'Custom',

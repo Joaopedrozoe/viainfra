@@ -19,24 +19,49 @@ const Dashboard = () => {
   const { user } = useAuth();
 
   const handleStartChat = async (userId: string) => {
-    // Check if conversation already exists with this exact user
-    const existingConversation = conversations.find(
-      conv => {
-        // Para conversas não-grupo, verifica se tem exatamente 2 participantes e inclui o userId
-        if (!conv.is_group && conv.participants.length === 2) {
-          return conv.participants.includes(userId) && conv.participants.includes(user?.id || '');
+    if (!user?.id) return;
+    
+    // Para "Minhas Anotações" (conversa consigo mesmo)
+    if (userId === user.id) {
+      const selfConversation = conversations.find(
+        conv => {
+          // Verifica se é uma conversa não-grupo com 2 participantes iguais (self-chat)
+          return !conv.is_group && 
+                 conv.participants.length === 2 && 
+                 conv.participants[0] === user.id && 
+                 conv.participants[1] === user.id;
         }
-        return false;
-      }
-    );
+      );
 
-    if (existingConversation) {
-      setSelectedChat(existingConversation);
+      if (selfConversation) {
+        setSelectedChat(selfConversation);
+      } else {
+        // Cria conversa consigo mesmo (ambos participantes são o mesmo usuário)
+        const newConversation = await createConversation([user.id]);
+        if (newConversation) {
+          setSelectedChat(newConversation);
+        }
+      }
     } else {
-      // Cria nova conversa com os participantes corretos
-      const newConversation = await createConversation([userId]);
-      if (newConversation) {
-        setSelectedChat(newConversation);
+      // Para conversas com outros usuários
+      const existingConversation = conversations.find(
+        conv => {
+          // Conversa não-grupo com exatamente 2 participantes: current user e target user
+          if (!conv.is_group && conv.participants.length === 2) {
+            return conv.participants.includes(userId) && conv.participants.includes(user.id);
+          }
+          return false;
+        }
+      );
+
+      if (existingConversation) {
+        setSelectedChat(existingConversation);
+      } else {
+        // Cria nova conversa com o outro usuário
+        const newConversation = await createConversation([userId]);
+        if (newConversation) {
+          setSelectedChat(newConversation);
+        }
       }
     }
   };
