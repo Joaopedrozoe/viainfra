@@ -38,6 +38,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { StatusSelector } from "@/components/app/StatusSelector";
 
 
 export const AppSidebar = () => {
@@ -96,7 +97,7 @@ export const AppSidebar = () => {
         <SidebarGroup>
           <SidebarGroupContent>
             {!collapsed && (
-              <div className="px-2 mb-4">
+              <div className="px-2 mb-4 space-y-2">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" className="w-full flex items-center justify-start gap-2 text-left p-2 h-auto">
@@ -126,6 +127,10 @@ export const AppSidebar = () => {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                
+                <div className="flex justify-center">
+                  <StatusSelector />
+                </div>
               </div>
             )}
             

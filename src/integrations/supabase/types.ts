@@ -259,6 +259,85 @@ export type Database = {
           },
         ]
       }
+      internal_conversations: {
+        Row: {
+          company_id: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          is_group: boolean
+          participants: string[]
+          title: string | null
+          updated_at: string
+        }
+        Insert: {
+          company_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_group?: boolean
+          participants: string[]
+          title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_group?: boolean
+          participants?: string[]
+          title?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "internal_conversations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      internal_messages: {
+        Row: {
+          attachments: Json | null
+          content: string
+          conversation_id: string | null
+          created_at: string
+          id: string
+          read_by: string[] | null
+          sender_id: string | null
+        }
+        Insert: {
+          attachments?: Json | null
+          content: string
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          read_by?: string[] | null
+          sender_id?: string | null
+        }
+        Update: {
+          attachments?: Json | null
+          content?: string
+          conversation_id?: string | null
+          created_at?: string
+          id?: string
+          read_by?: string[] | null
+          sender_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "internal_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "internal_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       messages: {
         Row: {
           content: string
@@ -347,6 +426,33 @@ export type Database = {
           },
         ]
       }
+      user_presence: {
+        Row: {
+          created_at: string
+          custom_message: string | null
+          last_seen: string
+          status: Database["public"]["Enums"]["user_status"]
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          custom_message?: string | null
+          last_seen?: string
+          status?: Database["public"]["Enums"]["user_status"]
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          custom_message?: string | null
+          last_seen?: string
+          status?: Database["public"]["Enums"]["user_status"]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -355,7 +461,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      user_status: "online" | "away" | "busy" | "offline"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -482,6 +588,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      user_status: ["online", "away", "busy", "offline"],
+    },
   },
 } as const

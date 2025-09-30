@@ -9,6 +9,7 @@ export interface User {
 export interface Profile {
   id: string;
   user_id: string;
+  company_id: string;
   name: string;
   email: string;
   avatar_url?: string;

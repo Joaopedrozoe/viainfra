@@ -1,18 +1,19 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, CreateUserData } from '@/types/users';
 import { useAuth } from '@/contexts/auth';
-import { MOCK_USERS } from '@/data/mockUsers';
+import { supabase } from '@/integrations/supabase/client';
 
 interface UsersContextType {
   users: User[];
   currentUser: User | null;
   isAdmin: boolean;
-  createUser: (user: CreateUserData) => void;
-  updateUser: (id: string, updates: Partial<User>) => void;
-  deleteUser: (id: string) => void;
-  updateUserPermissions: (id: string, permissions: Record<string, boolean>) => void;
-  toggleUserStatus: (id: string) => void;
-  toggleUserRole: (id: string) => void;
+  createUser: (user: CreateUserData) => Promise<void>;
+  updateUser: (id: string, updates: Partial<User>) => Promise<void>;
+  deleteUser: (id: string) => Promise<void>;
+  updateUserPermissions: (id: string, permissions: Record<string, boolean>) => Promise<void>;
+  toggleUserStatus: (id: string) => Promise<void>;
+  toggleUserRole: (id: string) => Promise<void>;
+  refetch: () => Promise<void>;
 }
 
 const UsersContext = createContext<UsersContextType | null>(null);
@@ -30,116 +31,210 @@ export const UsersProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const { user: authUser, profile } = useAuth();
   
   const isAdmin = profile?.role === 'admin';
-  const currentUser = users.find(u => u.id === authUser?.id) || null;
+  const currentUser = users.find(u => u.email === authUser?.email) || null;
 
-  // Initialize users from localStorage or mock data
-  useEffect(() => {
-    const storedUsers = localStorage.getItem('users');
-    if (storedUsers) {
-      setUsers(JSON.parse(storedUsers));
-    } else {
-      setUsers(MOCK_USERS);
-      localStorage.setItem('users', JSON.stringify(MOCK_USERS));
+  // Fetch users from Supabase
+  const fetchUsers = async () => {
+    if (!profile?.company_id) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('company_id', profile.company_id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const formattedUsers: User[] = (data || []).map(p => {
+        const permissions: Record<string, boolean> = {};
+        if (Array.isArray(p.permissions)) {
+          p.permissions.forEach((perm: string) => {
+            permissions[perm] = true;
+          });
+        }
+
+        return {
+          id: p.id,
+          name: p.name,
+          email: p.email,
+          role: p.role as 'admin' | 'attendant',
+          isActive: true, // Add a column to profiles if needed
+          createdAt: p.created_at,
+          lastLogin: p.updated_at, // Use updated_at as proxy for last login
+          permissions,
+        };
+      });
+
+      setUsers(formattedUsers);
+    } catch (error) {
+      console.error('Error fetching users:', error);
     }
-  }, []);
+  };
 
-  // Save to localStorage whenever users change
   useEffect(() => {
-    if (users.length > 0) {
-      localStorage.setItem('users', JSON.stringify(users));
-    }
-  }, [users]);
+    fetchUsers();
+  }, [profile?.company_id]);
 
-  const createUser = (userData: CreateUserData) => {
+  const createUser = async (userData: CreateUserData) => {
     if (!isAdmin) {
       throw new Error('Apenas administradores podem criar usuários');
     }
 
-    const newUser: User = {
-      id: `user-${Date.now()}`,
-      name: userData.name,
-      email: userData.email,
-      role: userData.role,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      permissions: userData.permissions || {},
-    };
+    try {
+      // Create auth user first
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: userData.email,
+        password: userData.password,
+        options: {
+          data: {
+            name: userData.name,
+          }
+        }
+      });
 
-    setUsers(prev => [...prev, newUser]);
+      if (authError) throw authError;
+
+      if (authData.user) {
+        // Create profile
+        const permissions = userData.permissions ? Object.keys(userData.permissions).filter(k => userData.permissions![k]) : [];
+        
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .insert({
+            user_id: authData.user.id,
+            company_id: profile?.company_id,
+            name: userData.name,
+            email: userData.email,
+            role: userData.role,
+            permissions,
+          });
+
+        if (profileError) throw profileError;
+
+        await fetchUsers();
+      }
+    } catch (error) {
+      console.error('Error creating user:', error);
+      throw error;
+    }
   };
 
-  const updateUser = (id: string, updates: Partial<User>) => {
-    if (!isAdmin && id !== authUser?.id) {
+  const updateUser = async (id: string, updates: Partial<User>) => {
+    if (!isAdmin && id !== currentUser?.id) {
       throw new Error('Você só pode editar seu próprio perfil');
     }
 
-    setUsers(prev => 
-      prev.map(user => 
-        user.id === id 
-          ? { ...user, ...updates }
-          : user
-      )
-    );
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          name: updates.name,
+          email: updates.email,
+          role: updates.role,
+          permissions: updates.permissions ? Object.keys(updates.permissions).filter(k => updates.permissions![k]) : undefined,
+        })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      await fetchUsers();
+    } catch (error) {
+      console.error('Error updating user:', error);
+      throw error;
+    }
   };
 
-  const deleteUser = (id: string) => {
+  const deleteUser = async (id: string) => {
     if (!isAdmin) {
       throw new Error('Apenas administradores podem deletar usuários');
     }
 
-    if (id === authUser?.id) {
+    if (id === currentUser?.id) {
       throw new Error('Você não pode deletar sua própria conta');
     }
 
-    setUsers(prev => prev.filter(user => user.id !== id));
+    try {
+      // Get user_id from profile
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('user_id')
+        .eq('id', id)
+        .single();
+
+      if (profileData) {
+        // Delete auth user (will cascade to profile due to FK)
+        const { error } = await supabase.auth.admin.deleteUser(profileData.user_id);
+        
+        if (error) throw error;
+
+        await fetchUsers();
+      }
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      throw error;
+    }
   };
 
-  const updateUserPermissions = (id: string, permissions: Record<string, boolean>) => {
+  const updateUserPermissions = async (id: string, permissions: Record<string, boolean>) => {
     if (!isAdmin) {
       throw new Error('Apenas administradores podem atualizar permissões');
     }
 
-    setUsers(prev => 
-      prev.map(user => 
-        user.id === id 
-          ? { ...user, permissions }
-          : user
-      )
-    );
+    try {
+      const permissionsArray = Object.keys(permissions).filter(k => permissions[k]);
+      
+      const { error } = await supabase
+        .from('profiles')
+        .update({ permissions: permissionsArray })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      await fetchUsers();
+    } catch (error) {
+      console.error('Error updating permissions:', error);
+      throw error;
+    }
   };
 
-  const toggleUserStatus = (id: string) => {
+  const toggleUserStatus = async (id: string) => {
     if (!isAdmin) {
       throw new Error('Apenas administradores podem alterar status de usuários');
     }
 
-    setUsers(prev => 
-      prev.map(user => 
-        user.id === id 
-          ? { 
-              ...user, 
-              isActive: !user.isActive
-            }
-          : user
-      )
-    );
+    const user = users.find(u => u.id === id);
+    if (!user) return;
+
+    // Note: You'll need to add an 'is_active' column to profiles table
+    // For now, this is a placeholder
+    console.log('Toggle status for user:', id);
+    await fetchUsers();
   };
 
-  const toggleUserRole = (id: string) => {
+  const toggleUserRole = async (id: string) => {
     if (!isAdmin) {
-      throw new Error('Apenas administradores podem alterar roles de usuários');
+      throw new Error('Apenas administradores podem alterar funções');
     }
 
-    setUsers(prev => 
-      prev.map(user => 
-        user.id === id 
-          ? { 
-              ...user, 
-              role: user.role === 'admin' ? 'attendant' : 'admin'
-            }
-          : user
-      )
-    );
+    const user = users.find(u => u.id === id);
+    if (!user) return;
+
+    const newRole = user.role === 'admin' ? 'user' : 'admin';
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ role: newRole })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      await fetchUsers();
+    } catch (error) {
+      console.error('Error toggling role:', error);
+      throw error;
+    }
   };
 
   const value: UsersContextType = {
@@ -151,7 +246,8 @@ export const UsersProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     deleteUser,
     updateUserPermissions,
     toggleUserStatus,
-    toggleUserRole
+    toggleUserRole,
+    refetch: fetchUsers,
   };
 
   return (
