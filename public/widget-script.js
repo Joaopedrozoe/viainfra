@@ -254,6 +254,8 @@
   let botState = null;
   let isProcessing = false;
   let conversationId = null;
+  let messageSubscription = null;
+  let existingMessageIds = new Set();
 
   const button = document.getElementById('viainfra-chat-button');
   const widget = document.getElementById('viainfra-chat-widget');
@@ -289,7 +291,15 @@
     }
   });
 
-  function addMessage(content, isBot = true) {
+  function addMessage(content, isBot = true, messageId = null) {
+    // Evitar duplicatas
+    if (messageId && existingMessageIds.has(messageId)) {
+      return;
+    }
+    if (messageId) {
+      existingMessageIds.add(messageId);
+    }
+
     const messageDiv = document.createElement('div');
     messageDiv.className = `viainfra-message ${isBot ? 'bot' : 'user'}`;
     
@@ -306,6 +316,46 @@
     
     messagesContainer.appendChild(messageDiv);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  }
+
+  function setupMessageSubscription() {
+    if (!conversationId || messageSubscription) return;
+
+    // Criar cliente Supabase para realtime
+    const { createClient } = window.supabase || {};
+    if (!createClient) {
+      console.log('Supabase client não disponível, carregando...');
+      // Carregar Supabase JS dinamicamente
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+      script.onload = () => setupMessageSubscription();
+      document.head.appendChild(script);
+      return;
+    }
+
+    const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    messageSubscription = supabaseClient
+      .channel(`conversation-${conversationId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${conversationId}`
+        },
+        (payload) => {
+          const newMessage = payload.new;
+          // Mostrar apenas mensagens do atendente
+          if (newMessage.sender_type === 'agent') {
+            addMessage(newMessage.content, true, newMessage.id);
+          }
+        }
+      )
+      .subscribe();
+
+    console.log('Subscription ativa para conversa:', conversationId);
   }
 
     function showQuickReplies(options) {
@@ -393,6 +443,9 @@
       addMessage(data.message, true);
       botState = data.state;
       conversationId = data.state?.conversationId;
+      
+      // Configurar subscription para mensagens do atendente
+      setupMessageSubscription();
       
       // Verificar se há placas logo na inicialização
       if (data.state?.placas && data.state.placas.length > 0 && data.state?.mode === 'chamado') {
