@@ -31,7 +31,7 @@ export const useUserPresence = () => {
       // First get all user IDs from the company
       const { data: companyProfiles, error: profilesError } = await supabase
         .from('profiles')
-        .select('user_id')
+        .select('user_id, name, email, avatar_url, role')
         .eq('company_id', profile.company_id);
 
       if (profilesError) throw profilesError;
@@ -47,23 +47,24 @@ export const useUserPresence = () => {
       // Now get presences for those users
       const { data: presences, error } = await supabase
         .from('user_presence')
-        .select(`
-          *,
-          profiles:user_id (
-            name,
-            email,
-            avatar_url,
-            role
-          )
-        `)
+        .select('*')
         .in('user_id', userIds);
 
       if (error) throw error;
 
-      const formattedPresences = (presences || []).map(p => ({
-        ...p,
-        profile: Array.isArray(p.profiles) ? p.profiles[0] : p.profiles
-      }));
+      // Merge presences with profiles
+      const formattedPresences: UserPresence[] = (presences || []).map(presence => {
+        const userProfile = companyProfiles?.find(p => p.user_id === presence.user_id);
+        return {
+          ...presence,
+          profile: userProfile ? {
+            name: userProfile.name,
+            email: userProfile.email,
+            avatar_url: userProfile.avatar_url,
+            role: userProfile.role
+          } : undefined
+        };
+      });
 
       setUserPresences(formattedPresences);
     } catch (error) {
