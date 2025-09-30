@@ -8,6 +8,8 @@ import { X, CheckCircle, RefreshCw } from "lucide-react";
 import { InternalChatWindow } from "@/components/app/InternalChatWindow";
 import { useInternalChat } from "@/hooks/useInternalChat";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { useConversations } from "@/hooks/useConversations";
+import { toast } from "sonner";
 
 const Inbox = () => {
   const location = useLocation();
@@ -20,6 +22,7 @@ const Inbox = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedInternalChat, setSelectedInternalChat] = useState<string | null>(null);
   const { conversations: internalConversations } = useInternalChat();
+  const { updateConversationStatus, refetch } = useConversations();
   
   // Effect to update the state when navigation happens
   useEffect(() => {
@@ -46,17 +49,25 @@ const Inbox = () => {
     setShowChat(false);
   }, []);
 
-  const handleResolveConversation = useCallback((conversationId: string) => {
-    console.log("✅ Conversa resolvida:", conversationId);
-    // Trigger refresh to update the conversation list
-    setRefreshKey(prev => prev + 1);
-  }, []);
+  const handleResolveConversation = useCallback(async (conversationId: string) => {
+    try {
+      await updateConversationStatus(conversationId, 'resolved');
+      toast.success("Conversa encerrada com sucesso");
+      setRefreshKey(prev => prev + 1);
+      await refetch();
+    } catch (error) {
+      console.error("Erro ao resolver conversa:", error);
+      toast.error("Erro ao encerrar conversa");
+    }
+  }, [updateConversationStatus, refetch]);
 
-  const handleEndConversation = useCallback((conversationId: string) => {
-    console.log("Encerrando conversa:", conversationId);
-    // Resolver a conversa quando encerrar
-    handleResolveConversation(conversationId);
-  }, [handleResolveConversation]);
+  const handleEndConversation = useCallback(async (conversationId: string) => {
+    await handleResolveConversation(conversationId);
+    // Voltar para lista em mobile após encerrar
+    if (isMobile) {
+      setShowChat(false);
+    }
+  }, [handleResolveConversation, isMobile]);
 
   const handleRefresh = useCallback(() => {
     console.log('Refresh button clicked, updating conversations...');

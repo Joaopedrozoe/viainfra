@@ -37,7 +37,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             id,
             content,
             sender_type,
-            created_at
+            created_at,
+            metadata
           )
         `)
         .eq('id', conversationId)
@@ -49,6 +50,25 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       }
 
       if (conversation) {
+        // Marcar mensagens como lidas ao abrir a conversa
+        const unreadMessages = (conversation.messages || [])
+          .filter((msg: any) => msg.sender_type !== 'agent' && !msg.metadata?.read);
+        
+        if (unreadMessages.length > 0) {
+          // Atualizar metadata das mensagens para marcar como lidas
+          for (const msg of unreadMessages) {
+            const currentMetadata = (typeof msg.metadata === 'object' && msg.metadata !== null) 
+              ? msg.metadata 
+              : {};
+            await supabase
+              .from('messages')
+              .update({ 
+                metadata: { ...currentMetadata, read: true } 
+              })
+              .eq('id', msg.id);
+          }
+        }
+
         // Mapear mensagens
         const mappedMessages: Message[] = (conversation.messages || [])
           .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
