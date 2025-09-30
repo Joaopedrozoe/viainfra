@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/auth';
 
@@ -32,16 +32,31 @@ export const useConversations = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const fetchTimeoutRef = useRef<NodeJS.Timeout>();
+  const lastFetchRef = useRef<number>(0);
 
-  const fetchConversations = async () => {
+  const fetchConversations = async (debounce = false) => {
     if (!company?.id) {
       setLoading(false);
       return;
     }
 
+    // Debounce: evitar múltiplas chamadas em sequência rápida
+    if (debounce) {
+      const now = Date.now();
+      if (now - lastFetchRef.current < 1000) { // Min 1 segundo entre fetches
+        if (fetchTimeoutRef.current) {
+          clearTimeout(fetchTimeoutRef.current);
+        }
+        fetchTimeoutRef.current = setTimeout(() => fetchConversations(false), 500);
+        return;
+      }
+    }
+
     try {
       setLoading(true);
       setError(null);
+      lastFetchRef.current = Date.now();
       
       const { data, error } = await supabase
         .from('conversations')
@@ -66,12 +81,11 @@ export const useConversations = () => {
 
       if (error) {
         console.warn('Supabase query error:', error);
-        // Se for erro de RLS ou tabela não existe, não mostrar erro - usar dados mock
         setConversations([]);
         return;
       }
 
-      setConversations((data || []).map(conv => ({
+      const newConversations = (data || []).map(conv => ({
         ...conv,
         status: conv.status as 'open' | 'resolved' | 'pending',
         metadata: conv.metadata || {},
@@ -79,10 +93,26 @@ export const useConversations = () => {
           ...msg,
           sender_type: msg.sender_type as 'user' | 'agent' | 'bot',
         })),
-      })));
+      }));
+
+      // Só atualizar se realmente houver mudanças
+      setConversations(prev => {
+        const prevIds = prev.map(c => c.id).sort().join(',');
+        const newIds = newConversations.map(c => c.id).sort().join(',');
+        
+        if (prevIds === newIds) {
+          // Mesmo conjunto de IDs, verificar se conteúdo mudou
+          const prevJson = JSON.stringify(prev);
+          const newJson = JSON.stringify(newConversations);
+          if (prevJson === newJson) {
+            return prev; // Sem mudanças, manter referência anterior
+          }
+        }
+        
+        return newConversations;
+      });
     } catch (err) {
       console.warn('Error fetching conversations:', err);
-      // Não propagar erro - usar dados vazios
       setConversations([]);
       setError(null);
     } finally {
@@ -106,7 +136,7 @@ export const useConversations = () => {
             filter: `company_id=eq.${company.id}`,
           },
           () => {
-            fetchConversations();
+            fetchConversations(true); // Com debounce
           }
         )
         .subscribe();

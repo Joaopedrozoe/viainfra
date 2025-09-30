@@ -42,6 +42,24 @@
       fill: white;
     }
 
+    #viainfra-chat-button.has-notification::after {
+      content: '';
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 12px;
+      height: 12px;
+      background: #ff4444;
+      border-radius: 50%;
+      border: 2px solid white;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.2); opacity: 0.8; }
+    }
+
     #viainfra-chat-widget {
       position: fixed;
       bottom: 90px;
@@ -75,11 +93,24 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      flex-shrink: 0;
     }
 
     .viainfra-chat-header h3 {
       font-size: 18px;
       font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .viainfra-status-indicator {
+      width: 8px;
+      height: 8px;
+      background: #4ade80;
+      border-radius: 50%;
+      display: inline-block;
+      animation: pulse 2s infinite;
     }
 
     .viainfra-chat-header button {
@@ -88,6 +119,13 @@
       color: white;
       cursor: pointer;
       font-size: 24px;
+      line-height: 1;
+      padding: 0;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     .viainfra-chat-messages {
@@ -95,6 +133,7 @@
       overflow-y: auto;
       padding: 20px;
       background: #f8f9fa;
+      scroll-behavior: smooth;
     }
 
     .viainfra-message {
@@ -145,6 +184,33 @@
       align-items: center;
       justify-content: center;
       font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .viainfra-typing-indicator {
+      display: flex;
+      gap: 4px;
+      padding: 12px 16px;
+      background: white;
+      border-radius: 12px;
+      border: 1px solid #e0e0e0;
+      width: fit-content;
+    }
+
+    .viainfra-typing-dot {
+      width: 8px;
+      height: 8px;
+      background: hsl(134, 61%, 41%);
+      border-radius: 50%;
+      animation: typing 1.4s infinite;
+    }
+
+    .viainfra-typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .viainfra-typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes typing {
+      0%, 60%, 100% { transform: translateY(0); }
+      30% { transform: translateY(-10px); }
     }
 
     .viainfra-quick-replies {
@@ -176,6 +242,7 @@
       border-top: 1px solid #e0e0e0;
       display: flex;
       gap: 8px;
+      flex-shrink: 0;
     }
 
     .viainfra-chat-input input {
@@ -202,6 +269,17 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      transition: transform 0.2s;
+      flex-shrink: 0;
+    }
+
+    .viainfra-chat-input button:hover {
+      transform: scale(1.05);
+    }
+
+    .viainfra-chat-input button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
 
     @media (max-width: 480px) {
@@ -225,7 +303,10 @@
 
       <div id="viainfra-chat-widget">
         <div class="viainfra-chat-header">
-          <h3>Viainfra - Suporte</h3>
+          <h3>
+            <span class="viainfra-status-indicator"></span>
+            Viainfra - Suporte
+          </h3>
           <button id="viainfra-close-chat">&times;</button>
         </div>
         <div class="viainfra-chat-messages" id="viainfra-chat-messages"></div>
@@ -256,6 +337,8 @@
   let conversationId = null;
   let messageSubscription = null;
   let existingMessageIds = new Set();
+  let pollingInterval = null;
+  let lastMessageTimestamp = null;
 
   const button = document.getElementById('viainfra-chat-button');
   const widget = document.getElementById('viainfra-chat-widget');
@@ -268,6 +351,7 @@
   button.addEventListener('click', () => {
     widget.classList.toggle('open');
     if (widget.classList.contains('open')) {
+      button.classList.remove('has-notification');
       if (messagesContainer.children.length === 0) {
         iniciarChat();
       }
@@ -318,103 +402,145 @@
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
 
+  function showTyping() {
+    const typingDiv = document.createElement('div');
+    typingDiv.className = 'viainfra-message bot';
+    typingDiv.id = 'viainfra-typing-indicator';
+    typingDiv.innerHTML = `
+      <div class="viainfra-bot-avatar">🤖</div>
+      <div class="viainfra-typing-indicator">
+        <div class="viainfra-typing-dot"></div>
+        <div class="viainfra-typing-dot"></div>
+        <div class="viainfra-typing-dot"></div>
+      </div>
+    `;
+    messagesContainer.appendChild(typingDiv);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  }
+
+  function hideTyping() {
+    const typingIndicator = document.getElementById('viainfra-typing-indicator');
+    if (typingIndicator) {
+      typingIndicator.remove();
+    }
+  }
+
   function setupMessageSubscription() {
     if (!conversationId || messageSubscription) return;
 
-    // Criar cliente Supabase para realtime
-    const { createClient } = window.supabase || {};
-    if (!createClient) {
-      console.log('Supabase client não disponível, carregando...');
-      // Carregar Supabase JS dinamicamente
-      const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
-      script.onload = () => setupMessageSubscription();
-      document.head.appendChild(script);
-      return;
-    }
+    // Carregar Supabase JS dinamicamente para subscription
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+    script.onload = () => {
+      const { createClient } = window.supabase;
+      const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-    const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
-
-    messageSubscription = supabaseClient
-      .channel(`conversation-${conversationId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${conversationId}`
-        },
-        (payload) => {
-          const newMessage = payload.new;
-          // Mostrar apenas mensagens do atendente
-          if (newMessage.sender_type === 'agent') {
-            addMessage(newMessage.content, true, newMessage.id);
+      messageSubscription = supabaseClient
+        .channel(`conversation-${conversationId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+            filter: `conversation_id=eq.${conversationId}`
+          },
+          (payload) => {
+            const newMessage = payload.new;
+            if (newMessage.sender_type === 'agent') {
+              if (!widget.classList.contains('open')) {
+                button.classList.add('has-notification');
+              }
+              addMessage(`👤 **Atendente**: ${newMessage.content}`, true, newMessage.id);
+            }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
 
-    console.log('Subscription ativa para conversa:', conversationId);
+      console.log('Subscription ativa para conversa:', conversationId);
+    };
+    document.head.appendChild(script);
   }
 
-    function showQuickReplies(options) {
-      quickRepliesContainer.innerHTML = '';
-      if (!options || options.length === 0) return;
-      
-      options.forEach(option => {
-        const btn = document.createElement('button');
-        btn.className = 'viainfra-quick-reply-btn';
-        btn.textContent = option;
-        btn.onclick = () => {
-          // Extrair apenas o número do início (ex: "1️⃣ Abrir Chamado" -> "1")
-          const match = option.match(/(\d+)/);
-          if (match) {
-            messageInput.value = match[1];
-          } else {
-            messageInput.value = option;
-          }
-          // Limpar botões imediatamente antes de enviar
-          quickRepliesContainer.innerHTML = '';
-          enviarMensagem();
-        };
-        quickRepliesContainer.appendChild(btn);
-      });
-    }
+  function showQuickReplies(options) {
+    quickRepliesContainer.innerHTML = '';
+    if (!options || options.length === 0) return;
     
-    // Nova função para mostrar placas como quick replies
-    function showPlacasQuickReplies(placas) {
-      console.log('=== showPlacasQuickReplies chamado ===');
-      console.log('Placas recebidas:', placas);
-      console.log('Tipo de placas:', typeof placas);
-      console.log('É array?', Array.isArray(placas));
-      
-      quickRepliesContainer.innerHTML = '';
-      if (!placas || placas.length === 0) {
-        console.log('Nenhuma placa para mostrar');
-        return;
+    options.forEach(option => {
+      const btn = document.createElement('button');
+      btn.className = 'viainfra-quick-reply-btn';
+      btn.textContent = option;
+      btn.onclick = () => {
+        const match = option.match(/(\d+)/);
+        if (match) {
+          messageInput.value = match[1];
+        } else {
+          messageInput.value = option;
+        }
+        quickRepliesContainer.innerHTML = '';
+        enviarMensagem();
+      };
+      quickRepliesContainer.appendChild(btn);
+    });
+  }
+  
+  function showPlacasQuickReplies(placas) {
+    quickRepliesContainer.innerHTML = '';
+    if (!placas || placas.length === 0) return;
+    
+    placas.forEach((placa, index) => {
+      const btn = document.createElement('button');
+      btn.className = 'viainfra-quick-reply-btn';
+      btn.textContent = `${index + 1}. ${placa}`;
+      btn.onclick = () => {
+        messageInput.value = (index + 1).toString();
+        quickRepliesContainer.innerHTML = '';
+        enviarMensagem();
+      };
+      quickRepliesContainer.appendChild(btn);
+    });
+  }
+
+  async function startPollingForAgentMessages() {
+    if (pollingInterval) return;
+
+    pollingInterval = setInterval(async () => {
+      if (!conversationId || !botState?.waitingForAgent) return;
+
+      try {
+        const response = await fetch(
+          `${SUPABASE_URL}/rest/v1/messages?conversation_id=eq.${conversationId}&sender_type=eq.agent&order=created_at.desc&limit=1`,
+          {
+            headers: {
+              'apikey': SUPABASE_KEY,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+
+        const messages = await response.json();
+        if (messages && messages.length > 0) {
+          const latestMessage = messages[0];
+          
+          if (!lastMessageTimestamp || latestMessage.created_at > lastMessageTimestamp) {
+            lastMessageTimestamp = latestMessage.created_at;
+            
+            if (!widget.classList.contains('open')) {
+              button.classList.add('has-notification');
+            }
+            
+            addMessage(`👤 **Atendente**: ${latestMessage.content}`, true, latestMessage.id);
+          }
+        }
+      } catch (error) {
+        console.error('Erro ao buscar mensagens:', error);
       }
-      
-      console.log('Criando botões para', placas.length, 'placas');
-      placas.forEach((placa, index) => {
-        console.log(`Criando botão ${index + 1} para placa:`, placa);
-        const btn = document.createElement('button');
-        btn.className = 'viainfra-quick-reply-btn';
-        btn.textContent = `${index + 1}. ${placa}`;
-        btn.onclick = () => {
-          console.log('Placa selecionada:', index + 1, placa);
-          messageInput.value = (index + 1).toString();
-          // Limpar botões imediatamente antes de enviar
-          quickRepliesContainer.innerHTML = '';
-          enviarMensagem();
-        };
-        quickRepliesContainer.appendChild(btn);
-      });
-      console.log('Botões de placas criados no container');
-    }
+    }, 3000);
+  }
 
   async function iniciarChat() {
     isProcessing = true;
+    showTyping();
     
     try {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot`, {
@@ -437,26 +563,26 @@
 
       const data = await response.json();
       
-      console.log('Resposta inicial do chat:', data);
-      console.log('State recebido:', data.state);
-      
+      hideTyping();
       addMessage(data.message, true);
       botState = data.state;
       conversationId = data.state?.conversationId;
       
-      // Configurar subscription para mensagens do atendente
+      // Configurar subscription e polling para mensagens do atendente
       setupMessageSubscription();
       
-      // Verificar se há placas logo na inicialização
       if (data.state?.placas && data.state.placas.length > 0 && data.state?.mode === 'chamado') {
-        console.log('Mostrando placas na inicialização:', data.state.placas);
         showPlacasQuickReplies(data.state.placas);
       } else if (data.options) {
-        console.log('Mostrando quick replies iniciais:', data.options);
         showQuickReplies(data.options);
+      }
+
+      if (conversationId) {
+        startPollingForAgentMessages();
       }
     } catch (error) {
       console.error('Erro ao iniciar chat:', error);
+      hideTyping();
       addMessage('Desculpe, ocorreu um erro. Tente novamente.', true);
     } finally {
       isProcessing = false;
@@ -472,6 +598,8 @@
     isProcessing = true;
     sendButton.disabled = true;
     quickRepliesContainer.innerHTML = '';
+
+    showTyping();
 
     try {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot`, {
@@ -490,20 +618,18 @@
 
       const data = await response.json();
       
+      hideTyping();
       addMessage(data.message, true);
       botState = data.state;
       
-      // Verificar se há placas para mostrar como quick replies
-      console.log('Verificando placas:', data.state?.placas, 'Mode:', data.state?.mode);
       if (data.state?.placas && data.state.placas.length > 0 && data.state?.mode === 'chamado') {
-        console.log('Mostrando placas:', data.state.placas);
         showPlacasQuickReplies(data.state.placas);
       } else if (data.options) {
-        console.log('Exibindo quick replies:', data.options);
         showQuickReplies(data.options);
       }
     } catch (error) {
       console.error('Erro ao enviar mensagem:', error);
+      hideTyping();
       addMessage('Desculpe, ocorreu um erro. Tente novamente.', true);
     } finally {
       isProcessing = false;
@@ -511,4 +637,10 @@
       messageInput.focus();
     }
   }
+
+  window.addEventListener('beforeunload', () => {
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+    }
+  });
 })();

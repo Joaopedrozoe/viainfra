@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { SearchHeader } from "./conversation/SearchHeader";
 import { ConversationItem } from "./conversation/ConversationItem";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -51,8 +51,8 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     }
   }, [refreshTrigger, refetch]);
 
-  // Combine preview and Supabase conversations
-  useEffect(() => {
+  // Combine preview and Supabase conversations - memoized to prevent unnecessary recalculations
+  const combinedConversations = useMemo(() => {
     logger.debug('Updating conversations - Preview:', previewConversations.length, 'Supabase:', supabaseConversations.length);
     
     // Map preview conversations
@@ -87,11 +87,16 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     // Combine both lists
     const combined = [...processedSupabaseConversations, ...processedPreviewConversations];
     logger.debug('Combined conversations:', combined.length);
-    setAllConversations(combined);
+    return combined;
   }, [previewConversations, supabaseConversations]);
 
-  // Handle conversation selection
-  const handleConversationSelect = (conversationId: string) => {
+  // Update state only when combined conversations change
+  useEffect(() => {
+    setAllConversations(combinedConversations);
+  }, [combinedConversations]);
+
+  // Handle conversation selection - memoized
+  const handleConversationSelect = useCallback((conversationId: string) => {
     onSelectConversation(conversationId);
     
     // Mark conversation as read
@@ -100,10 +105,10 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         conv.id === conversationId ? { ...conv, unread: 0 } : conv
       )
     );
-  };
+  }, [onSelectConversation]);
 
-  // Handle conversation resolve
-  const handleConversationResolve = (conversationId: string) => {
+  // Handle conversation resolve - memoized
+  const handleConversationResolve = useCallback((conversationId: string) => {
     logger.debug('Resolvendo conversa:', conversationId);
     ConversationStorage.addResolvedConversation(conversationId);
     setResolvedConversations(ConversationStorage.getResolvedConversations());
@@ -116,7 +121,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     );
     
     onResolveConversation?.(conversationId);
-  };
+  }, [onResolveConversation]);
 
   // Apply filters
   useEffect(() => {
