@@ -114,6 +114,8 @@ serve(async (req) => {
           const placasData = await placasRes.json();
           chatState.placas = placasData.placas || [];
 
+          console.log('Placas carregadas:', chatState.placas);
+
           response = `🎫 **Processo de Abertura de Chamado Iniciado**\n\nNúmero previsto: **${chatState.numeroPrevisto}**\n\n📋 Selecione uma placa:`;
           
           options = []; // Não enviamos options aqui, as placas vão como parte do state

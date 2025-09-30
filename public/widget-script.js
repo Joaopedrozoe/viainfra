@@ -417,9 +417,12 @@
       botState = data.state;
       
       // Verificar se há placas para mostrar como quick replies
-      if (data.state?.placas && data.state.placas.length > 0 && data.state.chamadoStep === 'inicio') {
+      console.log('Verificando placas:', data.state?.placas, 'Mode:', data.state?.mode);
+      if (data.state?.placas && data.state.placas.length > 0 && data.state?.mode === 'chamado') {
+        console.log('Mostrando placas:', data.state.placas);
         showPlacasQuickReplies(data.state.placas);
       } else if (data.options) {
+        console.log('Exibindo quick replies:', data.options);
         showQuickReplies(data.options);
       }
     } catch (error) {

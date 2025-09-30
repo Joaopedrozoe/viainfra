@@ -213,25 +213,25 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         selectedDepartment={selectedDepartment}
         onDepartmentChange={setSelectedDepartment} 
       />
-      <Tabs value={activeTab} onValueChange={setActiveTab as (value: string) => void} className="px-4 pt-2">
-        <TabsList className="w-full grid grid-cols-6 text-xs">
-          <TabsTrigger value="all" className="text-xs">
+      <Tabs value={activeTab} onValueChange={setActiveTab as (value: string) => void} className="px-3 pt-2">
+        <TabsList className="w-full grid grid-cols-6 gap-1 h-auto p-1">
+          <TabsTrigger value="all" className="text-[10px] px-1 py-1.5 h-auto">
             Todas
           </TabsTrigger>
-          <TabsTrigger value="unread" className="text-xs">
+          <TabsTrigger value="unread" className="text-[10px] px-1 py-1.5 h-auto">
             Não lidas {allConversations.filter(c => c.unread > 0 && !resolvedConversations.has(c.id)).length > 0 && `(${allConversations.filter(c => c.unread > 0 && !resolvedConversations.has(c.id)).length})`}
           </TabsTrigger>
-          <TabsTrigger value="bot" className="text-xs">
+          <TabsTrigger value="bot" className="text-[10px] px-1 py-1.5 h-auto">
             Bot {allConversations.filter(c => c.channel === 'web' && !resolvedConversations.has(c.id)).length > 0 && `(${allConversations.filter(c => c.channel === 'web' && !resolvedConversations.has(c.id)).length})`}
           </TabsTrigger>
-          <TabsTrigger value="internal" className="text-xs flex items-center gap-1">
-            <Users className="h-3 w-3" />
+          <TabsTrigger value="internal" className="text-[10px] px-1 py-1.5 h-auto flex items-center gap-0.5">
+            <Users className="h-2.5 w-2.5" />
             Equipe {internalConversations.length > 0 && `(${internalConversations.length})`}
           </TabsTrigger>
-          <TabsTrigger value="preview" className="text-xs">
+          <TabsTrigger value="preview" className="text-[10px] px-1 py-1.5 h-auto">
             Preview {allConversations.filter(c => (c as any).is_preview === true && !resolvedConversations.has(c.id)).length > 0 && `(${allConversations.filter(c => (c as any).is_preview === true && !resolvedConversations.has(c.id)).length})`}
           </TabsTrigger>
-          <TabsTrigger value="resolved" className="text-xs">
+          <TabsTrigger value="resolved" className="text-[10px] px-1 py-1.5 h-auto">
             Resolvidas {resolvedConversations.size > 0 && `(${resolvedConversations.size})`}
           </TabsTrigger>
         </TabsList>
