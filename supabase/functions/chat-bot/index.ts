@@ -30,9 +30,16 @@ serve(async (req) => {
   }
 
   try {
+    // IMPORTANTE: Usar SERVICE_ROLE para bypassar RLS e permitir criação de contatos/conversas
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
     );
 
     const { action, state, userMessage, contactInfo, companyId } = await req.json();
@@ -327,6 +334,12 @@ serve(async (req) => {
         });
     }
 
+    // Log para debug
+    console.log('=== RESPONSE DEBUG ===');
+    console.log('chatState.placas:', chatState.placas?.length || 0, 'placas');
+    console.log('chatState.mode:', chatState.mode);
+    console.log('chatState.chamadoStep:', chatState.chamadoStep);
+    
     return new Response(
       JSON.stringify({ 
         message: response, 

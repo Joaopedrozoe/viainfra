@@ -2,7 +2,7 @@
   // Configuração - SUBSTITUA COM SEU COMPANY_ID
   const COMPANY_ID = 'da17735c-5a76-4797-b338-f6e63a7b3f8b'; // ID da empresa Viainfra
   const SUPABASE_URL = 'https://xxojpfhnkxpbznbmhmua.supabase.co';
-  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh4b2pwZmhua3hwYnpuYm1obXVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkyMzY4NTUsImV4cCI6MjA3NDgxMjg1NX0.K7pqFCShUgQWJgrHThPynEguIkS0_TjIOuKXvIEgNR4';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh4b2pwZmhua3hwYnpuYm1obXVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkyMzY4NTUsImV4cCI6MjA3NDgxMjg1NX0.K7pqFCShUgQWJgrHThPynEguIkS0_TjIOuKXvIEgNR4'; // v1.1
 
   // Injetar CSS
   const style = document.createElement('style');
@@ -437,17 +437,25 @@
 
       const data = await response.json();
       
+      console.log('=== RESPOSTA RECEBIDA ===');
+      console.log('data:', data);
+      console.log('data.state:', data.state);
+      console.log('data.state.placas:', data.state?.placas);
+      console.log('data.state.mode:', data.state?.mode);
+      console.log('data.state.chamadoStep:', data.state?.chamadoStep);
+      
       addMessage(data.message, true);
       botState = data.state;
       
       // Verificar se há placas para mostrar como quick replies
-      console.log('Verificando placas:', data.state?.placas, 'Mode:', data.state?.mode);
-      if (data.state?.placas && data.state.placas.length > 0 && data.state?.mode === 'chamado') {
-        console.log('Mostrando placas:', data.state.placas);
+      if (data.state?.placas && data.state.placas.length > 0) {
+        console.log('>>> MOSTRANDO PLACAS:', data.state.placas.length, 'placas');
         showPlacasQuickReplies(data.state.placas);
-      } else if (data.options) {
-        console.log('Exibindo quick replies:', data.options);
+      } else if (data.options && data.options.length > 0) {
+        console.log('>>> MOSTRANDO OPTIONS:', data.options);
         showQuickReplies(data.options);
+      } else {
+        console.log('>>> SEM PLACAS NEM OPTIONS para mostrar');
       }
     } catch (error) {
       console.error('Erro ao enviar mensagem:', error);
