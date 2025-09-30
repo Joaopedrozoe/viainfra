@@ -19,6 +19,9 @@ import Register from "@/pages/auth/Register";
 // Import Channels directly to fix dynamic import issue
 import Channels from "@/pages/app/Channels";
 
+// Setup page
+const SetupUsers = lazy(() => import("@/pages/setup/SetupUsers"));
+
 // Landing
 const Landing = lazy(() => import("@/pages/landing/Landing"));
 
@@ -86,6 +89,9 @@ const App = () => (
               {/* Auth Routes - Not lazy loaded */}
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
+              
+              {/* Setup Route - Public */}
+              <Route path="/setup-users" element={<SetupUsers />} />
               
               {/* Protected App Routes */}
               <Route element={<PrivateRoute />}>
