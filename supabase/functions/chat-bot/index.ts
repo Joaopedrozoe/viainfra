@@ -45,35 +45,49 @@ serve(async (req) => {
 
     // Criar ou recuperar contato e conversa
     if (!chatState.conversationId && contactInfo) {
-      const { data: contact } = await supabaseClient
-        .from('contacts')
-        .upsert({
-          company_id: companyId,
-          name: contactInfo.name || 'Cliente Web',
-          phone: contactInfo.phone,
-          email: contactInfo.email,
-        }, { onConflict: 'phone' })
-        .select()
-        .single();
-
-      if (contact) {
-        chatState.contactId = contact.id;
-        
-        const { data: conversation } = await supabaseClient
-          .from('conversations')
+      console.log('Criando contato e conversa para company:', companyId);
+      
+      try {
+        // Criar contato
+        const { data: contact, error: contactError } = await supabaseClient
+          .from('contacts')
           .insert({
             company_id: companyId,
-            contact_id: contact.id,
-            channel: 'web',
-            status: 'open',
+            name: contactInfo.name || 'Cliente Web',
+            phone: contactInfo.phone,
+            email: contactInfo.email,
           })
           .select()
           .single();
 
-        if (conversation) {
-          chatState.conversationId = conversation.id;
-          chatState.companyId = companyId;
+        if (contactError) {
+          console.error('Erro ao criar contato:', contactError);
+        } else if (contact) {
+          console.log('Contato criado:', contact.id);
+          chatState.contactId = contact.id;
+          
+          // Criar conversa
+          const { data: conversation, error: conversationError } = await supabaseClient
+            .from('conversations')
+            .insert({
+              company_id: companyId,
+              contact_id: contact.id,
+              channel: 'web',
+              status: 'open',
+            })
+            .select()
+            .single();
+
+          if (conversationError) {
+            console.error('Erro ao criar conversa:', conversationError);
+          } else if (conversation) {
+            console.log('Conversa criada:', conversation.id);
+            chatState.conversationId = conversation.id;
+            chatState.companyId = companyId;
+          }
         }
+      } catch (error) {
+        console.error('Erro geral ao criar contato/conversa:', error);
       }
     }
 
@@ -175,8 +189,10 @@ serve(async (req) => {
             }
             
             chatState.placa = placaSelecionada;
-            response = `✅ Placa selecionada: **${placaSelecionada}**\n\n🔧 É uma **manutenção corretiva**?\n\nResponda: **Sim** ou **Não**`;
             chatState.chamadoStep = 'corretiva';
+            // CRÍTICO: Limpar as placas do state após seleção
+            delete chatState.placas;
+            response = `✅ Placa selecionada: **${placaSelecionada}**\n\n🔧 É uma **manutenção corretiva**?\n\nResponda: **Sim** ou **Não**`;
           }
           break;
 
