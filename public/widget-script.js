@@ -332,19 +332,31 @@
     
     // Nova função para mostrar placas como quick replies
     function showPlacasQuickReplies(placas) {
-      quickRepliesContainer.innerHTML = '';
-      if (!placas || placas.length === 0) return;
+      console.log('=== showPlacasQuickReplies chamado ===');
+      console.log('Placas recebidas:', placas);
+      console.log('Tipo de placas:', typeof placas);
+      console.log('É array?', Array.isArray(placas));
       
+      quickRepliesContainer.innerHTML = '';
+      if (!placas || placas.length === 0) {
+        console.log('Nenhuma placa para mostrar');
+        return;
+      }
+      
+      console.log('Criando botões para', placas.length, 'placas');
       placas.forEach((placa, index) => {
+        console.log(`Criando botão ${index + 1} para placa:`, placa);
         const btn = document.createElement('button');
         btn.className = 'viainfra-quick-reply-btn';
         btn.textContent = `${index + 1}. ${placa}`;
         btn.onclick = () => {
+          console.log('Placa selecionada:', index + 1, placa);
           messageInput.value = (index + 1).toString();
           enviarMensagem();
         };
         quickRepliesContainer.appendChild(btn);
       });
+      console.log('Botões de placas criados no container');
     }
 
   async function iniciarChat() {
@@ -371,11 +383,19 @@
 
       const data = await response.json();
       
+      console.log('Resposta inicial do chat:', data);
+      console.log('State recebido:', data.state);
+      
       addMessage(data.message, true);
       botState = data.state;
       conversationId = data.state?.conversationId;
       
-      if (data.options) {
+      // Verificar se há placas logo na inicialização
+      if (data.state?.placas && data.state.placas.length > 0 && data.state?.mode === 'chamado') {
+        console.log('Mostrando placas na inicialização:', data.state.placas);
+        showPlacasQuickReplies(data.state.placas);
+      } else if (data.options) {
+        console.log('Mostrando quick replies iniciais:', data.options);
         showQuickReplies(data.options);
       }
     } catch (error) {

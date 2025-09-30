@@ -169,8 +169,8 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     setFilteredConversations(result);
   }, [allConversations, searchTerm, selectedChannel, selectedDepartment, activeTab, resolvedConversations]);
 
-  // Loading state - only show skeleton on initial load (when there are no conversations at all)
-  const isInitialLoad = supabaseLoading && allConversations.length === 0 && !refreshTrigger;
+  // Loading state - only show skeleton on very first load (no conversations and first time loading)
+  const isInitialLoad = supabaseLoading && allConversations.length === 0 && refreshTrigger === 0;
   
   if (isInitialLoad) {
     return (

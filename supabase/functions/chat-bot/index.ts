@@ -106,15 +106,19 @@ serve(async (req) => {
         
         // Buscar dados para abertura de chamado
         try {
+          console.log('Iniciando busca de placas...');
           const ultimoChamadoRes = await fetch(`${GOOGLE_SCRIPT_URL}?action=ultimoChamado`);
           const ultimoChamadoData = await ultimoChamadoRes.json();
           chatState.numeroPrevisto = ultimoChamadoData.numeroChamado || 'N/A';
+          console.log('Número previsto:', chatState.numeroPrevisto);
 
           const placasRes = await fetch(`${GOOGLE_SCRIPT_URL}?action=placas`);
           const placasData = await placasRes.json();
           chatState.placas = placasData.placas || [];
 
           console.log('Placas carregadas:', chatState.placas);
+          console.log('Quantidade de placas:', chatState.placas.length);
+          console.log('State completo:', JSON.stringify(chatState));
 
           response = `🎫 **Processo de Abertura de Chamado Iniciado**\n\nNúmero previsto: **${chatState.numeroPrevisto}**\n\n📋 Selecione uma placa:`;
           
@@ -319,8 +323,9 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('Error in chat-bot:', error);
+    console.error('Error stack:', error.stack);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: error.message || 'Unknown error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
