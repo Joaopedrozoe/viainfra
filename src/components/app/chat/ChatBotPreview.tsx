@@ -240,9 +240,6 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
       setTimeout(() => {
         escolherSetor();
       }, 500);
-    } else if (option.includes("💼") || option.includes("🔧") || option.includes("💰") || option.includes("📞") || option.includes("👥")) {
-      // É uma escolha de setor - transferir diretamente
-      handleSetor(option);
     } else if (option === "Menu Principal") {
       setState('start');
       setCurrentFieldIndex(0);
@@ -521,8 +518,9 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    // Usar apenas a lógica manual para evitar duplicação
+                    // Estado específico de escolha de setor
                     if (state === 'escolhendoSetor') {
+                      addMessage(option, 'user');
                       handleSetor(option);
                     } else {
                       handleOption(option);
@@ -539,14 +537,14 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
           <div ref={messagesEndRef} />
         </div>
         
-        {(showInput || state === 'start' || state === 'abrindoChamado' || state === 'atendimento') && (
+        {showInput && (
           <div className="p-4 border-t border-border">
             <div className="flex gap-2">
               <Input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-                placeholder="Digite sua resposta..."
+                placeholder={state === 'atendimento' ? "Digite sua mensagem..." : "Digite sua resposta..."}
                 className="flex-1"
               />
               <Button onClick={sendMessage} size="icon">
