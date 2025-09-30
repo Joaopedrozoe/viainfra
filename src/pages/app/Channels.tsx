@@ -79,50 +79,26 @@ const Channels = () => {
   // Load channels on component mount
   useEffect(() => {
     const loadChannels = () => {
-      let expandedChannels = getDemoChannelsExpanded();
-      
-      // Sempre verifica se há conexão real com API, independente do modo demo
-      expandedChannels = expandedChannels.map(channel => {
-        const hasRealApiConnection = checkRealApiConnection(channel);
-        
-        if (!hasRealApiConnection) {
-          return {
-            ...channel,
-            status: 'disconnected' as const,
-            metrics: {
-              ...channel.metrics,
-              totalMessages: 0,
-              todayMessages: 0,
-              responseTime: 0,
-              lastActivity: '',
-              deliveryRate: 0,
-              errorRate: 0
-            }
-          };
-        }
-        
-        return channel;
-      });
-      
+      const expandedChannels = getDemoChannelsExpanded();
       setChannels(expandedChannels);
     };
     
     loadChannels();
+    
+    // Listen for changes in channels (for updates from other tabs or refresh)
+    const handleStorageChange = () => {
+      loadChannels();
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('channels-updated', handleStorageChange);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('channels-updated', handleStorageChange);
+    };
   }, [isDemoMode]);
 
-  // Função para verificar se há conexão real com API
-  const checkRealApiConnection = (channel: Channel): boolean => {
-    // Para agora, sempre retorna false até termos API real conectada
-    // Quando conectar a API do WhatsApp, esta função verificará:
-    // - Token válido do WhatsApp Cloud API (não demo)
-    // - Phone Number ID real (não mock)
-    // - Webhook funcionando
-    // - Último sync recente (últimas 24h)
-    
-    // TODO: Implementar verificação real quando API for conectada
-    // Por enquanto, sempre retorna false para forçar dados zerados
-    return false;
-  };
 
   const handleChannelComplete = (channelData: any) => {
     if (isDemoMode) {
@@ -178,41 +154,27 @@ const Channels = () => {
   const toggleChannelStatus = (id: string) => {
     const channelToUpdate = channels.find(ch => ch.id === id);
     
-    // Permite WhatsApp e Website em modo não-demo
-    if (!isDemoMode && channelToUpdate?.type !== 'whatsapp' && channelToUpdate?.type !== 'website') {
-      toast.error('Este canal ainda não está disponível. Apenas WhatsApp e Chat do Site estão funcionando no MVP atual.');
-      return;
-    }
+    if (!channelToUpdate) return;
+    
+    const newStatus = channelToUpdate.status === 'connected' ? 'disconnected' : 'connected';
     
     if (isDemoMode) {
-      updateDemoChannelExpanded(id, { 
-        status: channelToUpdate?.status === 'connected' ? 'disconnected' : 'connected' 
-      });
-      setChannels(prev => 
-        prev.map(channel => 
-          channel.id === id 
-            ? { ...channel, status: channel.status === 'connected' ? 'disconnected' : 'connected' }
-            : channel
-        )
-      );
-    } else {
-      // Para modo não-demo, permite conexão do WhatsApp e Website
-      if (channelToUpdate?.type === 'whatsapp' || channelToUpdate?.type === 'website') {
-        setChannels(prev =>
-          prev.map(channel =>
-            channel.id === id 
-              ? { ...channel, status: channel.status === 'connected' ? 'disconnected' : 'connected' }
-              : channel
-          )
-        );
-      }
+      updateDemoChannelExpanded(id, { status: newStatus });
     }
     
-    if (channelToUpdate) {
-      const newStatus = channelToUpdate.status === 'connected' ? 'Desativado' : 'Ativado';
-      const statusMessage = isDemoMode ? ' (Demo)' : '';
-      toast.success(`Canal ${newStatus.toLowerCase()} com sucesso${statusMessage}`);
-    }
+    setChannels(prev => 
+      prev.map(channel => 
+        channel.id === id 
+          ? { ...channel, status: newStatus }
+          : channel
+      )
+    );
+    
+    // Dispatch event to notify dashboard
+    window.dispatchEvent(new CustomEvent('channels-updated'));
+    window.dispatchEvent(new CustomEvent('dashboard-refresh'));
+    
+    toast.success(`Canal ${newStatus === 'connected' ? 'ativado' : 'desativado'} com sucesso${isDemoMode ? ' (Demo)' : ''}`);
   };
 
   const deleteChannel = (id: string) => {

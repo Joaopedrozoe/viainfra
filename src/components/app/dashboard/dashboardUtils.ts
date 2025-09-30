@@ -41,45 +41,8 @@ export const calculateDashboardMetrics = (isDemoMode: boolean = true, previewCon
     conversations = previewConversations;
   }
   
-  if (isDemoMode) {
-    // No modo demo, usa os mesmos dados zerados da página de canais
-    channels = getDemoChannelsExpanded().map(channel => {
-      // Aplica a mesma lógica da página de canais - sem API real = desconectado
-      const hasRealApiConnection = false; // mesmo valor da função checkRealApiConnection
-      
-      if (!hasRealApiConnection) {
-        return {
-          ...channel,
-          status: 'disconnected',
-          metrics: {
-            ...channel.metrics,
-            totalMessages: conversations.length > 0 ? Math.round(Math.random() * 100) : 0,
-            todayMessages: conversations.length > 0 ? Math.round(Math.random() * 20) : 0,
-            responseTime: conversations.length > 0 ? Math.round(Math.random() * 60) : 0,
-            lastActivity: conversations.length > 0 ? new Date().toISOString() : '',
-            deliveryRate: conversations.length > 0 ? 95 + Math.round(Math.random() * 5) : 0,
-            errorRate: conversations.length > 0 ? Math.round(Math.random() * 3) : 0
-          }
-        };
-      }
-      return channel;
-    });
-  } else {
-    // Para dados reais, retorna dados básicos (sem fetch async por enquanto)
-    channels = getDemoChannelsExpanded().map(channel => ({
-      ...channel,
-      status: 'disconnected',
-      metrics: {
-        ...channel.metrics,
-        totalMessages: conversations.length > 0 ? Math.round(Math.random() * 100) : 0,
-        todayMessages: conversations.length > 0 ? Math.round(Math.random() * 20) : 0,
-        responseTime: conversations.length > 0 ? Math.round(Math.random() * 60) : 0,
-        lastActivity: conversations.length > 0 ? new Date().toISOString() : '',
-        deliveryRate: conversations.length > 0 ? 95 + Math.round(Math.random() * 5) : 0,
-        errorRate: conversations.length > 0 ? Math.round(Math.random() * 3) : 0
-      }
-    }));
-  }
+  // Carrega canais do localStorage (mesma fonte que a página Canais)
+  channels = getDemoChannelsExpanded();
   
   // Conversas ativas (consideramos conversas com unread > 0 como ativas)
   const activeConversations = conversations.filter(c => c.unread && c.unread > 0).length;

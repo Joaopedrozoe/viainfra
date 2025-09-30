@@ -10,21 +10,30 @@ import { SystemHealthCheck } from "@/components/app/SystemHealthCheck";
 import { TeamPresence } from "@/components/app/TeamPresence";
 import { InternalChatWindow } from "@/components/app/InternalChatWindow";
 import { useInternalChat, InternalConversation } from "@/hooks/useInternalChat";
+import { useAuth } from "@/contexts/auth";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 
 const Dashboard = () => {
   const [selectedChat, setSelectedChat] = useState<InternalConversation | null>(null);
   const { conversations, createConversation } = useInternalChat();
+  const { user } = useAuth();
 
   const handleStartChat = async (userId: string) => {
-    // Check if conversation already exists
+    // Check if conversation already exists with this exact user
     const existingConversation = conversations.find(
-      conv => !conv.is_group && conv.participants.includes(userId)
+      conv => {
+        // Para conversas não-grupo, verifica se tem exatamente 2 participantes e inclui o userId
+        if (!conv.is_group && conv.participants.length === 2) {
+          return conv.participants.includes(userId) && conv.participants.includes(user?.id || '');
+        }
+        return false;
+      }
     );
 
     if (existingConversation) {
       setSelectedChat(existingConversation);
     } else {
+      // Cria nova conversa com os participantes corretos
       const newConversation = await createConversation([userId]);
       if (newConversation) {
         setSelectedChat(newConversation);

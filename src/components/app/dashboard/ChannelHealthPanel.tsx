@@ -17,43 +17,16 @@ export const ChannelHealthPanel: React.FC = () => {
   const loadChannels = async () => {
     setIsLoading(true);
     try {
-      // Busca conversações ativas por canal para mostrar status real
-      if (!profile?.company_id) {
-        setChannels([]);
-        return;
-      }
-
-      const { data: conversations, error } = await supabase
-        .from('conversations')
-        .select('channel, status, created_at')
-        .eq('company_id', profile.company_id)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      // Agrupa por canal e calcula métricas
-      const channelStats = (conversations || []).reduce((acc: any, conv) => {
-        if (!acc[conv.channel]) {
-          acc[conv.channel] = {
-            id: conv.channel,
-            name: conv.channel.charAt(0).toUpperCase() + conv.channel.slice(1),
-            type: conv.channel,
-            status: 'connected',
-            metrics: {
-              todayMessages: 0,
-              responseTime: 0
-            }
-          };
-        }
-        acc[conv.channel].metrics.todayMessages++;
-        return acc;
-      }, {});
-
-      const channelArray = Object.values(channelStats);
-      setChannels(channelArray.length > 0 ? channelArray : getDemoChannelsExpanded());
+      // Carrega os canais salvos (mesma fonte que a página de Canais usa)
+      const savedChannels = getDemoChannelsExpanded();
+      
+      // Filtra apenas canais conectados para mostrar no dashboard
+      const activeChannels = savedChannels.filter(ch => ch.status === 'connected');
+      
+      setChannels(activeChannels);
     } catch (error) {
       console.error('Error loading channels:', error);
-      setChannels(getDemoChannelsExpanded());
+      setChannels([]);
     } finally {
       setIsLoading(false);
     }
