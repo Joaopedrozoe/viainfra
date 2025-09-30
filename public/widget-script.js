@@ -317,9 +317,6 @@
         btn.className = 'viainfra-quick-reply-btn';
         btn.textContent = option;
         btn.onclick = () => {
-          // Limpar imediatamente os botões
-          quickRepliesContainer.innerHTML = '';
-          
           // Extrair apenas o número do início (ex: "1️⃣ Abrir Chamado" -> "1")
           const match = option.match(/(\d+)/);
           if (match) {
@@ -354,7 +351,6 @@
         btn.textContent = `${index + 1}. ${placa}`;
         btn.onclick = () => {
           console.log('Placa selecionada:', index + 1, placa);
-          quickRepliesContainer.innerHTML = ''; // Limpar imediatamente
           messageInput.value = (index + 1).toString();
           enviarMensagem();
         };

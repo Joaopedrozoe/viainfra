@@ -151,9 +151,9 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
       // Show internal chats
       result = [];
     } else if (activeTab === "bot") {
-      // Show only bot conversations (channel = 'web' and status = 'open' or 'pending')
+      // Show only bot conversations (channel = 'web')
       result = result.filter((conversation) => 
-        conversation.channel === 'web' && !resolvedConversations.has(conversation.id)
+        conversation.channel === 'web' && !(conversation as any).is_preview && !resolvedConversations.has(conversation.id)
       );
     } else if (activeTab === "unread") {
       result = result.filter((conversation) => conversation.unread > 0 && !resolvedConversations.has(conversation.id));
