@@ -67,25 +67,11 @@ export const WebsiteSetup = ({ data, onUpdate }: WebsiteSetupProps) => {
   const supabaseUrl = "https://xxojpfhnkxpbznbmhmua.supabase.co";
   
   const widgetCode = `<!-- Widget de Chat Viainfra -->
-<iframe 
-  src="${window.location.origin}/widget-embed.html" 
-  style="position: fixed; ${formData.position.includes('bottom') ? 'bottom: 20px;' : 'top: 20px;'} ${formData.position.includes('right') ? 'right: 20px;' : 'left: 20px;'} width: 400px; height: 680px; border: none; z-index: 9999; pointer-events: none;"
-  allow="clipboard-write"
-  title="Chat Widget"
-></iframe>
+<!-- Cole este código antes do fechamento da tag </body> -->
+<script src="${window.location.origin}/widget-script.js"></script>
 
-<script>
-  // Permitir cliques no iframe
-  document.querySelector('iframe[title="Chat Widget"]').style.pointerEvents = 'auto';
-</script>
-
-<!-- Ou use o código direto hospedado -->
-<iframe 
-  src="${supabaseUrl}/storage/v1/object/public/widget/widget-embed.html" 
-  style="position: fixed; ${formData.position.includes('bottom') ? 'bottom: 20px;' : 'top: 20px;'} ${formData.position.includes('right') ? 'right: 20px;' : 'left: 20px;'} width: 400px; height: 680px; border: none; z-index: 9999;"
-  allow="clipboard-write"
-  title="Chat Widget"
-></iframe>`;
+<!-- OU se preferir hospedar você mesmo, faça download de widget-script.js e use: -->
+<!-- <script src="https://seusite.com.br/widget-script.js"></script> -->`;
 
   return (
     <div className="space-y-6">
