@@ -282,24 +282,26 @@ serve(async (req) => {
 
             console.log('Google Sheets status:', createRes.status);
             
-            const responseText = await createRes.text();
-            console.log('Google Sheets resposta raw:', responseText);
-            
-            try {
-              chamadoData = JSON.parse(responseText);
-              console.log('Dados parseados:', chamadoData);
+            // Se status é 200 ou 201, considerar sucesso SEMPRE
+            if (createRes.status === 200 || createRes.status === 201) {
               googleSheetsSucesso = true;
-            } catch (parseError) {
-              console.error('Erro ao fazer parse, mas chamado pode ter sido criado:', parseError);
-              // Se deu erro no parse mas status foi 200, considerar sucesso
-              if (createRes.status === 200) {
-                console.log('Status 200, considerando sucesso mesmo sem parse');
-                googleSheetsSucesso = true;
+              console.log('✅ Status', createRes.status, '- Considerando criação bem-sucedida');
+              
+              const responseText = await createRes.text();
+              console.log('Google Sheets resposta raw:', responseText);
+              
+              try {
+                chamadoData = JSON.parse(responseText);
+                console.log('Dados parseados:', chamadoData);
+              } catch (parseError) {
+                console.log('⚠️ Erro ao fazer parse JSON, mas chamado foi criado (status', createRes.status, ')');
                 chamadoData = { 
                   numeroChamado: chatState.numeroPrevisto,
                   ID: 'N/A'
                 };
               }
+            } else {
+              console.error('❌ Google Sheets retornou status', createRes.status);
             }
 
           } catch (googleError) {
