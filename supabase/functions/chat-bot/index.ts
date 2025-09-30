@@ -114,13 +114,13 @@ serve(async (req) => {
           const placasData = await placasRes.json();
           chatState.placas = placasData.placas || [];
 
-          response = `🎫 **Processo de Abertura de Chamado Iniciado**\n\nNúmero previsto: **${chatState.numeroPrevisto}**\n\n📋 Selecione uma placa cadastrada ou digite uma nova:\n\n`;
+          response = `🎫 **Processo de Abertura de Chamado Iniciado**\n\nNúmero previsto: **${chatState.numeroPrevisto}**\n\n📋 Selecione uma placa digitando o número correspondente:\n\n`;
           chatState.placas.forEach((placa, i) => {
             response += `${i + 1}. ${placa}\n`;
           });
-          response += `\nOu digite a placa manualmente.`;
+          response += `\nOu digite uma placa manualmente (ex: ABC1234).`;
           
-          chatState.chamadoStep = 'placa';
+          options = [];
         } catch (error) {
           console.error('Erro ao buscar dados:', error);
           response = '❌ Erro ao iniciar processo de chamado. Tente novamente ou fale com um atendente.';
@@ -152,8 +152,32 @@ serve(async (req) => {
       }
 
     } else if (chatState.mode === 'chamado') {
-      // Fluxo de abertura de chamado (igual ao anterior)
+      // Fluxo de abertura de chamado
       switch (chatState.chamadoStep) {
+        case 'inicio':
+          // Aguardando seleção da placa
+          const input = userMessage?.trim();
+          if (!input) {
+            response = '❌ Por favor, selecione uma placa da lista ou digite uma placa válida.';
+          } else {
+            // Verificar se é um número (seleção da lista)
+            const numeroSelecionado = parseInt(input);
+            let placaSelecionada = '';
+            
+            if (!isNaN(numeroSelecionado) && chatState.placas && numeroSelecionado > 0 && numeroSelecionado <= chatState.placas.length) {
+              // Selecionou da lista
+              placaSelecionada = chatState.placas[numeroSelecionado - 1];
+            } else {
+              // Digite manualmente
+              placaSelecionada = input.toUpperCase();
+            }
+            
+            chatState.placa = placaSelecionada;
+            response = `✅ Placa selecionada: **${placaSelecionada}**\n\n🔧 É uma **manutenção corretiva**?\n\nResponda: **Sim** ou **Não**`;
+            chatState.chamadoStep = 'corretiva';
+          }
+          break;
+
         case 'placa':
           const placaInput = userMessage?.trim().toUpperCase();
           if (!placaInput) {

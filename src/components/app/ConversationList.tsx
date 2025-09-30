@@ -2,14 +2,13 @@ import { useState, useEffect } from "react";
 import { SearchHeader } from "./conversation/SearchHeader";
 import { ConversationItem } from "./conversation/ConversationItem";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { apiClient } from "@/lib/api-client";
 import { logger } from "@/lib/logger";
 import { Conversation, Channel } from "@/types/conversation";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePreviewConversation } from "@/contexts/PreviewConversationContext";
 import { ConversationStorage } from "@/lib/conversation-storage";
+import { useConversations } from "@/hooks/useConversations";
 
-// Forçar re-render quando há mudanças nas conversas de preview
 let conversationUpdateCounter = 0;
 
 interface ConversationListProps {
@@ -19,58 +18,80 @@ interface ConversationListProps {
   onResolveConversation?: (id: string) => void;
 }
 
-// Função para expor o resolve conversation para componentes externos
 export const resolveConversation = (conversationId: string) => {
   ConversationStorage.addResolvedConversation(conversationId);
 };
 
 export const ConversationList = ({ onSelectConversation, selectedId, refreshTrigger, onResolveConversation }: ConversationListProps) => {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [allConversations, setAllConversations] = useState<Conversation[]>([]);
   const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedChannel, setSelectedChannel] = useState<Channel | "all">("all");
   const [selectedDepartment, setSelectedDepartment] = useState<string | "all">("all");
   const [activeTab, setActiveTab] = useState<"all" | "unread" | "preview" | "resolved">("all");
-  const [isLoading, setIsLoading] = useState(true);
   const [resolvedConversations, setResolvedConversations] = useState<Set<string>>(() => {
     return ConversationStorage.getResolvedConversations();
   });
   const { previewConversations } = usePreviewConversation();
+  const { conversations: supabaseConversations, loading: supabaseLoading, refetch } = useConversations();
 
   // Sync resolved conversations from localStorage when component mounts or refreshes
   useEffect(() => {
     setResolvedConversations(ConversationStorage.getResolvedConversations());
   }, [refreshTrigger]);
 
-  // SOLUÇÃO DIRETA: Sempre mostrar conversas de preview
+  // Refetch Supabase conversations when refresh is triggered
   useEffect(() => {
-    logger.debug('ConversationList: Updating with preview conversations:', previewConversations.length);
+    if (refreshTrigger) {
+      refetch();
+    }
+  }, [refreshTrigger, refetch]);
+
+  // Combine preview and Supabase conversations
+  useEffect(() => {
+    logger.debug('Updating conversations - Preview:', previewConversations.length, 'Supabase:', supabaseConversations.length);
     
-    // Mapear conversas de preview para o formato correto SEMPRE
-    const processedConversations = previewConversations.map(conv => {
-      logger.debug('Processing conversation:', conv.id, conv.name);
+    // Map preview conversations
+    const processedPreviewConversations = previewConversations.map(conv => ({
+      id: conv.id,
+      name: conv.name,
+      channel: conv.channel as Channel,
+      preview: conv.preview,
+      time: conv.time,
+      unread: conv.unread || 1,
+      is_preview: true
+    } as Conversation & { is_preview: boolean }));
+    
+    // Map Supabase conversations
+    const processedSupabaseConversations = supabaseConversations.map(conv => {
+      const lastMessage = conv.messages && conv.messages.length > 0 
+        ? conv.messages[conv.messages.length - 1] 
+        : null;
+      
       return {
         id: conv.id,
-        name: conv.name,
+        name: conv.contact?.name || 'Cliente Web',
         channel: conv.channel as Channel,
-        preview: conv.preview,
-        time: conv.time,
-        unread: conv.unread || 1,
-        is_preview: true
+        preview: lastMessage?.content || 'Nova conversa',
+        time: new Date(conv.updated_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        unread: conv.status === 'open' || conv.status === 'pending' ? 1 : 0,
+        avatar: conv.contact?.avatar_url,
+        is_preview: false
       } as Conversation & { is_preview: boolean };
     });
     
-    logger.debug('Setting conversations:', processedConversations.length);
-    setConversations(processedConversations);
-    setIsLoading(false);
-  }, [previewConversations]);
+    // Combine both lists
+    const combined = [...processedSupabaseConversations, ...processedPreviewConversations];
+    logger.debug('Combined conversations:', combined.length);
+    setAllConversations(combined);
+  }, [previewConversations, supabaseConversations]);
 
   // Handle conversation selection
   const handleConversationSelect = (conversationId: string) => {
     onSelectConversation(conversationId);
     
-    // Mark conversation as read (for preview conversations, update locally)
-    setConversations(prev => 
+    // Mark conversation as read
+    setAllConversations(prev => 
       prev.map(conv => 
         conv.id === conversationId ? { ...conv, unread: 0 } : conv
       )
@@ -84,23 +105,22 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     setResolvedConversations(ConversationStorage.getResolvedConversations());
     
     // Mark as read when resolved
-    setConversations(prev => 
+    setAllConversations(prev => 
       prev.map(conv => 
         conv.id === conversationId ? { ...conv, unread: 0 } : conv
       )
     );
     
-    // Call parent callback if provided
     onResolveConversation?.(conversationId);
   };
 
-  // Apply filters when conversations, search term, channel or active tab changes
+  // Apply filters
   useEffect(() => {
     logger.debug('Filtering conversations...');
     
-    let result = [...conversations];
+    let result = [...allConversations];
 
-    // Apply search filter if search term exists
+    // Apply search filter
     if (searchTerm) {
       result = result.filter((conversation) =>
         conversation.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -113,13 +133,10 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
       result = result.filter((conversation) => conversation.channel === selectedChannel);
     }
 
-    // Apply department filter if needed
+    // Apply department filter
     if (selectedDepartment !== "all") {
-      // For now, we'll filter based on a random assignment since conversations don't have departments yet
-      // In a real implementation, conversations would have department assignment
+      const departments = ["atendimento", "comercial", "manutencao", "financeiro", "rh"];
       result = result.filter((conversation) => {
-        // Simulate department assignment based on conversation ID
-        const departments = ["atendimento", "comercial", "manutencao", "financeiro", "rh"];
         const assignedDept = departments[parseInt(conversation.id) % departments.length];
         return assignedDept === selectedDepartment;
       });
@@ -133,16 +150,15 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     } else if (activeTab === "resolved") {
       result = result.filter((conversation) => resolvedConversations.has(conversation.id));
     } else if (activeTab === "all") {
-      // Show all non-resolved conversations
       result = result.filter((conversation) => !resolvedConversations.has(conversation.id));
     }
 
     logger.debug('Final filtered conversations:', result.length);
     setFilteredConversations(result);
-  }, [conversations, searchTerm, selectedChannel, selectedDepartment, activeTab, resolvedConversations]);
+  }, [allConversations, searchTerm, selectedChannel, selectedDepartment, activeTab, resolvedConversations]);
 
   // Loading state
-  if (isLoading) {
+  if (supabaseLoading && allConversations.length === 0) {
     return (
       <div className="flex flex-col h-full">
         <SearchHeader 
@@ -191,10 +207,10 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
             Todas
           </TabsTrigger>
           <TabsTrigger value="unread" className="text-xs">
-            Não lidas {conversations.filter(c => c.unread > 0 && !resolvedConversations.has(c.id)).length > 0 && `(${conversations.filter(c => c.unread > 0 && !resolvedConversations.has(c.id)).length})`}
+            Não lidas {allConversations.filter(c => c.unread > 0 && !resolvedConversations.has(c.id)).length > 0 && `(${allConversations.filter(c => c.unread > 0 && !resolvedConversations.has(c.id)).length})`}
           </TabsTrigger>
           <TabsTrigger value="preview" className="text-xs">
-            Preview {conversations.filter(c => (c as any).is_preview === true && !resolvedConversations.has(c.id)).length > 0 && `(${conversations.filter(c => (c as any).is_preview === true && !resolvedConversations.has(c.id)).length})`}
+            Preview {allConversations.filter(c => (c as any).is_preview === true && !resolvedConversations.has(c.id)).length > 0 && `(${allConversations.filter(c => (c as any).is_preview === true && !resolvedConversations.has(c.id)).length})`}
           </TabsTrigger>
           <TabsTrigger value="resolved" className="text-xs">
             Resolvidas {resolvedConversations.size > 0 && `(${resolvedConversations.size})`}
