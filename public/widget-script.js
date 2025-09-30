@@ -308,27 +308,44 @@
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
 
-  function showQuickReplies(options) {
-    quickRepliesContainer.innerHTML = '';
-    if (!options || options.length === 0) return;
-
-    options.forEach(option => {
-      const btn = document.createElement('button');
-      btn.className = 'viainfra-quick-reply-btn';
-      btn.textContent = option;
-      btn.onclick = () => {
-        // Extrair apenas o número do início (ex: "1️⃣ Abrir Chamado" -> "1")
-        const match = option.match(/(\d+)/);
-        if (match) {
-          messageInput.value = match[1];
-        } else {
-          messageInput.value = option;
-        }
-        enviarMensagem();
-      };
-      quickRepliesContainer.appendChild(btn);
-    });
-  }
+    function showQuickReplies(options) {
+      quickRepliesContainer.innerHTML = '';
+      if (!options || options.length === 0) return;
+      
+      options.forEach(option => {
+        const btn = document.createElement('button');
+        btn.className = 'viainfra-quick-reply-btn';
+        btn.textContent = option;
+        btn.onclick = () => {
+          // Extrair apenas o número do início (ex: "1️⃣ Abrir Chamado" -> "1")
+          const match = option.match(/(\d+)/);
+          if (match) {
+            messageInput.value = match[1];
+          } else {
+            messageInput.value = option;
+          }
+          enviarMensagem();
+        };
+        quickRepliesContainer.appendChild(btn);
+      });
+    }
+    
+    // Nova função para mostrar placas como quick replies
+    function showPlacasQuickReplies(placas) {
+      quickRepliesContainer.innerHTML = '';
+      if (!placas || placas.length === 0) return;
+      
+      placas.forEach((placa, index) => {
+        const btn = document.createElement('button');
+        btn.className = 'viainfra-quick-reply-btn';
+        btn.textContent = `${index + 1}. ${placa}`;
+        btn.onclick = () => {
+          messageInput.value = (index + 1).toString();
+          enviarMensagem();
+        };
+        quickRepliesContainer.appendChild(btn);
+      });
+    }
 
   async function iniciarChat() {
     isProcessing = true;
@@ -398,8 +415,11 @@
       
       addMessage(data.message, true);
       botState = data.state;
-
-      if (data.options) {
+      
+      // Verificar se há placas para mostrar como quick replies
+      if (data.state?.placas && data.state.placas.length > 0 && data.state.chamadoStep === 'inicio') {
+        showPlacasQuickReplies(data.state.placas);
+      } else if (data.options) {
         showQuickReplies(data.options);
       }
     } catch (error) {

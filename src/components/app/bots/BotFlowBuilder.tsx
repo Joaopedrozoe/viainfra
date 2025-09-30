@@ -191,206 +191,277 @@ const getInitialNodes = (): Node[] => [
   {
     id: 'start-1',
     type: 'start',
-    position: { x: 250, y: 0 },
+    position: { x: 400, y: 0 },
     data: { 
       label: 'Início',
-      message: 'Bem-vindo ao autoatendimento da ViaInfra 👋\nComo podemos ajudar hoje?'
+      message: '👋 Olá! Bem-vindo à Viainfra!\n\nComo posso ajudar você hoje?'
     }
   },
   {
     id: 'menu-1', 
     type: 'question',
-    position: { x: 250, y: 120 },
+    position: { x: 400, y: 120 },
     data: {
       label: 'Menu Principal',
       question: 'Escolha uma opção:',
-      options: ['Abertura de Chamado', 'Falar com Atendente']
+      options: ['1️⃣ Abrir Chamado', '2️⃣ Falar com Atendente', '3️⃣ Consultar Chamado', '4️⃣ FAQ / Dúvidas']
     }
   },
   {
-    id: 'chamado-1',
+    id: 'chamado-inicio',
     type: 'action',
     position: { x: 100, y: 280 },
     data: {
-      label: 'Processo de Chamado',
-      actionType: 'form',
-      action: 'Coletar dados do chamado',
-      fields: [
-        { key: 'PLACA', placeholder: 'Informe a placa do veículo', type: 'text', required: true },
-        { key: 'CORRETIVA', placeholder: 'Sim ou Não', type: 'select', options: ['Sim', 'Não'], required: true },
-        { key: 'CANTEIRO OU OFICINA', placeholder: 'Canteiro ou Oficina', type: 'select', options: ['Canteiro', 'Oficina'], required: true },
-        { key: 'AGENDAMENTO', placeholder: 'Data e hora (ex: 25/08/2025 14:30)', type: 'text', required: true },
-        { key: 'DESCRIÇÃO', placeholder: 'Descreva o problema ou necessidade', type: 'textarea', required: true }
-      ]
+      label: 'Buscar Dados Chamado',
+      actionType: 'api',
+      action: 'Buscar último chamado e placas da API Google Sheets'
     }
   },
   {
-    id: 'setor-1',
+    id: 'chamado-placa',
     type: 'question',
+    position: { x: 100, y: 400 },
+    data: {
+      label: 'Selecionar Placa',
+      question: '📋 Selecione uma placa:',
+      options: ['Lista dinâmica de placas da API']
+    }
+  },
+  {
+    id: 'chamado-corretiva',
+    type: 'question',
+    position: { x: 100, y: 520 },
+    data: {
+      label: 'Tipo de Manutenção',
+      question: '🔧 É uma manutenção corretiva?',
+      options: ['Sim', 'Não']
+    }
+  },
+  {
+    id: 'chamado-local',
+    type: 'question',
+    position: { x: 100, y: 640 },
+    data: {
+      label: 'Local do Atendimento',
+      question: '📍 Qual o local do atendimento?',
+      options: ['Canteiro', 'Oficina']
+    }
+  },
+  {
+    id: 'chamado-agendamento',
+    type: 'action',
+    position: { x: 100, y: 760 },
+    data: {
+      label: 'Data e Hora',
+      actionType: 'input',
+      action: '📅 Informe a data e hora do agendamento (ex: 25/12/2024 14:30)'
+    }
+  },
+  {
+    id: 'chamado-descricao',
+    type: 'action',
+    position: { x: 100, y: 880 },
+    data: {
+      label: 'Descrição',
+      actionType: 'input',
+      action: '📝 Descreva o problema/serviço necessário'
+    }
+  },
+  {
+    id: 'chamado-criar',
+    type: 'action',
+    position: { x: 100, y: 1000 },
+    data: {
+      label: 'Criar Chamado',
+      actionType: 'api',
+      action: 'Enviar dados para Google Sheets e salvar no Supabase'
+    }
+  },
+  {
+    id: 'chamado-sucesso',
+    type: 'message',
+    position: { x: 100, y: 1120 },
+    data: {
+      label: 'Chamado Criado',
+      message: '✅ Chamado criado com sucesso!\n\nDigite 0 para voltar ao menu principal.'
+    }
+  },
+  {
+    id: 'atendente-inicio',
+    type: 'action',
     position: { x: 400, y: 280 },
     data: {
-      label: 'Escolha do Setor',
-      question: 'Selecione o setor para transferência:',
-      options: ['Atendimento', 'Comercial', 'Manutenção', 'Financeiro', 'RH']
-    }
-  },
-  {
-    id: 'transfer-atendimento',
-    type: 'action',
-    position: { x: 600, y: 320 },
-    data: {
-      label: 'Transferir - Atendimento',
+      label: 'Transferir Atendente',
       actionType: 'transfer',
-      action: 'Transferir para Joicy Souza (Atendimento)'
+      action: 'Atualizar status da conversa para "pending" e aguardar atendente'
     }
   },
   {
-    id: 'transfer-comercial',
-    type: 'action',
-    position: { x: 600, y: 380 },
+    id: 'atendente-aguardando',
+    type: 'message',
+    position: { x: 400, y: 400 },
     data: {
-      label: 'Transferir - Comercial',
-      actionType: 'transfer',
-      action: 'Transferir para Elisabete Silva (Comercial)'
+      label: 'Aguardando',
+      message: '👤 Aguarde um momento...\n\nEstou transferindo você para um atendente.\n\nDigite 0 para voltar ao menu.'
     }
   },
   {
-    id: 'transfer-manutencao',
+    id: 'consultar-chamado',
     type: 'action',
-    position: { x: 600, y: 440 },
+    position: { x: 700, y: 280 },
     data: {
-      label: 'Transferir - Manutenção',
-      actionType: 'transfer',
-      action: 'Transferir para Suelem Souza (Manutenção)'
+      label: 'Consultar Chamado',
+      actionType: 'input',
+      action: '🔍 Informe o número do chamado'
     }
   },
   {
-    id: 'transfer-financeiro',
-    type: 'action',
-    position: { x: 600, y: 500 },
-    data: {
-      label: 'Transferir - Financeiro',
-      actionType: 'transfer',
-      action: 'Transferir para Giovanna Ferreira (Financeiro)'
-    }
-  },
-  {
-    id: 'transfer-rh',
-    type: 'action',
-    position: { x: 600, y: 560 },
-    data: {
-      label: 'Transferir - RH',
-      actionType: 'transfer',
-      action: 'Transferir para Sandra Romano (RH)'
-    }
-  },
-  {
-    id: 'opcoes-pos-chamado',
+    id: 'faq',
     type: 'question',
-    position: { x: 100, y: 420 },
+    position: { x: 1000, y: 280 },
     data: {
-      label: 'Opções Pós-Chamado',
-      question: 'O que deseja fazer agora?',
-      options: ['Falar com Atendente', 'Menu Principal']
+      label: 'FAQ',
+      question: '❓ Perguntas Frequentes:',
+      options: ['Como abrir chamado?', 'Tempo de atendimento?', 'Acompanhar chamado?', 'Horário de funcionamento']
     }
   },
   {
     id: 'end-conversation',
     type: 'end',
-    position: { x: 250, y: 620 },
+    position: { x: 400, y: 1240 },
     data: {
-      label: 'Encerrar Conversa',
-      message: 'Obrigado por utilizar nosso atendimento! 👋'
+      label: 'Fim',
+      message: 'Conversa encerrada ou aguardando próxima ação'
     }
   }
 ];
 
 const getInitialEdges = (): Edge[] => [
+  // Menu principal
   {
-    id: 'e1-2',
+    id: 'e-start-menu',
     source: 'start-1',
     target: 'menu-1',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
+  // Opção 1: Abrir Chamado
   {
-    id: 'e2-3',
+    id: 'e-menu-chamado',
     source: 'menu-1',
-    target: 'chamado-1',
+    target: 'chamado-inicio',
     type: 'smoothstep',
-    label: 'Abertura de Chamado',
+    label: '1️⃣ Abrir Chamado',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
   {
-    id: 'e2-4',
-    source: 'menu-1', 
-    target: 'setor-1',
-    type: 'smoothstep',
-    label: 'Falar com Atendente',
-    markerEnd: { type: MarkerType.ArrowClosed }
-  },
-  {
-    id: 'e3-opcoes',
-    source: 'chamado-1',
-    target: 'opcoes-pos-chamado',
-    type: 'smoothstep',
-    markerEnd: { type: MarkerType.ArrowClosed }
-  },
-  // Fluxo das opções pós-chamado
-  {
-    id: 'e-opcoes-atendente',
-    source: 'opcoes-pos-chamado',
-    target: 'setor-1',
-    label: 'Falar com Atendente',
+    id: 'e-chamado-placa',
+    source: 'chamado-inicio',
+    target: 'chamado-placa',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
   {
-    id: 'e-opcoes-menu',
-    source: 'opcoes-pos-chamado',
-    target: 'start-1',
-    label: 'Menu Principal',
-    type: 'smoothstep',
-    markerEnd: { type: MarkerType.ArrowClosed }
-  },
-  // Conexões diretas para cada transferência específica
-  {
-    id: 'e-setor-atendimento',
-    source: 'setor-1',
-    target: 'transfer-atendimento',
-    label: 'Atendimento',
+    id: 'e-placa-corretiva',
+    source: 'chamado-placa',
+    target: 'chamado-corretiva',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
   {
-    id: 'e-setor-comercial',
-    source: 'setor-1',
-    target: 'transfer-comercial',
-    label: 'Comercial',
+    id: 'e-corretiva-local',
+    source: 'chamado-corretiva',
+    target: 'chamado-local',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
   {
-    id: 'e-setor-manutencao',
-    source: 'setor-1',
-    target: 'transfer-manutencao',
-    label: 'Manutenção',
+    id: 'e-local-agendamento',
+    source: 'chamado-local',
+    target: 'chamado-agendamento',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
   {
-    id: 'e-setor-financeiro',
-    source: 'setor-1',
-    target: 'transfer-financeiro',
-    label: 'Financeiro',
+    id: 'e-agendamento-descricao',
+    source: 'chamado-agendamento',
+    target: 'chamado-descricao',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   },
   {
-    id: 'e-setor-rh',
-    source: 'setor-1',
-    target: 'transfer-rh',
-    label: 'RH',
+    id: 'e-descricao-criar',
+    source: 'chamado-descricao',
+    target: 'chamado-criar',
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed }
+  },
+  {
+    id: 'e-criar-sucesso',
+    source: 'chamado-criar',
+    target: 'chamado-sucesso',
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed }
+  },
+  {
+    id: 'e-sucesso-end',
+    source: 'chamado-sucesso',
+    target: 'end-conversation',
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed }
+  },
+  // Opção 2: Falar com Atendente
+  {
+    id: 'e-menu-atendente',
+    source: 'menu-1',
+    target: 'atendente-inicio',
+    type: 'smoothstep',
+    label: '2️⃣ Falar com Atendente',
+    markerEnd: { type: MarkerType.ArrowClosed }
+  },
+  {
+    id: 'e-atendente-aguardando',
+    source: 'atendente-inicio',
+    target: 'atendente-aguardando',
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed }
+  },
+  {
+    id: 'e-aguardando-end',
+    source: 'atendente-aguardando',
+    target: 'end-conversation',
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed }
+  },
+  // Opção 3: Consultar Chamado
+  {
+    id: 'e-menu-consultar',
+    source: 'menu-1',
+    target: 'consultar-chamado',
+    type: 'smoothstep',
+    label: '3️⃣ Consultar',
+    markerEnd: { type: MarkerType.ArrowClosed }
+  },
+  {
+    id: 'e-consultar-end',
+    source: 'consultar-chamado',
+    target: 'end-conversation',
+    type: 'smoothstep',
+    markerEnd: { type: MarkerType.ArrowClosed }
+  },
+  // Opção 4: FAQ
+  {
+    id: 'e-menu-faq',
+    source: 'menu-1',
+    target: 'faq',
+    type: 'smoothstep',
+    label: '4️⃣ FAQ',
+    markerEnd: { type: MarkerType.ArrowClosed }
+  },
+  {
+    id: 'e-faq-end',
+    source: 'faq',
+    target: 'end-conversation',
     type: 'smoothstep',
     markerEnd: { type: MarkerType.ArrowClosed }
   }

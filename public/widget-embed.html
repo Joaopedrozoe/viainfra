@@ -425,7 +425,7 @@
       function showQuickReplies(options) {
         quickRepliesContainer.innerHTML = '';
         if (!options || options.length === 0) return;
-
+        
         options.forEach(option => {
           const btn = document.createElement('button');
           btn.className = 'quick-reply-btn';
@@ -441,6 +441,23 @@
               // Se não encontrar número, envia o texto completo
               messageInput.value = option;
             }
+            enviarMensagem();
+          };
+          quickRepliesContainer.appendChild(btn);
+        });
+      }
+      
+      // Nova função para mostrar placas como quick replies
+      function showPlacasQuickReplies(placas) {
+        quickRepliesContainer.innerHTML = '';
+        if (!placas || placas.length === 0) return;
+        
+        placas.forEach((placa, index) => {
+          const btn = document.createElement('button');
+          btn.className = 'quick-reply-btn';
+          btn.textContent = `${index + 1}. ${placa}`;
+          btn.onclick = () => {
+            messageInput.value = (index + 1).toString();
             enviarMensagem();
           };
           quickRepliesContainer.appendChild(btn);
@@ -536,7 +553,10 @@
           addMessage(data.message, true);
           botState = data.state;
 
-          if (data.options) {
+          // Verificar se há placas para mostrar como quick replies
+          if (data.state?.placas && data.state.placas.length > 0 && data.state.chamadoStep === 'inicio') {
+            showPlacasQuickReplies(data.state.placas);
+          } else if (data.options) {
             console.log('Exibindo quick replies:', data.options);
             showQuickReplies(data.options);
           }

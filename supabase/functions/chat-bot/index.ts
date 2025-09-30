@@ -114,13 +114,9 @@ serve(async (req) => {
           const placasData = await placasRes.json();
           chatState.placas = placasData.placas || [];
 
-          response = `🎫 **Processo de Abertura de Chamado Iniciado**\n\nNúmero previsto: **${chatState.numeroPrevisto}**\n\n📋 Selecione uma placa digitando o número correspondente:\n\n`;
-          chatState.placas.forEach((placa, i) => {
-            response += `${i + 1}. ${placa}\n`;
-          });
-          response += `\nOu digite uma placa manualmente (ex: ABC1234).`;
+          response = `🎫 **Processo de Abertura de Chamado Iniciado**\n\nNúmero previsto: **${chatState.numeroPrevisto}**\n\n📋 Selecione uma placa:`;
           
-          options = [];
+          options = []; // Não enviamos options aqui, as placas vão como parte do state
         } catch (error) {
           console.error('Erro ao buscar dados:', error);
           response = '❌ Erro ao iniciar processo de chamado. Tente novamente ou fale com um atendente.';

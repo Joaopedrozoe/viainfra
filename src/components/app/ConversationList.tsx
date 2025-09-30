@@ -31,7 +31,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedChannel, setSelectedChannel] = useState<Channel | "all">("all");
   const [selectedDepartment, setSelectedDepartment] = useState<string | "all">("all");
-  const [activeTab, setActiveTab] = useState<"all" | "unread" | "preview" | "resolved" | "internal">("all");
+  const [activeTab, setActiveTab] = useState<"all" | "unread" | "bot" | "preview" | "resolved" | "internal">("all");
   const [resolvedConversations, setResolvedConversations] = useState<Set<string>>(() => {
     return ConversationStorage.getResolvedConversations();
   });
@@ -150,6 +150,11 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     if (activeTab === "internal") {
       // Show internal chats
       result = [];
+    } else if (activeTab === "bot") {
+      // Show only bot conversations (channel = 'web' and status = 'open' or 'pending')
+      result = result.filter((conversation) => 
+        conversation.channel === 'web' && !resolvedConversations.has(conversation.id)
+      );
     } else if (activeTab === "unread") {
       result = result.filter((conversation) => conversation.unread > 0 && !resolvedConversations.has(conversation.id));
     } else if (activeTab === "preview") {
@@ -209,12 +214,15 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         onDepartmentChange={setSelectedDepartment} 
       />
       <Tabs value={activeTab} onValueChange={setActiveTab as (value: string) => void} className="px-4 pt-2">
-        <TabsList className="w-full grid grid-cols-5 text-xs">
+        <TabsList className="w-full grid grid-cols-6 text-xs">
           <TabsTrigger value="all" className="text-xs">
             Todas
           </TabsTrigger>
           <TabsTrigger value="unread" className="text-xs">
             Não lidas {allConversations.filter(c => c.unread > 0 && !resolvedConversations.has(c.id)).length > 0 && `(${allConversations.filter(c => c.unread > 0 && !resolvedConversations.has(c.id)).length})`}
+          </TabsTrigger>
+          <TabsTrigger value="bot" className="text-xs">
+            Bot {allConversations.filter(c => c.channel === 'web' && !resolvedConversations.has(c.id)).length > 0 && `(${allConversations.filter(c => c.channel === 'web' && !resolvedConversations.has(c.id)).length})`}
           </TabsTrigger>
           <TabsTrigger value="internal" className="text-xs flex items-center gap-1">
             <Users className="h-3 w-3" />
