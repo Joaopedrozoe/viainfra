@@ -40,12 +40,12 @@ export const mockChannelsExpanded: Channel[] = [
       }
     },
     metrics: {
-      totalMessages: 1547,
-      todayMessages: 23,
-      responseTime: 45,
-      lastActivity: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-      deliveryRate: 98.5,
-      errorRate: 1.2
+      totalMessages: 0,
+      todayMessages: 0,
+      responseTime: 0,
+      lastActivity: '',
+      deliveryRate: 0,
+      errorRate: 0
     },
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString(),
     updatedAt: new Date().toISOString(),
@@ -79,12 +79,12 @@ export const mockChannelsExpanded: Channel[] = [
       }
     },
     metrics: {
-      totalMessages: 892,
-      todayMessages: 15,
-      responseTime: 120,
-      lastActivity: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-      deliveryRate: 95.8,
-      errorRate: 2.1
+      totalMessages: 0,
+      todayMessages: 0,
+      responseTime: 0,
+      lastActivity: '',
+      deliveryRate: 0,
+      errorRate: 0
     },
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 20).toISOString(),
     updatedAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
@@ -159,12 +159,12 @@ export const mockChannelsExpanded: Channel[] = [
       }
     },
     metrics: {
-      totalMessages: 456,
-      todayMessages: 8,
-      responseTime: 1800, // 30 minutos
-      lastActivity: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
-      deliveryRate: 99.2,
-      errorRate: 0.3
+      totalMessages: 0,
+      todayMessages: 0,
+      responseTime: 0,
+      lastActivity: '',
+      deliveryRate: 0,
+      errorRate: 0
     },
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 60).toISOString(),
     updatedAt: new Date(Date.now() - 1000 * 60 * 10).toISOString(),
@@ -200,12 +200,12 @@ export const mockChannelsExpanded: Channel[] = [
       }
     },
     metrics: {
-      totalMessages: 2103,
-      todayMessages: 34,
-      responseTime: 30,
-      lastActivity: new Date(Date.now() - 1000 * 60 * 2).toISOString(),
-      deliveryRate: 100,
-      errorRate: 0.1
+      totalMessages: 0,
+      todayMessages: 0,
+      responseTime: 0,
+      lastActivity: '',
+      deliveryRate: 0,
+      errorRate: 0
     },
     createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 90).toISOString(),
     updatedAt: new Date().toISOString(),
