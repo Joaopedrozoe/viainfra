@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CheckCircle, Globe, Copy } from "lucide-react";
+import { toast } from "sonner";
 
 interface WebsiteSetupProps {
   data: any;
@@ -63,19 +64,21 @@ export const WebsiteSetup = ({ data, onUpdate }: WebsiteSetupProps) => {
     }, 1500);
   };
 
-  const widgetCode = `<script>
-  (function() {
-    var widget = document.createElement('div');
-    widget.id = 'chat-widget-${Date.now()}';
-    widget.style.cssText = 'position:fixed;${formData.position.includes('bottom') ? 'bottom:20px;' : 'top:20px;'}${formData.position.includes('right') ? 'right:20px;' : 'left:20px;'}z-index:9999;';
-    document.body.appendChild(widget);
-    
-    var script = document.createElement('script');
-    script.src = 'https://app.exemplo.com/widget.js';
-    script.async = true;
-    document.head.appendChild(script);
-  })();
-</script>`;
+  const supabaseUrl = "https://xxojpfhnkxpbznbmhmua.supabase.co";
+  
+  const widgetCode = `<!-- Widget de Chat Viainfra -->
+<iframe 
+  src="${window.location.origin}/widget-embed.html" 
+  style="position: fixed; ${formData.position.includes('bottom') ? 'bottom: 0;' : 'top: 0;'} ${formData.position.includes('right') ? 'right: 0;' : 'left: 0;'} width: 400px; height: 600px; border: none; z-index: 9999;"
+  title="Chat Widget"
+></iframe>
+
+<!-- Ou use o código direto hospedado -->
+<iframe 
+  src="${supabaseUrl}/storage/v1/object/public/widget/widget-embed.html" 
+  style="position: fixed; ${formData.position.includes('bottom') ? 'bottom: 0;' : 'top: 0;'} ${formData.position.includes('right') ? 'right: 0;' : 'left: 0;'} width: 400px; height: 600px; border: none; z-index: 9999;"
+  title="Chat Widget"
+></iframe>`;
 
   return (
     <div className="space-y-6">
@@ -258,18 +261,37 @@ export const WebsiteSetup = ({ data, onUpdate }: WebsiteSetupProps) => {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+              <h4 className="font-semibold text-sm mb-2 text-blue-900">📋 Instruções de Instalação:</h4>
+              <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
+                <li>O arquivo do widget está em <code className="bg-blue-100 px-1 rounded">public/widget-embed.html</code></li>
+                <li>Personalize as cores editando as variáveis CSS no arquivo</li>
+                <li>Cole o código iframe abaixo no seu site antes do &lt;/body&gt;</li>
+                <li>Ou faça upload do arquivo para seu servidor/CDN</li>
+              </ol>
+            </div>
+            
             <div className="relative">
-              <pre className="bg-gray-100 p-4 rounded text-xs overflow-x-auto">
+              <pre className="bg-gray-100 p-4 rounded text-xs overflow-x-auto max-h-64">
                 <code>{widgetCode}</code>
               </pre>
               <Button
                 variant="outline"
                 size="sm"
                 className="absolute top-2 right-2"
-                onClick={() => navigator.clipboard.writeText(widgetCode)}
+                onClick={() => {
+                  navigator.clipboard.writeText(widgetCode);
+                  toast.success("Código copiado!");
+                }}
               >
-                <Copy className="w-3 h-3" />
+                <Copy className="w-3 h-3 mr-1" />
+                Copiar
               </Button>
+            </div>
+            
+            <div className="p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+              <strong>Nota:</strong> O widget está configurado para usar o Supabase do projeto. 
+              As conversas serão salvas automaticamente no banco de dados.
             </div>
           </div>
         </CardContent>

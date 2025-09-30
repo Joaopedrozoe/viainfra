@@ -22,6 +22,7 @@ import {
 import { Channel } from '@/types/channels';
 import { ChannelWizard } from "@/components/app/channels/ChannelWizard";
 import { ChannelBotConfig } from "@/components/app/channels/ChannelBotConfig";
+import { WebsiteSetup } from "@/components/app/channels/wizard/WebsiteSetup";
 import { Plus, Instagram, Facebook, MessageCircle, Mail, Globe, Send, MoreVertical, Settings, Trash2, Bot } from "lucide-react";
 import {
   DropdownMenu,
@@ -73,6 +74,7 @@ const Channels = () => {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [configChannelId, setConfigChannelId] = useState<string | null>(null);
+  const [settingsChannelId, setSettingsChannelId] = useState<string | null>(null);
 
   // Load channels on component mount
   useEffect(() => {
@@ -299,7 +301,7 @@ const Channels = () => {
                           <Bot className="mr-2 h-4 w-4" />
                           Configurar Bot
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setSettingsChannelId(channel.id)}>
                           <Settings className="mr-2 h-4 w-4" />
                           Configurações
                         </DropdownMenuItem>
@@ -380,6 +382,55 @@ const Channels = () => {
                   onUpdateChannel={updateChannel}
                 />
               )}
+            </DialogContent>
+          </Dialog>
+
+          {/* Channel Settings Dialog */}
+          <Dialog open={!!settingsChannelId} onOpenChange={() => setSettingsChannelId(null)}>
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Configurações do Canal</DialogTitle>
+              </DialogHeader>
+              {settingsChannelId && (() => {
+                const channel = channels.find(c => c.id === settingsChannelId)!;
+                if (channel.type === 'website') {
+                  return (
+                    <WebsiteSetup
+                      data={{
+                        name: channel.name,
+                        description: channel.description,
+                        domains: [],
+                        theme: 'light',
+                        position: 'bottom-right',
+                        primaryColor: '#007bff',
+                        autoReply: channel.settings.autoReply,
+                        welcomeMessage: channel.settings.welcomeMessage,
+                        fallbackMessage: channel.settings.fallbackMessage,
+                        notifications: channel.settings.notifications
+                      }}
+                      onUpdate={(data) => {
+                        updateChannel(channel.id, {
+                          ...channel,
+                          name: data.name,
+                          description: data.description,
+                          settings: {
+                            ...channel.settings,
+                            autoReply: data.autoReply,
+                            welcomeMessage: data.welcomeMessage,
+                            fallbackMessage: data.fallbackMessage,
+                            notifications: data.notifications
+                          }
+                        });
+                      }}
+                    />
+                  );
+                }
+                return (
+                  <div className="p-4 text-center text-muted-foreground">
+                    Configurações específicas para este tipo de canal em breve.
+                  </div>
+                );
+              })()}
             </DialogContent>
           </Dialog>
         </div>
