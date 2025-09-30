@@ -1,8 +1,8 @@
 (function() {
-  // Configuração - SUBSTITUA COM SEU COMPANY_ID  
+  // Configuração - SUBSTITUA COM SEU COMPANY_ID
   const COMPANY_ID = 'da17735c-5a76-4797-b338-f6e63a7b3f8b'; // ID da empresa Viainfra
   const SUPABASE_URL = 'https://xxojpfhnkxpbznbmhmua.supabase.co';
-  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh4b2pwZmhua3hwYnpuYm1obXVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkyMzY4NTUsImV4cCI6MjA3NDgxMjg1NX0.K7pqFCShUgQWJgrHThPynEguIkS0_TjIOuKXvIEgNR4'; // v1.5 DEFINITIVO
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh4b2pwZmhua3hwYnpuYm1obXVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkyMzY4NTUsImV4cCI6MjA3NDgxMjg1NX0.K7pqFCShUgQWJgrHThPynEguIkS0_TjIOuKXvIEgNR4';
 
   // Injetar CSS
   const style = document.createElement('style');
@@ -332,44 +332,35 @@
       });
     }
     
-    // Nova função para mostrar placas como quick replies - SIMPLIFICADA E GARANTIDA
+    // Nova função para mostrar placas como quick replies
     function showPlacasQuickReplies(placas) {
-      console.log('=== RENDERIZANDO PLACAS ===');
+      console.log('=== showPlacasQuickReplies chamado ===');
       console.log('Placas recebidas:', placas);
+      console.log('Tipo de placas:', typeof placas);
+      console.log('É array?', Array.isArray(placas));
       
-      // Limpar container
       quickRepliesContainer.innerHTML = '';
-      
-      // Validação simples
-      if (!placas || !Array.isArray(placas)) {
-        console.error('❌ Placas inválidas:', placas);
+      if (!placas || placas.length === 0) {
+        console.log('Nenhuma placa para mostrar');
         return;
       }
       
-      if (placas.length === 0) {
-        console.error('❌ Array de placas vazio');
-        return;
-      }
-      
-      console.log(`✅ Renderizando ${placas.length} botões de placas`);
-      
-      // Criar botões diretamente
-      for (let i = 0; i < placas.length; i++) {
-        const placa = placas[i];
+      console.log('Criando botões para', placas.length, 'placas');
+      placas.forEach((placa, index) => {
+        console.log(`Criando botão ${index + 1} para placa:`, placa);
         const btn = document.createElement('button');
         btn.className = 'viainfra-quick-reply-btn';
-        btn.textContent = `${i + 1}. ${placa}`;
-        btn.style.display = 'inline-block'; // Forçar display
-        btn.onclick = function() {
-          console.log('✅ Placa clicada:', placa);
-          messageInput.value = String(i + 1);
+        btn.textContent = `${index + 1}. ${placa}`;
+        btn.onclick = () => {
+          console.log('Placa selecionada:', index + 1, placa);
+          messageInput.value = (index + 1).toString();
+          // Limpar botões imediatamente antes de enviar
           quickRepliesContainer.innerHTML = '';
           enviarMensagem();
         };
         quickRepliesContainer.appendChild(btn);
-      }
-      
-      console.log('✅ PLACAS RENDERIZADAS! Total de botões:', quickRepliesContainer.children.length);
+      });
+      console.log('Botões de placas criados no container');
     }
 
   async function iniciarChat() {
@@ -404,14 +395,12 @@
       conversationId = data.state?.conversationId;
       
       // Verificar se há placas logo na inicialização
-      if (data.state?.placas && data.state.placas.length > 0) {
-        console.log('>>> Mostrando', data.state.placas.length, 'placas na inicialização');
+      if (data.state?.placas && data.state.placas.length > 0 && data.state?.mode === 'chamado') {
+        console.log('Mostrando placas na inicialização:', data.state.placas);
         showPlacasQuickReplies(data.state.placas);
-      } else if (data.options && data.options.length > 0) {
-        console.log('>>> Mostrando', data.options.length, 'quick replies iniciais');
+      } else if (data.options) {
+        console.log('Mostrando quick replies iniciais:', data.options);
         showQuickReplies(data.options);
-      } else {
-        console.log('>>> Sem placas nem options na inicialização');
       }
     } catch (error) {
       console.error('Erro ao iniciar chat:', error);
@@ -448,23 +437,17 @@
 
       const data = await response.json();
       
-      console.log('=== PROCESSANDO RESPOSTA ===');
-      console.log('State completo:', data.state);
-      console.log('Placas no state:', data.state?.placas);
-      
       addMessage(data.message, true);
       botState = data.state;
       
-      // PRIORIDADE: Mostrar placas se existirem (mesmo que length seja 0 no check)
-      if (data.state?.placas) {
-        console.log('>>> DETECTOU PLACAS! Array:', data.state.placas);
-        console.log('>>> Length:', data.state.placas.length);
+      // Verificar se há placas para mostrar como quick replies
+      console.log('Verificando placas:', data.state?.placas, 'Mode:', data.state?.mode);
+      if (data.state?.placas && data.state.placas.length > 0 && data.state?.mode === 'chamado') {
+        console.log('Mostrando placas:', data.state.placas);
         showPlacasQuickReplies(data.state.placas);
-      } else if (data.options && data.options.length > 0) {
-        console.log('>>> Mostrando options:', data.options);
+      } else if (data.options) {
+        console.log('Exibindo quick replies:', data.options);
         showQuickReplies(data.options);
-      } else {
-        console.log('>>> Sem placas nem options');
       }
     } catch (error) {
       console.error('Erro ao enviar mensagem:', error);
