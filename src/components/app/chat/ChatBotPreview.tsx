@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Send } from "lucide-react";
-import { BotVersion } from "@/pages/app/BotBuilder";
+import { BotVersion } from "@/types/bot";
 import { apiClient } from "@/lib/api-client";
 import { Channel } from "@/types/conversation";
 import { usePreviewConversation } from "@/contexts/PreviewConversationContext";

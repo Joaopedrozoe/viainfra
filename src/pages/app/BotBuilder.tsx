@@ -40,19 +40,7 @@ import {
 import { ChatBotPreview } from "@/components/app/chat/ChatBotPreview";
 import { BotVersionControl } from "@/components/app/bots/BotVersionControl";
 import { BotFlowBuilder } from "@/components/app/bots/BotFlowBuilder";
-
-export interface BotVersion {
-  id: string;
-  name: string;
-  version: string;
-  status: 'draft' | 'published';
-  createdAt: string;
-  updatedAt: string;
-  flows: {
-    nodes: Node[];
-    edges: Edge[];
-  };
-}
+import { BotVersion } from "@/types/bot";
 
 const BotBuilder = () => {
   const [selectedBot, setSelectedBot] = useState<string | null>(null);

@@ -11,7 +11,7 @@ import {
   Clock,
   CheckCircle
 } from "lucide-react";
-import { BotVersion } from "@/pages/app/BotBuilder";
+import { BotVersion } from "@/types/bot";
 
 interface BotVersionControlProps {
   botVersions: BotVersion[];

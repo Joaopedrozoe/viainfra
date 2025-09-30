@@ -37,7 +37,7 @@ import {
   Square,
   Trash2
 } from "lucide-react";
-import { BotVersion } from "@/pages/app/BotBuilder";
+import { BotVersion } from "@/types/bot";
 import { useDepartments } from "@/contexts/DepartmentsContext";
 
 interface BotFlowBuilderProps {
