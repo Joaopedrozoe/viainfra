@@ -254,6 +254,13 @@ serve(async (req) => {
           chatState.descricao = userMessage?.trim();
           
           try {
+            console.log('=== INICIANDO CRIAÇÃO DE CHAMADO ===');
+            console.log('Placa:', chatState.placa);
+            console.log('Corretiva:', chatState.corretiva);
+            console.log('Local:', chatState.local);
+            console.log('Agendamento:', chatState.agendamento);
+            console.log('Descrição:', chatState.descricao);
+            
             const chamadoPayload = {
               placa: chatState.placa,
               corretiva: chatState.corretiva ? 'Sim' : 'Não',
@@ -262,17 +269,38 @@ serve(async (req) => {
               descricao: chatState.descricao,
             };
 
+            console.log('Payload para Google Sheets:', JSON.stringify(chamadoPayload));
+            console.log('URL do Google Script:', GOOGLE_SCRIPT_URL);
+
             const createRes = await fetch(GOOGLE_SCRIPT_URL, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(chamadoPayload),
             });
 
-            const chamadoData = await createRes.json();
+            console.log('Status da resposta:', createRes.status);
+            console.log('Status text:', createRes.statusText);
+            
+            const responseText = await createRes.text();
+            console.log('Resposta raw do Google Sheets:', responseText);
+            
+            let chamadoData;
+            try {
+              chamadoData = JSON.parse(responseText);
+              console.log('Dados do chamado criado:', chamadoData);
+            } catch (parseError) {
+              console.error('Erro ao fazer parse da resposta:', parseError);
+              console.error('Resposta recebida:', responseText);
+              throw new Error(`Resposta inválida do Google Sheets: ${responseText.substring(0, 100)}`);
+            }
 
             // Salvar no Supabase
             if (chatState.companyId && chatState.conversationId) {
-              await supabaseClient
+              console.log('Salvando chamado no Supabase...');
+              console.log('Company ID:', chatState.companyId);
+              console.log('Conversation ID:', chatState.conversationId);
+              
+              const { data: chamadoDB, error: chamadoError } = await supabaseClient
                 .from('chamados')
                 .insert({
                   company_id: chatState.companyId,
@@ -285,13 +313,30 @@ serve(async (req) => {
                   agendamento: new Date(chatState.agendamento!).toISOString(),
                   descricao: chatState.descricao!,
                   status: 'aberto',
-                });
+                })
+                .select()
+                .single();
+
+              if (chamadoError) {
+                console.error('Erro ao salvar chamado no Supabase:', chamadoError);
+                throw new Error(`Erro no banco de dados: ${chamadoError.message}`);
+              }
+              
+              console.log('Chamado salvo no Supabase:', chamadoDB);
 
               // Atualizar status da conversa
-              await supabaseClient
+              const { error: convError } = await supabaseClient
                 .from('conversations')
                 .update({ status: 'resolved' })
                 .eq('id', chatState.conversationId);
+              
+              if (convError) {
+                console.error('Erro ao atualizar conversa:', convError);
+              }
+            } else {
+              console.warn('Company ID ou Conversation ID ausente, não salvando no Supabase');
+              console.log('Company ID:', chatState.companyId);
+              console.log('Conversation ID:', chatState.conversationId);
             }
 
             response = `✅ **Chamado criado com sucesso!**\n\n🎫 **Número do chamado:** ${chamadoData.numeroChamado || chatState.numeroPrevisto}\n📄 **ID:** ${chamadoData.ID || 'N/A'}\n🚗 **Placa:** ${chatState.placa}\n📝 **Descrição:** ${chatState.descricao}\n\n✨ Em breve entraremos em contato!\n\nDigite **0** para voltar ao menu principal.`;
@@ -299,8 +344,12 @@ serve(async (req) => {
             chatState.chamadoStep = 'finalizado';
             chatState.mode = 'menu';
           } catch (error) {
-            console.error('Erro ao criar chamado:', error);
-            response = '❌ Erro ao criar chamado. Por favor, tente novamente mais tarde ou fale com um atendente.';
+            console.error('=== ERRO AO CRIAR CHAMADO ===');
+            console.error('Tipo do erro:', error.constructor.name);
+            console.error('Mensagem:', error.message);
+            console.error('Stack:', error.stack);
+            
+            response = `❌ Erro ao criar chamado: ${error.message}\n\nPor favor, tente novamente mais tarde ou fale com um atendente digitando **2**.`;
             chatState.mode = 'menu';
           }
           break;
