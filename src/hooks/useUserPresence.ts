@@ -36,15 +36,15 @@ export const useUserPresence = () => {
 
       if (profilesError) throw profilesError;
 
-      const userIds = (companyProfiles || []).map(p => p.user_id);
-
-      if (userIds.length === 0) {
+      if (!companyProfiles || companyProfiles.length === 0) {
         setUserPresences([]);
         setLoading(false);
         return;
       }
 
-      // Now get presences for those users
+      const userIds = companyProfiles.map(p => p.user_id);
+
+      // Get presences for those users
       const { data: presences, error } = await supabase
         .from('user_presence')
         .select('*')
@@ -52,17 +52,21 @@ export const useUserPresence = () => {
 
       if (error) throw error;
 
-      // Merge presences with profiles
-      const formattedPresences: UserPresence[] = (presences || []).map(presence => {
-        const userProfile = companyProfiles?.find(p => p.user_id === presence.user_id);
+      // Merge ALL profiles with their presences (or default offline status)
+      const formattedPresences: UserPresence[] = companyProfiles.map(userProfile => {
+        const presence = presences?.find(p => p.user_id === userProfile.user_id);
+        
         return {
-          ...presence,
-          profile: userProfile ? {
+          user_id: userProfile.user_id,
+          status: (presence?.status as UserStatus) || 'offline',
+          last_seen: presence?.last_seen || new Date().toISOString(),
+          custom_message: presence?.custom_message,
+          profile: {
             name: userProfile.name,
             email: userProfile.email,
             avatar_url: userProfile.avatar_url,
             role: userProfile.role
-          } : undefined
+          }
         };
       });
 

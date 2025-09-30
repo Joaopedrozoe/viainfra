@@ -2,12 +2,13 @@
 
 ## Quando preciso atualizar o widget?
 
+**IMPORTANTE**: O widget funciona como um iframe que aponta para nossos servidores. Isso significa que **todas as atualizações no sistema são automáticas** - você NÃO precisa fazer nada!
+
 Você precisa atualizar o código do widget embedado no seu site **apenas** quando:
 
-1. ✅ **Mudanças visuais no design** (cores, tamanho, posição)
-2. ✅ **Novas funcionalidades no widget** (novos botões, recursos)
-3. ✅ **Mudança de Company ID**
-4. ✅ **Atualização de segurança** (novas chaves de API)
+1. ✅ **Mudança de Company ID**
+2. ✅ **Mudança na URL do sistema** (se você usa URL personalizada)
+3. ✅ **Personalização visual do botão/balão** (se você editou o CSS diretamente)
 
 ## Você NÃO precisa atualizar quando:
 
@@ -15,6 +16,11 @@ Você precisa atualizar o código do widget embedado no seu site **apenas** quan
 - ❌ Modificar canais de atendimento
 - ❌ Ajustar workflows e bots
 - ❌ Atualizar informações da empresa
+- ❌ Adicionar novos recursos ao sistema
+- ❌ Corrigir bugs ou melhorias
+- ❌ Atualizar respostas automáticas ou scripts
+
+**Por quê?** O widget é um iframe que carrega conteúdo direto dos nossos servidores. Toda vez que um cliente abre o widget, ele recebe a versão mais recente automaticamente!
 
 ## Como atualizar o widget?
 

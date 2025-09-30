@@ -5,25 +5,22 @@ import { CheckCircle, AlertTriangle, XCircle, Clock } from "lucide-react";
 import { getDemoChannelsExpanded } from "@/data/mockChannelsExpanded";
 import { formatResponseTime } from "./dashboardUtils";
 import { useDemoMode } from "@/hooks/useDemoMode";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/auth";
 
 export const ChannelHealthPanel: React.FC = () => {
   const { isDemoMode } = useDemoMode();
+  const { profile } = useAuth();
   const [channels, setChannels] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  const loadChannels = () => {
+  const loadChannels = async () => {
     setIsLoading(true);
     try {
-      if (isDemoMode) {
-        // No modo demo, carrega canais salvos no localStorage
-        const savedChannels = getDemoChannelsExpanded();
-        setChannels(savedChannels);
-      } else {
-        // Para dados reais, carregaria da API
-        // Por enquanto, usa dados do localStorage também
-        const savedChannels = getDemoChannelsExpanded();
-        setChannels(savedChannels);
-      }
+      // Por enquanto, usa dados do localStorage até termos a tabela channels configurada
+      // TODO: Implementar busca real do Supabase quando a tabela channels estiver pronta
+      const savedChannels = getDemoChannelsExpanded();
+      setChannels(savedChannels);
     } catch (error) {
       console.error('Error loading channels:', error);
       setChannels([]);
@@ -34,7 +31,7 @@ export const ChannelHealthPanel: React.FC = () => {
   
   useEffect(() => {
     loadChannels();
-  }, [isDemoMode]);
+  }, [isDemoMode, profile?.company_id]);
   
   // Listen for dashboard refresh events
   useEffect(() => {
