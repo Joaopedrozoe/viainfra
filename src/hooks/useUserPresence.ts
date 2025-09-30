@@ -153,5 +153,6 @@ export const useUserPresence = () => {
     loading,
     updateStatus,
     setAutoBusyStatus,
+    refetch: fetchPresences,
   };
 };

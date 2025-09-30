@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -20,8 +20,18 @@ const statusConfig = {
 };
 
 export const TeamPresence = ({ onStartChat }: TeamPresenceProps) => {
-  const { userPresences, loading } = useUserPresence();
+  const { userPresences, loading, refetch } = useUserPresence();
   const { user, profile } = useAuth();
+
+  // Listen for dashboard refresh events
+  useEffect(() => {
+    const handleRefresh = () => {
+      refetch();
+    };
+    
+    window.addEventListener('dashboard-refresh', handleRefresh);
+    return () => window.removeEventListener('dashboard-refresh', handleRefresh);
+  }, [refetch]);
 
   const getInitials = (name: string) => {
     return name

@@ -110,25 +110,36 @@ export const useInternalChat = () => {
   // Fetch messages for a specific conversation
   const fetchMessages = async (conversationId: string) => {
     try {
-      const { data, error } = await supabase
+      // First get messages
+      const { data: messagesData, error } = await supabase
         .from('internal_messages')
-        .select(`
-          *,
-          profiles:sender_id (
-            name,
-            email,
-            avatar_url
-          )
-        `)
+        .select('*')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: true });
 
       if (error) throw error;
 
-      const formattedMessages = (data || []).map(msg => ({
-        ...msg,
-        sender: Array.isArray(msg.profiles) ? msg.profiles[0] : msg.profiles
-      }));
+      // Get unique sender IDs
+      const senderIds = [...new Set((messagesData || []).map(m => m.sender_id))];
+      
+      // Fetch sender profiles
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('user_id, name, email, avatar_url')
+        .in('user_id', senderIds);
+
+      // Map messages with sender info
+      const formattedMessages = (messagesData || []).map(msg => {
+        const sender = profiles?.find(p => p.user_id === msg.sender_id);
+        return {
+          ...msg,
+          sender: sender ? {
+            name: sender.name,
+            email: sender.email,
+            avatar_url: sender.avatar_url
+          } : undefined
+        };
+      });
 
       setMessages(prev => ({
         ...prev,
