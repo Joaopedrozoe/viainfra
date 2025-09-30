@@ -178,9 +178,9 @@ const Channels = () => {
   const toggleChannelStatus = (id: string) => {
     const channelToUpdate = channels.find(ch => ch.id === id);
     
-    // Restringe conexão apenas ao WhatsApp quando não está em modo demo
-    if (!isDemoMode && channelToUpdate?.type !== 'whatsapp') {
-      toast.error('Este canal ainda não está disponível. Apenas WhatsApp está funcionando no MVP atual.');
+    // Permite WhatsApp e Website em modo não-demo
+    if (!isDemoMode && channelToUpdate?.type !== 'whatsapp' && channelToUpdate?.type !== 'website') {
+      toast.error('Este canal ainda não está disponível. Apenas WhatsApp e Chat do Site estão funcionando no MVP atual.');
       return;
     }
     
@@ -196,8 +196,8 @@ const Channels = () => {
         )
       );
     } else {
-      // Para modo não-demo, apenas permite conexão do WhatsApp
-      if (channelToUpdate?.type === 'whatsapp') {
+      // Para modo não-demo, permite conexão do WhatsApp e Website
+      if (channelToUpdate?.type === 'whatsapp' || channelToUpdate?.type === 'website') {
         setChannels(prev =>
           prev.map(channel =>
             channel.id === id 
