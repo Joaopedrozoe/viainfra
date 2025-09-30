@@ -395,9 +395,11 @@ serve(async (req) => {
 
     // Log para debug
     console.log('=== RESPONSE DEBUG ===');
-    console.log('chatState.placas:', chatState.placas?.length || 0, 'placas');
+    console.log('chatState.placas:', chatState.placas);
+    console.log('Quantidade de placas:', chatState.placas?.length || 0);
     console.log('chatState.mode:', chatState.mode);
     console.log('chatState.chamadoStep:', chatState.chamadoStep);
+    console.log('State completo sendo enviado:', JSON.stringify(chatState));
     
     return new Response(
       JSON.stringify({ 
