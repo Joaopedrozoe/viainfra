@@ -600,17 +600,18 @@
       botState = data.state;
       conversationId = data.state?.conversationId;
       
-      // Configurar subscription e polling para mensagens do atendente
-      setupMessageSubscription();
+      console.log('💬 Conversa iniciada com ID:', conversationId);
+      
+      // Configurar subscription e polling IMEDIATAMENTE após ter o conversationId
+      if (conversationId) {
+        setupMessageSubscription();
+        startPollingForAgentMessages();
+      }
       
       if (data.state?.placas && data.state.placas.length > 0 && data.state?.mode === 'chamado') {
         showPlacasQuickReplies(data.state.placas);
       } else if (data.options) {
         showQuickReplies(data.options);
-      }
-
-      if (conversationId) {
-        startPollingForAgentMessages();
       }
     } catch (error) {
       console.error('Erro ao iniciar chat:', error);
