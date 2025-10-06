@@ -428,17 +428,33 @@
   function setupMessageSubscription() {
     if (!conversationId || messageSubscription) return;
 
-    // Carregar Supabase JS dinamicamente para subscription
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
-    script.onload = () => {
+    // Verificar se o Supabase já está carregado
+    if (typeof window.supabase !== 'undefined') {
+      initializeSubscription();
+    } else {
+      // Carregar Supabase JS dinamicamente para subscription
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+      script.onload = () => {
+        console.log('📦 Supabase JS carregado com sucesso');
+        initializeSubscription();
+      };
+      script.onerror = () => {
+        console.error('❌ Erro ao carregar Supabase JS, usando apenas polling');
+      };
+      document.head.appendChild(script);
+    }
+  }
+
+  function initializeSubscription() {
+    try {
       const { createClient } = window.supabase;
       const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
 
       console.log('🔌 Configurando subscription para conversa:', conversationId);
 
       messageSubscription = supabaseClient
-        .channel(`conversation-${conversationId}`)
+        .channel(`widget-messages-${conversationId}`)
         .on(
           'postgres_changes',
           {
@@ -452,6 +468,10 @@
             const newMessage = payload.new;
             if (newMessage.sender_type === 'agent') {
               console.log('✅ Mensagem de atendente detectada:', newMessage.content);
+              
+              // Atualizar lastMessageTimestamp para evitar duplicatas no polling
+              lastMessageTimestamp = newMessage.created_at;
+              
               if (!widget.classList.contains('open')) {
                 button.classList.add('has-notification');
               }
@@ -461,11 +481,17 @@
         )
         .subscribe((status) => {
           console.log('📡 Status da subscription:', status);
+          if (status === 'SUBSCRIBED') {
+            console.log('✅ Subscription ativa e pronta para receber mensagens');
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error('❌ Erro na subscription, usando apenas polling');
+          }
         });
 
       console.log('✅ Subscription configurada com sucesso');
-    };
-    document.head.appendChild(script);
+    } catch (error) {
+      console.error('❌ Erro ao configurar subscription:', error);
+    }
   }
 
   function showQuickReplies(options) {
@@ -511,7 +537,7 @@
     if (pollingInterval) return;
 
     pollingInterval = setInterval(async () => {
-      if (!conversationId || !botState?.waitingForAgent) return;
+      if (!conversationId) return;
 
       try {
         const response = await fetch(
