@@ -17,6 +17,46 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   useEffect(() => {
     if (conversationId) {
       loadConversationData();
+      
+      // Configurar subscription para novas mensagens em tempo real
+      const channel = supabase
+        .channel(`messages-${conversationId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+            filter: `conversation_id=eq.${conversationId}`
+          },
+          (payload) => {
+            console.log('Nova mensagem recebida:', payload);
+            const newMessage = payload.new as any;
+            
+            // Adicionar mensagem se for do tipo user ou bot (não duplicar mensagens do agent)
+            if (newMessage.sender_type !== 'agent') {
+              const mappedMessage: Message = {
+                id: newMessage.id,
+                content: newMessage.content,
+                sender: newMessage.sender_type === 'user' ? 'user' : 'bot',
+                timestamp: new Date(newMessage.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              };
+              
+              setMessages(prev => {
+                // Evitar duplicatas
+                if (prev.some(msg => msg.id === mappedMessage.id)) {
+                  return prev;
+                }
+                return [...prev, mappedMessage];
+              });
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
     }
   }, [conversationId]);
 
@@ -113,7 +153,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       setMessages(prev => [...prev, tempMessage]);
 
       // Enviar mensagem para o banco
-      await supabase
+      const { error } = await supabase
         .from('messages')
         .insert({
           conversation_id: conversationId,
@@ -121,8 +161,11 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           content,
         });
 
-      // Recarregar mensagens para garantir sincronização
-      await loadConversationData();
+      if (error) {
+        console.error('Erro ao inserir mensagem:', error);
+        // Remover mensagem temporária em caso de erro
+        setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
+      }
     } catch (error) {
       console.error('Erro ao enviar mensagem:', error);
     }

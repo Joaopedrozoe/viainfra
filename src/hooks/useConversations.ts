@@ -80,8 +80,9 @@ export const useConversations = () => {
         .order('updated_at', { ascending: false });
 
       if (error) {
-        console.warn('Supabase query error:', error);
-        setConversations([]);
+        console.error('Supabase query error:', error);
+        setError(error as Error);
+        setLoading(false);
         return;
       }
 
