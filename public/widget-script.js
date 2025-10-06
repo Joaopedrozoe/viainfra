@@ -435,6 +435,8 @@
       const { createClient } = window.supabase;
       const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
 
+      console.log('🔌 Configurando subscription para conversa:', conversationId);
+
       messageSubscription = supabaseClient
         .channel(`conversation-${conversationId}`)
         .on(
@@ -446,8 +448,10 @@
             filter: `conversation_id=eq.${conversationId}`
           },
           (payload) => {
+            console.log('📨 Nova mensagem recebida via subscription:', payload);
             const newMessage = payload.new;
             if (newMessage.sender_type === 'agent') {
+              console.log('✅ Mensagem de atendente detectada:', newMessage.content);
               if (!widget.classList.contains('open')) {
                 button.classList.add('has-notification');
               }
@@ -455,9 +459,11 @@
             }
           }
         )
-        .subscribe();
+        .subscribe((status) => {
+          console.log('📡 Status da subscription:', status);
+        });
 
-      console.log('Subscription ativa para conversa:', conversationId);
+      console.log('✅ Subscription configurada com sucesso');
     };
     document.head.appendChild(script);
   }
