@@ -585,29 +585,42 @@
     isProcessing = true;
     showTyping();
     
-    // Verificar se já existe uma conversa salva no localStorage
-    const savedConversationId = localStorage.getItem('viainfra_conversation_id');
-    const savedConversationTime = localStorage.getItem('viainfra_conversation_time');
-    const now = Date.now();
-    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
-    
-    // Se existe uma conversa salva e tem menos de 24h, reusar
-    if (savedConversationId && savedConversationTime && (now - parseInt(savedConversationTime)) < TWENTY_FOUR_HOURS) {
-      console.log('♻️ Reusando conversa existente:', savedConversationId);
-      conversationId = savedConversationId;
-      
-      hideTyping();
-      
-      // Carregar histórico de mensagens
-      await loadConversationMessages();
-      
-      // Configurar polling imediatamente
-      startPollingForAgentMessages();
-      isProcessing = false;
-      return;
-    }
-    
     try {
+      // SEMPRE buscar a conversa web mais recente ao invés de usar localStorage
+      console.log('🔍 Buscando conversa web mais recente...');
+      
+      const checkResponse = await fetch(
+        `${SUPABASE_URL}/rest/v1/conversations?company_id=eq.${COMPANY_ID}&channel=eq.web&status=eq.open&order=created_at.desc&limit=1`,
+        {
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      
+      if (checkResponse.ok) {
+        const existingConversations = await checkResponse.json();
+        
+        if (existingConversations && existingConversations.length > 0) {
+          const latestConv = existingConversations[0];
+          conversationId = latestConv.id;
+          
+          console.log('♻️ Usando conversa existente:', conversationId);
+          hideTyping();
+          
+          // Carregar histórico de mensagens
+          await loadConversationMessages();
+          
+          // Configurar polling imediatamente
+          startPollingForAgentMessages();
+          isProcessing = false;
+          return;
+        }
+      }
+      
+      // Se não encontrou conversa, criar uma nova
+      console.log('📝 Criando nova conversa...');
       const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot`, {
         method: 'POST',
         headers: {
@@ -635,12 +648,7 @@
       
       console.log('💬 Nova conversa criada com ID:', conversationId);
       
-      // Salvar conversationId no localStorage
       if (conversationId) {
-        localStorage.setItem('viainfra_conversation_id', conversationId);
-        localStorage.setItem('viainfra_conversation_time', now.toString());
-        console.log('💾 Conversa salva no localStorage');
-        
         // Configurar polling imediatamente
         startPollingForAgentMessages();
       }
