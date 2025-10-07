@@ -434,29 +434,35 @@
     try {
       console.log('🔍 Verificando mensagens do atendente para conversa:', conversationId);
       
+      // IMPORTANTE: Buscar messages com informação da conversation para passar pela RLS
       const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/messages?conversation_id=eq.${conversationId}&sender_type=eq.agent&order=created_at.desc&limit=5`,
+        `${SUPABASE_URL}/rest/v1/messages?conversation_id=eq.${conversationId}&sender_type=eq.agent&select=*&order=created_at.asc`,
         {
           headers: {
             'apikey': SUPABASE_KEY,
             'Content-Type': 'application/json',
+            'Prefer': 'return=representation'
           },
         }
       );
 
       if (!response.ok) {
         console.error('❌ Erro na resposta da API:', response.status, response.statusText);
+        const errorText = await response.text();
+        console.error('❌ Detalhes do erro:', errorText);
         return;
       }
 
       const messages = await response.json();
-      console.log('📨 Mensagens recebidas:', messages);
+      console.log('📨 Total de mensagens recebidas:', messages.length);
+      console.log('📨 Mensagens:', messages);
       
       if (messages && messages.length > 0) {
-        messages.reverse().forEach(msg => {
-          // Verificar se já exibimos esta mensagem
+        let novasMensagens = 0;
+        messages.forEach(msg => {
+          // Verificar se já exibimos esta mensagem pelo timestamp
           if (!lastMessageTimestamp || msg.created_at > lastMessageTimestamp) {
-            console.log('✅ Nova mensagem do atendente:', msg.content);
+            console.log('✅ Nova mensagem do atendente:', msg.content, 'criada em:', msg.created_at);
             
             lastMessageTimestamp = msg.created_at;
             
@@ -465,12 +471,15 @@
             }
             
             addMessage(msg.content, true, msg.id);
-          } else {
-            console.log('⏭️ Mensagem já exibida:', msg.id);
+            novasMensagens++;
           }
         });
+        
+        if (novasMensagens === 0) {
+          console.log('⏭️ Todas as mensagens já foram exibidas');
+        }
       } else {
-        console.log('📭 Nenhuma mensagem de atendente encontrada');
+        console.log('📭 Nenhuma mensagem de atendente encontrada ainda');
       }
     } catch (error) {
       console.error('❌ Erro ao buscar mensagens:', error);
