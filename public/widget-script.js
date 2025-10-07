@@ -424,6 +424,47 @@
     }
   }
 
+  // Função para carregar todas as mensagens de uma conversa
+  async function loadConversationMessages() {
+    if (!conversationId) return;
+    
+    try {
+      console.log('📥 Carregando histórico de mensagens da conversa:', conversationId);
+      
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/messages?conversation_id=eq.${conversationId}&select=*&order=created_at.asc`,
+        {
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        console.error('❌ Erro ao carregar mensagens:', response.status);
+        return;
+      }
+
+      const messages = await response.json();
+      console.log('📨 Mensagens carregadas:', messages.length);
+      
+      if (messages && messages.length > 0) {
+        messages.forEach(msg => {
+          const isBot = msg.sender_type === 'bot' || msg.sender_type === 'agent';
+          addMessage(msg.content, isBot, msg.id);
+          
+          // Atualizar lastMessageTimestamp
+          if (msg.sender_type === 'agent' && (!lastMessageTimestamp || msg.created_at > lastMessageTimestamp)) {
+            lastMessageTimestamp = msg.created_at;
+          }
+        });
+      }
+    } catch (error) {
+      console.error('❌ Erro ao carregar histórico:', error);
+    }
+  }
+
   // Polling otimizado para mensagens do atendente
   async function checkForAgentMessages() {
     if (!conversationId) {
@@ -434,7 +475,6 @@
     try {
       console.log('🔍 Verificando mensagens do atendente para conversa:', conversationId);
       
-      // IMPORTANTE: Buscar messages com informação da conversation para passar pela RLS
       const response = await fetch(
         `${SUPABASE_URL}/rest/v1/messages?conversation_id=eq.${conversationId}&sender_type=eq.agent&select=*&order=created_at.asc`,
         {
@@ -455,7 +495,6 @@
 
       const messages = await response.json();
       console.log('📨 Total de mensagens recebidas:', messages.length);
-      console.log('📨 Mensagens:', messages);
       
       if (messages && messages.length > 0) {
         let novasMensagens = 0;
@@ -546,6 +585,28 @@
     isProcessing = true;
     showTyping();
     
+    // Verificar se já existe uma conversa salva no localStorage
+    const savedConversationId = localStorage.getItem('viainfra_conversation_id');
+    const savedConversationTime = localStorage.getItem('viainfra_conversation_time');
+    const now = Date.now();
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    
+    // Se existe uma conversa salva e tem menos de 24h, reusar
+    if (savedConversationId && savedConversationTime && (now - parseInt(savedConversationTime)) < TWENTY_FOUR_HOURS) {
+      console.log('♻️ Reusando conversa existente:', savedConversationId);
+      conversationId = savedConversationId;
+      
+      hideTyping();
+      
+      // Carregar histórico de mensagens
+      await loadConversationMessages();
+      
+      // Configurar polling imediatamente
+      startPollingForAgentMessages();
+      isProcessing = false;
+      return;
+    }
+    
     try {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot`, {
         method: 'POST',
@@ -572,11 +633,15 @@
       botState = data.state;
       conversationId = data.state?.conversationId;
       
-      console.log('💬 Conversa iniciada com ID:', conversationId);
+      console.log('💬 Nova conversa criada com ID:', conversationId);
       
-      // Iniciar polling para mensagens do atendente
+      // Salvar conversationId no localStorage
       if (conversationId) {
-        console.log('🚀 Iniciando monitoramento de mensagens do atendente');
+        localStorage.setItem('viainfra_conversation_id', conversationId);
+        localStorage.setItem('viainfra_conversation_time', now.toString());
+        console.log('💾 Conversa salva no localStorage');
+        
+        // Configurar polling imediatamente
         startPollingForAgentMessages();
       }
       
