@@ -335,7 +335,6 @@
   let botState = null;
   let isProcessing = false;
   let conversationId = null;
-  let messageSubscription = null;
   let existingMessageIds = new Set();
   let pollingInterval = null;
   let lastMessageTimestamp = null;
@@ -425,72 +424,56 @@
     }
   }
 
-  function setupMessageSubscription() {
-    if (!conversationId || messageSubscription) return;
-
-    // Verificar se o Supabase já está carregado
-    if (typeof window.supabase !== 'undefined') {
-      initializeSubscription();
-    } else {
-      // Carregar Supabase JS dinamicamente para subscription
-      const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
-      script.onload = () => {
-        console.log('📦 Supabase JS carregado com sucesso');
-        initializeSubscription();
-      };
-      script.onerror = () => {
-        console.error('❌ Erro ao carregar Supabase JS, usando apenas polling');
-      };
-      document.head.appendChild(script);
+  // Polling otimizado para mensagens do atendente
+  async function checkForAgentMessages() {
+    if (!conversationId) {
+      console.log('⏭️ Sem conversationId, pulando verificação');
+      return;
     }
-  }
 
-  function initializeSubscription() {
     try {
-      const { createClient } = window.supabase;
-      const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
-
-      console.log('🔌 Configurando subscription para conversa:', conversationId);
-
-      messageSubscription = supabaseClient
-        .channel(`widget-messages-${conversationId}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'messages',
-            filter: `conversation_id=eq.${conversationId}`
+      console.log('🔍 Verificando mensagens do atendente para conversa:', conversationId);
+      
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/messages?conversation_id=eq.${conversationId}&sender_type=eq.agent&order=created_at.desc&limit=5`,
+        {
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Content-Type': 'application/json',
           },
-          (payload) => {
-            console.log('📨 Nova mensagem recebida via subscription:', payload);
-            const newMessage = payload.new;
-            if (newMessage.sender_type === 'agent') {
-              console.log('✅ Mensagem de atendente detectada:', newMessage.content);
-              
-              // Atualizar lastMessageTimestamp para evitar duplicatas no polling
-              lastMessageTimestamp = newMessage.created_at;
-              
-              if (!widget.classList.contains('open')) {
-                button.classList.add('has-notification');
-              }
-              addMessage(`👤 **Atendente**: ${newMessage.content}`, true, newMessage.id);
+        }
+      );
+
+      if (!response.ok) {
+        console.error('❌ Erro na resposta da API:', response.status, response.statusText);
+        return;
+      }
+
+      const messages = await response.json();
+      console.log('📨 Mensagens recebidas:', messages);
+      
+      if (messages && messages.length > 0) {
+        messages.reverse().forEach(msg => {
+          // Verificar se já exibimos esta mensagem
+          if (!lastMessageTimestamp || msg.created_at > lastMessageTimestamp) {
+            console.log('✅ Nova mensagem do atendente:', msg.content);
+            
+            lastMessageTimestamp = msg.created_at;
+            
+            if (!widget.classList.contains('open')) {
+              button.classList.add('has-notification');
             }
-          }
-        )
-        .subscribe((status) => {
-          console.log('📡 Status da subscription:', status);
-          if (status === 'SUBSCRIBED') {
-            console.log('✅ Subscription ativa e pronta para receber mensagens');
-          } else if (status === 'CHANNEL_ERROR') {
-            console.error('❌ Erro na subscription, usando apenas polling');
+            
+            addMessage(msg.content, true, msg.id);
+          } else {
+            console.log('⏭️ Mensagem já exibida:', msg.id);
           }
         });
-
-      console.log('✅ Subscription configurada com sucesso');
+      } else {
+        console.log('📭 Nenhuma mensagem de atendente encontrada');
+      }
     } catch (error) {
-      console.error('❌ Erro ao configurar subscription:', error);
+      console.error('❌ Erro ao buscar mensagens:', error);
     }
   }
 
@@ -534,40 +517,20 @@
   }
 
   async function startPollingForAgentMessages() {
-    if (pollingInterval) return;
+    if (pollingInterval) {
+      console.log('⏭️ Polling já está ativo');
+      return;
+    }
 
-    pollingInterval = setInterval(async () => {
-      if (!conversationId) return;
-
-      try {
-        const response = await fetch(
-          `${SUPABASE_URL}/rest/v1/messages?conversation_id=eq.${conversationId}&sender_type=eq.agent&order=created_at.desc&limit=1`,
-          {
-            headers: {
-              'apikey': SUPABASE_KEY,
-              'Content-Type': 'application/json',
-            },
-          }
-        );
-
-        const messages = await response.json();
-        if (messages && messages.length > 0) {
-          const latestMessage = messages[0];
-          
-          if (!lastMessageTimestamp || latestMessage.created_at > lastMessageTimestamp) {
-            lastMessageTimestamp = latestMessage.created_at;
-            
-            if (!widget.classList.contains('open')) {
-              button.classList.add('has-notification');
-            }
-            
-            addMessage(`👤 **Atendente**: ${latestMessage.content}`, true, latestMessage.id);
-          }
-        }
-      } catch (error) {
-        console.error('Erro ao buscar mensagens:', error);
-      }
-    }, 3000);
+    console.log('⏱️ Iniciando polling para mensagens do atendente (intervalo: 2s)');
+    
+    // Verificar imediatamente
+    await checkForAgentMessages();
+    
+    // Continuar verificando a cada 2 segundos
+    pollingInterval = setInterval(() => {
+      checkForAgentMessages();
+    }, 2000);
   }
 
   async function iniciarChat() {
@@ -602,9 +565,9 @@
       
       console.log('💬 Conversa iniciada com ID:', conversationId);
       
-      // Configurar subscription e polling IMEDIATAMENTE após ter o conversationId
+      // Iniciar polling para mensagens do atendente
       if (conversationId) {
-        setupMessageSubscription();
+        console.log('🚀 Iniciando monitoramento de mensagens do atendente');
         startPollingForAgentMessages();
       }
       
