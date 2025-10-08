@@ -203,6 +203,7 @@ export type Database = {
       }
       conversations: {
         Row: {
+          access_token: string | null
           assigned_to: string | null
           channel: string
           company_id: string | null
@@ -214,6 +215,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          access_token?: string | null
           assigned_to?: string | null
           channel: string
           company_id?: string | null
@@ -225,6 +227,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          access_token?: string | null
           assigned_to?: string | null
           channel?: string
           company_id?: string | null
@@ -461,6 +464,16 @@ export type Database = {
       get_user_company_id: {
         Args: { _user_id: string }
         Returns: string
+      }
+      get_web_conversation_messages: {
+        Args: { p_access_token: string; p_conversation_id: string }
+        Returns: {
+          content: string
+          conversation_id: string
+          created_at: string
+          id: string
+          sender_type: string
+        }[]
       }
     }
     Enums: {
