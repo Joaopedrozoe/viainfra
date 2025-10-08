@@ -122,7 +122,7 @@ serve(async (req) => {
       response = `👋 Voltando ao menu principal...\n\nComo posso ajudar você hoje?\n\n`;
       options = [
         '1️⃣ Abrir Chamado',
-        '2️⃣ Falar com Atendente',
+        '2️⃣ Falar com Atendente 🔧 (Em Manutenção - Disponível em Breve)',
         '3️⃣ Consultar Chamado',
         '4️⃣ FAQ / Dúvidas',
       ];
@@ -132,7 +132,7 @@ serve(async (req) => {
       response = `👋 Olá! Bem-vindo à **Viainfra**!\n\nComo posso ajudar você hoje?\n\n`;
       options = [
         '1️⃣ Abrir Chamado',
-        '2️⃣ Falar com Atendente',
+        '2️⃣ Falar com Atendente 🔧 (Em Manutenção - Disponível em Breve)',
         '3️⃣ Consultar Chamado',
         '4️⃣ FAQ / Dúvidas',
       ];
@@ -168,16 +168,8 @@ serve(async (req) => {
           chatState.mode = 'menu';
         }
       } else if (input === '2' || input?.includes('atendente') || input?.includes('falar')) {
-        chatState.mode = 'escolhendoSetor';
-        
-        response = `Selecione o setor para transferência:`;
-        options = [
-          '📞 Atendimento',
-          '💼 Comercial',
-          '🔧 Manutenção',
-          '💰 Financeiro',
-          '👥 RH'
-        ];
+        response = `🔧 **Atendimento Humano em Manutenção**\n\nDesculpe, o atendimento com nossos agentes está temporariamente indisponível para melhorias.\n\n✨ **Disponível em breve!**\n\nEnquanto isso, você pode:\n• Abrir um chamado (opção 1)\n• Consultar chamados existentes (opção 3)\n• Verificar perguntas frequentes (opção 4)\n\nDigite **0** para voltar ao menu.`;
+        options = [];
       } else if (input === '3' || input?.includes('consultar')) {
         response = `🔍 **Consulta de Chamado**\n\nPor favor, informe o **número do chamado** que deseja consultar:`;
         options = [];
