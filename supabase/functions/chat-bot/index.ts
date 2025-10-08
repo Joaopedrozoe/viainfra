@@ -433,6 +433,15 @@ serve(async (req) => {
             response = `✅ **Chamado criado com sucesso!**\n\n🎫 **Número:** ${chamadoData?.numeroChamado || chatState.numeroPrevisto}\n📄 **ID:** ${chamadoData?.ID || 'N/A'}\n🚗 **Placa:** ${chatState.placa}\n📝 **Descrição:** ${chatState.descricao}\n\n✨ Em breve entraremos em contato!\n\nDigite **0** para voltar ao menu.`;
             chatState.chamadoStep = 'finalizado';
             chatState.mode = 'menu';
+            
+            // Notificar suporte sobre o novo chamado
+            try {
+              console.log('Enviando notificação para suporte...');
+              await fetch(`${GOOGLE_SCRIPT_URL}?action=enviarUltimaLinhaSuporte`);
+              console.log('✅ Notificação enviada ao suporte');
+            } catch (notifyError) {
+              console.error('⚠️ Erro ao notificar suporte (não crítico):', notifyError);
+            }
           } else {
             console.error('Falha total na criação do chamado');
             response = '❌ Erro ao criar chamado. Por favor, fale com um atendente digitando **2**.';
