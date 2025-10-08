@@ -475,6 +475,14 @@ export type Database = {
           sender_type: string
         }[]
       }
+      send_web_conversation_message: {
+        Args: {
+          p_access_token: string
+          p_content: string
+          p_conversation_id: string
+        }
+        Returns: string
+      }
     }
     Enums: {
       user_status: "online" | "away" | "busy" | "offline"
