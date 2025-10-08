@@ -21,6 +21,7 @@ interface ChatState {
   conversationId?: string;
   contactId?: string;
   companyId?: string;
+  accessToken?: string; // Token de acesso para segurança
   waitingForAgent?: boolean;
   selectedSetor?: string;
   selectedAgent?: string;
@@ -84,15 +85,17 @@ serve(async (req) => {
               channel: 'web',
               status: 'open',
             })
-            .select()
+            .select('id, access_token') // IMPORTANTE: Selecionar access_token
             .single();
 
           if (conversationError) {
             console.error('Erro ao criar conversa:', conversationError);
           } else if (conversation) {
             console.log('Conversa criada:', conversation.id);
+            console.log('Access token:', conversation.access_token);
             chatState.conversationId = conversation.id;
             chatState.companyId = companyId;
+            chatState.accessToken = conversation.access_token; // CRÍTICO: Enviar token para widget
           }
         }
       } catch (error) {

@@ -424,25 +424,35 @@
     }
   }
 
-  // Função para carregar todas as mensagens de uma conversa
+  // Função segura para carregar mensagens usando RPC com token
   async function loadConversationMessages() {
-    if (!conversationId) return;
+    if (!conversationId || !accessToken) {
+      console.log('⏭️ Sem conversationId ou accessToken, pulando carregamento');
+      return;
+    }
     
     try {
-      console.log('📥 Carregando histórico de mensagens da conversa:', conversationId);
+      console.log('🔐 Carregando mensagens com token seguro:', conversationId);
       
       const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/messages?conversation_id=eq.${conversationId}&select=*&order=created_at.asc`,
+        `${SUPABASE_URL}/rest/v1/rpc/get_web_conversation_messages`,
         {
+          method: 'POST',
           headers: {
             'apikey': SUPABASE_KEY,
             'Content-Type': 'application/json',
           },
+          body: JSON.stringify({
+            p_conversation_id: conversationId,
+            p_access_token: accessToken
+          })
         }
       );
 
       if (!response.ok) {
         console.error('❌ Erro ao carregar mensagens:', response.status);
+        const errorText = await response.text();
+        console.error('❌ Detalhes:', errorText);
         return;
       }
 
@@ -465,43 +475,48 @@
     }
   }
 
-  // Polling otimizado para mensagens do atendente
+  // Polling seguro usando RPC com token
   async function checkForAgentMessages() {
-    if (!conversationId) {
-      console.log('⏭️ Sem conversationId, pulando verificação');
+    if (!conversationId || !accessToken) {
+      console.log('⏭️ Sem conversationId ou accessToken, pulando verificação');
       return;
     }
 
     try {
-      console.log('🔍 Verificando mensagens do atendente para conversa:', conversationId);
+      console.log('🔐 Verificando mensagens com token seguro:', conversationId);
       
       const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/messages?conversation_id=eq.${conversationId}&sender_type=eq.agent&select=*&order=created_at.asc`,
+        `${SUPABASE_URL}/rest/v1/rpc/get_web_conversation_messages`,
         {
+          method: 'POST',
           headers: {
             'apikey': SUPABASE_KEY,
             'Content-Type': 'application/json',
-            'Prefer': 'return=representation'
           },
+          body: JSON.stringify({
+            p_conversation_id: conversationId,
+            p_access_token: accessToken
+          })
         }
       );
 
       if (!response.ok) {
-        console.error('❌ Erro na resposta da API:', response.status, response.statusText);
-        const errorText = await response.text();
-        console.error('❌ Detalhes do erro:', errorText);
+        console.error('❌ Erro na resposta da API:', response.status);
         return;
       }
 
       const messages = await response.json();
-      console.log('📨 Total de mensagens recebidas:', messages.length);
       
-      if (messages && messages.length > 0) {
+      // Filtrar apenas mensagens de agent
+      const agentMessages = messages.filter(msg => msg.sender_type === 'agent');
+      console.log('📨 Mensagens de atendente:', agentMessages.length);
+      
+      if (agentMessages && agentMessages.length > 0) {
         let novasMensagens = 0;
-        messages.forEach(msg => {
+        agentMessages.forEach(msg => {
           // Verificar se já exibimos esta mensagem pelo timestamp
           if (!lastMessageTimestamp || msg.created_at > lastMessageTimestamp) {
-            console.log('✅ Nova mensagem do atendente:', msg.content, 'criada em:', msg.created_at);
+            console.log('✅ Nova mensagem do atendente:', msg.content);
             
             lastMessageTimestamp = msg.created_at;
             
@@ -645,12 +660,16 @@
       addMessage(data.message, true);
       botState = data.state;
       conversationId = data.state?.conversationId;
+      accessToken = data.state?.accessToken; // CRÍTICO: Armazenar token
       
       console.log('💬 Nova conversa criada com ID:', conversationId);
+      console.log('🔐 Access token recebido:', accessToken ? 'Sim' : 'Não');
       
-      if (conversationId) {
+      if (conversationId && accessToken) {
         // Configurar polling imediatamente
         startPollingForAgentMessages();
+      } else {
+        console.error('❌ Conversa criada sem token de acesso!');
       }
       
       if (data.state?.placas && data.state.placas.length > 0 && data.state?.mode === 'chamado') {
@@ -680,6 +699,28 @@
     showTyping();
 
     try {
+      // Se temos token, salvar mensagem via RPC seguro
+      if (accessToken && conversationId) {
+        console.log('🔐 Enviando mensagem via RPC seguro');
+        
+        await fetch(
+          `${SUPABASE_URL}/rest/v1/rpc/send_web_conversation_message`,
+          {
+            method: 'POST',
+            headers: {
+              'apikey': SUPABASE_KEY,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              p_conversation_id: conversationId,
+              p_access_token: accessToken,
+              p_content: message
+            })
+          }
+        );
+      }
+
+      // Processar resposta do bot
       const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot`, {
         method: 'POST',
         headers: {
