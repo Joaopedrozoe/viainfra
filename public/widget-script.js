@@ -335,6 +335,7 @@
   let botState = null;
   let isProcessing = false;
   let conversationId = null;
+  let accessToken = null;
   let existingMessageIds = new Set();
   let pollingInterval = null;
   let lastMessageTimestamp = null;
@@ -351,9 +352,8 @@
     widget.classList.toggle('open');
     if (widget.classList.contains('open')) {
       button.classList.remove('has-notification');
-      if (messagesContainer.children.length === 0) {
-        iniciarChat();
-      }
+      // Sempre verificar e iniciar chat quando abrir
+      iniciarChat();
       messageInput.focus();
     }
   });
@@ -597,6 +597,12 @@
   }
 
   async function iniciarChat() {
+    // Se já temos mensagens e conversa ativa, não reiniciar
+    if (messagesContainer.children.length > 0 && conversationId && accessToken) {
+      console.log('⏭️ Chat já iniciado, pulando...');
+      return;
+    }
+    
     isProcessing = true;
     showTyping();
     
@@ -605,7 +611,7 @@
       console.log('🔍 Buscando conversa web mais recente...');
       
       const checkResponse = await fetch(
-        `${SUPABASE_URL}/rest/v1/conversations?company_id=eq.${COMPANY_ID}&channel=eq.web&status=eq.open&order=created_at.desc&limit=1`,
+        `${SUPABASE_URL}/rest/v1/conversations?company_id=eq.${COMPANY_ID}&channel=eq.web&status=eq.open&select=id,access_token,metadata&order=created_at.desc&limit=1`,
         {
           headers: {
             'apikey': SUPABASE_KEY,
@@ -622,21 +628,33 @@
           
           // Verificar se a conversa está em estado finalizado
           const metadata = latestConv.metadata || {};
-          const isFinalizado = metadata.chamadoStep === 'finalizado' || 
-                              metadata.mode === 'menu' && metadata.chamadoStep === 'finalizado';
+          const isFinalizado = metadata.chamadoStep === 'finalizado';
           
           if (isFinalizado) {
-            console.log('🔄 Conversa anterior finalizada, criando nova...');
-            // Não reutilizar - forçar criação de nova conversa
+            console.log('🔄 Conversa anterior finalizada, resetando e criando nova...');
+            // Limpar estado anterior
+            messagesContainer.innerHTML = '';
+            existingMessageIds.clear();
+            botState = null;
+            conversationId = null;
+            accessToken = null;
+            if (pollingInterval) {
+              clearInterval(pollingInterval);
+              pollingInterval = null;
+            }
+            // Continuar para criar nova conversa
           } else {
             conversationId = latestConv.id;
             accessToken = latestConv.access_token;
             
             console.log('♻️ Usando conversa existente:', conversationId);
+            console.log('🔐 Access token:', accessToken ? 'OK' : 'MISSING');
             hideTyping();
             
-            // Carregar histórico de mensagens
-            await loadConversationMessages();
+            // Carregar histórico de mensagens apenas se container estiver vazio
+            if (messagesContainer.children.length === 0) {
+              await loadConversationMessages();
+            }
             
             // Configurar polling imediatamente
             startPollingForAgentMessages();
@@ -646,7 +664,7 @@
         }
       }
       
-      // Se não encontrou conversa, criar uma nova
+      // Se não encontrou conversa ou está finalizada, criar uma nova
       console.log('📝 Criando nova conversa...');
       const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot`, {
         method: 'POST',
