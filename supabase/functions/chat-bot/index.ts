@@ -149,13 +149,30 @@ serve(async (req) => {
         // Buscar dados para abertura de chamado
         try {
           console.log('Iniciando busca de placas...');
+          
+          // Buscar último chamado
           const ultimoChamadoRes = await fetch(`${GOOGLE_SCRIPT_URL}?action=ultimoChamado`);
+          console.log('Status último chamado:', ultimoChamadoRes.status);
           const ultimoChamadoData = await ultimoChamadoRes.json();
+          console.log('Dados último chamado:', JSON.stringify(ultimoChamadoData));
           chatState.numeroPrevisto = ultimoChamadoData.numeroChamado || 'N/A';
           console.log('Número previsto:', chatState.numeroPrevisto);
 
+          // Buscar placas
           const placasRes = await fetch(`${GOOGLE_SCRIPT_URL}?action=placas`);
-          const placasData = await placasRes.json();
+          console.log('Status placas:', placasRes.status);
+          const placasText = await placasRes.text();
+          console.log('Resposta placas (raw):', placasText);
+          
+          let placasData;
+          try {
+            placasData = JSON.parse(placasText);
+            console.log('Dados placas (parsed):', JSON.stringify(placasData));
+          } catch (parseError) {
+            console.error('Erro ao fazer parse das placas:', parseError);
+            placasData = { placas: [] };
+          }
+          
           chatState.placas = placasData.placas || [];
 
           console.log('Placas carregadas:', chatState.placas);
@@ -167,6 +184,7 @@ serve(async (req) => {
           options = []; // Não enviamos options aqui, as placas vão como parte do state
         } catch (error) {
           console.error('Erro ao buscar dados:', error);
+          console.error('Stack trace:', error instanceof Error ? error.stack : 'N/A');
           response = '❌ Erro ao iniciar processo de chamado. Tente novamente ou fale com um atendente.';
           chatState.mode = 'menu';
         }
