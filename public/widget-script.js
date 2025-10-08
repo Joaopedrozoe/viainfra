@@ -601,7 +601,7 @@
     showTyping();
     
     try {
-      // SEMPRE buscar a conversa web mais recente ao invés de usar localStorage
+      // Buscar a conversa web mais recente
       console.log('🔍 Buscando conversa web mais recente...');
       
       const checkResponse = await fetch(
@@ -619,18 +619,30 @@
         
         if (existingConversations && existingConversations.length > 0) {
           const latestConv = existingConversations[0];
-          conversationId = latestConv.id;
           
-          console.log('♻️ Usando conversa existente:', conversationId);
-          hideTyping();
+          // Verificar se a conversa está em estado finalizado
+          const metadata = latestConv.metadata || {};
+          const isFinalizado = metadata.chamadoStep === 'finalizado' || 
+                              metadata.mode === 'menu' && metadata.chamadoStep === 'finalizado';
           
-          // Carregar histórico de mensagens
-          await loadConversationMessages();
-          
-          // Configurar polling imediatamente
-          startPollingForAgentMessages();
-          isProcessing = false;
-          return;
+          if (isFinalizado) {
+            console.log('🔄 Conversa anterior finalizada, criando nova...');
+            // Não reutilizar - forçar criação de nova conversa
+          } else {
+            conversationId = latestConv.id;
+            accessToken = latestConv.access_token;
+            
+            console.log('♻️ Usando conversa existente:', conversationId);
+            hideTyping();
+            
+            // Carregar histórico de mensagens
+            await loadConversationMessages();
+            
+            // Configurar polling imediatamente
+            startPollingForAgentMessages();
+            isProcessing = false;
+            return;
+          }
         }
       }
       
