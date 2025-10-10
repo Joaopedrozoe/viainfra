@@ -414,11 +414,16 @@ serve(async (req) => {
                 console.log('Salvo no Supabase com sucesso:', chamadoDB);
               }
 
-              // Atualizar conversa
+              // Atualizar conversa para resolved com metadata
               await supabaseClient
                 .from('conversations')
-                .update({ status: 'resolved' })
+                .update({ 
+                  status: 'resolved',
+                  metadata: { chamadoStep: 'finalizado' }
+                })
                 .eq('id', chatState.conversationId);
+              
+              console.log('✅ Conversa marcada como resolved');
             }
           } catch (supabaseError) {
             console.error('Erro no Supabase:', supabaseError);
