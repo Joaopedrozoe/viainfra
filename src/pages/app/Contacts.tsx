@@ -23,21 +23,65 @@ const Contacts = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
 
-  // Load contacts dynamically based on real data availability
+  // Load contacts from Supabase
   useEffect(() => {
-    const loadContacts = () => {
+    const loadContacts = async () => {
       setIsLoading(true);
       try {
-        // Sempre verifica se há dados reais da API, independente do modo demo
-        const hasRealApiData = checkRealContactsData();
+        const { supabase } = await import("@/integrations/supabase/client");
         
-        if (hasRealApiData) {
-          // Carregaria contatos reais da API
-          const demoContacts = getDemoContacts();
-          setContacts(demoContacts);
-        } else {
-          // Sem API = sem contatos (sempre)
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        if (!user) {
           setContacts([]);
+          setIsLoading(false);
+          return;
+        }
+
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('company_id')
+          .eq('user_id', user.id)
+          .single();
+
+        if (!profile?.company_id) {
+          setContacts([]);
+          setIsLoading(false);
+          return;
+        }
+
+        const { data: contactsData, error } = await supabase
+          .from('contacts')
+          .select('*')
+          .eq('company_id', profile.company_id)
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          console.error('Error loading contacts:', error);
+          setContacts([]);
+        } else {
+          // Mapear para o formato esperado
+          const mappedContacts = (contactsData || []).map(c => {
+            const metadata = typeof c.metadata === 'object' && c.metadata !== null ? c.metadata as any : {};
+            const tags = Array.isArray(c.tags) ? c.tags.filter((t): t is string => typeof t === 'string') : [];
+            
+            return {
+              id: c.id,
+              name: c.name,
+              email: c.email || undefined,
+              phone: c.phone || undefined,
+              company: metadata.company || undefined,
+              tags,
+              channel: metadata.channel || undefined,
+              lastInteraction: c.updated_at,
+              status: "active" as const,
+              source: metadata.source === 'manual' ? "manual" as const : "conversation" as const,
+              createdAt: c.created_at,
+              updatedAt: c.updated_at,
+              notes: []
+            };
+          });
+          setContacts(mappedContacts);
         }
       } catch (error) {
         console.error('Error loading contacts:', error);
@@ -49,15 +93,6 @@ const Contacts = () => {
 
     loadContacts();
   }, [isDemoMode]);
-
-  // Função para verificar se há dados reais de contatos
-  const checkRealContactsData = (): boolean => {
-    // Verifica se há conversas reais ativas que geraram contatos
-    // TODO: Implementar verificação real quando API for conectada
-    // Por enquanto, sempre retorna false até ter API conectada
-    // Quando conectar: verificar se há mensagens recentes na API do WhatsApp
-    return false;
-  };
 
   const filteredContacts = useMemo(() => {
     return contacts.filter(contact => {

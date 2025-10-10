@@ -98,6 +98,9 @@ export const useConversations = () => {
         ...conv,
         status: conv.status as 'open' | 'resolved' | 'pending',
         metadata: conv.metadata || {},
+        contact: Array.isArray(conv.contacts) && conv.contacts.length > 0 
+          ? conv.contacts[0] 
+          : undefined,
         messages: (conv.messages || []).map(msg => ({
           ...msg,
           sender_type: msg.sender_type as 'user' | 'agent' | 'bot',

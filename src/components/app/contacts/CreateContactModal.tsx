@@ -27,7 +27,7 @@ export const CreateContactModal = ({ open, onOpenChange }: CreateContactModalPro
   
   const [newTag, setNewTag] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!formData.name.trim()) {
@@ -35,22 +35,78 @@ export const CreateContactModal = ({ open, onOpenChange }: CreateContactModalPro
       return;
     }
 
-    // Here you would normally save to your backend
-    // For demo, we'll just show a success message
-    toast.success("Contato criado com sucesso!");
-    
-    // Reset form and close modal
-    setFormData({
-      name: "",
-      email: "",
-      phone: "",
-      company: "",
-      channel: "",
-      notes: "",
-      tags: []
-    });
-    setNewTag("");
-    onOpenChange(false);
+    if (!formData.phone && !formData.email) {
+      toast.error("Telefone ou e-mail é obrigatório");
+      return;
+    }
+
+    try {
+      const { supabase } = await import("@/integrations/supabase/client");
+      const { useAuth } = await import("@/contexts/auth");
+      
+      // Buscar company_id do usuário atual
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        toast.error("Usuário não autenticado");
+        return;
+      }
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('user_id', user.id)
+        .single();
+
+      if (!profile?.company_id) {
+        toast.error("Empresa não encontrada");
+        return;
+      }
+
+      // Criar contato no Supabase
+      const { error: insertError } = await supabase
+        .from('contacts')
+        .insert({
+          name: formData.name.trim(),
+          email: formData.email.trim() || null,
+          phone: formData.phone.trim() || null,
+          company_id: profile.company_id,
+          tags: formData.tags,
+          metadata: {
+            company: formData.company || null,
+            channel: formData.channel || null,
+            notes: formData.notes || null,
+            source: 'manual'
+          }
+        });
+
+      if (insertError) {
+        console.error('Erro ao criar contato:', insertError);
+        toast.error("Erro ao criar contato");
+        return;
+      }
+
+      toast.success("Contato criado com sucesso!");
+      
+      // Reset form and close modal
+      setFormData({
+        name: "",
+        email: "",
+        phone: "",
+        company: "",
+        channel: "",
+        notes: "",
+        tags: []
+      });
+      setNewTag("");
+      onOpenChange(false);
+      
+      // Recarregar página para atualizar lista
+      window.location.reload();
+    } catch (error) {
+      console.error('Erro ao criar contato:', error);
+      toast.error("Erro ao criar contato");
+    }
   };
 
   const addTag = () => {

@@ -72,9 +72,18 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         ? conv.messages[conv.messages.length - 1] 
         : null;
       
+      // Use contact name ou telefone se nome ainda for temporário
+      let displayName = 'Visitante';
+      if (conv.contact) {
+        displayName = conv.contact.name;
+        if (displayName === 'Visitante' && conv.contact.phone) {
+          displayName = conv.contact.phone;
+        }
+      }
+      
       return {
         id: conv.id,
-        name: conv.contact?.name || 'Cliente Web',
+        name: displayName,
         channel: conv.channel as Channel,
         preview: lastMessage?.content || 'Nova conversa',
         time: new Date(conv.updated_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),

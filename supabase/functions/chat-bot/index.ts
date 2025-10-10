@@ -230,6 +230,65 @@ serve(async (req) => {
             response = '❌ Por favor, informe um número de telefone válido.';
           } else {
             chatState.telefoneCliente = telefoneInput;
+            
+            // Buscar ou criar contato com base no telefone
+            console.log("Buscando/criando contato para telefone:", telefoneInput);
+            
+            try {
+              const { data: existingContact, error: searchError } = await supabaseClient
+                .from('contacts')
+                .select('id, name')
+                .eq('phone', telefoneInput)
+                .eq('company_id', chatState.companyId)
+                .maybeSingle();
+
+              if (searchError) {
+                console.error('Erro ao buscar contato:', searchError);
+              }
+
+              if (existingContact) {
+                console.log("Contato existente encontrado:", existingContact.id);
+                
+                // Atualizar nome se mudou
+                if (existingContact.name !== chatState.nomeCliente) {
+                  await supabaseClient
+                    .from('contacts')
+                    .update({ 
+                      name: chatState.nomeCliente,
+                      metadata: { source: 'web_bot', updated: true }
+                    })
+                    .eq('id', existingContact.id);
+                }
+                
+                // Atualizar a conversa para o contato existente
+                await supabaseClient
+                  .from('conversations')
+                  .update({ contact_id: existingContact.id })
+                  .eq('id', chatState.conversationId);
+                  
+                chatState.contactId = existingContact.id;
+                
+              } else {
+                console.log("Atualizando contato temporário com dados reais");
+                
+                // Atualizar o contato temporário com dados reais
+                const { error: updateError } = await supabaseClient
+                  .from('contacts')
+                  .update({
+                    name: chatState.nomeCliente,
+                    phone: telefoneInput,
+                    metadata: { source: 'web_bot' }
+                  })
+                  .eq('id', chatState.contactId);
+
+                if (updateError) {
+                  console.error('Erro ao atualizar contato:', updateError);
+                }
+              }
+            } catch (error) {
+              console.error('Erro ao processar contato:', error);
+            }
+            
             chatState.chamadoStep = 'inicio';
             
             // Agora buscar dados para abertura de chamado
