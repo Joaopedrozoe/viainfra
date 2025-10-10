@@ -289,6 +289,12 @@ serve(async (req) => {
               console.error('Erro ao processar contato:', error);
             }
             
+            // Atualizar updated_at da conversa para forçar refresh no frontend
+            await supabaseClient
+              .from('conversations')
+              .update({ updated_at: new Date().toISOString() })
+              .eq('id', chatState.conversationId);
+            
             chatState.chamadoStep = 'inicio';
             
             // Agora buscar dados para abertura de chamado
