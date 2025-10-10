@@ -61,7 +61,15 @@ export const useConversations = () => {
       const { data, error } = await supabase
         .from('conversations')
         .select(`
-          *,
+          id,
+          company_id,
+          contact_id,
+          channel,
+          status,
+          assigned_to,
+          metadata,
+          created_at,
+          updated_at,
           contacts (
             id,
             name,
