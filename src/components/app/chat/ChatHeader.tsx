@@ -44,26 +44,6 @@ export const ChatHeader = memo(({
   
   if (!userName) return null;
 
-  // Simular atribuição de agente e departamento baseado no ID da conversa
-  const getConversationAssignment = () => {
-    if (!conversationId) return { agent: "Sistema", department: null };
-    
-    const agents = ["Ana Silva", "João Santos", "Maria Costa", "Pedro Lima"];
-    const departmentNames = ["Atendimento", "Comercial", "Manutenção", "Financeiro", "RH"];
-    
-    const agentIndex = parseInt(conversationId) % agents.length;
-    const deptIndex = parseInt(conversationId) % departmentNames.length;
-    
-    const assignedAgent = agents[agentIndex];
-    const assignedDepartment = departments.find(d => d.name === departmentNames[deptIndex]);
-    
-    return { 
-      agent: assignedAgent, 
-      department: assignedDepartment 
-    };
-  };
-
-  const { agent, department } = getConversationAssignment();
 
   const handleTransferDepartment = () => {
     if (!selectedDepartment || !conversationId) return;
@@ -102,16 +82,6 @@ export const ChatHeader = memo(({
       </div>
       <div onClick={onViewContactDetails} className="cursor-pointer flex-1">
         <h2 className="font-medium text-gray-900">{userName}</h2>
-        <div className="flex items-center gap-2 mt-1">
-          <Badge variant="outline" className="text-xs">
-            {agent}
-          </Badge>
-          {department && (
-            <Badge variant="secondary" className="text-xs">
-              {department.name}
-            </Badge>
-          )}
-        </div>
         <p className="text-sm text-gray-500">Ver detalhes do contato</p>
       </div>
       
@@ -152,25 +122,17 @@ export const ChatHeader = memo(({
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium">Departamento atual:</label>
-              <p className="text-sm text-muted-foreground">
-                {department ? department.name : "Não atribuído"}
-              </p>
-            </div>
-            <div>
               <label className="text-sm font-medium">Transferir para:</label>
               <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
                 <SelectTrigger className="mt-2">
                   <SelectValue placeholder="Selecione um departamento" />
                 </SelectTrigger>
                 <SelectContent>
-                  {departments
-                    .filter(d => d.id !== department?.id)
-                    .map((dept) => (
-                      <SelectItem key={dept.id} value={dept.id}>
-                        {dept.name} ({dept.members.length} membros)
-                      </SelectItem>
-                    ))}
+                  {departments.map((dept) => (
+                    <SelectItem key={dept.id} value={dept.id}>
+                      {dept.name} ({dept.members.length} membros)
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

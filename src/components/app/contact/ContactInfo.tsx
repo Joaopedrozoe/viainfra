@@ -1,6 +1,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useEffect, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ContactInfoProps {
   contactId: string | undefined;
@@ -9,22 +10,42 @@ interface ContactInfoProps {
 export const ContactInfo = ({ contactId }: ContactInfoProps) => {
   const [contactData, setContactData] = useState<{
     name: string;
+    phone?: string;
     email?: string;
   } | null>(null);
 
   useEffect(() => {
-    // Simulação de uma tabela de correspondência entre conversas e contatos
-    const contactMapping: Record<string, { name: string, email?: string }> = {
-      "1": { name: "João Silva", email: "joao@example.com" },
-      "2": { name: "Maria Souza", email: "maria@example.com" },
-      "3": { name: "Pedro Santos", email: "pedro@example.com" },
-      "4": { name: "Ana Costa", email: "ana@example.com" },
-      "5": { name: "Carlos Oliveira", email: "carlos@example.com" }
+    const loadContactData = async () => {
+      if (!contactId) return;
+
+      try {
+        // Buscar conversa para obter contact_id
+        const { data: conversation } = await supabase
+          .from('conversations')
+          .select(`
+            contact_id,
+            contacts (
+              name,
+              phone,
+              email
+            )
+          `)
+          .eq('id', contactId)
+          .single();
+
+        if (conversation?.contacts) {
+          setContactData({
+            name: conversation.contacts.name,
+            phone: conversation.contacts.phone,
+            email: conversation.contacts.email
+          });
+        }
+      } catch (error) {
+        console.error('Erro ao carregar dados do contato:', error);
+      }
     };
-    
-    if (contactId && contactMapping[contactId]) {
-      setContactData(contactMapping[contactId]);
-    }
+
+    loadContactData();
   }, [contactId]);
 
   return (
@@ -38,10 +59,18 @@ export const ContactInfo = ({ contactId }: ContactInfoProps) => {
             <label className="text-sm font-medium text-gray-500">Nome</label>
             <p className="mt-1">{contactData?.name || "Carregando..."}</p>
           </div>
-          <div>
-            <label className="text-sm font-medium text-gray-500">E-mail</label>
-            <p className="mt-1">{contactData?.email || "Não informado"}</p>
-          </div>
+          {contactData?.phone && (
+            <div>
+              <label className="text-sm font-medium text-gray-500">Telefone</label>
+              <p className="mt-1">{contactData.phone}</p>
+            </div>
+          )}
+          {contactData?.email && (
+            <div>
+              <label className="text-sm font-medium text-gray-500">E-mail</label>
+              <p className="mt-1">{contactData.email}</p>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

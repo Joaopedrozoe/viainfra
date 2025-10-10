@@ -72,12 +72,25 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         ? conv.messages[conv.messages.length - 1] 
         : null;
       
-      // Use contact name ou telefone se nome ainda for temporário
-      let displayName = 'Visitante';
+      // Use contact name, phone, or email for display
+      let displayName = 'Sem identificação';
       if (conv.contact) {
-        displayName = conv.contact.name;
-        if (displayName === 'Visitante' && conv.contact.phone) {
-          displayName = conv.contact.phone;
+        const { name, phone, email } = conv.contact;
+        // Se nome não é "Visitante", use o nome
+        if (name && name !== 'Visitante') {
+          displayName = name;
+        }
+        // Senão, tente usar o telefone
+        else if (phone) {
+          displayName = phone;
+        }
+        // Por último, tente o email
+        else if (email) {
+          displayName = email;
+        }
+        // Se ainda for "Visitante" mas tem telefone, mostre o telefone
+        else if (name === 'Visitante' && phone) {
+          displayName = phone;
         }
       }
       
