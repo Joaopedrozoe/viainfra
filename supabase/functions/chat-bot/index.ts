@@ -10,9 +10,11 @@ const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz0viYlAJ_-v0
 
 interface ChatState {
   mode: 'menu' | 'chamado' | 'atendente' | 'escolhendoSetor';
-  chamadoStep?: 'inicio' | 'placa' | 'corretiva' | 'local' | 'agendamento' | 'descricao' | 'finalizado';
+  chamadoStep?: 'nome' | 'telefone' | 'inicio' | 'placa' | 'corretiva' | 'local' | 'agendamento' | 'descricao' | 'finalizado';
   numeroPrevisto?: string;
   placas?: string[];
+  nomeCliente?: string;
+  telefoneCliente?: string;
   placa?: string;
   corretiva?: boolean;
   local?: 'Canteiro' | 'Oficina';
@@ -144,50 +146,10 @@ serve(async (req) => {
       
       if (input === '1' || input?.includes('abrir') || input?.includes('chamado')) {
         chatState.mode = 'chamado';
-        chatState.chamadoStep = 'inicio';
+        chatState.chamadoStep = 'nome';
         
-        // Buscar dados para abertura de chamado
-        try {
-          console.log('Iniciando busca de placas...');
-          
-          // Buscar último chamado
-          const ultimoChamadoRes = await fetch(`${GOOGLE_SCRIPT_URL}?action=ultimoChamado`);
-          console.log('Status último chamado:', ultimoChamadoRes.status);
-          const ultimoChamadoData = await ultimoChamadoRes.json();
-          console.log('Dados último chamado:', JSON.stringify(ultimoChamadoData));
-          chatState.numeroPrevisto = ultimoChamadoData.numeroChamado || 'N/A';
-          console.log('Número previsto:', chatState.numeroPrevisto);
-
-          // Buscar placas
-          const placasRes = await fetch(`${GOOGLE_SCRIPT_URL}?action=placas`);
-          console.log('Status placas:', placasRes.status);
-          const placasText = await placasRes.text();
-          console.log('Resposta placas (raw):', placasText);
-          
-          let placasData;
-          try {
-            placasData = JSON.parse(placasText);
-            console.log('Dados placas (parsed):', JSON.stringify(placasData));
-          } catch (parseError) {
-            console.error('Erro ao fazer parse das placas:', parseError);
-            placasData = { placas: [] };
-          }
-          
-          chatState.placas = placasData.placas || [];
-
-          console.log('Placas carregadas:', chatState.placas);
-          console.log('Quantidade de placas:', chatState.placas.length);
-          console.log('State completo:', JSON.stringify(chatState));
-
-          response = `🎫 **Processo de Abertura de Chamado Iniciado**\n\nNúmero previsto: **${chatState.numeroPrevisto}**\n\n📋 Selecione uma placa:`;
-          
-          options = []; // Não enviamos options aqui, as placas vão como parte do state
-        } catch (error) {
-          console.error('Erro ao buscar dados:', error);
-          console.error('Stack trace:', error instanceof Error ? error.stack : 'N/A');
-          response = '❌ Erro ao iniciar processo de chamado. Tente novamente ou fale com um atendente.';
-          chatState.mode = 'menu';
-        }
+        response = `🎫 **Processo de Abertura de Chamado Iniciado**\n\n👤 Por favor, informe seu **nome completo**:`;
+        options = [];
       } else if (input === '2' || input?.includes('atendente') || input?.includes('falar')) {
         response = `🔧 **Atendimento Humano em Manutenção**\n\nDesculpe, o atendimento com nossos agentes está temporariamente indisponível para melhorias.\n\n✨ **Disponível em breve!**\n\nEnquanto isso, você pode:\n• Abrir um chamado (opção 1)\n• Consultar chamados existentes (opção 3)\n• Verificar perguntas frequentes (opção 4)\n\nDigite **0** para voltar ao menu.`;
         options = [];
@@ -251,6 +213,70 @@ serve(async (req) => {
     } else if (chatState.mode === 'chamado') {
       // Fluxo de abertura de chamado
       switch (chatState.chamadoStep) {
+        case 'nome':
+          const nomeInput = userMessage?.trim();
+          if (!nomeInput) {
+            response = '❌ Por favor, informe seu nome completo.';
+          } else {
+            chatState.nomeCliente = nomeInput;
+            chatState.chamadoStep = 'telefone';
+            response = `✅ Nome registrado: **${nomeInput}**\n\n📱 Agora, informe um **número de telefone** para contato:`;
+          }
+          break;
+
+        case 'telefone':
+          const telefoneInput = userMessage?.trim();
+          if (!telefoneInput) {
+            response = '❌ Por favor, informe um número de telefone válido.';
+          } else {
+            chatState.telefoneCliente = telefoneInput;
+            chatState.chamadoStep = 'inicio';
+            
+            // Agora buscar dados para abertura de chamado
+            try {
+              console.log('Iniciando busca de placas...');
+              
+              // Buscar último chamado
+              const ultimoChamadoRes = await fetch(`${GOOGLE_SCRIPT_URL}?action=ultimoChamado`);
+              console.log('Status último chamado:', ultimoChamadoRes.status);
+              const ultimoChamadoData = await ultimoChamadoRes.json();
+              console.log('Dados último chamado:', JSON.stringify(ultimoChamadoData));
+              chatState.numeroPrevisto = ultimoChamadoData.numeroChamado || 'N/A';
+              console.log('Número previsto:', chatState.numeroPrevisto);
+
+              // Buscar placas
+              const placasRes = await fetch(`${GOOGLE_SCRIPT_URL}?action=placas`);
+              console.log('Status placas:', placasRes.status);
+              const placasText = await placasRes.text();
+              console.log('Resposta placas (raw):', placasText);
+              
+              let placasData;
+              try {
+                placasData = JSON.parse(placasText);
+                console.log('Dados placas (parsed):', JSON.stringify(placasData));
+              } catch (parseError) {
+                console.error('Erro ao fazer parse das placas:', parseError);
+                placasData = { placas: [] };
+              }
+              
+              chatState.placas = placasData.placas || [];
+
+              console.log('Placas carregadas:', chatState.placas);
+              console.log('Quantidade de placas:', chatState.placas.length);
+              console.log('State completo:', JSON.stringify(chatState));
+
+              response = `✅ Telefone registrado: **${telefoneInput}**\n\n🎫 Número previsto: **${chatState.numeroPrevisto}**\n\n📋 Selecione uma placa:`;
+              
+              options = []; // Não enviamos options aqui, as placas vão como parte do state
+            } catch (error) {
+              console.error('Erro ao buscar dados:', error);
+              console.error('Stack trace:', error instanceof Error ? error.stack : 'N/A');
+              response = '❌ Erro ao iniciar processo de chamado. Tente novamente ou fale com um atendente.';
+              chatState.mode = 'menu';
+            }
+          }
+          break;
+
         case 'inicio':
           // Aguardando seleção da placa
           const input = userMessage?.trim();
