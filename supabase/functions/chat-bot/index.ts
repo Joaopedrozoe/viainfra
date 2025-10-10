@@ -415,7 +415,7 @@ serve(async (req) => {
               }
 
               // Atualizar conversa para resolved com metadata
-              await supabaseClient
+              const { error: updateError } = await supabaseClient
                 .from('conversations')
                 .update({ 
                   status: 'resolved',
@@ -423,7 +423,11 @@ serve(async (req) => {
                 })
                 .eq('id', chatState.conversationId);
               
-              console.log('✅ Conversa marcada como resolved');
+              if (updateError) {
+                console.error('❌ Erro ao atualizar conversa:', updateError);
+              } else {
+                console.log('✅ Conversa marcada como resolved');
+              }
             }
           } catch (supabaseError) {
             console.error('Erro no Supabase:', supabaseError);
