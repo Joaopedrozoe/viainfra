@@ -94,18 +94,24 @@ export const useConversations = () => {
         return;
       }
 
-      const newConversations = (data || []).map(conv => ({
-        ...conv,
-        status: conv.status as 'open' | 'resolved' | 'pending',
-        metadata: conv.metadata || {},
-        contact: Array.isArray(conv.contacts) && conv.contacts.length > 0 
-          ? conv.contacts[0] 
-          : undefined,
-        messages: (conv.messages || []).map(msg => ({
-          ...msg,
-          sender_type: msg.sender_type as 'user' | 'agent' | 'bot',
-        })),
-      }));
+      const newConversations = (data || []).map(conv => {
+        console.log('Conversation data:', {
+          id: conv.id,
+          contact_id: conv.contact_id,
+          contacts: conv.contacts
+        });
+        
+        return {
+          ...conv,
+          status: conv.status as 'open' | 'resolved' | 'pending',
+          metadata: conv.metadata || {},
+          contact: conv.contacts || undefined,
+          messages: (conv.messages || []).map(msg => ({
+            ...msg,
+            sender_type: msg.sender_type as 'user' | 'agent' | 'bot',
+          })),
+        };
+      });
 
       // Só atualizar se realmente houver mudanças
       setConversations(prev => {
