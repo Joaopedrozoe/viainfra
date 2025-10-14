@@ -70,14 +70,14 @@ export const useConversations = () => {
           metadata,
           created_at,
           updated_at,
-          contacts (
+          contacts!conversations_contact_id_fkey (
             id,
             name,
             phone,
             email,
             avatar_url
           ),
-          messages (
+          messages!messages_conversation_id_fkey (
             id,
             content,
             sender_type,
