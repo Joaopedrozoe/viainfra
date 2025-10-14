@@ -2,12 +2,44 @@
 import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { Message } from "./types";
+import { format, isToday, isYesterday, isThisWeek, isThisYear } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 type MessageItemProps = {
   message: Message;
 };
 
+const formatMessageTimestamp = (dateString: string) => {
+  const date = new Date(dateString);
+  const time = format(date, "HH:mm", { locale: ptBR });
+  
+  // Hoje: apenas hora
+  if (isToday(date)) {
+    return time;
+  }
+  
+  // Ontem: "Ontem, HH:mm"
+  if (isYesterday(date)) {
+    return `Ontem, ${time}`;
+  }
+  
+  // Esta semana: "Dia da semana, HH:mm"
+  if (isThisWeek(date)) {
+    return format(date, "EEEE, HH:mm", { locale: ptBR });
+  }
+  
+  // Este ano: "dd/MM, HH:mm"
+  if (isThisYear(date)) {
+    return format(date, "dd/MM, HH:mm", { locale: ptBR });
+  }
+  
+  // Outros anos: "dd/MM/yyyy, HH:mm"
+  return format(date, "dd/MM/yyyy, HH:mm", { locale: ptBR });
+};
+
 export const MessageItem = memo(({ message }: MessageItemProps) => {
+  const formattedTimestamp = formatMessageTimestamp(message.timestamp);
+  
   return (
     <div
       className={cn(
@@ -28,7 +60,7 @@ export const MessageItem = memo(({ message }: MessageItemProps) => {
           "text-xs mt-1 text-right",
           message.sender === "agent" ? "text-white/70" : "text-gray-500"
         )}>
-          {message.timestamp}
+          {formattedTimestamp}
         </div>
       </div>
     </div>

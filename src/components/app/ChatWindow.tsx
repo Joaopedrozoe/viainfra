@@ -39,7 +39,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
                 id: newMessage.id,
                 content: newMessage.content,
                 sender: newMessage.sender_type === 'user' ? 'user' : 'bot',
-                timestamp: new Date(newMessage.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                timestamp: newMessage.created_at // Data completa
               };
               
               setMessages(prev => {
@@ -127,7 +127,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             id: msg.id,
             content: msg.content,
             sender: msg.sender_type === 'user' ? 'user' : msg.sender_type === 'agent' ? 'agent' : 'bot',
-            timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            timestamp: msg.created_at // Passar a data completa para formatação no MessageItem
           }));
 
         console.log('Mensagens carregadas:', mappedMessages.length);
@@ -162,7 +162,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         id: tempId,
         content,
         sender: "agent",
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        timestamp: new Date().toISOString() // Data completa
       };
       
       setMessages(prev => [...prev, tempMessage]);
@@ -190,7 +190,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
                 id: data.id,
                 content: data.content,
                 sender: 'agent',
-                timestamp: new Date(data.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                timestamp: data.created_at // Data completa
               }
             : msg
         ));
