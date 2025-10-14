@@ -13,23 +13,9 @@ const formatMessageTimestamp = (dateString: string) => {
   const date = new Date(dateString);
   const time = format(date, "HH:mm", { locale: ptBR });
   
-  // Hoje: apenas hora
-  if (isToday(date)) {
-    return time;
-  }
-  
-  // Ontem: "Ontem, HH:mm"
-  if (isYesterday(date)) {
-    return `Ontem, ${time}`;
-  }
-  
-  // Esta semana: "Dia da semana, HH:mm"
-  if (isThisWeek(date)) {
-    return format(date, "EEEE, HH:mm", { locale: ptBR });
-  }
-  
-  // Este ano: "dd/MM, HH:mm"
+  // Sempre incluir a data
   if (isThisYear(date)) {
+    // Este ano: "dd/MM, HH:mm"
     return format(date, "dd/MM, HH:mm", { locale: ptBR });
   }
   
