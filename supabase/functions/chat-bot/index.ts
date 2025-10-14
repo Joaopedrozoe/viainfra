@@ -10,7 +10,7 @@ const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz0viYlAJ_-v0
 
 interface ChatState {
   mode: 'menu' | 'chamado' | 'atendente' | 'escolhendoSetor';
-  chamadoStep?: 'nome' | 'telefone' | 'inicio' | 'placa' | 'corretiva' | 'local' | 'agendamento' | 'descricao' | 'finalizado';
+  chamadoStep?: 'nome' | 'telefone' | 'inicio' | 'placa' | 'corretiva' | 'local' | 'descricao' | 'finalizado';
   numeroPrevisto?: string;
   placas?: string[];
   nomeCliente?: string;
@@ -413,21 +413,15 @@ serve(async (req) => {
           const localInput = userMessage?.toLowerCase();
           if (localInput === 'canteiro') {
             chatState.local = 'Canteiro';
-            response = '✅ Local: **Canteiro**\n\n📅 Informe a **data e hora do agendamento**:\n\nExemplo: 25/12/2024 14:30';
-            chatState.chamadoStep = 'agendamento';
+            response = '✅ Local: **Canteiro**\n\n📝 Descreva o **problema/serviço necessário**:';
+            chatState.chamadoStep = 'descricao';
           } else if (localInput === 'oficina') {
             chatState.local = 'Oficina';
-            response = '✅ Local: **Oficina**\n\n📅 Informe a **data e hora do agendamento**:\n\nExemplo: 25/12/2024 14:30';
-            chatState.chamadoStep = 'agendamento';
+            response = '✅ Local: **Oficina**\n\n📝 Descreva o **problema/serviço necessário**:';
+            chatState.chamadoStep = 'descricao';
           } else {
             response = '❌ Responda apenas **Canteiro** ou **Oficina**';
           }
-          break;
-
-        case 'agendamento':
-          chatState.agendamento = userMessage?.trim();
-          response = `✅ Agendamento: **${chatState.agendamento}**\n\n📝 Descreva o **problema/serviço necessário**:`;
-          chatState.chamadoStep = 'descricao';
           break;
 
         case 'descricao':
@@ -441,14 +435,12 @@ serve(async (req) => {
             console.log('Placa:', chatState.placa);
             console.log('Corretiva:', chatState.corretiva);
             console.log('Local:', chatState.local);
-            console.log('Agendamento:', chatState.agendamento);
             console.log('Descrição:', chatState.descricao);
             
             const chamadoPayload = {
               placa: chatState.placa,
               corretiva: chatState.corretiva ? 'Sim' : 'Não',
               local: chatState.local,
-              agendamento: chatState.agendamento,
               descricao: chatState.descricao,
             };
 
@@ -503,7 +495,7 @@ serve(async (req) => {
                   placa: chatState.placa!,
                   corretiva: chatState.corretiva!,
                   local: chatState.local!,
-                  agendamento: new Date(chatState.agendamento!).toISOString(),
+                  agendamento: null, // Será preenchido pelas atendentes
                   descricao: chatState.descricao!,
                   status: 'aberto',
                 })

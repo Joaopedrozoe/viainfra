@@ -57,7 +57,7 @@ export type Database = {
       }
       chamados: {
         Row: {
-          agendamento: string
+          agendamento: string | null
           company_id: string | null
           conversation_id: string | null
           corretiva: boolean
@@ -73,7 +73,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          agendamento: string
+          agendamento?: string | null
           company_id?: string | null
           conversation_id?: string | null
           corretiva: boolean
@@ -89,7 +89,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          agendamento?: string
+          agendamento?: string | null
           company_id?: string | null
           conversation_id?: string | null
           corretiva?: boolean
