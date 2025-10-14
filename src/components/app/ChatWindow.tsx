@@ -30,7 +30,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             filter: `conversation_id=eq.${conversationId}`
           },
           (payload) => {
-            console.log('Nova mensagem recebida:', payload);
+            console.log('Nova mensagem recebida via realtime:', payload);
             const newMessage = payload.new as any;
             
             // Adicionar mensagem se for do tipo user ou bot (não duplicar mensagens do agent)
@@ -43,10 +43,12 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
               };
               
               setMessages(prev => {
-                // Evitar duplicatas
+                // Evitar duplicatas verificando se a mensagem já existe
                 if (prev.some(msg => msg.id === mappedMessage.id)) {
+                  console.log('Mensagem duplicada ignorada:', mappedMessage.id);
                   return prev;
                 }
+                console.log('Adicionando nova mensagem:', mappedMessage.id);
                 return [...prev, mappedMessage];
               });
             }
@@ -109,9 +111,18 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           }
         }
 
-        // Mapear mensagens
+        // Mapear mensagens removendo duplicatas por ID
+        const seenIds = new Set<string>();
         const mappedMessages: Message[] = (conversation.messages || [])
           .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+          .filter((msg: any) => {
+            if (seenIds.has(msg.id)) {
+              console.log('Mensagem duplicada removida no carregamento:', msg.id);
+              return false;
+            }
+            seenIds.add(msg.id);
+            return true;
+          })
           .map((msg: any) => ({
             id: msg.id,
             content: msg.content,
@@ -119,6 +130,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             timestamp: new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           }));
 
+        console.log('Mensagens carregadas:', mappedMessages.length);
         setMessages(mappedMessages);
         
         // Definir nome do contato
