@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Search, Plus, Filter, Users, Mail, MessageSquare, Download } from "lucide-react";
+import { Search, Plus, Filter, Users, Mail, MessageSquare, Download, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -96,6 +96,11 @@ const Contacts = () => {
 
   const filteredContacts = useMemo(() => {
     return contacts.filter(contact => {
+      // Filtrar "Cliente Web" e "Sem contato"
+      if (contact.name === "Cliente Web" || contact.name === "Sem contato") {
+        return false;
+      }
+
       // Search filter
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
@@ -175,6 +180,35 @@ const Contacts = () => {
   const handleBulkMessage = () => {
     if (selectedContacts.length > 0) {
       setShowMessageModal(true);
+    }
+  };
+
+  const handleDeleteContact = async (contactId: string) => {
+    if (!confirm('Tem certeza que deseja excluir este contato?')) {
+      return;
+    }
+
+    try {
+      const { supabase } = await import("@/integrations/supabase/client");
+      
+      const { error } = await supabase
+        .from('contacts')
+        .delete()
+        .eq('id', contactId);
+
+      if (error) {
+        console.error('Error deleting contact:', error);
+        alert('Erro ao excluir contato');
+      } else {
+        // Remover da lista local
+        setContacts(prev => prev.filter(c => c.id !== contactId));
+        if (selectedContact?.id === contactId) {
+          setSelectedContact(null);
+        }
+      }
+    } catch (error) {
+      console.error('Error deleting contact:', error);
+      alert('Erro ao excluir contato');
     }
   };
 
@@ -258,7 +292,7 @@ const Contacts = () => {
             ) : filteredContacts.length > 0 ? (
               <div className="space-y-2">
                 {filteredContacts.map((contact) => (
-                  <div key={contact.id} className="flex items-center gap-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors">
+                  <div key={contact.id} className="flex items-center gap-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors group">
                     <div 
                       className="flex-1 cursor-pointer"
                       onClick={() => handleContactSelect(contact)}
@@ -291,6 +325,18 @@ const Contacts = () => {
                         </div>
                       </div>
                     </div>
+                    
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteContact(contact.id);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
                   </div>
                 ))}
               </div>
