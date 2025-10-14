@@ -142,9 +142,12 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     if (!conversationId) return;
 
     try {
+      // Criar ID único para a mensagem
+      const tempId = `temp-${Date.now()}`;
+      
       // Adicionar mensagem localmente primeiro para feedback instantâneo
       const tempMessage: Message = {
-        id: Date.now().toString(),
+        id: tempId,
         content,
         sender: "agent",
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -153,18 +156,32 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       setMessages(prev => [...prev, tempMessage]);
 
       // Enviar mensagem para o banco
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('messages')
         .insert({
           conversation_id: conversationId,
           sender_type: 'agent',
           content,
-        });
+        })
+        .select()
+        .single();
 
       if (error) {
         console.error('Erro ao inserir mensagem:', error);
         // Remover mensagem temporária em caso de erro
-        setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
+        setMessages(prev => prev.filter(msg => msg.id !== tempId));
+      } else if (data) {
+        // Substituir mensagem temporária pela real
+        setMessages(prev => prev.map(msg => 
+          msg.id === tempId 
+            ? {
+                id: data.id,
+                content: data.content,
+                sender: 'agent',
+                timestamp: new Date(data.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+              }
+            : msg
+        ));
       }
     } catch (error) {
       console.error('Erro ao enviar mensagem:', error);
