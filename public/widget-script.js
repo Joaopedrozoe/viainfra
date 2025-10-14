@@ -729,28 +729,7 @@
     showTyping();
 
     try {
-      // Se temos token, salvar mensagem via RPC seguro
-      if (accessToken && conversationId) {
-        console.log('🔐 Enviando mensagem via RPC seguro');
-        
-        await fetch(
-          `${SUPABASE_URL}/rest/v1/rpc/send_web_conversation_message`,
-          {
-            method: 'POST',
-            headers: {
-              'apikey': SUPABASE_KEY,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              p_conversation_id: conversationId,
-              p_access_token: accessToken,
-              p_content: message
-            })
-          }
-        );
-      }
-
-      // Processar resposta do bot
+      // Processar resposta do bot (a edge function já salva a mensagem automaticamente)
       const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot`, {
         method: 'POST',
         headers: {
