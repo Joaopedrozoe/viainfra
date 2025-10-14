@@ -273,9 +273,9 @@ const Contacts = () => {
               {filteredContacts.length} contato{filteredContacts.length !== 1 ? 's' : ''}
             </span>
             <div className="flex items-center gap-4 text-xs">
-              <span>Total: {contacts.length}</span>
-              <span>Com E-mail: {contacts.filter(c => c.email).length}</span>
-              <span>Ativos: {contacts.filter(c => c.status === "active").length}</span>
+              <span>Total: {filteredContacts.length}</span>
+              <span>Com E-mail: {filteredContacts.filter(c => c.email).length}</span>
+              <span>Ativos: {filteredContacts.filter(c => c.status === "active").length}</span>
             </div>
           </div>
         </div>
