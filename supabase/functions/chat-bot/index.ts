@@ -105,15 +105,30 @@ serve(async (req) => {
       }
     }
 
-    // Salvar mensagem do usuário
+    // Salvar mensagem do usuário (com verificação de duplicata)
     if (userMessage && chatState.conversationId) {
-      await supabaseClient
+      // Verificar se já existe uma mensagem idêntica nos últimos 2 segundos
+      const { data: recentMessages } = await supabaseClient
         .from('messages')
-        .insert({
-          conversation_id: chatState.conversationId,
-          sender_type: 'user',
-          content: userMessage,
-        });
+        .select('id, content, created_at')
+        .eq('conversation_id', chatState.conversationId)
+        .eq('sender_type', 'user')
+        .eq('content', userMessage)
+        .gte('created_at', new Date(Date.now() - 2000).toISOString())
+        .limit(1);
+
+      if (!recentMessages || recentMessages.length === 0) {
+        // Só salvar se não houver duplicata recente
+        await supabaseClient
+          .from('messages')
+          .insert({
+            conversation_id: chatState.conversationId,
+            sender_type: 'user',
+            content: userMessage,
+          });
+      } else {
+        console.log('⚠️ Mensagem duplicada detectada, ignorando:', userMessage);
+      }
     }
 
     // Verificar se usuário quer voltar ao menu (funciona em qualquer modo)
