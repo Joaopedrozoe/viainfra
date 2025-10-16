@@ -231,10 +231,18 @@ serve(async (req) => {
           });
       }
 
-    } else if (chatState.mode === 'atendente') {
-      // Modo atendimento humano - apenas confirma recebimento
-      if (userMessage && userMessage.trim() !== '0') {
-        response = `Recebido! Nossa equipe verificará sua solicitação e retornará em breve. 📝\n\nDigite **0** para voltar ao menu principal.`;
+  } else if (chatState.mode === 'atendente') {
+      // Modo atendimento humano - não envia mensagem automática
+      // O atendente humano irá responder diretamente
+      if (userMessage && userMessage.trim() === '0') {
+        // Permitir voltar ao menu se digitar 0
+        chatState.mode = 'menu';
+        chatState.waitingForAgent = false;
+        response = `👋 Olá! Bem-vindo à **Viainfra**!\n\nComo posso ajudar você hoje?\n\n1️⃣ Abrir Chamado\n2️⃣ Falar com Atendente\n3️⃣ Consultar Chamado\n4️⃣ FAQ / Dúvidas`;
+        options = ['1️⃣ Abrir Chamado', '2️⃣ Falar com Atendente', '3️⃣ Consultar Chamado', '4️⃣ FAQ / Dúvidas'];
+      } else {
+        // Não responde automaticamente - deixa o atendente responder
+        response = '';
         options = [];
       }
 
