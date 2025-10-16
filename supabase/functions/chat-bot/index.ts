@@ -23,7 +23,7 @@ interface ChatState {
   conversationId?: string;
   contactId?: string;
   companyId?: string;
-  accessToken?: string; // Token de acesso para segurança
+  accessToken?: string;
   waitingForAgent?: boolean;
   selectedSetor?: string;
   selectedAgent?: string;
@@ -35,7 +35,6 @@ serve(async (req) => {
   }
 
   try {
-    // IMPORTANTE: Usar SERVICE_ROLE para bypassar RLS e permitir criação de contatos/conversas
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
@@ -60,7 +59,6 @@ serve(async (req) => {
       console.log('Criando contato e conversa para company:', companyId);
       
       try {
-        // Criar contato
         const { data: contact, error: contactError } = await supabaseClient
           .from('contacts')
           .insert({
@@ -78,7 +76,6 @@ serve(async (req) => {
           console.log('Contato criado:', contact.id);
           chatState.contactId = contact.id;
           
-          // Criar conversa
           const { data: conversation, error: conversationError } = await supabaseClient
             .from('conversations')
             .insert({
@@ -87,7 +84,7 @@ serve(async (req) => {
               channel: 'web',
               status: 'open',
             })
-            .select('id, access_token') // IMPORTANTE: Selecionar access_token
+            .select('id, access_token')
             .single();
 
           if (conversationError) {
@@ -97,7 +94,7 @@ serve(async (req) => {
             console.log('Access token:', conversation.access_token);
             chatState.conversationId = conversation.id;
             chatState.companyId = companyId;
-            chatState.accessToken = conversation.access_token; // CRÍTICO: Enviar token para widget
+            chatState.accessToken = conversation.access_token;
           }
         }
       } catch (error) {
@@ -107,7 +104,6 @@ serve(async (req) => {
 
     // Salvar mensagem do usuário (com verificação de duplicata)
     if (userMessage && chatState.conversationId) {
-      // Verificar se já existe uma mensagem idêntica nos últimos 2 segundos
       const { data: recentMessages } = await supabaseClient
         .from('messages')
         .select('id, content, created_at')
@@ -118,7 +114,6 @@ serve(async (req) => {
         .limit(1);
 
       if (!recentMessages || recentMessages.length === 0) {
-        // Só salvar se não houver duplicata recente
         await supabaseClient
           .from('messages')
           .insert({
@@ -139,7 +134,7 @@ serve(async (req) => {
       chatState.selectedSetor = undefined;
       chatState.selectedAgent = undefined;
       delete chatState.placas;
-      response = `👋 Voltando ao menu principal...\n\nComo posso ajudar você hoje?\n\n`;
+      response = `👋 Voltando ao menu principal...\n\nComo posso ajudar você hoje?`;
       options = [
         '1️⃣ Abrir Chamado',
         '2️⃣ Falar com Atendente',
@@ -149,7 +144,7 @@ serve(async (req) => {
     }
     // Roteamento de conversa
     else if (chatState.mode === 'menu') {
-      response = `👋 Olá! Bem-vindo à **Viainfra**!\n\nComo posso ajudar você hoje?\n\n`;
+      response = `👋 Olá! Bem-vindo à **Viainfra**!\n\nComo posso ajudar você hoje?`;
       options = [
         '1️⃣ Abrir Chamado',
         '2️⃣ Falar com Atendente',
@@ -166,10 +161,15 @@ serve(async (req) => {
         response = `🎫 **Processo de Abertura de Chamado Iniciado**\n\n👤 Por favor, informe seu **nome completo**:`;
         options = [];
       } else if (input === '2' || input?.includes('atendente') || input?.includes('falar')) {
-        // Ativar modo de escolha de setor
         chatState.mode = 'escolhendoSetor';
-        response = `👥 **Atendimento Humano**\n\nPor favor, escolha o setor que deseja ser atendido:\n\n📞 Atendimento\n💼 Comercial\n🔧 Manutenção\n💰 Financeiro\n👥 RH\n\nDigite o nome do setor ou use o emoji correspondente.\nDigite **0** para voltar ao menu.`;
-        options = [];
+        response = `👥 **Atendimento Humano**\n\nPor favor, escolha o setor que deseja ser atendido:`;
+        options = [
+          '📞 Atendimento',
+          '💼 Comercial',
+          '🔧 Manutenção',
+          '💰 Financeiro',
+          '👥 RH',
+        ];
       } else if (input === '3' || input?.includes('consultar')) {
         response = `🔍 **Consulta de Chamado**\n\nPor favor, informe o **número do chamado** que deseja consultar:`;
         options = [];
@@ -194,7 +194,7 @@ serve(async (req) => {
       };
 
       const input = userMessage?.trim();
-      const nomeAtendente = agentesSetor[input || ''] || "Atendimento";
+      const nomeAtendente = agentesSetor[input || ''] || "Joicy Souza";
       const setorNome = input?.replace(/[📞💼🔧💰👥]\s/, '') || 'Atendimento';
 
       chatState.selectedSetor = setorNome;
@@ -216,9 +216,20 @@ serve(async (req) => {
           .eq('id', chatState.conversationId);
       }
 
-      // Sequência de mensagens conforme especificado
-      response = `Aguarde um momento, você será atendido por **${nomeAtendente}** do setor ${setorNome}...\n\nOlá! Você está sendo atendido por **${nomeAtendente}**. Como posso ajudá-lo?\n\nEsta conversa foi transferida para nosso atendimento. Aguarde enquanto conectamos você com o atendente responsável. 📞\n\nDigite sua mensagem ou digite **0** para voltar ao menu.`;
+      // Mensagem informando atendente
+      response = `Aguarde um momento, você será atendido por **${nomeAtendente}** do setor ${setorNome}...`;
       options = [];
+
+      // Salvar mensagem de atribuição ao atendente
+      if (chatState.conversationId) {
+        await supabaseClient
+          .from('messages')
+          .insert({
+            conversation_id: chatState.conversationId,
+            sender_type: 'agent',
+            content: `Olá! Você está sendo atendido por **${nomeAtendente}**. Como posso ajudá-lo?`,
+          });
+      }
 
     } else if (chatState.mode === 'atendente') {
       // Modo atendimento humano - apenas confirma recebimento
@@ -349,7 +360,7 @@ serve(async (req) => {
 
               response = `✅ Telefone registrado: **${telefoneInput}**\n\n🎫 Número previsto: **${chatState.numeroPrevisto}**\n\n📋 Selecione uma placa:`;
               
-              options = []; // Não enviamos options aqui, as placas vão como parte do state
+              options = [];
             } catch (error) {
               console.error('Erro ao buscar dados:', error);
               console.error('Stack trace:', error instanceof Error ? error.stack : 'N/A');
@@ -562,10 +573,6 @@ serve(async (req) => {
           response = 'Digite **0** para voltar ao menu principal.';
           chatState.mode = 'menu';
       }
-
-    } else if (chatState.mode === 'atendente') {
-      // Modo atendente - apenas salvar mensagem (0 já é tratado no início)
-      response = '📩 Mensagem recebida! Um atendente responderá em breve.\n\nDigite **0** para voltar ao menu.';
     }
 
     // Salvar resposta do bot
@@ -580,7 +587,6 @@ serve(async (req) => {
         });
     }
 
-    // Log para debug
     console.log('=== RESPONSE DEBUG ===');
     console.log('chatState.placas:', chatState.placas);
     console.log('Quantidade de placas:', chatState.placas?.length || 0);
