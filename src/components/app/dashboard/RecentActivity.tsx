@@ -3,46 +3,44 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { MessageSquare, User, CheckCircle, Clock } from "lucide-react";
-import { apiClient } from "@/lib/api-client";
 import { useDemoMode } from "@/hooks/useDemoMode";
 import { Conversation } from "@/types/conversation";
+import { useConversations } from "@/hooks/useConversations";
 
 export const RecentActivity: React.FC = () => {
   const { isDemoMode } = useDemoMode();
+  const { conversations: supabaseConversations, loading } = useConversations();
   const [recentConversations, setRecentConversations] = useState<Conversation[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   
   useEffect(() => {
-    const fetchRecentActivity = async () => {
-      setIsLoading(true);
-      try {
-        if (!isDemoMode) {
-          // Buscar dados reais da API (comentado até backend estar pronto)
-          // const data = await apiClient.getConversations();
-          // setRecentConversations(data || []);
-          setRecentConversations([]);
-        } else {
-          // No modo demo, mostrar lista vazia
-          setRecentConversations([]);
-        }
-      } catch (error) {
-        console.error('Error fetching recent activity:', error);
-        setRecentConversations([]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+    if (loading) return;
     
-    fetchRecentActivity();
-    
-    // Listen for dashboard refresh events
-    const handleRefresh = () => {
-      fetchRecentActivity();
-    };
-    
-    window.addEventListener('dashboard-refresh', handleRefresh);
-    return () => window.removeEventListener('dashboard-refresh', handleRefresh);
-  }, [isDemoMode]);
+    try {
+      // Mapear conversas do Supabase para o formato esperado
+      const mapped = supabaseConversations
+        .slice(0, 10) // Pegar apenas as 10 mais recentes
+        .map(conv => {
+          const lastMessage = conv.messages && conv.messages.length > 0 
+            ? conv.messages[conv.messages.length - 1] 
+            : null;
+          
+          return {
+            id: conv.id,
+            name: conv.contact?.name || 'Cliente Web',
+            channel: conv.channel as any,
+            preview: lastMessage?.content || 'Nova conversa',
+            time: new Date(conv.updated_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+            unread: conv.status === 'open' || conv.status === 'pending' ? 1 : 0,
+            avatar: conv.contact?.avatar_url,
+          };
+        });
+      
+      setRecentConversations(mapped);
+    } catch (error) {
+      console.error('Error loading recent activity:', error);
+      setRecentConversations([]);
+    }
+  }, [supabaseConversations, loading]);
   
   const getStatusIcon = (unread: number) => {
     if (unread === 0) {
@@ -78,7 +76,7 @@ export const RecentActivity: React.FC = () => {
     return time;
   };
   
-  if (isLoading) {
+  if (loading) {
     return (
       <Card className="w-full">
         <CardHeader>
@@ -107,9 +105,7 @@ export const RecentActivity: React.FC = () => {
     <Card className="w-full">
       <CardHeader>
         <CardTitle>Atividade Recente</CardTitle>
-        <CardDescription>
-          {isDemoMode ? "Conecte uma API do WhatsApp para ver atividades reais" : "Últimas conversas e interações"}
-        </CardDescription>
+        <CardDescription>Últimas conversas e interações</CardDescription>
       </CardHeader>
       <CardContent className="p-3 sm:p-6">
         <div className="space-y-3 sm:space-y-4">

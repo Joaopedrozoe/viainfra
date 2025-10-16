@@ -4,48 +4,42 @@ import { MessageSquare, Clock, CheckCircle, Share2, TrendingUp } from "lucide-re
 import { calculateDashboardMetrics, formatResponseTime, getPerformanceColor, DashboardMetrics } from "./dashboardUtils";
 import { useDemoMode } from "@/hooks/useDemoMode";
 import { usePreviewConversation } from "@/contexts/PreviewConversationContext";
+import { useConversations } from "@/hooks/useConversations";
 
 export const MetricsOverview: React.FC = () => {
   const { isDemoMode } = useDemoMode();
   const { previewConversations } = usePreviewConversation();
+  const { conversations: supabaseConversations, loading } = useConversations();
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   
   useEffect(() => {
-    const loadMetrics = () => {
-      setIsLoading(true);
-      try {
-        const calculatedMetrics = calculateDashboardMetrics(isDemoMode, previewConversations);
-        setMetrics(calculatedMetrics);
-      } catch (error) {
-        console.error('Error loading metrics:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+    if (loading) return;
     
-    loadMetrics();
-  }, [isDemoMode, previewConversations]);
-  
-  // Listen for dashboard refresh events
-  useEffect(() => {
-    const handleRefresh = () => {
-      setIsLoading(true);
-      try {
-        const calculatedMetrics = calculateDashboardMetrics(isDemoMode, previewConversations);
-        setMetrics(calculatedMetrics);
-      } catch (error) {
-        console.error('Error refreshing metrics:', error);
-      } finally {
-        setIsLoading(false);
+    try {
+      // Usar apenas conversas do preview para os cálculos, 
+      // mas considerar conversas reais do Supabase para métricas
+      const calculatedMetrics = calculateDashboardMetrics(isDemoMode, previewConversations);
+      
+      // Sobrescrever métricas com dados reais se houver conversas do Supabase
+      if (supabaseConversations.length > 0) {
+        const activeCount = supabaseConversations.filter(c => c.status === 'open' || c.status === 'pending').length;
+        const resolvedCount = supabaseConversations.filter(c => c.status === 'resolved').length;
+        const totalMessages = supabaseConversations.reduce((sum, conv) => sum + (conv.messages?.length || 0), 0);
+        
+        calculatedMetrics.activeConversations = activeCount;
+        calculatedMetrics.todayMessages = totalMessages;
+        calculatedMetrics.resolutionRate = supabaseConversations.length > 0 
+          ? (resolvedCount / supabaseConversations.length) * 100 
+          : 0;
       }
-    };
-    
-    window.addEventListener('dashboard-refresh', handleRefresh);
-    return () => window.removeEventListener('dashboard-refresh', handleRefresh);
-  }, [isDemoMode, previewConversations]);
+      
+      setMetrics(calculatedMetrics);
+    } catch (error) {
+      console.error('Error loading metrics:', error);
+    }
+  }, [isDemoMode, previewConversations, supabaseConversations, loading]);
   
-  if (isLoading || !metrics) {
+  if (loading || !metrics) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4 w-full">
         {Array.from({ length: 5 }).map((_, index) => (
