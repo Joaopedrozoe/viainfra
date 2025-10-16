@@ -86,13 +86,15 @@ const Inbox = () => {
 
   if (isMobile) {
     return (
-      <div className="flex flex-col h-full w-full bg-background overflow-hidden">
+      <div className="flex flex-col h-full w-full overflow-hidden">
         {showChat ? (
-          <ChatWindow 
-            conversationId={selectedConversation || ""} 
-            key={selectedConversation}
-            onBack={handleBackToList}
-          />
+          <div className="flex-1 flex flex-col overflow-hidden h-full">
+            <ChatWindow 
+              conversationId={selectedConversation || ""} 
+              key={selectedConversation}
+              onBack={handleBackToList}
+            />
+          </div>
         ) : (
           <div className="flex-1 flex flex-col h-full overflow-hidden">
             <div className="flex-none p-4 border-b border-border">
