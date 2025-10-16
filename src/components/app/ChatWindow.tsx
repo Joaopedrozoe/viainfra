@@ -33,25 +33,23 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             console.log('Nova mensagem recebida via realtime:', payload);
             const newMessage = payload.new as any;
             
-            // Adicionar mensagem se for do tipo user ou bot (não duplicar mensagens do agent)
-            if (newMessage.sender_type !== 'agent') {
-              const mappedMessage: Message = {
-                id: newMessage.id,
-                content: newMessage.content,
-                sender: newMessage.sender_type === 'user' ? 'user' : 'bot',
-                timestamp: newMessage.created_at // Data completa
-              };
-              
-              setMessages(prev => {
-                // Evitar duplicatas verificando se a mensagem já existe
-                if (prev.some(msg => msg.id === mappedMessage.id)) {
-                  console.log('Mensagem duplicada ignorada:', mappedMessage.id);
-                  return prev;
-                }
-                console.log('Adicionando nova mensagem:', mappedMessage.id);
-                return [...prev, mappedMessage];
-              });
-            }
+            // Mapear tipo de sender corretamente
+            const mappedMessage: Message = {
+              id: newMessage.id,
+              content: newMessage.content,
+              sender: newMessage.sender_type === 'user' ? 'user' : newMessage.sender_type === 'agent' ? 'agent' : 'bot',
+              timestamp: newMessage.created_at
+            };
+            
+            setMessages(prev => {
+              // Evitar duplicatas verificando se a mensagem já existe
+              if (prev.some(msg => msg.id === mappedMessage.id)) {
+                console.log('Mensagem duplicada ignorada via realtime:', mappedMessage.id);
+                return prev;
+              }
+              console.log('Adicionando nova mensagem via realtime:', mappedMessage.id, 'sender:', mappedMessage.sender);
+              return [...prev, mappedMessage];
+            });
           }
         )
         .subscribe();
