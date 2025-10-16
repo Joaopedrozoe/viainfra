@@ -232,7 +232,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   }
   
   return (
-    <div className="flex flex-col h-full relative">
+    <div className="flex flex-col h-full">
       <ChatHeader 
         userName={contactName || 'Cliente Web'} 
         channel={conversationChannel} 
@@ -241,7 +241,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         onBackToList={handleBackToList}
         onEndConversation={onEndConversation ? () => onEndConversation(conversationId) : undefined}
       />
-      <div className="flex-1 p-4 overflow-y-auto bg-gray-50 pb-20">
+      <div className="flex-1 p-4 overflow-y-auto bg-gray-50">
         <div className="space-y-4">
           {messages.map((message) => (
             <MessageItem key={message.id} message={message} />
@@ -249,7 +249,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           <div ref={messagesEndRef} />
         </div>
       </div>
-      <div className="absolute bottom-0 left-0 right-0">
+      <div className="border-t">
         <ChatInput onSendMessage={handleSendMessage} />
       </div>
     </div>
