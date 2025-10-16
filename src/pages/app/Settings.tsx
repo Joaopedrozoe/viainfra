@@ -9,6 +9,7 @@ import { EmailSettings } from "@/components/app/settings/EmailSettings";
 import { PermissionsSettings } from "@/components/app/settings/PermissionsSettings";
 import { UsersManagement } from "@/components/app/settings/UsersManagement";
 import { DepartmentsManagement } from "@/components/app/settings/DepartmentsManagement";
+import { NotificationsTab } from "@/components/app/schedule/settings/NotificationsTab";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -364,69 +365,7 @@ const Settings = () => {
             </TabsContent>
             
             <TabsContent value="notifications">
-              <Card>
-                <CardHeader className="text-center md:text-left">
-                  <CardTitle>Preferências de Notificação</CardTitle>
-                  <CardDescription className="text-center md:text-left">
-                    Configure como e quando você deseja receber notificações.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="flex items-start space-x-3">
-                    <input 
-                      type="checkbox" 
-                      id="email-notifications" 
-                      checked={emailNotifications}
-                      onChange={(e) => setEmailNotifications(e.target.checked)}
-                      className="mt-1"
-                    />
-                    <div className="flex-1">
-                      <Label htmlFor="email-notifications">Notificações por Email</Label>
-                      <p className="text-sm text-gray-500">
-                        Receba emails quando novas mensagens chegarem ou houver atividade importante.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-start space-x-3">
-                    <input 
-                      type="checkbox" 
-                      id="desktop-notifications" 
-                      checked={desktopNotifications}
-                      onChange={(e) => setDesktopNotifications(e.target.checked)}
-                      className="mt-1"
-                    />
-                    <div className="flex-1">
-                      <Label htmlFor="desktop-notifications">Notificações no Desktop</Label>
-                      <p className="text-sm text-gray-500">
-                        Receba alertas no navegador quando novas mensagens chegarem.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-start space-x-3">
-                    <input 
-                      type="checkbox" 
-                      id="sound-notifications" 
-                      checked={soundNotifications}
-                      onChange={(e) => setSoundNotifications(e.target.checked)}
-                      className="mt-1"
-                    />
-                    <div className="flex-1">
-                      <Label htmlFor="sound-notifications">Notificações Sonoras</Label>
-                      <p className="text-sm text-gray-500">
-                        Toque um som quando novas mensagens chegarem.
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-                <CardFooter>
-                  <Button 
-                    onClick={handleSaveNotifications}
-                    className="bg-viainfra-primary hover:bg-viainfra-primary/90 w-full md:w-auto"
-                  >
-                    Salvar Alterações
-                  </Button>
-                </CardFooter>
-              </Card>
+              <NotificationsTab />
             </TabsContent>
             
             <TabsContent value="billing" className="space-y-6">
