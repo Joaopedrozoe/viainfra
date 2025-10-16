@@ -507,29 +507,40 @@
 
       const messages = await response.json();
       
-      // Filtrar apenas mensagens de agent
+      // Filtrar apenas mensagens de agent (atendente humano)
       const agentMessages = messages.filter(msg => msg.sender_type === 'agent');
-      console.log('📨 Mensagens de atendente:', agentMessages.length);
+      console.log('📨 Mensagens de atendente encontradas:', agentMessages.length);
       
       if (agentMessages && agentMessages.length > 0) {
         let novasMensagens = 0;
+        
+        // Ordernar por data de criação
+        agentMessages.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        
         agentMessages.forEach(msg => {
-          // Verificar se já exibimos esta mensagem pelo timestamp
-          if (!lastMessageTimestamp || msg.created_at > lastMessageTimestamp) {
+          // Verificar se já exibimos esta mensagem
+          if (!existingMessageIds.has(msg.id)) {
             console.log('✅ Nova mensagem do atendente:', msg.content);
             
-            lastMessageTimestamp = msg.created_at;
+            // Atualizar timestamp da última mensagem
+            if (!lastMessageTimestamp || msg.created_at > lastMessageTimestamp) {
+              lastMessageTimestamp = msg.created_at;
+            }
             
+            // Notificar se widget está fechado
             if (!widget.classList.contains('open')) {
               button.classList.add('has-notification');
             }
             
+            // Adicionar mensagem com ID para evitar duplicatas
             addMessage(msg.content, true, msg.id);
             novasMensagens++;
           }
         });
         
-        if (novasMensagens === 0) {
+        if (novasMensagens > 0) {
+          console.log(`✅ ${novasMensagens} nova(s) mensagem(ns) do atendente exibida(s)`);
+        } else {
           console.log('⏭️ Todas as mensagens já foram exibidas');
         }
       } else {
@@ -585,15 +596,15 @@
       return;
     }
 
-    console.log('⏱️ Iniciando polling para mensagens do atendente (intervalo: 2s)');
+    console.log('⏱️ Iniciando polling para mensagens do atendente (intervalo: 3s)');
     
     // Verificar imediatamente
     await checkForAgentMessages();
     
-    // Continuar verificando a cada 2 segundos
+    // Continuar verificando a cada 3 segundos (otimizado para não sobrecarregar)
     pollingInterval = setInterval(() => {
       checkForAgentMessages();
-    }, 2000);
+    }, 3000);
   }
 
   async function iniciarChat() {

@@ -142,7 +142,7 @@ serve(async (req) => {
       response = `👋 Voltando ao menu principal...\n\nComo posso ajudar você hoje?\n\n`;
       options = [
         '1️⃣ Abrir Chamado',
-        '2️⃣ Falar com Atendente 🔧 (Em Manutenção - Disponível em Breve)',
+        '2️⃣ Falar com Atendente',
         '3️⃣ Consultar Chamado',
         '4️⃣ FAQ / Dúvidas',
       ];
@@ -152,7 +152,7 @@ serve(async (req) => {
       response = `👋 Olá! Bem-vindo à **Viainfra**!\n\nComo posso ajudar você hoje?\n\n`;
       options = [
         '1️⃣ Abrir Chamado',
-        '2️⃣ Falar com Atendente 🔧 (Em Manutenção - Disponível em Breve)',
+        '2️⃣ Falar com Atendente',
         '3️⃣ Consultar Chamado',
         '4️⃣ FAQ / Dúvidas',
       ];
@@ -166,7 +166,9 @@ serve(async (req) => {
         response = `🎫 **Processo de Abertura de Chamado Iniciado**\n\n👤 Por favor, informe seu **nome completo**:`;
         options = [];
       } else if (input === '2' || input?.includes('atendente') || input?.includes('falar')) {
-        response = `🔧 **Atendimento Humano em Manutenção**\n\nDesculpe, o atendimento com nossos agentes está temporariamente indisponível para melhorias.\n\n✨ **Disponível em breve!**\n\nEnquanto isso, você pode:\n• Abrir um chamado (opção 1)\n• Consultar chamados existentes (opção 3)\n• Verificar perguntas frequentes (opção 4)\n\nDigite **0** para voltar ao menu.`;
+        // Ativar modo de escolha de setor
+        chatState.mode = 'escolhendoSetor';
+        response = `👥 **Atendimento Humano**\n\nPor favor, escolha o setor que deseja ser atendido:\n\n📞 Atendimento\n💼 Comercial\n🔧 Manutenção\n💰 Financeiro\n👥 RH\n\nDigite o nome do setor ou use o emoji correspondente.\nDigite **0** para voltar ao menu.`;
         options = [];
       } else if (input === '3' || input?.includes('consultar')) {
         response = `🔍 **Consulta de Chamado**\n\nPor favor, informe o **número do chamado** que deseja consultar:`;
