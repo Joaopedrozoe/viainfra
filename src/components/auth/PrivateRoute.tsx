@@ -54,10 +54,8 @@ export const PrivateRoute = () => {
             </header>
           )}
           
-          <main className="flex-1 overflow-hidden">
-            <div className="h-full overflow-hidden">
-              <Outlet />
-            </div>
+          <main className="flex-1 overflow-y-auto">
+            <Outlet />
           </main>
         </SidebarInset>
         
