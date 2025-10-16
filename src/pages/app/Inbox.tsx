@@ -9,6 +9,7 @@ import { InternalChatWindow } from "@/components/app/InternalChatWindow";
 import { useInternalChat } from "@/hooks/useInternalChat";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useConversations } from "@/hooks/useConversations";
+import { useMessageNotifications } from "@/hooks/useMessageNotifications";
 import { toast } from "sonner";
 
 const Inbox = () => {
@@ -23,6 +24,9 @@ const Inbox = () => {
   const [selectedInternalChat, setSelectedInternalChat] = useState<string | null>(null);
   const { conversations: internalConversations } = useInternalChat();
   const { updateConversationStatus, refetch } = useConversations();
+  
+  // Ativar notificações de mensagens
+  useMessageNotifications();
   
   // Effect to update the state when navigation happens
   useEffect(() => {

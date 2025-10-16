@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/auth';
+import { useNotifications } from './useNotifications';
 
 export interface Conversation {
   id: string;
@@ -34,6 +35,8 @@ export const useConversations = () => {
   const [error, setError] = useState<Error | null>(null);
   const fetchTimeoutRef = useRef<NodeJS.Timeout>();
   const lastFetchRef = useRef<number>(0);
+  const previousConversationsRef = useRef<Set<string>>(new Set());
+  const { notifyNewConversation } = useNotifications();
 
   const fetchConversations = async (debounce = false) => {
     if (!company?.id) {
@@ -112,6 +115,23 @@ export const useConversations = () => {
           })),
         };
       });
+
+      // Verificar novas conversas para notificação
+      const currentIds = new Set(newConversations.map(c => c.id));
+      const previousIds = previousConversationsRef.current;
+      
+      // Detectar novas conversas (IDs que não existiam antes)
+      newConversations.forEach(conv => {
+        if (!previousIds.has(conv.id)) {
+          // Nova conversa detectada
+          const contactName = conv.contact?.name || 'Cliente';
+          const channel = conv.channel || 'web';
+          notifyNewConversation(contactName, channel);
+        }
+      });
+      
+      // Atualizar referência de IDs anteriores
+      previousConversationsRef.current = currentIds;
 
       // Só atualizar se realmente houver mudanças
       setConversations(prev => {
