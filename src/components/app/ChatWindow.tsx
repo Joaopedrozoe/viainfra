@@ -249,7 +249,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           <div ref={messagesEndRef} />
         </div>
       </div>
-      <div className="border-t bg-white">
+      <div className="flex-shrink-0 border-t bg-white">
         <ChatInput onSendMessage={handleSendMessage} />
       </div>
     </div>
