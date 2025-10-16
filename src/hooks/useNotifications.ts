@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/auth';
 
 export interface NotificationSettings {
@@ -9,47 +8,51 @@ export interface NotificationSettings {
   newMessages: boolean;
 }
 
+const STORAGE_KEY_PREFIX = 'viainfra_notifications_';
+
 const DEFAULT_SETTINGS: NotificationSettings = {
-  desktop: true,
-  sound: true,
-  newConversations: true,
-  newMessages: true,
+  desktop: false,
+  sound: false,
+  newConversations: false,
+  newMessages: false,
 };
 
 export const useNotifications = () => {
-  const { user, profile } = useAuth();
+  const { profile } = useAuth();
   const [settings, setSettings] = useState<NotificationSettings>(DEFAULT_SETTINGS);
   const [permission, setPermission] = useState<NotificationPermission>('default');
-  const [isInitialized, setIsInitialized] = useState(false);
 
-  // Gerar chave única para o localStorage usando email do perfil
-  const getStorageKey = useCallback(() => {
-    if (profile?.email) {
-      return `notifications_${profile.email}`;
-    }
-    return null;
-  }, [profile?.email]);
+  // Gerar chave única para o localStorage
+  const getStorageKey = () => {
+    if (!profile?.email) return null;
+    return `${STORAGE_KEY_PREFIX}${profile.email}`;
+  };
 
-  // Carregar configurações do localStorage
+  // Carregar configurações do localStorage quando o perfil carregar
   useEffect(() => {
     const storageKey = getStorageKey();
-    if (storageKey && !isInitialized) {
-      console.log('🔔 Carregando configurações de notificação para:', profile?.email);
+    if (!storageKey) {
+      console.log('🔔 Aguardando perfil carregar...');
+      return;
+    }
+
+    console.log('🔔 Carregando configurações para:', profile?.email);
+    
+    try {
       const saved = localStorage.getItem(storageKey);
       if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          console.log('🔔 Configurações carregadas:', parsed);
-          setSettings(parsed);
-        } catch (error) {
-          console.error('Erro ao carregar configurações:', error);
-        }
+        const parsed = JSON.parse(saved);
+        console.log('🔔 Configurações carregadas:', parsed);
+        setSettings(parsed);
       } else {
-        console.log('🔔 Nenhuma configuração salva encontrada, usando padrões');
+        console.log('🔔 Nenhuma configuração salva, usando padrão:', DEFAULT_SETTINGS);
+        setSettings(DEFAULT_SETTINGS);
       }
-      setIsInitialized(true);
+    } catch (error) {
+      console.error('🔔 Erro ao carregar configurações:', error);
+      setSettings(DEFAULT_SETTINGS);
     }
-  }, [getStorageKey, isInitialized, profile?.email]);
+  }, [profile?.email]);
 
   // Verificar permissão do browser
   useEffect(() => {
@@ -57,6 +60,8 @@ export const useNotifications = () => {
       const currentPermission = Notification.permission;
       console.log('🔔 Permissão atual do navegador:', currentPermission);
       setPermission(currentPermission);
+    } else {
+      console.log('🔔 Notificações não suportadas neste navegador');
     }
   }, []);
 
@@ -64,30 +69,40 @@ export const useNotifications = () => {
   const updateSettings = useCallback((newSettings: Partial<NotificationSettings>) => {
     const storageKey = getStorageKey();
     if (!storageKey) {
-      console.error('🔔 Não foi possível salvar: chave de armazenamento não disponível');
+      console.error('🔔 Erro: perfil não carregado, não é possível salvar');
       return;
     }
 
-    setSettings(prev => {
-      const updated = { ...prev, ...newSettings };
-      console.log('🔔 Salvando configurações para', profile?.email, ':', updated);
+    const updated = { ...settings, ...newSettings };
+    console.log('🔔 Salvando configurações para', profile?.email, ':', updated);
+    
+    try {
       localStorage.setItem(storageKey, JSON.stringify(updated));
-      return updated;
-    });
-  }, [getStorageKey, profile?.email]);
+      setSettings(updated);
+      console.log('🔔 Configurações salvas com sucesso!');
+    } catch (error) {
+      console.error('🔔 Erro ao salvar configurações:', error);
+    }
+  }, [settings, profile?.email]);
 
   // Solicitar permissão para notificações
-  const requestPermission = useCallback(async () => {
+  const requestPermission = useCallback(async (): Promise<NotificationPermission> => {
     if (!('Notification' in window)) {
       console.log('🔔 Notificações não suportadas neste navegador');
       return 'denied';
     }
 
     console.log('🔔 Solicitando permissão para notificações...');
-    const result = await Notification.requestPermission();
-    console.log('🔔 Resultado da permissão:', result);
-    setPermission(result);
-    return result;
+    
+    try {
+      const result = await Notification.requestPermission();
+      console.log('🔔 Resultado da permissão:', result);
+      setPermission(result);
+      return result;
+    } catch (error) {
+      console.error('🔔 Erro ao solicitar permissão:', error);
+      return 'denied';
+    }
   }, []);
 
   // Tocar som de notificação
@@ -98,46 +113,70 @@ export const useNotifications = () => {
     }
     
     console.log('🔔 Tocando som de notificação');
-    const audio = new Audio('/notification.mp3');
-    audio.volume = 0.5;
-    audio.play().catch(err => console.log('🔔 Erro ao tocar som:', err));
+    try {
+      const audio = new Audio('/notification.mp3');
+      audio.volume = 0.5;
+      audio.play().catch(err => console.log('🔔 Erro ao tocar som:', err));
+    } catch (error) {
+      console.log('🔔 Erro ao criar áudio:', error);
+    }
   }, [settings.sound]);
 
   // Mostrar notificação desktop
   const showNotification = useCallback(async (title: string, options?: NotificationOptions) => {
-    if (!settings.desktop) return;
+    console.log('🔔 Tentando mostrar notificação:', title);
+    console.log('🔔 Desktop ativado:', settings.desktop);
+    console.log('🔔 Permissão atual:', permission);
 
-    // Solicitar permissão se necessário
-    if (permission === 'default') {
-      const result = await requestPermission();
-      if (result !== 'granted') return;
+    if (!settings.desktop) {
+      console.log('🔔 Notificações desktop desativadas');
+      return;
     }
 
-    if (permission === 'granted' || Notification.permission === 'granted') {
-      const notification = new Notification(title, {
-        icon: '/lovable-uploads/c71a4336-7d9d-4629-ab51-14961bb1424c.png',
-        badge: '/lovable-uploads/c71a4336-7d9d-4629-ab51-14961bb1424c.png',
-        ...options,
-      });
+    // Verificar permissão atual
+    const currentPermission = Notification.permission;
+    console.log('🔔 Permissão do navegador:', currentPermission);
 
-      // Tocar som junto com a notificação
-      playNotificationSound();
+    if (currentPermission === 'granted') {
+      try {
+        const notification = new Notification(title, {
+          icon: '/lovable-uploads/c71a4336-7d9d-4629-ab51-14961bb1424c.png',
+          badge: '/lovable-uploads/c71a4336-7d9d-4629-ab51-14961bb1424c.png',
+          requireInteraction: false,
+          ...options,
+        });
 
-      // Focar na janela quando clicar na notificação
-      notification.onclick = () => {
-        window.focus();
-        notification.close();
-      };
+        console.log('🔔 Notificação criada com sucesso');
 
-      // Auto-fechar após 5 segundos
-      setTimeout(() => notification.close(), 5000);
+        // Tocar som junto com a notificação
+        playNotificationSound();
+
+        // Focar na janela quando clicar na notificação
+        notification.onclick = () => {
+          window.focus();
+          notification.close();
+        };
+
+        // Auto-fechar após 5 segundos
+        setTimeout(() => notification.close(), 5000);
+      } catch (error) {
+        console.error('🔔 Erro ao criar notificação:', error);
+      }
+    } else if (currentPermission === 'default') {
+      console.log('🔔 Permissão não concedida ainda');
+    } else {
+      console.log('🔔 Permissão negada');
     }
-  }, [settings.desktop, permission, requestPermission, playNotificationSound]);
+  }, [settings.desktop, permission, playNotificationSound]);
 
   // Notificação de nova conversa
   const notifyNewConversation = useCallback((contactName: string, channel: string) => {
-    if (!settings.newConversations) return;
+    if (!settings.newConversations) {
+      console.log('🔔 Notificações de novas conversas desativadas');
+      return;
+    }
     
+    console.log('🔔 Enviando notificação de nova conversa:', contactName);
     showNotification('Nova Conversa', {
       body: `${contactName} iniciou uma conversa via ${channel}`,
       tag: 'new-conversation',
@@ -146,8 +185,12 @@ export const useNotifications = () => {
 
   // Notificação de nova mensagem
   const notifyNewMessage = useCallback((contactName: string, message: string) => {
-    if (!settings.newMessages) return;
+    if (!settings.newMessages) {
+      console.log('🔔 Notificações de novas mensagens desativadas');
+      return;
+    }
     
+    console.log('🔔 Enviando notificação de nova mensagem:', contactName);
     showNotification('Nova Mensagem', {
       body: `${contactName}: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`,
       tag: 'new-message',
