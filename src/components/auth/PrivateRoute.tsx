@@ -44,10 +44,10 @@ export const PrivateRoute = () => {
   // Render child routes if authenticated with sidebar layout
   return (
     <SidebarProvider defaultOpen={!isMobile}>
-      <div className="min-h-screen flex w-full">
+      <div className="h-screen flex w-full overflow-hidden">
         {!isMobile && <AppSidebar />}
         
-        <SidebarInset className="flex-1">
+        <SidebarInset className="flex-1 flex flex-col overflow-hidden">
           {!isMobile && (
             <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
               <SidebarTrigger className="-ml-1" />

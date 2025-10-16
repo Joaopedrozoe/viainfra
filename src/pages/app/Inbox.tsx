@@ -125,9 +125,9 @@ const Inbox = () => {
   
   return (
     <>
-      <div className="flex h-full">
-        <div className="flex flex-1 transition-all duration-300">
-          <div className="w-80 min-w-[20rem] border-r border-border flex flex-col h-full">
+      <div className="flex h-full overflow-hidden">
+        <div className="flex flex-1 h-full overflow-hidden">
+          <div className="w-80 min-w-[20rem] border-r border-border flex flex-col h-full overflow-hidden">
             <div className="p-4 border-b border-border flex-shrink-0">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Conversas</h2>
@@ -151,7 +151,7 @@ const Inbox = () => {
               />
             </div>
           </div>
-          <div className="flex-1">
+          <div className="flex-1 overflow-hidden">
             <ChatWindow 
               conversationId={selectedConversation || ""} 
               key={selectedConversation}
