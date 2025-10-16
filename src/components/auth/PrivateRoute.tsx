@@ -54,8 +54,8 @@ export const PrivateRoute = () => {
             </header>
           )}
           
-          <main className="flex-1 flex flex-col overflow-hidden h-[calc(100vh-3rem)]">
-            <div className={`flex-1 flex flex-col overflow-hidden ${isMobile ? 'h-[calc(100vh-8rem)]' : 'h-full'}`}>
+          <main className="flex-1 overflow-hidden">
+            <div className="h-full overflow-hidden">
               <Outlet />
             </div>
           </main>

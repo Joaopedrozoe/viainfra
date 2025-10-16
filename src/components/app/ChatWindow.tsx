@@ -242,14 +242,14 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         onEndConversation={onEndConversation ? () => onEndConversation(conversationId) : undefined}
       />
       <div className="flex-1 overflow-y-auto bg-gray-50 p-4">
-        <div className="space-y-4 pb-4">
+        <div className="space-y-4">
           {messages.map((message) => (
             <MessageItem key={message.id} message={message} />
           ))}
           <div ref={messagesEndRef} />
         </div>
       </div>
-      <div className="flex-shrink-0 border-t bg-white">
+      <div className="border-t bg-white">
         <ChatInput onSendMessage={handleSendMessage} />
       </div>
     </div>
