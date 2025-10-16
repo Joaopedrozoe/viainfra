@@ -17,55 +17,90 @@ const DEFAULT_SETTINGS: NotificationSettings = {
 };
 
 export const useNotifications = () => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [settings, setSettings] = useState<NotificationSettings>(DEFAULT_SETTINGS);
   const [permission, setPermission] = useState<NotificationPermission>('default');
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // Gerar chave única para o localStorage usando email do perfil
+  const getStorageKey = useCallback(() => {
+    if (profile?.email) {
+      return `notifications_${profile.email}`;
+    }
+    return null;
+  }, [profile?.email]);
 
   // Carregar configurações do localStorage
   useEffect(() => {
-    if (user) {
-      const saved = localStorage.getItem(`notifications_${user.id}`);
+    const storageKey = getStorageKey();
+    if (storageKey && !isInitialized) {
+      console.log('🔔 Carregando configurações de notificação para:', profile?.email);
+      const saved = localStorage.getItem(storageKey);
       if (saved) {
-        setSettings(JSON.parse(saved));
+        try {
+          const parsed = JSON.parse(saved);
+          console.log('🔔 Configurações carregadas:', parsed);
+          setSettings(parsed);
+        } catch (error) {
+          console.error('Erro ao carregar configurações:', error);
+        }
+      } else {
+        console.log('🔔 Nenhuma configuração salva encontrada, usando padrões');
       }
+      setIsInitialized(true);
     }
-  }, [user]);
+  }, [getStorageKey, isInitialized, profile?.email]);
 
   // Verificar permissão do browser
   useEffect(() => {
     if ('Notification' in window) {
-      setPermission(Notification.permission);
+      const currentPermission = Notification.permission;
+      console.log('🔔 Permissão atual do navegador:', currentPermission);
+      setPermission(currentPermission);
     }
   }, []);
 
   // Salvar configurações
   const updateSettings = useCallback((newSettings: Partial<NotificationSettings>) => {
+    const storageKey = getStorageKey();
+    if (!storageKey) {
+      console.error('🔔 Não foi possível salvar: chave de armazenamento não disponível');
+      return;
+    }
+
     setSettings(prev => {
       const updated = { ...prev, ...newSettings };
-      if (user) {
-        localStorage.setItem(`notifications_${user.id}`, JSON.stringify(updated));
-      }
+      console.log('🔔 Salvando configurações para', profile?.email, ':', updated);
+      localStorage.setItem(storageKey, JSON.stringify(updated));
       return updated;
     });
-  }, [user]);
+  }, [getStorageKey, profile?.email]);
 
   // Solicitar permissão para notificações
   const requestPermission = useCallback(async () => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      const result = await Notification.requestPermission();
-      setPermission(result);
-      return result;
+    if (!('Notification' in window)) {
+      console.log('🔔 Notificações não suportadas neste navegador');
+      return 'denied';
     }
-    return Notification.permission;
+
+    console.log('🔔 Solicitando permissão para notificações...');
+    const result = await Notification.requestPermission();
+    console.log('🔔 Resultado da permissão:', result);
+    setPermission(result);
+    return result;
   }, []);
 
   // Tocar som de notificação
   const playNotificationSound = useCallback(() => {
-    if (!settings.sound) return;
+    if (!settings.sound) {
+      console.log('🔔 Som desativado nas configurações');
+      return;
+    }
     
+    console.log('🔔 Tocando som de notificação');
     const audio = new Audio('/notification.mp3');
     audio.volume = 0.5;
-    audio.play().catch(err => console.log('Erro ao tocar som:', err));
+    audio.play().catch(err => console.log('🔔 Erro ao tocar som:', err));
   }, [settings.sound]);
 
   // Mostrar notificação desktop
