@@ -127,8 +127,8 @@ const Inbox = () => {
     <>
       <div className="flex h-full">
         <div className="flex flex-1 transition-all duration-300">
-          <div className="w-80 min-w-[20rem] border-r border-border">
-            <div className="p-4 border-b border-border">
+          <div className="w-80 min-w-[20rem] border-r border-border flex flex-col h-full">
+            <div className="p-4 border-b border-border flex-shrink-0">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Conversas</h2>
                 <Button
@@ -141,13 +141,15 @@ const Inbox = () => {
                 </Button>
               </div>
             </div>
-            <ConversationList 
-              onSelectConversation={handleSelectConversation}
-              selectedId={selectedConversation}
-              refreshTrigger={refreshKey}
-              onResolveConversation={handleResolveConversation}
-              onSelectInternalChat={handleSelectInternalChat}
-            />
+            <div className="flex-1 overflow-hidden">
+              <ConversationList 
+                onSelectConversation={handleSelectConversation}
+                selectedId={selectedConversation}
+                refreshTrigger={refreshKey}
+                onResolveConversation={handleResolveConversation}
+                onSelectInternalChat={handleSelectInternalChat}
+              />
+            </div>
           </div>
           <div className="flex-1">
             <ChatWindow 
