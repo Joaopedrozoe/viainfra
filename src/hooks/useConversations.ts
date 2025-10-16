@@ -88,7 +88,6 @@ export const useConversations = () => {
           )
         `)
         .eq('company_id', company.id)
-        .neq('status', 'resolved')
         .order('updated_at', { ascending: false });
 
       if (error) {

@@ -102,8 +102,9 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         time: new Date(conv.updated_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
         unread: conv.status === 'open' || conv.status === 'pending' ? 1 : 0,
         avatar: conv.contact?.avatar_url,
-        is_preview: false
-      } as Conversation & { is_preview: boolean };
+        is_preview: false,
+        status: conv.status
+      } as Conversation & { is_preview: boolean; status?: string };
     });
     
     // Combine both lists
@@ -180,16 +181,16 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     } else if (activeTab === "bot") {
       // Show only bot conversations (channel = 'web')
       result = result.filter((conversation) => 
-        conversation.channel === 'web' && !(conversation as any).is_preview && !resolvedConversations.has(conversation.id)
+        conversation.channel === 'web' && !(conversation as any).is_preview && (conversation as any).status !== 'resolved'
       );
     } else if (activeTab === "unread") {
-      result = result.filter((conversation) => conversation.unread > 0 && !resolvedConversations.has(conversation.id));
+      result = result.filter((conversation) => conversation.unread > 0 && (conversation as any).status !== 'resolved');
     } else if (activeTab === "preview") {
-      result = result.filter((conversation) => (conversation as any).is_preview === true && !resolvedConversations.has(conversation.id));
+      result = result.filter((conversation) => (conversation as any).is_preview === true && (conversation as any).status !== 'resolved');
     } else if (activeTab === "resolved") {
-      result = result.filter((conversation) => resolvedConversations.has(conversation.id));
+      result = result.filter((conversation) => (conversation as any).status === 'resolved');
     } else if (activeTab === "all") {
-      result = result.filter((conversation) => !resolvedConversations.has(conversation.id));
+      result = result.filter((conversation) => (conversation as any).status !== 'resolved');
     }
 
     logger.debug('Final filtered conversations:', result.length);
@@ -252,20 +253,20 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
             Todas
           </TabsTrigger>
           <TabsTrigger value="unread" className="text-[10px] px-1 py-1.5 h-auto">
-            Não lidas {allConversations.filter(c => c.unread > 0 && !resolvedConversations.has(c.id)).length > 0 && `(${allConversations.filter(c => c.unread > 0 && !resolvedConversations.has(c.id)).length})`}
+            Não lidas {allConversations.filter(c => c.unread > 0 && (c as any).status !== 'resolved').length > 0 && `(${allConversations.filter(c => c.unread > 0 && (c as any).status !== 'resolved').length})`}
           </TabsTrigger>
           <TabsTrigger value="bot" className="text-[10px] px-1 py-1.5 h-auto">
-            Bot {allConversations.filter(c => c.channel === 'web' && !resolvedConversations.has(c.id)).length > 0 && `(${allConversations.filter(c => c.channel === 'web' && !resolvedConversations.has(c.id)).length})`}
+            Bot {allConversations.filter(c => c.channel === 'web' && (c as any).status !== 'resolved').length > 0 && `(${allConversations.filter(c => c.channel === 'web' && (c as any).status !== 'resolved').length})`}
           </TabsTrigger>
           <TabsTrigger value="internal" className="text-[10px] px-1 py-1.5 h-auto flex items-center gap-0.5">
             <Users className="h-2.5 w-2.5" />
             Equipe {internalConversations.length > 0 && `(${internalConversations.length})`}
           </TabsTrigger>
           <TabsTrigger value="preview" className="text-[10px] px-1 py-1.5 h-auto">
-            Preview {allConversations.filter(c => (c as any).is_preview === true && !resolvedConversations.has(c.id)).length > 0 && `(${allConversations.filter(c => (c as any).is_preview === true && !resolvedConversations.has(c.id)).length})`}
+            Preview {allConversations.filter(c => (c as any).is_preview === true && (c as any).status !== 'resolved').length > 0 && `(${allConversations.filter(c => (c as any).is_preview === true && (c as any).status !== 'resolved').length})`}
           </TabsTrigger>
           <TabsTrigger value="resolved" className="text-[10px] px-1 py-1.5 h-auto">
-            Resolvidas {resolvedConversations.size > 0 && `(${resolvedConversations.size})`}
+            Resolvidas {allConversations.filter(c => (c as any).status === 'resolved').length > 0 && `(${allConversations.filter(c => (c as any).status === 'resolved').length})`}
           </TabsTrigger>
         </TabsList>
       </Tabs>
