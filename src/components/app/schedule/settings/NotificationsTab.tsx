@@ -16,25 +16,20 @@ export const NotificationsTab = () => {
     requestPermission 
   } = useNotifications();
   
-  // Não solicitar permissão automaticamente - apenas quando usuário ativar
   const handleToggleDesktop = async (checked: boolean) => {
     if (checked) {
-      // Sempre solicitar permissão quando ativar notificações desktop
-      console.log('🔔 Solicitando permissão do navegador...');
       const result = await requestPermission();
       
       if (result !== 'granted') {
-        toast.error("Você precisa permitir notificações no navegador para ativar esta funcionalidade");
+        toast.error("Permissão negada. Verifique as configurações do navegador.");
         return;
       }
       
-      console.log('🔔 Permissão concedida, ativando notificações desktop');
-      toast.success("Notificações desktop ativadas com sucesso!");
+      updateSettings({ desktop: true });
+      toast.success("Notificações desktop ativadas");
     } else {
-      toast.success("Notificações desktop desativadas");
+      updateSettings({ desktop: false });
     }
-    
-    updateSettings({ desktop: checked });
   };
 
   const handleToggleSound = (checked: boolean) => {
