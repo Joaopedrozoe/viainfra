@@ -456,15 +456,62 @@ export type Database = {
         }
         Relationships: []
       }
+      whatsapp_instances: {
+        Row: {
+          company_id: string | null
+          connection_state: string | null
+          created_at: string
+          id: string
+          instance_name: string
+          last_sync: string | null
+          phone_number: string | null
+          qr_code: string | null
+          status: string
+          updated_at: string
+          webhook_url: string | null
+        }
+        Insert: {
+          company_id?: string | null
+          connection_state?: string | null
+          created_at?: string
+          id?: string
+          instance_name: string
+          last_sync?: string | null
+          phone_number?: string | null
+          qr_code?: string | null
+          status?: string
+          updated_at?: string
+          webhook_url?: string | null
+        }
+        Update: {
+          company_id?: string | null
+          connection_state?: string | null
+          created_at?: string
+          id?: string
+          instance_name?: string
+          last_sync?: string | null
+          phone_number?: string | null
+          qr_code?: string | null
+          status?: string
+          updated_at?: string
+          webhook_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_instances_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      get_user_company_id: {
-        Args: { _user_id: string }
-        Returns: string
-      }
+      get_user_company_id: { Args: { _user_id: string }; Returns: string }
       get_web_conversation_messages: {
         Args: { p_access_token: string; p_conversation_id: string }
         Returns: {
