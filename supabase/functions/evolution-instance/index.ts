@@ -349,15 +349,25 @@ async function syncInstances(req: Request, supabase: any, evolutionApiUrl: strin
     // Sync each instance to Supabase
     const syncedInstances = [];
     for (const instance of instances) {
+      // Extract instance name from the API response
+      const instanceName = instance.name || instance.instanceName || instance.instance?.instanceName;
+      
+      if (!instanceName) {
+        console.warn('Skipping instance without name:', instance);
+        continue;
+      }
+
       const instanceData = {
         company_id: profile.company_id,
-        instance_name: instance.instance?.instanceName || instance.instanceName,
-        phone_number: instance.instance?.owner || null,
-        status: instance.instance?.state || instance.state || 'pending',
-        connection_state: instance.instance?.state || instance.state,
+        instance_name: instanceName,
+        phone_number: instance.number || instance.instance?.owner || null,
+        status: instance.connectionStatus || instance.state || 'pending',
+        connection_state: instance.connectionStatus || instance.state || null,
         last_sync: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
+
+      console.log('Syncing instance data:', instanceData);
 
       const { data, error } = await supabase
         .from('whatsapp_instances')
@@ -369,8 +379,9 @@ async function syncInstances(req: Request, supabase: any, evolutionApiUrl: strin
         .single();
 
       if (error) {
-        console.error('Error syncing instance:', error);
+        console.error('Error syncing instance:', instanceName, error);
       } else {
+        console.log('Successfully synced instance:', instanceName);
         syncedInstances.push(data);
       }
     }
