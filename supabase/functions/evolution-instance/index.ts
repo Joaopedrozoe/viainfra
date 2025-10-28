@@ -42,6 +42,10 @@ serve(async (req) => {
         return await deleteInstance(req, supabase, evolutionApiUrl, evolutionApiKey);
       case 'send-message':
         return await sendMessage(req, supabase, evolutionApiUrl, evolutionApiKey);
+      case 'list':
+        return await listInstances(req, supabase, evolutionApiUrl, evolutionApiKey);
+      case 'sync':
+        return await syncInstances(req, supabase, evolutionApiUrl, evolutionApiKey);
       default:
         return new Response('Invalid action', { status: 400, headers: corsHeaders });
     }
@@ -259,6 +263,131 @@ async function sendMessage(req: Request, supabase: any, evolutionApiUrl: string,
   } catch (error) {
     console.error('Error sending message:', error);
     return new Response('Failed to send message', { 
+      status: 500, 
+      headers: corsHeaders 
+    });
+  }
+}
+
+async function listInstances(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
+  try {
+    console.log('Listing all instances from Evolution API');
+    
+    const response = await fetch(`${evolutionApiUrl}/instance/fetchInstances`, {
+      method: 'GET',
+      headers: {
+        'apikey': evolutionApiKey,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Error listing instances:', errorText);
+      throw new Error(`Failed to list instances: ${response.status}`);
+    }
+
+    const instances = await response.json();
+    console.log('Listed instances:', instances);
+
+    return new Response(
+      JSON.stringify({ instances }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  } catch (error) {
+    console.error('Error in listInstances:', error);
+    return new Response('Failed to list instances', { 
+      status: 500, 
+      headers: corsHeaders 
+    });
+  }
+}
+
+async function syncInstances(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
+  try {
+    console.log('Syncing instances from Evolution API');
+    
+    // Get user's company_id from auth token
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response('No authorization header', { status: 401, headers: corsHeaders });
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+    
+    if (userError || !user) {
+      return new Response('Invalid user token', { status: 401, headers: corsHeaders });
+    }
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('company_id')
+      .eq('user_id', user.id)
+      .single();
+
+    if (!profile?.company_id) {
+      return new Response('User has no company', { status: 400, headers: corsHeaders });
+    }
+
+    // Fetch instances from Evolution API
+    const response = await fetch(`${evolutionApiUrl}/instance/fetchInstances`, {
+      method: 'GET',
+      headers: {
+        'apikey': evolutionApiKey,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch instances: ${response.status}`);
+    }
+
+    const instances = await response.json();
+    console.log('Fetched instances for sync:', instances);
+
+    // Sync each instance to Supabase
+    const syncedInstances = [];
+    for (const instance of instances) {
+      const instanceData = {
+        company_id: profile.company_id,
+        instance_name: instance.instance?.instanceName || instance.instanceName,
+        phone_number: instance.instance?.owner || null,
+        status: instance.instance?.state || instance.state || 'pending',
+        connection_state: instance.instance?.state || instance.state,
+        last_sync: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      const { data, error } = await supabase
+        .from('whatsapp_instances')
+        .upsert(instanceData, { 
+          onConflict: 'instance_name',
+          ignoreDuplicates: false 
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error syncing instance:', error);
+      } else {
+        syncedInstances.push(data);
+      }
+    }
+
+    console.log('Synced instances:', syncedInstances);
+
+    return new Response(
+      JSON.stringify({ 
+        success: true, 
+        count: syncedInstances.length,
+        instances: syncedInstances 
+      }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  } catch (error) {
+    console.error('Error in syncInstances:', error);
+    return new Response('Failed to sync instances', { 
       status: 500, 
       headers: corsHeaders 
     });

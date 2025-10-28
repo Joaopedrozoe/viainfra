@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
+const SUPABASE_URL = 'https://xxojpfhnkxpbznbmhmua.supabase.co';
+
 export interface WhatsAppInstance {
   id: string;
   company_id: string;
@@ -63,14 +65,20 @@ export const useWhatsAppInstances = () => {
 
   const createInstance = async (instanceName: string) => {
     try {
-      const { data, error } = await supabase.functions.invoke('evolution-instance', {
-        body: {
-          action: 'create',
-          instanceName
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/evolution-instance/create`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          },
+          body: JSON.stringify({ instanceName })
         }
-      });
+      );
 
-      if (error) throw error;
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Failed to create instance');
       
       toast.success('Instância criada com sucesso!');
       await loadInstances();
@@ -84,14 +92,17 @@ export const useWhatsAppInstances = () => {
 
   const getInstanceStatus = async (instanceName: string) => {
     try {
-      const { data, error } = await supabase.functions.invoke('evolution-instance', {
-        body: {
-          action: 'status',
-          instanceName
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/evolution-instance/status?instance=${instanceName}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          }
         }
-      });
+      );
 
-      if (error) throw error;
+      const data = await response.json();
+      if (!response.ok) throw new Error('Failed to get status');
       return data;
     } catch (error: any) {
       console.error('Error getting instance status:', error);
@@ -101,14 +112,17 @@ export const useWhatsAppInstances = () => {
 
   const getInstanceQR = async (instanceName: string) => {
     try {
-      const { data, error } = await supabase.functions.invoke('evolution-instance', {
-        body: {
-          action: 'qr',
-          instanceName
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/evolution-instance/qr?instance=${instanceName}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          }
         }
-      });
+      );
 
-      if (error) throw error;
+      const data = await response.json();
+      if (!response.ok) throw new Error('Failed to get QR');
       return data;
     } catch (error: any) {
       console.error('Error getting QR code:', error);
@@ -118,14 +132,20 @@ export const useWhatsAppInstances = () => {
 
   const deleteInstance = async (instanceName: string) => {
     try {
-      const { data, error } = await supabase.functions.invoke('evolution-instance', {
-        body: {
-          action: 'delete',
-          instanceName
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/evolution-instance/delete`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          },
+          body: JSON.stringify({ instanceName })
         }
-      });
+      );
 
-      if (error) throw error;
+      const data = await response.json();
+      if (!response.ok) throw new Error('Failed to delete instance');
       
       toast.success('Instância deletada com sucesso!');
       await loadInstances();
@@ -139,20 +159,50 @@ export const useWhatsAppInstances = () => {
 
   const sendMessage = async (instanceName: string, number: string, text: string) => {
     try {
-      const { data, error } = await supabase.functions.invoke('evolution-instance', {
-        body: {
-          action: 'sendMessage',
-          instanceName,
-          number,
-          text
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/evolution-instance/send-message`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          },
+          body: JSON.stringify({ instanceName, phoneNumber: number, message: text })
         }
-      });
+      );
 
-      if (error) throw error;
+      const data = await response.json();
+      if (!response.ok) throw new Error('Failed to send message');
       return data;
     } catch (error: any) {
       console.error('Error sending message:', error);
       toast.error('Erro ao enviar mensagem');
+      throw error;
+    }
+  };
+
+  const syncInstances = async () => {
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/evolution-instance/sync`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          }
+        }
+      );
+
+      const data = await response.json();
+      if (!response.ok) throw new Error('Failed to sync instances');
+      
+      toast.success(`${data.count} instância(s) sincronizada(s) com sucesso!`);
+      await loadInstances();
+      return data;
+    } catch (error: any) {
+      console.error('Error syncing instances:', error);
+      toast.error('Erro ao sincronizar instâncias');
       throw error;
     }
   };
@@ -165,6 +215,7 @@ export const useWhatsAppInstances = () => {
     getInstanceQR,
     deleteInstance,
     sendMessage,
+    syncInstances,
     refresh: loadInstances
   };
 };

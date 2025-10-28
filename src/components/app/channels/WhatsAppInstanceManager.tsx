@@ -10,12 +10,13 @@ import { Loader2, QrCode, Trash2, RefreshCw, CheckCircle2, XCircle, AlertCircle 
 import { toast } from 'sonner';
 
 export const WhatsAppInstanceManager = () => {
-  const { instances, loading, createInstance, getInstanceQR, deleteInstance, getInstanceStatus, refresh } = useWhatsAppInstances();
+  const { instances, loading, createInstance, getInstanceQR, deleteInstance, syncInstances, refresh } = useWhatsAppInstances();
   const [newInstanceName, setNewInstanceName] = useState('');
   const [creating, setCreating] = useState(false);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
   const [loadingQR, setLoadingQR] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const handleCreateInstance = async () => {
     if (!newInstanceName.trim()) {
@@ -62,6 +63,17 @@ export const WhatsAppInstanceManager = () => {
         setQrCode(null);
         setSelectedInstance(null);
       }
+    }
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      await syncInstances();
+    } catch (error) {
+      console.error('Sync error:', error);
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -150,9 +162,23 @@ export const WhatsAppInstanceManager = () => {
                 Gerencie suas instâncias do WhatsApp
               </CardDescription>
             </div>
-            <Button variant="outline" size="sm" onClick={refresh}>
-              <RefreshCw className="w-4 h-4" />
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleSync}
+                disabled={syncing}
+              >
+                {syncing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  'Sincronizar Evolution API'
+                )}
+              </Button>
+              <Button variant="outline" size="sm" onClick={refresh}>
+                <RefreshCw className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
