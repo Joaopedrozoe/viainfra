@@ -115,37 +115,45 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook) {
   }
 
   for (const messageData of webhook.data) {
-    const message = messageData.message as EvolutionMessage;
-    
-    // Skip messages sent by us
-    if (message.key.fromMe) {
-      console.log('Skipping outgoing message');
-      continue;
+    try {
+      const message = messageData.message as EvolutionMessage;
+      
+      // Skip messages sent by us
+      if (message.key.fromMe) {
+        console.log('Skipping outgoing message');
+        continue;
+      }
+
+      // Skip group messages for now
+      if (message.key.remoteJid.includes('@g.us')) {
+        console.log('Skipping group message');
+        continue;
+      }
+
+      const phoneNumber = extractPhoneNumber(message.key.remoteJid);
+      const messageContent = extractMessageContent(message);
+      const contactName = message.pushName || phoneNumber;
+
+      console.log(`Processing message from ${phoneNumber}: ${messageContent}`);
+
+      // Get or create contact
+      const contact = await getOrCreateContact(supabase, phoneNumber, contactName);
+      console.log('Contact obtained:', contact.id);
+      
+      // Get or create conversation
+      const conversation = await getOrCreateConversation(supabase, contact.id, phoneNumber, contactName);
+      console.log('Conversation obtained:', conversation.id);
+      
+      // Save message
+      await saveMessage(supabase, conversation.id, message, messageContent, phoneNumber);
+      console.log('Message saved successfully');
+
+      // Trigger bot response if needed
+      await triggerBotResponse(supabase, conversation.id, messageContent, phoneNumber, webhook.instance);
+      console.log('Bot response triggered');
+    } catch (error) {
+      console.error('Error processing message:', error);
     }
-
-    // Skip group messages for now
-    if (message.key.remoteJid.includes('@g.us')) {
-      console.log('Skipping group message');
-      continue;
-    }
-
-    const phoneNumber = extractPhoneNumber(message.key.remoteJid);
-    const messageContent = extractMessageContent(message);
-    const contactName = message.pushName || phoneNumber;
-
-    console.log(`Processing message from ${phoneNumber}: ${messageContent}`);
-
-    // Get or create contact
-    const contact = await getOrCreateContact(supabase, phoneNumber, contactName);
-    
-    // Get or create conversation
-    const conversation = await getOrCreateConversation(supabase, contact.id, phoneNumber, contactName);
-    
-    // Save message
-    await saveMessage(supabase, conversation.id, message, messageContent, phoneNumber);
-
-    // Trigger bot response if needed
-    await triggerBotResponse(supabase, conversation.id, messageContent, phoneNumber, webhook.instance);
   }
 }
 
@@ -264,7 +272,13 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
 }
 
 async function saveMessage(supabase: any, conversationId: string, message: EvolutionMessage, content: string, phoneNumber: string) {
-  const { error } = await supabase
+  console.log('Attempting to save message:', {
+    conversationId,
+    content,
+    sender_type: 'user'
+  });
+
+  const { data, error } = await supabase
     .from('messages')
     .insert({
       conversation_id: conversationId,
@@ -275,14 +289,16 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
         sender_name: message.pushName || phoneNumber
       },
       created_at: new Date(message.messageTimestamp * 1000).toISOString()
-    });
+    })
+    .select();
 
   if (error) {
     console.error('Error saving message:', error);
     throw error;
   }
 
-  console.log('Message saved successfully');
+  console.log('Message saved successfully:', data);
+  return data;
 }
 
 async function triggerBotResponse(supabase: any, conversationId: string, messageContent: string, phoneNumber: string, instanceName: string) {
