@@ -502,22 +502,37 @@ async function sendEvolutionMessage(instanceName: string, phoneNumber: string, t
   }
 
   try {
+    const payload = {
+      number: phoneNumber,
+      textMessage: {
+        text: text,
+      },
+    };
+
+    console.log('Sending Evolution message:', {
+      url: `${evolutionApiUrl}/message/sendText/${instanceName}`,
+      payload: JSON.stringify(payload, null, 2)
+    });
+
     const response = await fetch(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'apikey': evolutionApiKey,
       },
-      body: JSON.stringify({
-        number: phoneNumber,
-        text: text,
-      }),
+      body: JSON.stringify(payload),
     });
 
+    const responseText = await response.text();
+    
     if (!response.ok) {
-      console.error('Failed to send message via Evolution API:', response.statusText);
+      console.error('Failed to send message via Evolution API:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: responseText
+      });
     } else {
-      console.log('Message sent successfully via Evolution API');
+      console.log('Message sent successfully via Evolution API:', responseText);
     }
   } catch (error) {
     console.error('Error sending message via Evolution API:', error);
