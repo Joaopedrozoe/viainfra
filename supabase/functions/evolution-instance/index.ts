@@ -46,6 +46,10 @@ serve(async (req) => {
         return await listInstances(req, supabase, evolutionApiUrl, evolutionApiKey);
       case 'sync':
         return await syncInstances(req, supabase, evolutionApiUrl, evolutionApiKey);
+      case 'fetch-details':
+        return await fetchInstanceDetails(req, supabase, evolutionApiUrl, evolutionApiKey);
+      case 'set-webhook':
+        return await setWebhook(req, supabase, evolutionApiUrl, evolutionApiKey);
       default:
         return new Response('Invalid action', { status: 400, headers: corsHeaders });
     }
@@ -401,6 +405,180 @@ async function syncInstances(req: Request, supabase: any, evolutionApiUrl: strin
     return new Response('Failed to sync instances', { 
       status: 500, 
       headers: corsHeaders 
+    });
+  }
+}
+
+async function fetchInstanceDetails(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
+  const url = new URL(req.url);
+  const instanceName = url.searchParams.get('instance');
+  
+  if (!instanceName) {
+    return new Response('Instance name is required', { status: 400, headers: corsHeaders });
+  }
+
+  try {
+    console.log(`Fetching details for instance: ${instanceName}`);
+    
+    // Fetch instance details from Evolution API
+    const response = await fetch(`${evolutionApiUrl}/instance/fetchInstances?instanceName=${instanceName}`, {
+      method: 'GET',
+      headers: {
+        'apikey': evolutionApiKey,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Error fetching instance details:', errorText);
+      return new Response(JSON.stringify({ error: 'Failed to fetch instance details' }), {
+        status: response.status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const instances = await response.json();
+    console.log('Instance details received:', JSON.stringify(instances, null, 2));
+    
+    // The API returns an array, find our instance
+    const instanceData = Array.isArray(instances) 
+      ? instances.find(i => 
+          (i.name === instanceName || 
+           i.instanceName === instanceName || 
+           i.instance?.instanceName === instanceName)
+        )
+      : instances;
+
+    if (!instanceData) {
+      return new Response(JSON.stringify({ error: 'Instance not found' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Extract webhook information
+    const webhookUrl = instanceData.webhook?.url || 
+                       instanceData.instance?.webhook?.url || 
+                       instanceData.webhook ||
+                       null;
+    
+    console.log('Extracted webhook URL:', webhookUrl);
+
+    // Update database with webhook info
+    const { error: updateError } = await supabase
+      .from('whatsapp_instances')
+      .update({
+        webhook_url: webhookUrl,
+        connection_state: instanceData.connectionStatus || instanceData.state || null,
+        phone_number: instanceData.number || instanceData.instance?.owner || null,
+        last_sync: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('instance_name', instanceName);
+
+    if (updateError) {
+      console.error('Error updating instance in database:', updateError);
+    } else {
+      console.log('Instance updated in database successfully');
+    }
+
+    return new Response(JSON.stringify({ 
+      success: true, 
+      instance: instanceData,
+      webhookUrl 
+    }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('Error in fetchInstanceDetails:', error);
+    return new Response(JSON.stringify({ error: 'Failed to fetch instance details' }), { 
+      status: 500, 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+async function setWebhook(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
+  const { instanceName } = await req.json();
+  
+  if (!instanceName) {
+    return new Response('Instance name is required', { status: 400, headers: corsHeaders });
+  }
+
+  const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/evolution-webhook`;
+  
+  try {
+    console.log(`Setting webhook for instance: ${instanceName}`);
+    console.log(`Webhook URL: ${webhookUrl}`);
+    
+    const payload = {
+      webhook: {
+        enabled: true,
+        url: webhookUrl,
+        events: [
+          'MESSAGES_UPSERT',
+          'MESSAGES_UPDATE', 
+          'CONNECTION_UPDATE',
+          'SEND_MESSAGE'
+        ],
+        webhookByEvents: false
+      }
+    };
+
+    console.log('Webhook payload:', JSON.stringify(payload, null, 2));
+    
+    // Set webhook via Evolution API
+    const response = await fetch(`${evolutionApiUrl}/webhook/set/${instanceName}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': evolutionApiKey,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const responseText = await response.text();
+    console.log('Webhook set response:', responseText);
+
+    if (!response.ok) {
+      console.error('Failed to set webhook:', response.status, responseText);
+      return new Response(JSON.stringify({ 
+        error: 'Failed to set webhook',
+        details: responseText 
+      }), {
+        status: response.status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Update database
+    const { error: updateError } = await supabase
+      .from('whatsapp_instances')
+      .update({
+        webhook_url: webhookUrl,
+        updated_at: new Date().toISOString()
+      })
+      .eq('instance_name', instanceName);
+
+    if (updateError) {
+      console.error('Error updating instance in database:', updateError);
+    }
+
+    return new Response(JSON.stringify({ 
+      success: true,
+      webhookUrl,
+      message: 'Webhook configured successfully'
+    }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('Error in setWebhook:', error);
+    return new Response(JSON.stringify({ error: 'Failed to set webhook' }), { 
+      status: 500, 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
 }
