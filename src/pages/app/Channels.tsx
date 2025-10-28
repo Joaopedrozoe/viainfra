@@ -23,6 +23,7 @@ import { Channel } from '@/types/channels';
 import { ChannelWizard } from "@/components/app/channels/ChannelWizard";
 import { ChannelBotConfig } from "@/components/app/channels/ChannelBotConfig";
 import { WebsiteSetup } from "@/components/app/channels/wizard/WebsiteSetup";
+import { WhatsAppInstanceManager } from "@/components/app/channels/WhatsAppInstanceManager";
 import { Plus, Instagram, Facebook, MessageCircle, Mail, Globe, Send, MoreVertical, Settings, Trash2, Bot } from "lucide-react";
 import {
   DropdownMenu,
@@ -387,6 +388,9 @@ const Channels = () => {
                       }}
                     />
                   );
+                }
+                if (channel.type === 'whatsapp') {
+                  return <WhatsAppInstanceManager />;
                 }
                 return (
                   <div className="p-4 text-center text-muted-foreground">
