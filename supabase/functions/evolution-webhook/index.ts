@@ -400,6 +400,18 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
               // Build response based on node type
               if (targetNode.type === 'message') {
                 responseMessage = targetNode.data.message;
+                // Continue to next node automatically
+                const nextEdge = bot.flows.edges.find((edge: any) => edge.source === targetNode.id);
+                if (nextEdge) {
+                  const nextNode = bot.flows.nodes.find((node: any) => node.id === nextEdge.target);
+                  if (nextNode && nextNode.type === 'question') {
+                    responseMessage += '\n\n' + nextNode.data.question;
+                    if (nextNode.data.options) {
+                      responseMessage += '\n\n' + nextNode.data.options.join('\n');
+                    }
+                    nextNodeId = nextNode.id;
+                  }
+                }
               } else if (targetNode.type === 'question') {
                 responseMessage = targetNode.data.question;
                 if (targetNode.data.options) {
@@ -407,10 +419,7 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
                 }
               } else if (targetNode.type === 'action') {
                 if (targetNode.data.actionType === 'transfer') {
-                  // Transfer to human attendant
                   responseMessage = '👤 Aguarde um momento...\n\nEstou transferindo você para um atendente humano.';
-                  
-                  // Update conversation status to pending
                   await supabase
                     .from('conversations')
                     .update({ 
@@ -418,10 +427,26 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
                       metadata: { ...conversation.metadata, currentNodeId: null }
                     })
                     .eq('id', conversationId);
-                  
-                  nextNodeId = null; // Stop bot flow
+                  nextNodeId = null;
                 } else {
-                  responseMessage = targetNode.data.action || targetNode.data.message || 'Processando sua solicitação...';
+                  responseMessage = targetNode.data.action || 'Processando...';
+                  // Continue to next node
+                  const nextEdge = bot.flows.edges.find((edge: any) => edge.source === targetNode.id);
+                  if (nextEdge) {
+                    const nextNode = bot.flows.nodes.find((node: any) => node.id === nextEdge.target);
+                    if (nextNode) {
+                      if (nextNode.type === 'question') {
+                        responseMessage += '\n\n' + nextNode.data.question;
+                        if (nextNode.data.options) {
+                          responseMessage += '\n\n' + nextNode.data.options.join('\n');
+                        }
+                        nextNodeId = nextNode.id;
+                      } else if (nextNode.type === 'message') {
+                        responseMessage += '\n\n' + nextNode.data.message;
+                        nextNodeId = nextNode.id;
+                      }
+                    }
+                  }
                 }
               }
             }
