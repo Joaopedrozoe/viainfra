@@ -167,17 +167,25 @@ async function processConnectionUpdate(supabase: any, webhook: EvolutionWebhook)
 }
 
 async function getOrCreateContact(supabase: any, phoneNumber: string, name: string) {
-  // First, try to find existing contact
+  // First, try to find existing contact by phone
   const { data: existingContact, error: selectError } = await supabase
     .from('contacts')
     .select('*')
     .eq('phone', phoneNumber)
-    .single();
+    .maybeSingle();
 
   if (existingContact) {
     console.log('Found existing contact:', existingContact.id);
     return existingContact;
   }
+
+  // Get first company (in production, you'd determine this differently)
+  const { data: companies } = await supabase
+    .from('companies')
+    .select('id')
+    .limit(1);
+
+  const companyId = companies?.[0]?.id;
 
   // Create new contact
   const { data: newContact, error: insertError } = await supabase
@@ -186,7 +194,7 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
       name: name,
       phone: phoneNumber,
       email: null,
-      channel: 'whatsapp',
+      company_id: companyId,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     })
@@ -203,17 +211,31 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
 }
 
 async function getOrCreateConversation(supabase: any, contactId: string, phoneNumber: string, contactName: string) {
-  // Try to find existing conversation
-  const { data: existingConversation, error: selectError } = await supabase
+  // Get contact to find company_id
+  const { data: contact } = await supabase
+    .from('contacts')
+    .select('company_id')
+    .eq('id', contactId)
+    .single();
+
+  // Try to find existing open conversation
+  const { data: existingConversation } = await supabase
     .from('conversations')
     .select('*')
     .eq('contact_id', contactId)
     .eq('channel', 'whatsapp')
-    .eq('status', 'active')
-    .single();
+    .in('status', ['open', 'pending'])
+    .maybeSingle();
 
   if (existingConversation) {
     console.log('Found existing conversation:', existingConversation.id);
+    
+    // Update last message time
+    await supabase
+      .from('conversations')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', existingConversation.id);
+    
     return existingConversation;
   }
 
@@ -223,8 +245,9 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
     .insert({
       contact_id: contactId,
       channel: 'whatsapp',
-      status: 'active',
-      last_message_at: new Date().toISOString(),
+      status: 'open',
+      company_id: contact?.company_id,
+      metadata: {},
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     })
