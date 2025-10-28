@@ -55,6 +55,47 @@ export type Database = {
           },
         ]
       }
+      bots: {
+        Row: {
+          company_id: string | null
+          created_at: string
+          flows: Json
+          id: string
+          name: string
+          status: string
+          updated_at: string
+          version: string
+        }
+        Insert: {
+          company_id?: string | null
+          created_at?: string
+          flows?: Json
+          id: string
+          name: string
+          status: string
+          updated_at?: string
+          version: string
+        }
+        Update: {
+          company_id?: string | null
+          created_at?: string
+          flows?: Json
+          id?: string
+          name?: string
+          status?: string
+          updated_at?: string
+          version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bots_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chamados: {
         Row: {
           agendamento: string | null

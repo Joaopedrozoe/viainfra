@@ -303,40 +303,168 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
 
 async function triggerBotResponse(supabase: any, conversationId: string, messageContent: string, phoneNumber: string, instanceName: string) {
   console.log('Triggering bot response...');
-  
-  // Get active agents for WhatsApp
-  const { data: agents, error: agentsError } = await supabase
-    .from('agents')
-    .select('*')
-    .contains('channels', ['WhatsApp'])
-    .eq('status', 'active');
 
-  if (agentsError || !agents || agents.length === 0) {
-    console.log('No active WhatsApp agents found');
-    return;
+  try {
+    // Get the conversation to check company_id
+    const { data: conversation, error: convError } = await supabase
+      .from('conversations')
+      .select('company_id, metadata')
+      .eq('id', conversationId)
+      .single();
+
+    if (convError || !conversation) {
+      console.error('Error fetching conversation:', convError);
+      return;
+    }
+
+    // Get published bot for this company
+    const { data: bot, error: botError } = await supabase
+      .from('bots')
+      .select('*')
+      .eq('company_id', conversation.company_id)
+      .eq('status', 'published')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (botError) {
+      console.error('Error fetching bot:', botError);
+      return;
+    }
+
+    if (!bot) {
+      console.log('No published bot found for this company');
+      return;
+    }
+
+    console.log('Using bot:', bot.name);
+
+    // Get current node from conversation metadata
+    const currentNodeId = conversation.metadata?.currentNodeId || null;
+    
+    let responseMessage = '';
+    let nextNodeId = null;
+
+    if (!currentNodeId) {
+      // Start of conversation - find start node
+      const startNode = bot.flows.nodes.find((node: any) => node.type === 'start');
+      if (startNode) {
+        responseMessage = startNode.data.message;
+        
+        // Find next node (menu)
+        const nextEdge = bot.flows.edges.find((edge: any) => edge.source === startNode.id);
+        if (nextEdge) {
+          const menuNode = bot.flows.nodes.find((node: any) => node.id === nextEdge.target);
+          if (menuNode && menuNode.data.question) {
+            responseMessage += '\n\n' + menuNode.data.question;
+            if (menuNode.data.options) {
+              responseMessage += '\n\n' + menuNode.data.options.join('\n');
+            }
+            nextNodeId = menuNode.id;
+          }
+        }
+      }
+    } else {
+      // Process user response based on current node
+      const currentNode = bot.flows.nodes.find((node: any) => node.id === currentNodeId);
+      
+      if (currentNode && currentNode.type === 'question') {
+        // Find which option was selected
+        const options = currentNode.data.options || [];
+        let selectedOptionIndex = -1;
+        
+        // Try to match user message with options
+        const userMsg = messageContent.toLowerCase().trim();
+        
+        options.forEach((option: string, index: number) => {
+          const optionText = option.toLowerCase();
+          // Match by number (1, 2, 3...) or by text content
+          if (userMsg.includes(`${index + 1}`) || userMsg.includes(optionText.replace(/[^\w\s]/g, ''))) {
+            selectedOptionIndex = index;
+          }
+        });
+
+        if (selectedOptionIndex >= 0) {
+          // Find edge with matching label or index
+          const outgoingEdges = bot.flows.edges.filter((edge: any) => edge.source === currentNodeId);
+          const selectedEdge = outgoingEdges[selectedOptionIndex] || outgoingEdges.find((edge: any) => 
+            edge.label && edge.label.toLowerCase().includes(options[selectedOptionIndex].toLowerCase())
+          );
+
+          if (selectedEdge) {
+            const targetNode = bot.flows.nodes.find((node: any) => node.id === selectedEdge.target);
+            
+            if (targetNode) {
+              nextNodeId = targetNode.id;
+              
+              // Build response based on node type
+              if (targetNode.type === 'message') {
+                responseMessage = targetNode.data.message;
+              } else if (targetNode.type === 'question') {
+                responseMessage = targetNode.data.question;
+                if (targetNode.data.options) {
+                  responseMessage += '\n\n' + targetNode.data.options.join('\n');
+                }
+              } else if (targetNode.type === 'action') {
+                if (targetNode.data.actionType === 'transfer') {
+                  // Transfer to human attendant
+                  responseMessage = '👤 Aguarde um momento...\n\nEstou transferindo você para um atendente humano.';
+                  
+                  // Update conversation status to pending
+                  await supabase
+                    .from('conversations')
+                    .update({ 
+                      status: 'pending',
+                      metadata: { ...conversation.metadata, currentNodeId: null }
+                    })
+                    .eq('id', conversationId);
+                  
+                  nextNodeId = null; // Stop bot flow
+                } else {
+                  responseMessage = targetNode.data.action || targetNode.data.message || 'Processando sua solicitação...';
+                }
+              }
+            }
+          }
+        } else {
+          // Invalid option
+          responseMessage = '❌ Opção inválida. Por favor, escolha uma das opções disponíveis:\n\n';
+          if (currentNode.data.options) {
+            responseMessage += currentNode.data.options.join('\n');
+          }
+          nextNodeId = currentNodeId; // Stay on same node
+        }
+      }
+    }
+
+    if (responseMessage) {
+      // Save bot message
+      await supabase
+        .from('messages')
+        .insert({
+          conversation_id: conversationId,
+          sender_type: 'bot',
+          content: responseMessage,
+          metadata: { nodeId: nextNodeId }
+        });
+
+      // Update conversation with new node
+      await supabase
+        .from('conversations')
+        .update({ 
+          metadata: { ...conversation.metadata, currentNodeId: nextNodeId }
+        })
+        .eq('id', conversationId);
+
+      // Send via Evolution API
+      await sendEvolutionMessage(instanceName, phoneNumber, responseMessage);
+      
+      console.log('Bot response sent:', responseMessage.substring(0, 50) + '...');
+    }
+
+  } catch (error) {
+    console.error('Error in bot response:', error);
   }
-
-  // Use the first active agent for now
-  const agent = agents[0];
-  console.log('Using agent:', agent.name);
-
-  // Simple bot logic - respond with agent's welcome message or default
-  const botResponse = agent.description || 'Olá! Como posso ajudá-lo hoje?';
-
-  // Save bot response to database
-  await supabase
-    .from('messages')
-    .insert({
-      conversation_id: conversationId,
-      content: botResponse,
-      sender_type: 'bot',
-      sender_name: agent.name,
-      message_type: 'text',
-      created_at: new Date().toISOString()
-    });
-
-  // Send response via Evolution API
-  await sendEvolutionMessage(instanceName, phoneNumber, botResponse);
 }
 
 async function sendEvolutionMessage(instanceName: string, phoneNumber: string, text: string) {
