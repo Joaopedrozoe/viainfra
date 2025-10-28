@@ -270,9 +270,10 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
       conversation_id: conversationId,
       content: content,
       sender_type: 'user',
-      sender_name: message.pushName || phoneNumber,
-      message_type: 'text',
-      external_id: message.key.id,
+      metadata: { 
+        external_id: message.key.id,
+        sender_name: message.pushName || phoneNumber
+      },
       created_at: new Date(message.messageTimestamp * 1000).toISOString()
     });
 
