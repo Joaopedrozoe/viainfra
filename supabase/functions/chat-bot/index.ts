@@ -46,17 +46,35 @@ serve(async (req) => {
       }
     );
 
-    const { action, state, userMessage, contactInfo, companyId } = await req.json();
+    const { action, state, userMessage, contactInfo, companyId, conversationId, contactId } = await req.json();
 
-    console.log('Chat Bot Action:', action, 'State:', state);
+    console.log('===== CHAT-BOT RECEIVED =====');
+    console.log('Action:', action);
+    console.log('State:', JSON.stringify(state));
+    console.log('ConversationId:', conversationId);
+    console.log('ContactId:', contactId);
+    console.log('CompanyId:', companyId);
+    console.log('ContactInfo:', JSON.stringify(contactInfo));
+    console.log('=============================');
 
     let chatState: ChatState = state || { mode: 'menu' };
     let response = '';
     let options: string[] = [];
 
-    // Criar ou recuperar contato e conversa
-    if (!chatState.conversationId && contactInfo) {
-      console.log('Criando contato e conversa para company:', companyId);
+    // Use existing conversation/contact IDs if provided (from WhatsApp webhook)
+    if (conversationId && contactId) {
+      console.log('✅ Using existing conversation:', conversationId);
+      chatState.conversationId = conversationId;
+      chatState.contactId = contactId;
+      chatState.companyId = companyId;
+    }
+    // Se o state já tem os IDs, use-os
+    else if (chatState.conversationId && chatState.contactId) {
+      console.log('✅ Using conversation from state:', chatState.conversationId);
+    }
+    // Criar ou recuperar contato e conversa apenas se não foi fornecido
+    else if (!chatState.conversationId && contactInfo) {
+      console.log('⚠️ Creating new contact and conversation for company:', companyId);
       
       try {
         const { data: contact, error: contactError } = await supabaseClient

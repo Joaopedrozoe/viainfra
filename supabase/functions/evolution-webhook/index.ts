@@ -346,24 +346,47 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
 
     console.log('🔄 Bot action:', action, 'State:', currentState);
 
-    // Call the chat-bot function with current state
+    // Call the chat-bot function with current state AND conversation/contact IDs
+    console.log('📤 Calling chat-bot with:', {
+      conversationId,
+      contactId: conversation.contact_id,
+      companyId: conversation.company_id,
+      action,
+      hasState: !!currentState,
+    });
+
     const chatBotResponse = await supabase.functions.invoke('chat-bot', {
       body: {
         action,
-        state: currentState,
+        state: currentState ? {
+          ...currentState,
+          conversationId: conversationId,
+          contactId: conversation.contact_id,
+          companyId: conversation.company_id,
+        } : {
+          mode: 'menu',
+          conversationId: conversationId,
+          contactId: conversation.contact_id,
+          companyId: conversation.company_id,
+        },
         userMessage: messageContent,
         contactInfo: {
           name: contact.name,
           phone: contact.phone,
         },
         companyId: conversation.company_id,
+        conversationId: conversationId,
+        contactId: conversation.contact_id,
       }
     });
 
+    console.log('📥 Chat-bot response status:', chatBotResponse.error ? 'ERROR' : 'OK');
     if (chatBotResponse.error) {
-      console.error('❌ Error calling chat-bot:', chatBotResponse.error);
+      console.error('❌ Error calling chat-bot:', JSON.stringify(chatBotResponse.error));
       return;
     }
+
+    console.log('📥 Chat-bot response data:', JSON.stringify(chatBotResponse.data));
 
     const botResponse = chatBotResponse.data;
     console.log('✅ Bot response received:', {
@@ -409,9 +432,7 @@ async function sendEvolutionMessage(instanceName: string, phoneNumber: string, t
   try {
     const payload = {
       number: phoneNumber,
-      textMessage: {
-        text: text,
-      },
+      text: text,
     };
 
     console.log('Sending Evolution message:', {
