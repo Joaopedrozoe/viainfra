@@ -435,9 +435,10 @@ async function sendEvolutionMessage(instanceName: string, phoneNumber: string, t
       text: text,
     };
 
-    console.log('Sending Evolution message:', {
+    console.log('📤 Sending Evolution message:', {
       url: `${evolutionApiUrl}/message/sendText/${instanceName}`,
-      payload: JSON.stringify(payload, null, 2)
+      number: phoneNumber,
+      textLength: text.length
     });
 
     const response = await fetch(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
@@ -451,14 +452,22 @@ async function sendEvolutionMessage(instanceName: string, phoneNumber: string, t
 
     const responseText = await response.text();
     
+    console.log('📥 Evolution API Response:', {
+      status: response.status,
+      statusText: response.statusText,
+      ok: response.ok,
+      body: responseText
+    });
+    
     if (!response.ok) {
-      console.error('Failed to send message via Evolution API:', {
+      console.error('❌ Failed to send message via Evolution API:', {
         status: response.status,
         statusText: response.statusText,
         body: responseText
       });
+      throw new Error(`Evolution API error: ${response.status} - ${responseText}`);
     } else {
-      console.log('Message sent successfully via Evolution API:', responseText);
+      console.log('✅ Message sent successfully via Evolution API to WhatsApp number:', phoneNumber);
     }
   } catch (error) {
     console.error('Error sending message via Evolution API:', error);
