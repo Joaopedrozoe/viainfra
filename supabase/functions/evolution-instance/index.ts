@@ -50,6 +50,10 @@ serve(async (req) => {
         return await fetchInstanceDetails(req, supabase, evolutionApiUrl, evolutionApiKey);
       case 'set-webhook':
         return await setWebhook(req, supabase, evolutionApiUrl, evolutionApiKey);
+      case 'check-webhook':
+        return await checkWebhook(req, supabase, evolutionApiUrl, evolutionApiKey);
+      case 'fix-webhook':
+        return await fixWebhook(req, supabase, evolutionApiUrl, evolutionApiKey);
       default:
         return new Response('Invalid action', { status: 400, headers: corsHeaders });
     }
@@ -494,6 +498,221 @@ async function fetchInstanceDetails(req: Request, supabase: any, evolutionApiUrl
   } catch (error) {
     console.error('Error in fetchInstanceDetails:', error);
     return new Response(JSON.stringify({ error: 'Failed to fetch instance details' }), { 
+      status: 500, 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+async function checkWebhook(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
+  const { instanceName } = await req.json();
+  
+  if (!instanceName) {
+    return new Response('Instance name is required', { status: 400, headers: corsHeaders });
+  }
+
+  const expectedWebhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/evolution-webhook`;
+  
+  try {
+    console.log(`Checking webhook for instance: ${instanceName}`);
+    
+    // Get webhook config from Evolution API
+    const response = await fetch(`${evolutionApiUrl}/webhook/find/${instanceName}`, {
+      method: 'GET',
+      headers: {
+        'apikey': evolutionApiKey,
+      },
+    });
+
+    if (!response.ok) {
+      console.error('Failed to get webhook:', response.status);
+      return new Response(JSON.stringify({ 
+        error: 'Failed to get webhook',
+        needsFix: true
+      }), {
+        status: response.status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const webhookData = await response.json();
+    console.log('Current webhook config:', JSON.stringify(webhookData, null, 2));
+
+    const currentUrl = webhookData?.url || webhookData?.webhook?.url;
+    const isEnabled = webhookData?.enabled !== false;
+    const isCorrect = currentUrl === expectedWebhookUrl && isEnabled;
+
+    return new Response(JSON.stringify({ 
+      success: true,
+      currentUrl,
+      expectedUrl: expectedWebhookUrl,
+      isEnabled,
+      isCorrect,
+      needsFix: !isCorrect,
+      webhookData
+    }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('Error in checkWebhook:', error);
+    return new Response(JSON.stringify({ 
+      error: 'Failed to check webhook',
+      needsFix: true
+    }), { 
+      status: 500, 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+async function fixWebhook(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
+  const { instanceName } = await req.json();
+  
+  if (!instanceName) {
+    return new Response('Instance name is required', { status: 400, headers: corsHeaders });
+  }
+
+  const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/evolution-webhook`;
+  
+  try {
+    console.log(`🔧 Fixing webhook for instance: ${instanceName}`);
+    console.log(`📍 Target webhook URL: ${webhookUrl}`);
+    
+    // First check current config
+    const checkResponse = await fetch(`${evolutionApiUrl}/webhook/find/${instanceName}`, {
+      method: 'GET',
+      headers: {
+        'apikey': evolutionApiKey,
+      },
+    });
+
+    if (checkResponse.ok) {
+      const currentConfig = await checkResponse.json();
+      console.log('Current webhook config:', JSON.stringify(currentConfig, null, 2));
+    }
+
+    // Try method 1: Using /webhook/set endpoint
+    console.log('Attempt 1: Using /webhook/set endpoint');
+    const payload1 = {
+      webhook: {
+        url: webhookUrl,
+        enabled: true,
+        events: [
+          'MESSAGES_UPSERT',
+          'MESSAGES_UPDATE', 
+          'CONNECTION_UPDATE',
+          'SEND_MESSAGE',
+          'CALL'
+        ],
+        webhookByEvents: false
+      }
+    };
+
+    console.log('Setting webhook with payload:', JSON.stringify(payload1, null, 2));
+    
+    let response = await fetch(`${evolutionApiUrl}/webhook/set/${instanceName}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': evolutionApiKey,
+      },
+      body: JSON.stringify(payload1),
+    });
+
+    let responseText = await response.text();
+    console.log('Webhook set response (method 1):', response.status, responseText);
+
+    // If method 1 failed, try method 2: Using /instance/settings endpoint
+    if (!response.ok) {
+      console.log('Attempt 2: Using /instance/settings endpoint');
+      const payload2 = {
+        instanceName: instanceName,
+        webhook: {
+          url: webhookUrl,
+          enabled: true,
+          events: [
+            'MESSAGES_UPSERT',
+            'MESSAGES_UPDATE', 
+            'CONNECTION_UPDATE',
+            'SEND_MESSAGE',
+            'CALL'
+          ],
+          webhookByEvents: false
+        }
+      };
+
+      response = await fetch(`${evolutionApiUrl}/instance/settings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': evolutionApiKey,
+        },
+        body: JSON.stringify(payload2),
+      });
+
+      responseText = await response.text();
+      console.log('Webhook set response (method 2):', response.status, responseText);
+    }
+
+    if (!response.ok) {
+      console.error('❌ Failed to fix webhook with both methods:', response.status, responseText);
+      return new Response(JSON.stringify({ 
+        error: 'Failed to fix webhook with both methods',
+        details: responseText,
+        status: response.status,
+        suggestion: 'Please configure the webhook manually in Evolution Manager UI'
+      }), {
+        status: response.status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Verify webhook was set correctly
+    const verifyResponse = await fetch(`${evolutionApiUrl}/webhook/find/${instanceName}`, {
+      method: 'GET',
+      headers: {
+        'apikey': evolutionApiKey,
+      },
+    });
+
+    let verifiedConfig = null;
+    if (verifyResponse.ok) {
+      verifiedConfig = await verifyResponse.json();
+      console.log('✅ Verified webhook config:', JSON.stringify(verifiedConfig, null, 2));
+    }
+
+    // Update database
+    const { error: updateError } = await supabase
+      .from('whatsapp_instances')
+      .update({
+        webhook_url: webhookUrl,
+        updated_at: new Date().toISOString()
+      })
+      .eq('instance_name', instanceName);
+
+    if (updateError) {
+      console.error('Error updating instance in database:', updateError);
+    } else {
+      console.log('✅ Database updated successfully');
+    }
+
+    return new Response(JSON.stringify({ 
+      success: true,
+      webhookUrl,
+      message: 'Webhook fixed and verified successfully',
+      verifiedConfig,
+      instructions: 'Please send a test message now to verify the integration is working'
+    }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('❌ Error in fixWebhook:', error);
+    return new Response(JSON.stringify({ 
+      error: 'Failed to fix webhook',
+      message: error.message
+    }), { 
       status: 500, 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
