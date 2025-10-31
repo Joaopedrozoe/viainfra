@@ -369,10 +369,10 @@ async function syncInstances(req: Request, supabase: any, evolutionApiUrl: strin
         continue;
       }
 
-      // Buscar detalhes do webhook da instância
+      // Buscar detalhes do webhook da instância usando o endpoint correto
       let webhookUrl = null;
       try {
-        const detailsResponse = await fetch(`${evolutionApiUrl}/instance/fetchInstances?instanceName=${instanceName}`, {
+        const webhookResponse = await fetch(`${evolutionApiUrl}/webhook/find/${instanceName}`, {
           method: 'GET',
           headers: {
             'apikey': evolutionApiKey,
@@ -380,22 +380,16 @@ async function syncInstances(req: Request, supabase: any, evolutionApiUrl: strin
           }
         });
 
-        if (detailsResponse.ok) {
-          const details = await detailsResponse.json();
-          const instanceDetails = Array.isArray(details) ? details[0] : details;
+        if (webhookResponse.ok) {
+          const webhookData = await webhookResponse.json();
+          console.log(`[DEBUG] Webhook response for ${instanceName}:`, JSON.stringify(webhookData, null, 2));
           
-          // Log completo dos detalhes para debug
-          console.log(`[DEBUG] Full instance details for ${instanceName}:`, JSON.stringify(instanceDetails, null, 2));
-          
-          // Extrair webhook URL dos detalhes - testando várias possibilidades
-          webhookUrl = instanceDetails?.Webhook?.url || 
-                      instanceDetails?.webhook?.url || 
-                      instanceDetails?.Webhook ||
-                      instanceDetails?.webhook ||
-                      null;
+          // Extrair URL do webhook
+          webhookUrl = webhookData?.url || webhookData?.webhook?.url || null;
           
           console.log(`Webhook found for ${instanceName}:`, webhookUrl);
-          console.log(`[DEBUG] Webhook object:`, instanceDetails?.Webhook || instanceDetails?.webhook);
+        } else {
+          console.log(`No webhook configured for ${instanceName}`);
         }
       } catch (error) {
         console.error(`Error fetching webhook for ${instanceName}:`, error);
