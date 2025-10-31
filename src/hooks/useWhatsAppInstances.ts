@@ -183,12 +183,21 @@ export const useWhatsAppInstances = () => {
 
   const forceFixWebhook = async (instanceName: string) => {
     try {
-      const { data, error } = await supabase.functions.invoke('evolution-instance', {
-        body: { action: 'force-fix', instanceName }
-      });
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/evolution-instance/force-fix`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          },
+          body: JSON.stringify({ instanceName })
+        }
+      );
 
-      if (error) throw error;
-
+      const data = await response.json();
+      if (!response.ok) throw new Error('Failed to force fix webhook');
+      
       toast.success('Webhook reconfigurado! Aguarde 30s e teste.');
       await loadInstances();
       return data;
