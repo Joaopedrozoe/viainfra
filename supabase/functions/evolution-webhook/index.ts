@@ -67,35 +67,58 @@ serve(async (req) => {
     );
 
     const payload = await req.json();
-    console.log('📦 Payload:', JSON.stringify(payload, null, 2));
+    console.log('📦 RAW PAYLOAD:', JSON.stringify(payload, null, 2));
+    
+    // Log EVERY field in the payload for debugging
+    console.log('🔍 Payload Analysis:', {
+      hasEvent: !!payload.event,
+      eventValue: payload.event,
+      eventType: typeof payload.event,
+      hasInstance: !!payload.instance,
+      instanceValue: payload.instance,
+      hasData: !!payload.data,
+      dataType: typeof payload.data,
+      dataKeys: payload.data ? Object.keys(payload.data) : [],
+      allPayloadKeys: Object.keys(payload)
+    });
 
     // Parse webhook data
     const webhook = parseWebhookPayload(payload);
     if (!webhook) {
-      console.error('❌ Invalid webhook payload structure');
+      console.error('❌ Invalid webhook payload structure - missing event or instance');
+      console.error('❌ Payload received:', JSON.stringify(payload));
       return new Response('Invalid payload', { status: 400, headers: corsHeaders });
     }
 
-    console.log(`✅ Event: ${webhook.event} | Instance: ${webhook.instance}`);
+    console.log(`✅ Parsed Event: ${webhook.event} | Instance: ${webhook.instance}`);
 
     // Process based on event type
     switch (webhook.event) {
       case 'MESSAGES_UPSERT':
-        console.log('📨 Processing message...');
+        console.log('📨 ===== PROCESSING MESSAGE =====');
         await processNewMessage(supabase, webhook);
+        console.log('📨 ===== MESSAGE PROCESSING COMPLETE =====');
+        break;
+      case 'MESSAGES_UPDATE':
+        console.log('📝 Message update event (ignored for now)');
         break;
       case 'CONNECTION_UPDATE':
-        console.log('🔌 Processing connection update...');
+        console.log('🔌 ===== PROCESSING CONNECTION UPDATE =====');
         await processConnectionUpdate(supabase, webhook);
+        console.log('🔌 ===== CONNECTION UPDATE COMPLETE =====');
         break;
       case 'SEND_MESSAGE':
-        console.log('📤 Send confirmation');
+        console.log('📤 Send confirmation event');
         break;
       case 'CALL':
         console.log('📞 Call event (ignored)');
         break;
+      case 'QRCODE_UPDATED':
+        console.log('📱 QR Code updated event (ignored)');
+        break;
       default:
-        console.log(`⚠️ Unknown event: ${webhook.event}`);
+        console.log(`⚠️ ===== UNKNOWN EVENT TYPE: ${webhook.event} =====`);
+        console.log('⚠️ Full webhook data:', JSON.stringify(webhook, null, 2));
     }
 
     console.log('✅ Success\n');
@@ -134,14 +157,26 @@ function parseWebhookPayload(payload: any): EvolutionWebhook | null {
 }
 
 async function processNewMessage(supabase: any, webhook: EvolutionWebhook) {
-  console.log('Processing new message...');
+  console.log('🔍 Processing new message - webhook.data type:', typeof webhook.data);
+  console.log('🔍 webhook.data isArray:', Array.isArray(webhook.data));
+  console.log('🔍 webhook.data content:', JSON.stringify(webhook.data, null, 2));
   
-  if (!webhook.data || !Array.isArray(webhook.data)) {
-    console.log('No message data found');
+  if (!webhook.data) {
+    console.log('❌ No webhook.data found at all!');
     return;
   }
 
-  for (const messageData of webhook.data) {
+  // Handle both array and single object formats
+  const messages = Array.isArray(webhook.data) ? webhook.data : [webhook.data];
+  
+  if (messages.length === 0) {
+    console.log('❌ Empty messages array');
+    return;
+  }
+
+  console.log(`✅ Processing ${messages.length} message(s)`);
+
+  for (const messageData of messages) {
     try {
       const message = messageData.message as EvolutionMessage;
       
@@ -190,14 +225,24 @@ async function processConnectionUpdate(supabase: any, webhook: EvolutionWebhook)
   // Update instance status in database
   const { error } = await supabase
     .from('whatsapp_instances')
-    .upsert({
-      instance_name: webhook.instance,
-      status: webhook.data.state || 'unknown',
-      updated_at: new Date().toISOString()
-    });
+    .upsert(
+      {
+        instance_name: webhook.instance,
+        status: webhook.data.state || 'unknown',
+        connection_state: webhook.data.state || 'unknown',
+        phone_number: webhook.data.wuid?.split('@')[0] || null,
+        updated_at: new Date().toISOString()
+      },
+      { 
+        onConflict: 'instance_name',
+        ignoreDuplicates: false 
+      }
+    );
 
   if (error) {
-    console.error('Error updating instance status:', error);
+    console.error('❌ Error updating instance status:', error);
+  } else {
+    console.log('✅ Instance status updated successfully');
   }
 }
 
