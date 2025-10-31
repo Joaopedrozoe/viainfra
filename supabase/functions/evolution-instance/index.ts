@@ -54,6 +54,8 @@ serve(async (req) => {
         return await checkWebhook(req, supabase, evolutionApiUrl, evolutionApiKey);
       case 'fix-webhook':
         return await fixWebhook(req, supabase, evolutionApiUrl, evolutionApiKey);
+      case 'diagnose':
+        return await diagnoseWebhook(req, supabase, evolutionApiUrl, evolutionApiKey);
       default:
         return new Response('Invalid action', { status: 400, headers: corsHeaders });
     }
@@ -798,6 +800,240 @@ async function setWebhook(req: Request, supabase: any, evolutionApiUrl: string, 
     return new Response(JSON.stringify({ error: 'Failed to set webhook' }), { 
       status: 500, 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+async function diagnoseWebhook(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
+  const { instanceName } = await req.json();
+  
+  if (!instanceName) {
+    return new Response('Instance name is required', { status: 400, headers: corsHeaders });
+  }
+
+  console.log('\n🔍 ===== DIAGNÓSTICO COMPLETO DO WEBHOOK =====');
+  console.log(`Instância: ${instanceName}`);
+  console.log(`Timestamp: ${new Date().toISOString()}`);
+  
+  const diagnostico = {
+    timestamp: new Date().toISOString(),
+    instanceName,
+    tests: [] as any[],
+  };
+
+  try {
+    // 1. Verificar instância
+    console.log('\n📱 1. VERIFICANDO INSTÂNCIA...');
+    try {
+      const instanceResponse = await fetch(`${evolutionApiUrl}/instance/fetchInstances`, {
+        headers: { 'apikey': evolutionApiKey }
+      });
+      const instances = await instanceResponse.json();
+      const instance = instances.find((i: any) => i.instance?.instanceName === instanceName);
+      
+      const instanceOk = !!instance;
+      diagnostico.tests.push({
+        step: 1,
+        test: 'Instância Encontrada',
+        status: instanceOk ? '✅ OK' : '❌ ERRO',
+        data: instance || 'Instância não encontrada',
+      });
+      console.log(instanceOk ? '✅ Instância encontrada' : '❌ Instância NÃO encontrada');
+      if (instance) {
+        console.log('   Estado:', instance.instance?.state);
+        console.log('   Owner:', instance.instance?.owner);
+      }
+    } catch (error) {
+      diagnostico.tests.push({
+        step: 1,
+        test: 'Instância',
+        status: '❌ ERRO',
+        error: error.message,
+      });
+      console.error('❌ Erro ao buscar instância:', error.message);
+    }
+
+    // 2. Verificar webhook ATUAL
+    console.log('\n🔗 2. VERIFICANDO WEBHOOK ATUAL...');
+    try {
+      const webhookResponse = await fetch(`${evolutionApiUrl}/webhook/find/${instanceName}`, {
+        headers: { 'apikey': evolutionApiKey }
+      });
+      const webhookConfig = await webhookResponse.json();
+      
+      const webhookOk = webhookConfig.enabled === true;
+      const hasMessagesEvent = webhookConfig.events?.includes('MESSAGES_UPSERT') || 
+                              webhookConfig.events?.includes('messages.upsert');
+      
+      diagnostico.tests.push({
+        step: 2,
+        test: 'Webhook Habilitado',
+        status: webhookOk ? '✅ OK' : '❌ DESABILITADO',
+        data: {
+          enabled: webhookConfig.enabled,
+          url: webhookConfig.url,
+          events: webhookConfig.events,
+          webhookByEvents: webhookConfig.webhookByEvents,
+        },
+      });
+      
+      diagnostico.tests.push({
+        step: 2.1,
+        test: 'Evento MESSAGES_UPSERT',
+        status: hasMessagesEvent ? '✅ OK' : '❌ FALTANDO',
+        data: { hasMessagesEvent, events: webhookConfig.events },
+      });
+      
+      console.log(webhookOk ? '✅ Webhook habilitado' : '❌ Webhook DESABILITADO');
+      console.log(hasMessagesEvent ? '✅ MESSAGES_UPSERT configurado' : '❌ MESSAGES_UPSERT FALTANDO!');
+      console.log('   URL:', webhookConfig.url);
+      console.log('   Eventos:', webhookConfig.events);
+    } catch (error) {
+      diagnostico.tests.push({
+        step: 2,
+        test: 'Webhook Config',
+        status: '❌ ERRO',
+        error: error.message,
+      });
+      console.error('❌ Erro ao buscar webhook:', error.message);
+    }
+
+    // 3. FORÇAR reconfiguração do webhook
+    console.log('\n🔧 3. RECONFIGURANDO WEBHOOK (FORÇADO)...');
+    const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/evolution-webhook`;
+    try {
+      // Primeiro método: /webhook/set
+      const webhookSetResponse = await fetch(`${evolutionApiUrl}/webhook/set/${instanceName}`, {
+        method: 'POST',
+        headers: {
+          'apikey': evolutionApiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          enabled: true,
+          url: webhookUrl,
+          webhookByEvents: false,
+          events: [
+            'MESSAGES_UPSERT',
+            'MESSAGES_UPDATE',
+            'CONNECTION_UPDATE',
+            'SEND_MESSAGE',
+          ],
+        }),
+      });
+      
+      const setResult = await webhookSetResponse.json();
+      const setOk = webhookSetResponse.ok;
+      
+      diagnostico.tests.push({
+        step: 3,
+        test: 'Reconfigurar Webhook (/webhook/set)',
+        status: setOk ? '✅ OK' : '⚠️ FALHOU',
+        data: setResult,
+      });
+      console.log(setOk ? '✅ Webhook reconfigurado com sucesso' : '⚠️ Falha ao reconfigurar');
+      console.log('   Resposta:', JSON.stringify(setResult, null, 2));
+    } catch (error) {
+      diagnostico.tests.push({
+        step: 3,
+        test: 'Reconfigurar Webhook',
+        status: '❌ ERRO',
+        error: error.message,
+      });
+      console.error('❌ Erro ao reconfigurar:', error.message);
+    }
+
+    // 4. Restart da instância
+    console.log('\n🔄 4. REINICIANDO INSTÂNCIA...');
+    try {
+      const restartResponse = await fetch(`${evolutionApiUrl}/instance/restart/${instanceName}`, {
+        method: 'PUT',
+        headers: { 'apikey': evolutionApiKey }
+      });
+      
+      const restartResult = await restartResponse.json();
+      const restartOk = restartResponse.ok;
+      
+      diagnostico.tests.push({
+        step: 4,
+        test: 'Restart Instância',
+        status: restartOk ? '✅ OK' : '⚠️ FALHOU',
+        data: restartResult,
+      });
+      console.log(restartOk ? '✅ Instância reiniciada' : '⚠️ Falha ao reiniciar');
+    } catch (error) {
+      diagnostico.tests.push({
+        step: 4,
+        test: 'Restart Instância',
+        status: '❌ ERRO',
+        error: error.message,
+      });
+      console.error('❌ Erro ao reiniciar:', error.message);
+    }
+
+    // 5. Aguardar 5 segundos para reconexão
+    console.log('\n⏳ 5. AGUARDANDO RECONEXÃO (5s)...');
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    console.log('✅ Aguardo concluído');
+
+    // 6. Verificar webhook DEPOIS do restart
+    console.log('\n🔍 6. VERIFICANDO WEBHOOK APÓS RESTART...');
+    try {
+      const webhookCheckResponse = await fetch(`${evolutionApiUrl}/webhook/find/${instanceName}`, {
+        headers: { 'apikey': evolutionApiKey }
+      });
+      const webhookCheck = await webhookCheckResponse.json();
+      
+      const stillEnabled = webhookCheck.enabled === true;
+      const stillHasMessages = webhookCheck.events?.includes('MESSAGES_UPSERT') || 
+                               webhookCheck.events?.includes('messages.upsert');
+      
+      diagnostico.tests.push({
+        step: 6,
+        test: 'Webhook Persistiu Após Restart',
+        status: (stillEnabled && stillHasMessages) ? '✅ OK' : '❌ PERDEU CONFIG',
+        data: {
+          enabled: webhookCheck.enabled,
+          hasMessagesEvent: stillHasMessages,
+          events: webhookCheck.events,
+        },
+      });
+      
+      console.log(stillEnabled ? '✅ Webhook ainda habilitado' : '❌ Webhook DESABILITADO após restart!');
+      console.log(stillHasMessages ? '✅ MESSAGES_UPSERT mantido' : '❌ MESSAGES_UPSERT PERDIDO!');
+    } catch (error) {
+      diagnostico.tests.push({
+        step: 6,
+        test: 'Webhook Após Restart',
+        status: '❌ ERRO',
+        error: error.message,
+      });
+      console.error('❌ Erro ao verificar webhook:', error.message);
+    }
+
+    // Resumo final
+    console.log('\n📊 ===== RESUMO DO DIAGNÓSTICO =====');
+    diagnostico.tests.forEach(test => {
+      console.log(`${test.test}: ${test.status}`);
+    });
+
+    const allOk = diagnostico.tests.every(t => t.status.includes('✅'));
+    console.log('\n' + (allOk ? '✅ TUDO OK!' : '⚠️ PROBLEMAS ENCONTRADOS'));
+    console.log('===================================\n');
+
+    return new Response(JSON.stringify(diagnostico, null, 2), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+
+  } catch (error) {
+    console.error('❌ ERRO FATAL NO DIAGNÓSTICO:', error);
+    return new Response(JSON.stringify({ 
+      error: error.message,
+      stack: error.stack,
+      diagnostico,
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
 }
