@@ -369,12 +369,40 @@ async function syncInstances(req: Request, supabase: any, evolutionApiUrl: strin
         continue;
       }
 
+      // Buscar detalhes do webhook da instância
+      let webhookUrl = null;
+      try {
+        const detailsResponse = await fetch(`${evolutionApiUrl}/instance/fetchInstances?instanceName=${instanceName}`, {
+          method: 'GET',
+          headers: {
+            'apikey': evolutionApiKey,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (detailsResponse.ok) {
+          const details = await detailsResponse.json();
+          const instanceDetails = Array.isArray(details) ? details[0] : details;
+          
+          // Extrair webhook URL dos detalhes
+          webhookUrl = instanceDetails?.Webhook?.url || 
+                      instanceDetails?.webhook?.url || 
+                      instanceDetails?.Webhook ||
+                      null;
+          
+          console.log(`Webhook found for ${instanceName}:`, webhookUrl);
+        }
+      } catch (error) {
+        console.error(`Error fetching webhook for ${instanceName}:`, error);
+      }
+
       const instanceData = {
         company_id: profile.company_id,
         instance_name: instanceName,
         phone_number: instance.number || instance.instance?.owner || null,
         status: instance.connectionStatus || instance.state || 'pending',
         connection_state: instance.connectionStatus || instance.state || null,
+        webhook_url: webhookUrl,
         last_sync: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
