@@ -1032,26 +1032,30 @@ async function diagnoseWebhook(req: Request, supabase: any, evolutionApiUrl: str
   };
 
   try {
-    // 1. Verificar instância
+    // 1. Verificar instância usando connectionState
     console.log('\n📱 1. VERIFICANDO INSTÂNCIA...');
     try {
-      const instanceResponse = await fetch(`${evolutionApiUrl}/instance/fetchInstances`, {
+      const instanceResponse = await fetch(`${evolutionApiUrl}/instance/connectionState/${instanceName}`, {
         headers: { 'apikey': evolutionApiKey }
       });
-      const instances = await instanceResponse.json();
-      const instance = instances.find((i: any) => i.instance?.instanceName === instanceName);
       
-      const instanceOk = !!instance;
+      const instanceOk = instanceResponse.ok;
+      let instanceData = null;
+      
+      if (instanceOk) {
+        instanceData = await instanceResponse.json();
+      }
+      
       diagnostico.tests.push({
         step: 1,
         test: 'Instância Encontrada',
         status: instanceOk ? '✅ OK' : '❌ ERRO',
-        data: instance || 'Instância não encontrada',
+        data: instanceData || 'Instância não encontrada',
       });
       console.log(instanceOk ? '✅ Instância encontrada' : '❌ Instância NÃO encontrada');
-      if (instance) {
-        console.log('   Estado:', instance.instance?.state);
-        console.log('   Owner:', instance.instance?.owner);
+      if (instanceData) {
+        console.log('   Estado:', instanceData.state);
+        console.log('   Instance:', instanceData.instance);
       }
     } catch (error) {
       diagnostico.tests.push({
