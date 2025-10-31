@@ -208,6 +208,31 @@ export const useWhatsAppInstances = () => {
     }
   };
 
+  const diagnoseWebhook = async (instanceName: string) => {
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/evolution-instance/diagnose`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          },
+          body: JSON.stringify({ instanceName })
+        }
+      );
+
+      const data = await response.json();
+      if (!response.ok) throw new Error('Failed to diagnose webhook');
+      
+      return data;
+    } catch (error: any) {
+      console.error('Erro ao diagnosticar webhook:', error);
+      toast.error('Erro ao diagnosticar webhook: ' + error.message);
+      throw error;
+    }
+  };
+
   const syncInstances = async () => {
     try {
       const response = await fetch(
@@ -244,6 +269,7 @@ export const useWhatsAppInstances = () => {
     sendMessage,
     syncInstances,
     forceFixWebhook,
+    diagnoseWebhook,
     refresh: loadInstances
   };
 };
