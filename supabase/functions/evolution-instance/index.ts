@@ -384,13 +384,18 @@ async function syncInstances(req: Request, supabase: any, evolutionApiUrl: strin
           const details = await detailsResponse.json();
           const instanceDetails = Array.isArray(details) ? details[0] : details;
           
-          // Extrair webhook URL dos detalhes
+          // Log completo dos detalhes para debug
+          console.log(`[DEBUG] Full instance details for ${instanceName}:`, JSON.stringify(instanceDetails, null, 2));
+          
+          // Extrair webhook URL dos detalhes - testando várias possibilidades
           webhookUrl = instanceDetails?.Webhook?.url || 
                       instanceDetails?.webhook?.url || 
                       instanceDetails?.Webhook ||
+                      instanceDetails?.webhook ||
                       null;
           
           console.log(`Webhook found for ${instanceName}:`, webhookUrl);
+          console.log(`[DEBUG] Webhook object:`, instanceDetails?.Webhook || instanceDetails?.webhook);
         }
       } catch (error) {
         console.error(`Error fetching webhook for ${instanceName}:`, error);
