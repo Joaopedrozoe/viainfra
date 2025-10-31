@@ -6,17 +6,18 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useWhatsAppInstances } from '@/hooks/useWhatsAppInstances';
-import { Loader2, QrCode, Trash2, RefreshCw, CheckCircle2, XCircle, AlertCircle } from 'lucide-react';
+import { Loader2, QrCode, Trash2, RefreshCw, CheckCircle2, XCircle, AlertCircle, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const WhatsAppInstanceManager = () => {
-  const { instances, loading, createInstance, getInstanceQR, deleteInstance, syncInstances, refresh } = useWhatsAppInstances();
+  const { instances, loading, createInstance, getInstanceQR, deleteInstance, syncInstances, forceFixWebhook, refresh } = useWhatsAppInstances();
   const [newInstanceName, setNewInstanceName] = useState('');
   const [creating, setCreating] = useState(false);
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
   const [loadingQR, setLoadingQR] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [fixing, setFixing] = useState<string | null>(null);
 
   const handleCreateInstance = async () => {
     if (!newInstanceName.trim()) {
@@ -74,6 +75,19 @@ export const WhatsAppInstanceManager = () => {
       console.error('Sync error:', error);
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleForceFix = async (instanceName: string) => {
+    if (confirm(`Reconfigurar webhook da instância ${instanceName}?\n\nIsso irá:\n1. Deletar webhook\n2. Criar novo webhook\n3. Reiniciar instância\n\nLeva ~30 segundos.`)) {
+      setFixing(instanceName);
+      try {
+        await forceFixWebhook(instanceName);
+      } catch (error) {
+        console.error('Force fix error:', error);
+      } finally {
+        setFixing(null);
+      }
     }
   };
 
@@ -209,6 +223,19 @@ export const WhatsAppInstanceManager = () => {
                         </div>
                       </div>
                       <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleForceFix(instance.instance_name)}
+                          disabled={fixing === instance.instance_name}
+                          title="Reconfigurar webhook (força bruta)"
+                        >
+                          {fixing === instance.instance_name ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Wrench className="w-4 h-4" />
+                          )}
+                        </Button>
                         <Button
                           variant="outline"
                           size="sm"

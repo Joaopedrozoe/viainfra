@@ -181,6 +181,24 @@ export const useWhatsAppInstances = () => {
     }
   };
 
+  const forceFixWebhook = async (instanceName: string) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('evolution-instance', {
+        body: { action: 'force-fix', instanceName }
+      });
+
+      if (error) throw error;
+
+      toast.success('Webhook reconfigurado! Aguarde 30s e teste.');
+      await loadInstances();
+      return data;
+    } catch (error: any) {
+      console.error('Erro ao forçar fix do webhook:', error);
+      toast.error('Erro ao reconfigurar webhook: ' + error.message);
+      throw error;
+    }
+  };
+
   const syncInstances = async () => {
     try {
       const response = await fetch(
@@ -216,6 +234,7 @@ export const useWhatsAppInstances = () => {
     deleteInstance,
     sendMessage,
     syncInstances,
+    forceFixWebhook,
     refresh: loadInstances
   };
 };

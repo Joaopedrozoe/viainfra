@@ -56,6 +56,8 @@ serve(async (req) => {
         return await fixWebhook(req, supabase, evolutionApiUrl, evolutionApiKey);
       case 'diagnose':
         return await diagnoseWebhook(req, supabase, evolutionApiUrl, evolutionApiKey);
+      case 'force-fix':
+        return await forceFixWebhook(req, supabase, evolutionApiUrl, evolutionApiKey);
       default:
         return new Response('Invalid action', { status: 400, headers: corsHeaders });
     }
@@ -799,6 +801,187 @@ async function setWebhook(req: Request, supabase: any, evolutionApiUrl: string, 
     console.error('Error in setWebhook:', error);
     return new Response(JSON.stringify({ error: 'Failed to set webhook' }), { 
       status: 500, 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+async function forceFixWebhook(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
+  const { instanceName } = await req.json();
+  
+  if (!instanceName) {
+    return new Response('Instance name is required', { status: 400, headers: corsHeaders });
+  }
+
+  console.log(`🔧 FORCE FIX iniciado para instância: ${instanceName}`);
+  const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/evolution-webhook`;
+  
+  try {
+    const steps: any[] = [];
+
+    // Passo 1: Deletar webhook existente
+    console.log('1️⃣ Deletando webhook existente...');
+    try {
+      const deleteResponse = await fetch(`${evolutionApiUrl}/webhook/set/${instanceName}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': evolutionApiKey
+        }
+      });
+      
+      const deleteResult = await deleteResponse.json();
+      steps.push({
+        step: 'delete_webhook',
+        success: deleteResponse.ok,
+        data: deleteResult
+      });
+      console.log('✅ Webhook deletado');
+    } catch (error: any) {
+      console.log('⚠️ Erro ao deletar webhook (pode não existir):', error.message);
+      steps.push({
+        step: 'delete_webhook',
+        success: false,
+        error: error.message
+      });
+    }
+
+    // Passo 2: Aguardar 2 segundos
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Passo 3: Criar webhook com TODOS os eventos
+    console.log('2️⃣ Criando novo webhook...');
+    const webhookConfig = {
+      url: webhookUrl,
+      webhook_by_events: false,
+      webhook_base64: false,
+      events: [
+        'MESSAGES_UPSERT',
+        'MESSAGES_UPDATE',
+        'MESSAGES_DELETE',
+        'SEND_MESSAGE',
+        'CONNECTION_UPDATE',
+        'QRCODE_UPDATED',
+        'CALL',
+        'NEW_JWT_TOKEN'
+      ]
+    };
+
+    const createResponse = await fetch(`${evolutionApiUrl}/webhook/set/${instanceName}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': evolutionApiKey
+      },
+      body: JSON.stringify(webhookConfig)
+    });
+
+    const createResult = await createResponse.json();
+    steps.push({
+      step: 'create_webhook',
+      success: createResponse.ok,
+      data: createResult
+    });
+    console.log('✅ Novo webhook criado');
+
+    // Passo 4: Aguardar 2 segundos
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Passo 5: Logout da instância
+    console.log('3️⃣ Fazendo logout da instância...');
+    try {
+      const logoutResponse = await fetch(`${evolutionApiUrl}/instance/logout/${instanceName}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': evolutionApiKey
+        }
+      });
+      
+      const logoutResult = await logoutResponse.json();
+      steps.push({
+        step: 'logout',
+        success: logoutResponse.ok,
+        data: logoutResult
+      });
+      console.log('✅ Logout realizado');
+    } catch (error: any) {
+      console.log('⚠️ Erro ao fazer logout:', error.message);
+      steps.push({
+        step: 'logout',
+        success: false,
+        error: error.message
+      });
+    }
+
+    // Passo 6: Aguardar 3 segundos
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // Passo 7: Restart da instância
+    console.log('4️⃣ Reiniciando instância...');
+    try {
+      const restartResponse = await fetch(`${evolutionApiUrl}/instance/restart/${instanceName}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': evolutionApiKey
+        }
+      });
+      
+      const restartResult = await restartResponse.json();
+      steps.push({
+        step: 'restart',
+        success: restartResponse.ok,
+        data: restartResult
+      });
+      console.log('✅ Instância reiniciada');
+    } catch (error: any) {
+      console.log('⚠️ Erro ao reiniciar:', error.message);
+      steps.push({
+        step: 'restart',
+        success: false,
+        error: error.message
+      });
+    }
+
+    // Passo 8: Aguardar 5 segundos
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
+    // Passo 9: Verificar webhook final
+    console.log('5️⃣ Verificando webhook final...');
+    const verifyResponse = await fetch(`${evolutionApiUrl}/webhook/find/${instanceName}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': evolutionApiKey
+      }
+    });
+
+    const verifyResult = await verifyResponse.json();
+    steps.push({
+      step: 'verify_webhook',
+      success: verifyResponse.ok,
+      data: verifyResult
+    });
+
+    console.log('✅ FORCE FIX concluído');
+
+    return new Response(JSON.stringify({
+      success: true,
+      message: '🔧 Webhook forçadamente reconfigurado! Aguarde 30 segundos e envie uma mensagem de teste.',
+      steps
+    }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+
+  } catch (error: any) {
+    console.error('❌ Erro no force fix:', error);
+    return new Response(JSON.stringify({ 
+      success: false,
+      error: error.message 
+    }), {
+      status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
