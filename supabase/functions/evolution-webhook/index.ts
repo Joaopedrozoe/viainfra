@@ -43,10 +43,19 @@ interface EvolutionWebhook {
 }
 
 serve(async (req) => {
+  const timestamp = new Date().toISOString();
+  
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
+  
+  // Log ALL incoming requests for debugging
+  console.log(`\n🔔 [${timestamp}] Webhook triggered:`, {
+    method: req.method,
+    url: req.url,
+    headers: Object.fromEntries(req.headers.entries())
+  });
 
   console.log('Evolution webhook received:', req.method, req.url);
 
@@ -58,32 +67,42 @@ serve(async (req) => {
     );
 
     const payload = await req.json();
-    console.log('Webhook payload:', JSON.stringify(payload, null, 2));
+    console.log('📦 Payload:', JSON.stringify(payload, null, 2));
 
     // Parse webhook data
     const webhook = parseWebhookPayload(payload);
     if (!webhook) {
-      console.log('Invalid webhook payload');
+      console.error('❌ Invalid webhook payload structure');
       return new Response('Invalid payload', { status: 400, headers: corsHeaders });
     }
 
-    console.log('Processing event:', webhook.event);
+    console.log(`✅ Event: ${webhook.event} | Instance: ${webhook.instance}`);
 
     // Process based on event type
     switch (webhook.event) {
       case 'MESSAGES_UPSERT':
+        console.log('📨 Processing message...');
         await processNewMessage(supabase, webhook);
         break;
       case 'CONNECTION_UPDATE':
+        console.log('🔌 Processing connection update...');
         await processConnectionUpdate(supabase, webhook);
         break;
+      case 'SEND_MESSAGE':
+        console.log('📤 Send confirmation');
+        break;
+      case 'CALL':
+        console.log('📞 Call event (ignored)');
+        break;
       default:
-        console.log(`Unhandled event type: ${webhook.event}`);
+        console.log(`⚠️ Unknown event: ${webhook.event}`);
     }
 
+    console.log('✅ Success\n');
     return new Response('OK', { status: 200, headers: corsHeaders });
   } catch (error) {
-    console.error('Error processing webhook:', error);
+    console.error('❌ ERROR:', error);
+    console.error('Stack:', error.stack);
     return new Response('Internal server error', { 
       status: 500, 
       headers: corsHeaders 
