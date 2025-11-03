@@ -1198,9 +1198,12 @@ async function diagnoseWebhook(req: Request, supabase: any, evolutionApiUrl: str
         headers: { 'apikey': evolutionApiKey }
       });
       const stateData = await stateResponse.json();
-      const phoneNumber = stateData.instance?.wuid?.split('@')[0] || '';
       
-      console.log(`📱 Número da instância: ${phoneNumber}`);
+      // O wuid vem direto no response, não dentro de instance
+      const phoneNumber = stateData.wuid?.split('@')[0] || '';
+      
+      console.log(`📱 Dados da instância:`, stateData);
+      console.log(`📱 Número extraído: ${phoneNumber}`);
       
       if (phoneNumber) {
         // Registrar timestamp antes do envio
