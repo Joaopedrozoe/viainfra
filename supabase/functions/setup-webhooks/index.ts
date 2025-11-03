@@ -55,10 +55,13 @@ serve(async (req) => {
       
       try {
         const webhookPayload = {
-          url: webhookUrl,
-          webhook_by_events: false,
-          webhook_base64: false,
-          events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE']
+          webhook: {
+            enabled: true,
+            url: webhookUrl,
+            webhook_by_events: false,
+            webhook_base64: false,
+            events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE']
+          }
         };
 
         console.log('Webhook payload:', JSON.stringify(webhookPayload, null, 2));
