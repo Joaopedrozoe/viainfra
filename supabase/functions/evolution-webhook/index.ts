@@ -67,8 +67,10 @@ serve(async (req) => {
       return new Response('Invalid payload', { status: 400, headers: corsHeaders });
     }
 
-    // Process based on event type
-    switch (webhook.event) {
+    // Process based on event type - normalize to uppercase for comparison
+    const eventType = webhook.event.toUpperCase().replace('.', '_');
+    
+    switch (eventType) {
       case 'MESSAGES_UPSERT':
         await processNewMessage(supabase, webhook);
         break;
