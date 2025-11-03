@@ -181,58 +181,6 @@ export const useWhatsAppInstances = () => {
     }
   };
 
-  const forceFixWebhook = async (instanceName: string) => {
-    try {
-      const response = await fetch(
-        `${SUPABASE_URL}/functions/v1/evolution-instance/force-fix`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
-          },
-          body: JSON.stringify({ instanceName })
-        }
-      );
-
-      const data = await response.json();
-      if (!response.ok) throw new Error('Failed to force fix webhook');
-      
-      toast.success('Webhook reconfigurado! Aguarde 30s e teste.');
-      await loadInstances();
-      return data;
-    } catch (error: any) {
-      console.error('Erro ao forçar fix do webhook:', error);
-      toast.error('Erro ao reconfigurar webhook: ' + error.message);
-      throw error;
-    }
-  };
-
-  const diagnoseWebhook = async (instanceName: string) => {
-    try {
-      const response = await fetch(
-        `${SUPABASE_URL}/functions/v1/evolution-instance/diagnose`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
-          },
-          body: JSON.stringify({ instanceName })
-        }
-      );
-
-      const data = await response.json();
-      if (!response.ok) throw new Error('Failed to diagnose webhook');
-      
-      return data;
-    } catch (error: any) {
-      console.error('Erro ao diagnosticar webhook:', error);
-      toast.error('Erro ao diagnosticar webhook: ' + error.message);
-      throw error;
-    }
-  };
-
   const syncInstances = async () => {
     try {
       const response = await fetch(
@@ -268,8 +216,6 @@ export const useWhatsAppInstances = () => {
     deleteInstance,
     sendMessage,
     syncInstances,
-    forceFixWebhook,
-    diagnoseWebhook,
     refresh: loadInstances
   };
 };

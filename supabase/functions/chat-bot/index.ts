@@ -46,35 +46,17 @@ serve(async (req) => {
       }
     );
 
-    const { action, state, userMessage, contactInfo, companyId, conversationId, contactId } = await req.json();
+    const { action, state, userMessage, contactInfo, companyId } = await req.json();
 
-    console.log('===== CHAT-BOT RECEIVED =====');
-    console.log('Action:', action);
-    console.log('State:', JSON.stringify(state));
-    console.log('ConversationId:', conversationId);
-    console.log('ContactId:', contactId);
-    console.log('CompanyId:', companyId);
-    console.log('ContactInfo:', JSON.stringify(contactInfo));
-    console.log('=============================');
+    console.log('Chat Bot Action:', action, 'State:', state);
 
     let chatState: ChatState = state || { mode: 'menu' };
     let response = '';
     let options: string[] = [];
 
-    // Use existing conversation/contact IDs if provided (from WhatsApp webhook)
-    if (conversationId && contactId) {
-      console.log('✅ Using existing conversation:', conversationId);
-      chatState.conversationId = conversationId;
-      chatState.contactId = contactId;
-      chatState.companyId = companyId;
-    }
-    // Se o state já tem os IDs, use-os
-    else if (chatState.conversationId && chatState.contactId) {
-      console.log('✅ Using conversation from state:', chatState.conversationId);
-    }
-    // Criar ou recuperar contato e conversa apenas se não foi fornecido
-    else if (!chatState.conversationId && contactInfo) {
-      console.log('⚠️ Creating new contact and conversation for company:', companyId);
+    // Criar ou recuperar contato e conversa
+    if (!chatState.conversationId && contactInfo) {
+      console.log('Criando contato e conversa para company:', companyId);
       
       try {
         const { data: contact, error: contactError } = await supabaseClient
@@ -162,6 +144,14 @@ serve(async (req) => {
     }
     // Roteamento de conversa
     else if (chatState.mode === 'menu') {
+      response = `👋 Olá! Bem-vindo à **Viainfra**!\n\nComo posso ajudar você hoje?`;
+      options = [
+        '1️⃣ Abrir Chamado',
+        '2️⃣ Falar com Atendente',
+        '3️⃣ Consultar Chamado',
+        '4️⃣ FAQ / Dúvidas',
+      ];
+
       const input = userMessage?.trim().toLowerCase();
       
       if (input === '1' || input?.includes('abrir') || input?.includes('chamado')) {
@@ -186,20 +176,11 @@ serve(async (req) => {
       } else if (input === '4' || input?.includes('faq') || input?.includes('duvida')) {
         response = `❓ **Perguntas Frequentes**\n\n1. Como abrir um chamado?\n2. Quanto tempo demora o atendimento?\n3. Como acompanhar meu chamado?\n4. Horário de funcionamento\n\nDigite o número da pergunta ou volte ao menu principal digitando **0**.`;
         options = [];
+      } else if (!userMessage || action === 'start') {
+        // Primeira mensagem
+        response += options.join('\n');
       } else {
-        // Menu principal ou resposta inválida - sempre mostrar opções
-        if (!userMessage || action === 'start') {
-          response = `👋 Olá! Bem-vindo à **Viainfra**!\n\nComo posso ajudar você hoje?`;
-        } else {
-          response = `❌ Opção inválida. Por favor, escolha uma das opções abaixo:`;
-        }
-        
-        options = [
-          '1️⃣ Abrir Chamado',
-          '2️⃣ Falar com Atendente',
-          '3️⃣ Consultar Chamado',
-          '4️⃣ FAQ / Dúvidas',
-        ];
+        response = `Desculpe, não entendi. Escolha uma das opções acima digitando o número correspondente.`;
       }
 
     } else if (chatState.mode === 'escolhendoSetor') {
