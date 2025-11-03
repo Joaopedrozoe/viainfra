@@ -286,25 +286,37 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
 }
 
 async function saveMessage(supabase: any, conversationId: string, message: EvolutionMessage, content: string, phoneNumber: string) {
-  const { error } = await supabase
+  const messageData = {
+    conversation_id: conversationId,
+    content: content,
+    sender_type: 'user',
+    metadata: { 
+      external_id: message.key.id,
+      sender_name: message.pushName || phoneNumber
+    },
+    created_at: new Date(message.messageTimestamp * 1000).toISOString()
+  };
+  
+  console.log('Saving message with data:', JSON.stringify(messageData, null, 2));
+  
+  const { data, error } = await supabase
     .from('messages')
-    .insert({
-      conversation_id: conversationId,
-      content: content,
-      sender_type: 'user',
-      metadata: { 
-        external_id: message.key.id,
-        sender_name: message.pushName || phoneNumber
-      },
-      created_at: new Date(message.messageTimestamp * 1000).toISOString()
-    });
+    .insert(messageData)
+    .select()
+    .single();
 
   if (error) {
     console.error('Error saving message:', error);
     throw error;
   }
+  
+  if (!data) {
+    console.error('Message insert returned no data');
+    throw new Error('Failed to save message - no data returned');
+  }
 
-  console.log('Message saved successfully');
+  console.log('Message saved successfully with ID:', data.id);
+  return data;
 }
 
 async function triggerBotResponse(supabase: any, conversationId: string, messageContent: string, phoneNumber: string, instanceName: string) {
