@@ -108,14 +108,36 @@ function parseWebhookPayload(payload: any): EvolutionWebhook | null {
 
 async function processNewMessage(supabase: any, webhook: EvolutionWebhook) {
   console.log('Processing new message...');
+  console.log('Webhook data type:', typeof webhook.data);
+  console.log('Webhook data:', JSON.stringify(webhook.data, null, 2));
   
-  if (!webhook.data || !Array.isArray(webhook.data)) {
-    console.log('No message data found');
+  // Handle both array and single object formats
+  let messagesArray = [];
+  
+  if (Array.isArray(webhook.data)) {
+    messagesArray = webhook.data;
+  } else if (webhook.data && typeof webhook.data === 'object') {
+    messagesArray = [webhook.data];
+  } else {
+    console.log('No valid message data found');
     return;
   }
+  
+  console.log(`Processing ${messagesArray.length} message(s)`);
 
-  for (const messageData of webhook.data) {
-    const message = messageData.message as EvolutionMessage;
+  for (const messageData of messagesArray) {
+    console.log('Raw messageData:', JSON.stringify(messageData, null, 2));
+    
+    // The messageData IS the message structure with key, message, etc.
+    const message = messageData as EvolutionMessage;
+    
+    // Validar estrutura da mensagem
+    if (!message || !message.key || !message.key.remoteJid) {
+      console.error('Invalid message structure:', message);
+      continue;
+    }
+    
+    console.log('Message key:', JSON.stringify(message.key));
     
     // Skip messages sent by us
     if (message.key.fromMe) {

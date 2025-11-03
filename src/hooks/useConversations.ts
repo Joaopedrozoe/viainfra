@@ -177,6 +177,17 @@ export const useConversations = () => {
             fetchConversations(true); // Com debounce
           }
         )
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+          },
+          () => {
+            fetchConversations(true); // Com debounce
+          }
+        )
         .subscribe();
 
       return () => {
