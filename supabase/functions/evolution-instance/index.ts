@@ -1190,39 +1190,105 @@ async function diagnoseWebhook(req: Request, supabase: any, evolutionApiUrl: str
     await new Promise(resolve => setTimeout(resolve, 5000));
     console.log('✅ Aguardo concluído');
 
-    // 6. Verificar webhook DEPOIS do restart
-    console.log('\n🔍 6. VERIFICANDO WEBHOOK APÓS RESTART...');
+    // 6. TESTE REAL: Enviar mensagem e verificar se webhook é acionado
+    console.log('\n📨 6. TESTE REAL DE MENSAGEM (você deve receber no chat)...');
     try {
-      const webhookCheckResponse = await fetch(`${evolutionApiUrl}/webhook/find/${instanceName}`, {
+      // Pegar o número da instância
+      const stateResponse = await fetch(`${evolutionApiUrl}/instance/connectionState/${instanceName}`, {
         headers: { 'apikey': evolutionApiKey }
       });
-      const webhookCheck = await webhookCheckResponse.json();
+      const stateData = await stateResponse.json();
+      const phoneNumber = stateData.instance?.wuid?.split('@')[0] || '';
       
-      const stillEnabled = webhookCheck.enabled === true;
-      const stillHasMessages = webhookCheck.events?.includes('MESSAGES_UPSERT') || 
-                               webhookCheck.events?.includes('messages.upsert');
+      console.log(`📱 Número da instância: ${phoneNumber}`);
       
-      diagnostico.tests.push({
-        step: 6,
-        test: 'Webhook Persistiu Após Restart',
-        status: (stillEnabled && stillHasMessages) ? '✅ OK' : '❌ PERDEU CONFIG',
-        data: {
-          enabled: webhookCheck.enabled,
-          hasMessagesEvent: stillHasMessages,
-          events: webhookCheck.events,
-        },
-      });
-      
-      console.log(stillEnabled ? '✅ Webhook ainda habilitado' : '❌ Webhook DESABILITADO após restart!');
-      console.log(stillHasMessages ? '✅ MESSAGES_UPSERT mantido' : '❌ MESSAGES_UPSERT PERDIDO!');
+      if (phoneNumber) {
+        // Registrar timestamp antes do envio
+        const beforeSend = new Date().toISOString();
+        
+        // Enviar mensagem de teste
+        console.log('📤 Enviando mensagem de teste...');
+        const sendResponse = await fetch(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
+          method: 'POST',
+          headers: {
+            'apikey': evolutionApiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            number: phoneNumber,
+            text: '🧪 TESTE AUTOMÁTICO DO DIAGNÓSTICO\n\nSe você recebeu esta mensagem no WhatsApp E ela apareceu no chat aqui no sistema, significa que o webhook ESTÁ FUNCIONANDO! 🎉'
+          })
+        });
+        
+        const sendResult = await sendResponse.json();
+        
+        if (sendResponse.ok) {
+          console.log('✅ Mensagem enviada com sucesso');
+          console.log('⏳ Aguardando 5 segundos para webhook ser acionado...');
+          
+          // Aguardar 5 segundos
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          
+          // Verificar se a mensagem chegou no banco
+          const { data: messages } = await supabase
+            .from('messages')
+            .select('*')
+            .eq('metadata->>phone_number', phoneNumber)
+            .gte('created_at', beforeSend)
+            .order('created_at', { ascending: false })
+            .limit(1);
+          
+          const messageReceived = messages && messages.length > 0;
+          
+          diagnostico.tests.push({
+            step: 6,
+            test: 'Teste Real de Mensagem',
+            status: messageReceived ? '✅ WEBHOOK FUNCIONOU!' : '⚠️ MENSAGEM NÃO CHEGOU',
+            data: {
+              messageSent: true,
+              messageReceived,
+              phoneNumber,
+              instructions: messageReceived 
+                ? '✅ Sucesso! A mensagem chegou via webhook. O sistema está funcionando!' 
+                : '⚠️ A mensagem foi ENVIADA mas NÃO chegou no sistema. Isso indica que a Evolution API NÃO está disparando o webhook MESSAGES_UPSERT quando mensagens são recebidas.',
+              sendResponse: sendResult,
+              checkTimestamp: beforeSend
+            },
+          });
+          
+          if (messageReceived) {
+            console.log('✅ SUCESSO! Mensagem chegou via webhook!');
+          } else {
+            console.log('⚠️ PROBLEMA: Mensagem foi enviada mas NÃO chegou no sistema');
+            console.log('   Isso significa que a Evolution API NÃO está disparando webhooks para MESSAGES_UPSERT');
+          }
+        } else {
+          diagnostico.tests.push({
+            step: 6,
+            test: 'Teste Real de Mensagem',
+            status: '❌ ERRO AO ENVIAR',
+            data: {
+              error: 'Falha ao enviar mensagem de teste',
+              response: sendResult
+            },
+          });
+        }
+      } else {
+        diagnostico.tests.push({
+          step: 6,
+          test: 'Teste Real de Mensagem',
+          status: '⚠️ SKIP',
+          data: 'Número da instância não encontrado',
+        });
+      }
     } catch (error) {
       diagnostico.tests.push({
         step: 6,
-        test: 'Webhook Após Restart',
+        test: 'Teste Real de Mensagem',
         status: '❌ ERRO',
         error: error.message,
       });
-      console.error('❌ Erro ao verificar webhook:', error.message);
+      console.error('❌ Erro no teste:', error.message);
     }
 
     // Resumo final
