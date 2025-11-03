@@ -46,6 +46,8 @@ serve(async (req) => {
         return await listInstances(req, supabase, evolutionApiUrl, evolutionApiKey);
       case 'sync':
         return await syncInstances(req, supabase, evolutionApiUrl, evolutionApiKey);
+      case 'configure-webhook':
+        return await configureWebhook(req, supabase, evolutionApiUrl, evolutionApiKey);
       default:
         return new Response('Invalid action', { status: 400, headers: corsHeaders });
     }
@@ -346,15 +348,42 @@ async function syncInstances(req: Request, supabase: any, evolutionApiUrl: strin
     const instances = await response.json();
     console.log('Fetched instances for sync:', instances);
 
-    // Sync each instance to Supabase
+    const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/evolution-webhook`;
+
+    // Sync each instance to Supabase and configure webhook
     const syncedInstances = [];
     for (const instance of instances) {
-      // Extract instance name from the API response
       const instanceName = instance.name || instance.instanceName || instance.instance?.instanceName;
       
       if (!instanceName) {
         console.warn('Skipping instance without name:', instance);
         continue;
+      }
+
+      // Configure webhook for this instance
+      try {
+        console.log(`Configuring webhook for instance: ${instanceName}`);
+        const webhookResponse = await fetch(`${evolutionApiUrl}/webhook/set/${instanceName}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': evolutionApiKey,
+          },
+          body: JSON.stringify({
+            url: webhookUrl,
+            webhook_by_events: false,
+            webhook_base64: false,
+            events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE']
+          }),
+        });
+
+        if (webhookResponse.ok) {
+          console.log(`Webhook configured successfully for ${instanceName}`);
+        } else {
+          console.error(`Failed to configure webhook for ${instanceName}:`, await webhookResponse.text());
+        }
+      } catch (webhookError) {
+        console.error(`Error configuring webhook for ${instanceName}:`, webhookError);
       }
 
       const instanceData = {
@@ -363,6 +392,7 @@ async function syncInstances(req: Request, supabase: any, evolutionApiUrl: strin
         phone_number: instance.number || instance.instance?.owner || null,
         status: instance.connectionStatus || instance.state || 'pending',
         connection_state: instance.connectionStatus || instance.state || null,
+        webhook_url: webhookUrl,
         last_sync: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -399,6 +429,60 @@ async function syncInstances(req: Request, supabase: any, evolutionApiUrl: strin
   } catch (error) {
     console.error('Error in syncInstances:', error);
     return new Response('Failed to sync instances', { 
+      status: 500, 
+      headers: corsHeaders 
+    });
+  }
+}
+
+async function configureWebhook(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
+  try {
+    const { instanceName } = await req.json();
+    
+    if (!instanceName) {
+      return new Response('Instance name is required', { status: 400, headers: corsHeaders });
+    }
+
+    const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/evolution-webhook`;
+    
+    console.log(`Configuring webhook for instance: ${instanceName}`);
+    
+    const response = await fetch(`${evolutionApiUrl}/webhook/set/${instanceName}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': evolutionApiKey,
+      },
+      body: JSON.stringify({
+        url: webhookUrl,
+        webhook_by_events: false,
+        webhook_base64: false,
+        events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE']
+      }),
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      // Update webhook_url in database
+      await supabase
+        .from('whatsapp_instances')
+        .update({ 
+          webhook_url: webhookUrl,
+          updated_at: new Date().toISOString()
+        })
+        .eq('instance_name', instanceName);
+
+      console.log(`Webhook configured successfully for ${instanceName}`);
+    }
+
+    return new Response(JSON.stringify(data), {
+      status: response.status,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.error('Error configuring webhook:', error);
+    return new Response('Failed to configure webhook', { 
       status: 500, 
       headers: corsHeaders 
     });
