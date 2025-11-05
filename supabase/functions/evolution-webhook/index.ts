@@ -236,7 +236,7 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
     .from('contacts')
     .insert({
       name: name,
-      phone: phoneNumber,
+      phone: phoneNumber || null, // Use null if phoneNumber is empty (for @lid channels)
       email: null,
       company_id: companyId,
       metadata: { remoteJid: remoteJid },
@@ -663,10 +663,14 @@ async function sendEvolutionMessage(instanceName: string, remoteJid: string, tex
 }
 
 function extractPhoneNumber(remoteJid: string): string {
+  // For @lid (Instagram/Facebook channels), return empty string as it's not a phone number
+  if (remoteJid.includes('@lid')) {
+    return '';
+  }
+  
   return remoteJid
     .replace('@s.whatsapp.net', '')
-    .replace('@c.us', '')
-    .replace('@lid', '');
+    .replace('@c.us', '');
 }
 
 function extractMessageContent(message: EvolutionMessage): string {
