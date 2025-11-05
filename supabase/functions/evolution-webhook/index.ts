@@ -245,6 +245,18 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
 
   // PRIORITY 2: For @lid channels without phone, try to find by name AND check if they have a phone
   if (remoteJid.includes('@lid') && !phoneNumber) {
+    console.log(`Searching for existing contact by name: "${name}" in company: ${companyId}`);
+    
+    // First, let's see all contacts with this name
+    const { data: allByName } = await supabase
+      .from('contacts')
+      .select('*')
+      .eq('company_id', companyId)
+      .ilike('name', name);
+    
+    console.log(`Found ${allByName?.length || 0} contacts with name "${name}":`, JSON.stringify(allByName || []));
+    
+    // Now filter for ones with phone
     const { data: existingByName } = await supabase
       .from('contacts')
       .select('*')
@@ -256,7 +268,7 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
       .maybeSingle();
 
     if (existingByName) {
-      console.log(`Found existing contact by name with phone: ${existingByName.id}, using phone: ${existingByName.phone}`);
+      console.log(`✅ Found existing contact by name with phone: ${existingByName.id}, phone: ${existingByName.phone}`);
       // Update metadata with @lid remoteJid
       await supabase
         .from('contacts')
@@ -266,6 +278,8 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
         })
         .eq('id', existingByName.id);
       return existingByName;
+    } else {
+      console.log(`❌ No existing contact found with name "${name}" that has a phone number`);
     }
   }
 
