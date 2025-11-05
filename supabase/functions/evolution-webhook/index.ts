@@ -638,7 +638,10 @@ async function sendEvolutionMessage(instanceName: string, phoneNumber: string, t
 }
 
 function extractPhoneNumber(remoteJid: string): string {
-  return remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '');
+  return remoteJid
+    .replace('@s.whatsapp.net', '')
+    .replace('@c.us', '')
+    .replace('@lid', '');
 }
 
 function extractMessageContent(message: EvolutionMessage): string {
