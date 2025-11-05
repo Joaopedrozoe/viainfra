@@ -324,39 +324,285 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
 async function triggerBotResponse(supabase: any, conversationId: string, messageContent: string, phoneNumber: string, instanceName: string) {
   console.log('Triggering bot response...');
   
-  // Get active agents for WhatsApp
-  const { data: agents, error: agentsError } = await supabase
-    .from('agents')
+  // Buscar bot ativo com canal WhatsApp
+  const { data: bots, error: botsError } = await supabase
+    .from('bots')
     .select('*')
-    .contains('channels', ['WhatsApp'])
-    .eq('status', 'active');
+    .contains('channels', ['whatsapp'])
+    .eq('status', 'published')
+    .limit(1);
 
-  if (agentsError || !agents || agents.length === 0) {
-    console.log('No active WhatsApp agents found');
+  if (botsError) {
+    console.error('Error fetching bots:', botsError);
     return;
   }
 
-  // Use the first active agent for now
-  const agent = agents[0];
-  console.log('Using agent:', agent.name);
+  if (!bots || bots.length === 0) {
+    console.log('No active WhatsApp bots found');
+    return;
+  }
 
-  // Simple bot logic - respond with agent's welcome message or default
-  const botResponse = agent.description || 'Olá! Como posso ajudá-lo hoje?';
+  const bot = bots[0];
+  console.log('Using bot:', bot.name);
 
-  // Save bot response to database
+  // Buscar estado da conversa
+  const { data: conversation } = await supabase
+    .from('conversations')
+    .select('metadata')
+    .eq('id', conversationId)
+    .single();
+
+  const conversationState = conversation?.metadata?.bot_state || {
+    currentNodeId: 'start-1',
+    collectedData: {},
+  };
+
+  // Importar e processar o fluxo do bot
+  const { BotFlowProcessor } = await import('./bot-flow-processor.ts');
+  const processor = new BotFlowProcessor(bot.flows, conversationState);
+
+  const result = await processor.processUserInput(messageContent);
+
+  // Atualizar estado da conversa
+  await supabase
+    .from('conversations')
+    .update({
+      metadata: {
+        ...conversation?.metadata,
+        bot_state: result.newState,
+        bot_triggered: true,
+      },
+      status: result.shouldTransferToAgent ? 'pending' : 'open',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', conversationId);
+
+  // Processar chamada de API se necessário
+  if (result.shouldCallApi) {
+    if (result.shouldCallApi.action === 'fetch-placas') {
+      await handleFetchPlacas(supabase, conversationId, phoneNumber, instanceName, bot.flows, result.newState);
+      return;
+    }
+    
+    if (result.shouldCallApi.action === 'create-chamado') {
+      await handleCreateChamado(supabase, conversationId, phoneNumber, instanceName, result.newState);
+      return;
+    }
+  }
+
+  // Salvar resposta do bot no banco
   await supabase
     .from('messages')
     .insert({
       conversation_id: conversationId,
-      content: botResponse,
+      content: result.response,
       sender_type: 'bot',
-      sender_name: agent.name,
-      message_type: 'text',
-      created_at: new Date().toISOString()
+      metadata: { bot_id: bot.id, bot_name: bot.name },
+      created_at: new Date().toISOString(),
     });
 
-  // Send response via Evolution API
-  await sendEvolutionMessage(instanceName, phoneNumber, botResponse);
+  // Enviar resposta via Evolution API
+  await sendEvolutionMessage(instanceName, phoneNumber, result.response);
+}
+
+async function handleFetchPlacas(supabase: any, conversationId: string, phoneNumber: string, instanceName: string, botFlow: any, currentState: any) {
+  console.log('Fetching placas from Google Sheets...');
+  
+  try {
+    // Buscar dados da Google Sheets API
+    const googleSheetsApiUrl = Deno.env.get('GOOGLE_SHEETS_API_URL');
+    
+    if (!googleSheetsApiUrl) {
+      console.log('Google Sheets API URL not configured');
+      // Usar placas de exemplo para demonstração
+      const placasExemplo = ['ABC-1234', 'DEF-5678', 'GHI-9012', 'JKL-3456'];
+      await sendPlacasMenu(supabase, conversationId, phoneNumber, instanceName, placasExemplo, botFlow, currentState);
+      return;
+    }
+
+    const response = await fetch(googleSheetsApiUrl);
+    const data = await response.json();
+    
+    // Extrair placas dos dados (ajustar conforme estrutura da API)
+    const placas = data.placas || data.values?.map((row: any[]) => row[0]) || [];
+    
+    await sendPlacasMenu(supabase, conversationId, phoneNumber, instanceName, placas, botFlow, currentState);
+  } catch (error) {
+    console.error('Error fetching placas:', error);
+    
+    // Enviar mensagem de erro
+    const errorMessage = '❌ Erro ao buscar placas. Digite 0 para voltar ao menu.';
+    
+    await supabase
+      .from('messages')
+      .insert({
+        conversation_id: conversationId,
+        content: errorMessage,
+        sender_type: 'bot',
+        created_at: new Date().toISOString(),
+      });
+    
+    await sendEvolutionMessage(instanceName, phoneNumber, errorMessage);
+  }
+}
+
+async function sendPlacasMenu(supabase: any, conversationId: string, phoneNumber: string, instanceName: string, placas: string[], botFlow: any, currentState: any) {
+  // Formatar placas para WhatsApp (máximo 10 opções)
+  const placasLimitadas = placas.slice(0, 10);
+  const placasFormatadas = placasLimitadas.map((placa, idx) => `${idx + 1}. ${placa}`).join('\n');
+  
+  const message = `📋 Selecione uma placa:\n\n${placasFormatadas}\n\nDigite o número da placa desejada ou 0 para voltar ao menu.`;
+  
+  // Atualizar estado com as placas disponíveis
+  const newState = {
+    ...currentState,
+    currentNodeId: 'chamado-placa',
+    collectedData: {
+      ...currentState.collectedData,
+      placas_disponiveis: placasLimitadas,
+    },
+  };
+  
+  await supabase
+    .from('conversations')
+    .update({
+      metadata: {
+        bot_state: newState,
+        bot_triggered: true,
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', conversationId);
+  
+  await supabase
+    .from('messages')
+    .insert({
+      conversation_id: conversationId,
+      content: message,
+      sender_type: 'bot',
+      created_at: new Date().toISOString(),
+    });
+  
+  await sendEvolutionMessage(instanceName, phoneNumber, message);
+}
+
+async function handleCreateChamado(supabase: any, conversationId: string, phoneNumber: string, instanceName: string, conversationState: any) {
+  console.log('Creating chamado...');
+  
+  const collectedData = conversationState.collectedData;
+  
+  try {
+    // Extrair dados coletados
+    const placaSelecionada = collectedData['chamado-placa'] || collectedData.placas_disponiveis?.[0];
+    const corretiva = collectedData['chamado-corretiva'] === 'Sim';
+    const local = collectedData['chamado-local'];
+    const agendamento = collectedData['chamado-agendamento'];
+    const descricao = collectedData['chamado-descricao'];
+    
+    // Buscar company_id da conversa
+    const { data: conversation } = await supabase
+      .from('conversations')
+      .select('company_id, contact_id')
+      .eq('id', conversationId)
+      .single();
+    
+    // Gerar número do chamado
+    const numeroChamado = `CH-${Date.now().toString().slice(-8)}`;
+    
+    // Criar chamado no Supabase
+    const { data: chamado, error: chamadoError } = await supabase
+      .from('chamados')
+      .insert({
+        company_id: conversation?.company_id,
+        conversation_id: conversationId,
+        numero_chamado: numeroChamado,
+        placa: placaSelecionada,
+        local: local,
+        descricao: descricao,
+        corretiva: corretiva,
+        agendamento: agendamento ? new Date(agendamento).toISOString() : null,
+        status: 'aberto',
+        metadata: {
+          origem: 'whatsapp',
+          telefone: phoneNumber,
+        },
+        created_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+    
+    if (chamadoError) {
+      throw chamadoError;
+    }
+    
+    // Tentar enviar para Google Sheets se configurado
+    const googleSheetsApiUrl = Deno.env.get('GOOGLE_SHEETS_API_URL');
+    if (googleSheetsApiUrl) {
+      try {
+        await fetch(googleSheetsApiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            numero_chamado: numeroChamado,
+            placa: placaSelecionada,
+            local: local,
+            descricao: descricao,
+            corretiva: corretiva ? 'Sim' : 'Não',
+            agendamento: agendamento,
+            telefone: phoneNumber,
+          }),
+        });
+      } catch (sheetError) {
+        console.error('Error sending to Google Sheets:', sheetError);
+        // Continuar mesmo se falhar no Google Sheets
+      }
+    }
+    
+    // Mensagem de sucesso
+    const successMessage = `✅ Chamado criado com sucesso!\n\n📋 Número: ${numeroChamado}\n🚗 Placa: ${placaSelecionada}\n📍 Local: ${local}\n${corretiva ? '🔧 Tipo: Corretiva\n' : ''}${agendamento ? `📅 Agendamento: ${agendamento}\n` : ''}\n\nDigite 0 para voltar ao menu principal.`;
+    
+    // Resetar estado para o nó de sucesso
+    await supabase
+      .from('conversations')
+      .update({
+        metadata: {
+          bot_state: {
+            currentNodeId: 'chamado-sucesso',
+            collectedData: {},
+          },
+          bot_triggered: true,
+        },
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', conversationId);
+    
+    await supabase
+      .from('messages')
+      .insert({
+        conversation_id: conversationId,
+        content: successMessage,
+        sender_type: 'bot',
+        created_at: new Date().toISOString(),
+      });
+    
+    await sendEvolutionMessage(instanceName, phoneNumber, successMessage);
+    
+  } catch (error) {
+    console.error('Error creating chamado:', error);
+    
+    const errorMessage = '❌ Erro ao criar chamado. Por favor, tente novamente.\n\nDigite 0 para voltar ao menu.';
+    
+    await supabase
+      .from('messages')
+      .insert({
+        conversation_id: conversationId,
+        content: errorMessage,
+        sender_type: 'bot',
+        created_at: new Date().toISOString(),
+      });
+    
+    await sendEvolutionMessage(instanceName, phoneNumber, errorMessage);
+  }
 }
 
 async function sendEvolutionMessage(instanceName: string, phoneNumber: string, text: string) {
