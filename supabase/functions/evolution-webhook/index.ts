@@ -171,8 +171,18 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook) {
     // Save message
     await saveMessage(supabase, conversation.id, message, messageContent, phoneNumber);
 
-    // Trigger bot response if needed
-    await triggerBotResponse(supabase, conversation.id, messageContent, remoteJid, webhook.instance);
+    // Only trigger bot for WhatsApp channels (@s.whatsapp.net)
+    // Instagram/Facebook (@lid) channels need manual handling
+    if (remoteJid.includes('@s.whatsapp.net')) {
+      await triggerBotResponse(supabase, conversation.id, messageContent, remoteJid, webhook.instance);
+    } else {
+      console.log(`Skipping bot trigger for non-WhatsApp channel: ${remoteJid}`);
+      // Mark conversation as pending for manual handling
+      await supabase
+        .from('conversations')
+        .update({ status: 'pending' })
+        .eq('id', conversation.id);
+    }
   }
 }
 
