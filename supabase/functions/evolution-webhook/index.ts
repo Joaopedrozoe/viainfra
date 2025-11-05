@@ -179,9 +179,10 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook) {
 
     // Trigger bot response if we have a valid phone number
     if (contactPhone) {
+      console.log(`✅ Triggering bot for contact ${contact.id} (${contactName}). Phone: ${contactPhone}, Send to: ${sendToRemoteJid}`);
       await triggerBotResponse(supabase, conversation.id, messageContent, sendToRemoteJid, webhook.instance);
     } else {
-      console.log(`Skipping bot trigger - no phone number available for contact: ${contact.id}`);
+      console.log(`⚠️ Skipping bot trigger - no phone number available for contact: ${contact.id}. Please add phone manually in the contacts interface.`);
       // Mark conversation as pending for manual handling
       await supabase
         .from('conversations')
