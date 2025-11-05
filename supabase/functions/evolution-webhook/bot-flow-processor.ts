@@ -89,8 +89,29 @@ export class BotFlowProcessor {
 
     switch (node.type) {
       case 'start':
+        // Após a mensagem de start, avançar automaticamente para o menu
+        const startMessage = node.data.message || 'Olá! Bem-vindo!';
+        const nextAfterStart = this.getNextNode(node.id);
+        
+        if (nextAfterStart && nextAfterStart.type === 'question') {
+          // Combinar mensagem de boas-vindas com as opções do menu
+          let menuText = nextAfterStart.data.question || '';
+          if (nextAfterStart.data.options) {
+            menuText += '\n\n' + nextAfterStart.data.options.map((opt, idx) => `${idx + 1}. ${opt}`).join('\n');
+            menuText += '\n\nDigite o número da opção desejada:';
+          }
+          
+          this.conversationState.currentNodeId = nextAfterStart.id;
+          
+          return {
+            response: `${startMessage}\n\n${menuText}`,
+            newState: this.conversationState,
+            shouldTransferToAgent: false,
+          };
+        }
+        
         return {
-          response: node.data.message || 'Olá! Bem-vindo!',
+          response: startMessage,
           newState: this.conversationState,
           shouldTransferToAgent: false,
         };
@@ -110,6 +131,7 @@ export class BotFlowProcessor {
         let questionText = node.data.question || '';
         if (node.data.options) {
           questionText += '\n\n' + node.data.options.map((opt, idx) => `${idx + 1}. ${opt}`).join('\n');
+          questionText += '\n\nDigite o número da opção desejada:';
         }
         return {
           response: questionText,
