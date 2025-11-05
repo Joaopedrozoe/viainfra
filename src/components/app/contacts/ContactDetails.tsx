@@ -18,12 +18,28 @@ import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { ChannelIcon } from "@/components/app/conversation/ChannelIcon";
 import { NotesList } from "@/components/app/contact/NotesList";
+import { useState } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface ContactDetailsProps {
   contact: Contact;
+  onUpdate?: () => void;
 }
 
-export const ContactDetails = ({ contact }: ContactDetailsProps) => {
+export const ContactDetails = ({ contact, onUpdate }: ContactDetailsProps) => {
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: contact.name,
+    phone: contact.phone || "",
+    email: contact.email || "",
+    company: contact.company || "",
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const lastInteraction = contact.lastInteraction 
     ? formatDistanceToNow(new Date(contact.lastInteraction), { 
         addSuffix: true, 
@@ -39,6 +55,36 @@ export const ContactDetails = ({ contact }: ContactDetailsProps) => {
   const pendingTasks = contact.notes.reduce((count, note) => 
     count + note.tasks.filter(task => !task.completed).length, 0
   );
+
+  const handleEditSubmit = async () => {
+    setIsSubmitting(true);
+    try {
+      const { error } = await supabase
+        .from("contacts")
+        .update({
+          name: editForm.name,
+          phone: editForm.phone || null,
+          email: editForm.email || null,
+          metadata: {
+            ...contact.metadata,
+            company: editForm.company || null,
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", contact.id);
+
+      if (error) throw error;
+
+      toast.success("Contato atualizado com sucesso!");
+      setIsEditDialogOpen(false);
+      onUpdate?.();
+    } catch (error) {
+      console.error("Erro ao atualizar contato:", error);
+      toast.error("Erro ao atualizar contato");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="flex-1 flex flex-col bg-background">
@@ -89,7 +135,19 @@ export const ContactDetails = ({ contact }: ContactDetailsProps) => {
             </div>
           </div>
           
-          <Button variant="outline" size="sm">
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => {
+              setEditForm({
+                name: contact.name,
+                phone: contact.phone || "",
+                email: contact.email || "",
+                company: contact.company || "",
+              });
+              setIsEditDialogOpen(true);
+            }}
+          >
             <Edit className="h-4 w-4 mr-2" />
             Editar
           </Button>
@@ -212,6 +270,62 @@ export const ContactDetails = ({ contact }: ContactDetailsProps) => {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Edit Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar Contato</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-name">Nome</Label>
+              <Input
+                id="edit-name"
+                value={editForm.name}
+                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                placeholder="Nome do contato"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-phone">Telefone</Label>
+              <Input
+                id="edit-phone"
+                value={editForm.phone}
+                onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                placeholder="+55 11 98888-8888"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-email">E-mail</Label>
+              <Input
+                id="edit-email"
+                type="email"
+                value={editForm.email}
+                onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                placeholder="email@exemplo.com"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-company">Empresa</Label>
+              <Input
+                id="edit-company"
+                value={editForm.company}
+                onChange={(e) => setEditForm({ ...editForm, company: e.target.value })}
+                placeholder="Nome da empresa"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleEditSubmit} disabled={isSubmitting}>
+              {isSubmitting ? "Salvando..." : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

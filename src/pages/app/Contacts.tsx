@@ -24,74 +24,75 @@ const Contacts = () => {
   const [showMessageModal, setShowMessageModal] = useState(false);
 
   // Load contacts from Supabase
-  useEffect(() => {
-    const loadContacts = async () => {
-      setIsLoading(true);
-      try {
-        const { supabase } = await import("@/integrations/supabase/client");
-        
-        const { data: { user } } = await supabase.auth.getUser();
-        
-        if (!user) {
-          setContacts([]);
-          setIsLoading(false);
-          return;
-        }
+  const fetchContacts = async () => {
+    setIsLoading(true);
+    try {
+      const { supabase } = await import("@/integrations/supabase/client");
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        setContacts([]);
+        setIsLoading(false);
+        return;
+      }
 
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('company_id')
-          .eq('user_id', user.id)
-          .single();
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('user_id', user.id)
+        .single();
 
-        if (!profile?.company_id) {
-          setContacts([]);
-          setIsLoading(false);
-          return;
-        }
+      if (!profile?.company_id) {
+        setContacts([]);
+        setIsLoading(false);
+        return;
+      }
 
-        const { data: contactsData, error } = await supabase
-          .from('contacts')
-          .select('*')
-          .eq('company_id', profile.company_id)
-          .order('created_at', { ascending: false });
+      const { data: contactsData, error } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('company_id', profile.company_id)
+        .order('created_at', { ascending: false });
 
-        if (error) {
-          console.error('Error loading contacts:', error);
-          setContacts([]);
-        } else {
-          // Mapear para o formato esperado
-          const mappedContacts = (contactsData || []).map(c => {
-            const metadata = typeof c.metadata === 'object' && c.metadata !== null ? c.metadata as any : {};
-            const tags = Array.isArray(c.tags) ? c.tags.filter((t): t is string => typeof t === 'string') : [];
-            
-            return {
-              id: c.id,
-              name: c.name,
-              email: c.email || undefined,
-              phone: c.phone || undefined,
-              company: metadata.company || undefined,
-              tags,
-              channel: metadata.channel || undefined,
-              lastInteraction: c.updated_at,
-              status: "active" as const,
-              source: metadata.source === 'manual' ? "manual" as const : "conversation" as const,
-              createdAt: c.created_at,
-              updatedAt: c.updated_at,
-              notes: []
-            };
-          });
-          setContacts(mappedContacts);
-        }
-      } catch (error) {
+      if (error) {
         console.error('Error loading contacts:', error);
         setContacts([]);
-      } finally {
-        setIsLoading(false);
+      } else {
+        // Mapear para o formato esperado
+        const mappedContacts = (contactsData || []).map(c => {
+          const metadata = typeof c.metadata === 'object' && c.metadata !== null ? c.metadata as any : {};
+          const tags = Array.isArray(c.tags) ? c.tags.filter((t): t is string => typeof t === 'string') : [];
+          
+          return {
+            id: c.id,
+            name: c.name,
+            email: c.email || undefined,
+            phone: c.phone || undefined,
+            company: metadata.company || undefined,
+            tags,
+            channel: metadata.channel || undefined,
+            lastInteraction: c.updated_at,
+            status: "active" as const,
+            source: metadata.source === 'manual' ? "manual" as const : "conversation" as const,
+            createdAt: c.created_at,
+            updatedAt: c.updated_at,
+            notes: [],
+            metadata
+          };
+        });
+        setContacts(mappedContacts);
       }
-    };
+    } catch (error) {
+      console.error('Error loading contacts:', error);
+      setContacts([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    loadContacts();
+  useEffect(() => {
+    fetchContacts();
   }, [isDemoMode]);
 
   const filteredContacts = useMemo(() => {
@@ -360,7 +361,14 @@ const Contacts = () => {
       {selectedContact && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setSelectedContact(null)}>
           <div className="bg-background rounded-lg shadow-lg max-w-2xl w-full m-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <ContactDetails contact={selectedContact} />
+            <ContactDetails 
+              contact={selectedContact}
+              onUpdate={() => {
+                fetchContacts();
+                const updated = contacts.find(c => c.id === selectedContact.id);
+                if (updated) setSelectedContact(updated);
+              }}
+            />
           </div>
         </div>
       )}

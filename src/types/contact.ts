@@ -26,6 +26,7 @@ export interface Contact {
   createdAt: string;
   updatedAt: string;
   notes: Note[];
+  metadata?: any;
 }
 
 export interface ContactGroup {
