@@ -155,10 +155,12 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook) {
 
     const phoneNumber = extractPhoneNumber(message.key.remoteJid);
     const messageContent = extractMessageContent(message);
-    const contactName = message.pushName || phoneNumber;
+    const contactName = message.pushName || phoneNumber || 'Sem Nome';
     const remoteJid = message.key.remoteJid; // Salvar o remoteJid completo
 
-    console.log(`Processing message from ${phoneNumber} (remoteJid: ${remoteJid}): ${messageContent}`);
+    console.log(`Processing message from ${phoneNumber || 'NO_PHONE'} (remoteJid: ${remoteJid}): ${messageContent}`);
+    console.log(`Extracted phoneNumber: "${phoneNumber}" - IsEmpty: ${!phoneNumber}`);
+
 
     // Get or create contact
     const contact = await getOrCreateContact(supabase, phoneNumber, contactName, remoteJid);
