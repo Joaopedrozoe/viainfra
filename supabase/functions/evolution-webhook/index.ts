@@ -156,20 +156,21 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook) {
     const phoneNumber = extractPhoneNumber(message.key.remoteJid);
     const messageContent = extractMessageContent(message);
     const contactName = message.pushName || phoneNumber;
+    const remoteJid = message.key.remoteJid; // Salvar o remoteJid completo
 
-    console.log(`Processing message from ${phoneNumber}: ${messageContent}`);
+    console.log(`Processing message from ${phoneNumber} (remoteJid: ${remoteJid}): ${messageContent}`);
 
     // Get or create contact
-    const contact = await getOrCreateContact(supabase, phoneNumber, contactName);
+    const contact = await getOrCreateContact(supabase, phoneNumber, contactName, remoteJid);
     
     // Get or create conversation
-    const conversation = await getOrCreateConversation(supabase, contact.id, phoneNumber, contactName);
+    const conversation = await getOrCreateConversation(supabase, contact.id, phoneNumber, contactName, remoteJid);
     
     // Save message
     await saveMessage(supabase, conversation.id, message, messageContent, phoneNumber);
 
     // Trigger bot response if needed
-    await triggerBotResponse(supabase, conversation.id, messageContent, phoneNumber, webhook.instance);
+    await triggerBotResponse(supabase, conversation.id, messageContent, remoteJid, webhook.instance);
   }
 }
 
@@ -190,16 +191,35 @@ async function processConnectionUpdate(supabase: any, webhook: EvolutionWebhook)
   }
 }
 
-async function getOrCreateContact(supabase: any, phoneNumber: string, name: string) {
-  // First, try to find existing contact by phone
-  const { data: existingContact, error: selectError } = await supabase
+async function getOrCreateContact(supabase: any, phoneNumber: string, name: string, remoteJid: string) {
+  // First, try to find existing contact by remoteJid in metadata
+  const { data: existingContacts } = await supabase
+    .from('contacts')
+    .select('*')
+    .contains('metadata', { remoteJid: remoteJid });
+
+  if (existingContacts && existingContacts.length > 0) {
+    console.log('Found existing contact by remoteJid:', existingContacts[0].id);
+    return existingContacts[0];
+  }
+
+  // Try to find by phone number
+  const { data: existingContact } = await supabase
     .from('contacts')
     .select('*')
     .eq('phone', phoneNumber)
     .maybeSingle();
 
   if (existingContact) {
-    console.log('Found existing contact:', existingContact.id);
+    console.log('Found existing contact by phone:', existingContact.id);
+    // Update metadata with remoteJid
+    await supabase
+      .from('contacts')
+      .update({ 
+        metadata: { ...existingContact.metadata, remoteJid: remoteJid },
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', existingContact.id);
     return existingContact;
   }
 
@@ -219,6 +239,7 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
       phone: phoneNumber,
       email: null,
       company_id: companyId,
+      metadata: { remoteJid: remoteJid },
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     })
@@ -234,7 +255,7 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
   return newContact;
 }
 
-async function getOrCreateConversation(supabase: any, contactId: string, phoneNumber: string, contactName: string) {
+async function getOrCreateConversation(supabase: any, contactId: string, phoneNumber: string, contactName: string, remoteJid: string) {
   // Get contact to find company_id
   const { data: contact } = await supabase
     .from('contacts')
@@ -271,7 +292,7 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
       channel: 'whatsapp',
       status: 'open',
       company_id: contact?.company_id,
-      metadata: {},
+      metadata: { remoteJid: remoteJid },
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     })
@@ -321,7 +342,7 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
   return data;
 }
 
-async function triggerBotResponse(supabase: any, conversationId: string, messageContent: string, phoneNumber: string, instanceName: string) {
+async function triggerBotResponse(supabase: any, conversationId: string, messageContent: string, remoteJid: string, instanceName: string) {
   console.log('Triggering bot response...');
   
   // Buscar bot ativo com canal WhatsApp
@@ -380,12 +401,12 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
   // Processar chamada de API se necessário
   if (result.shouldCallApi) {
     if (result.shouldCallApi.action === 'fetch-placas') {
-      await handleFetchPlacas(supabase, conversationId, phoneNumber, instanceName, bot.flows, result.newState);
+      await handleFetchPlacas(supabase, conversationId, remoteJid, instanceName, bot.flows, result.newState);
       return;
     }
     
     if (result.shouldCallApi.action === 'create-chamado') {
-      await handleCreateChamado(supabase, conversationId, phoneNumber, instanceName, result.newState);
+      await handleCreateChamado(supabase, conversationId, remoteJid, instanceName, result.newState);
       return;
     }
   }
@@ -401,11 +422,11 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
       created_at: new Date().toISOString(),
     });
 
-  // Enviar resposta via Evolution API
-  await sendEvolutionMessage(instanceName, phoneNumber, result.response);
+  // Enviar resposta via Evolution API usando o remoteJid completo
+  await sendEvolutionMessage(instanceName, remoteJid, result.response);
 }
 
-async function handleFetchPlacas(supabase: any, conversationId: string, phoneNumber: string, instanceName: string, botFlow: any, currentState: any) {
+async function handleFetchPlacas(supabase: any, conversationId: string, remoteJid: string, instanceName: string, botFlow: any, currentState: any) {
   console.log('Fetching placas from Google Sheets...');
   
   try {
@@ -416,7 +437,7 @@ async function handleFetchPlacas(supabase: any, conversationId: string, phoneNum
       console.log('Google Sheets API URL not configured');
       // Usar placas de exemplo para demonstração
       const placasExemplo = ['ABC-1234', 'DEF-5678', 'GHI-9012', 'JKL-3456'];
-      await sendPlacasMenu(supabase, conversationId, phoneNumber, instanceName, placasExemplo, botFlow, currentState);
+      await sendPlacasMenu(supabase, conversationId, remoteJid, instanceName, placasExemplo, botFlow, currentState);
       return;
     }
 
@@ -426,7 +447,7 @@ async function handleFetchPlacas(supabase: any, conversationId: string, phoneNum
     // Extrair placas dos dados (ajustar conforme estrutura da API)
     const placas = data.placas || data.values?.map((row: any[]) => row[0]) || [];
     
-    await sendPlacasMenu(supabase, conversationId, phoneNumber, instanceName, placas, botFlow, currentState);
+    await sendPlacasMenu(supabase, conversationId, remoteJid, instanceName, placas, botFlow, currentState);
   } catch (error) {
     console.error('Error fetching placas:', error);
     
@@ -442,11 +463,11 @@ async function handleFetchPlacas(supabase: any, conversationId: string, phoneNum
         created_at: new Date().toISOString(),
       });
     
-    await sendEvolutionMessage(instanceName, phoneNumber, errorMessage);
+    await sendEvolutionMessage(instanceName, remoteJid, errorMessage);
   }
 }
 
-async function sendPlacasMenu(supabase: any, conversationId: string, phoneNumber: string, instanceName: string, placas: string[], botFlow: any, currentState: any) {
+async function sendPlacasMenu(supabase: any, conversationId: string, remoteJid: string, instanceName: string, placas: string[], botFlow: any, currentState: any) {
   // Formatar placas para WhatsApp (máximo 10 opções)
   const placasLimitadas = placas.slice(0, 10);
   const placasFormatadas = placasLimitadas.map((placa, idx) => `${idx + 1}. ${placa}`).join('\n');
@@ -483,10 +504,10 @@ async function sendPlacasMenu(supabase: any, conversationId: string, phoneNumber
       created_at: new Date().toISOString(),
     });
   
-  await sendEvolutionMessage(instanceName, phoneNumber, message);
+  await sendEvolutionMessage(instanceName, remoteJid, message);
 }
 
-async function handleCreateChamado(supabase: any, conversationId: string, phoneNumber: string, instanceName: string, conversationState: any) {
+async function handleCreateChamado(supabase: any, conversationId: string, remoteJid: string, instanceName: string, conversationState: any) {
   console.log('Creating chamado...');
   
   const collectedData = conversationState.collectedData;
@@ -499,12 +520,14 @@ async function handleCreateChamado(supabase: any, conversationId: string, phoneN
     const agendamento = collectedData['chamado-agendamento'];
     const descricao = collectedData['chamado-descricao'];
     
-    // Buscar company_id da conversa
+    // Buscar company_id da conversa e remoteJid
     const { data: conversation } = await supabase
       .from('conversations')
-      .select('company_id, contact_id')
+      .select('company_id, contact_id, metadata')
       .eq('id', conversationId)
       .single();
+    
+    const phoneNumber = extractPhoneNumber(remoteJid);
     
     // Gerar número do chamado
     const numeroChamado = `CH-${Date.now().toString().slice(-8)}`;
@@ -585,7 +608,7 @@ async function handleCreateChamado(supabase: any, conversationId: string, phoneN
         created_at: new Date().toISOString(),
       });
     
-    await sendEvolutionMessage(instanceName, phoneNumber, successMessage);
+    await sendEvolutionMessage(instanceName, remoteJid, successMessage);
     
   } catch (error) {
     console.error('Error creating chamado:', error);
@@ -601,11 +624,11 @@ async function handleCreateChamado(supabase: any, conversationId: string, phoneN
         created_at: new Date().toISOString(),
       });
     
-    await sendEvolutionMessage(instanceName, phoneNumber, errorMessage);
+    await sendEvolutionMessage(instanceName, remoteJid, errorMessage);
   }
 }
 
-async function sendEvolutionMessage(instanceName: string, phoneNumber: string, text: string) {
+async function sendEvolutionMessage(instanceName: string, remoteJid: string, text: string) {
   const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL');
   const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
 
@@ -614,7 +637,7 @@ async function sendEvolutionMessage(instanceName: string, phoneNumber: string, t
     return;
   }
 
-  console.log(`Sending message to ${phoneNumber} via instance ${instanceName}`);
+  console.log(`Sending message to remoteJid: ${remoteJid} via instance ${instanceName}`);
 
   try {
     const response = await fetch(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
@@ -624,7 +647,7 @@ async function sendEvolutionMessage(instanceName: string, phoneNumber: string, t
         'apikey': evolutionApiKey,
       },
       body: JSON.stringify({
-        number: phoneNumber,
+        number: remoteJid,
         text: text,
       }),
     });
