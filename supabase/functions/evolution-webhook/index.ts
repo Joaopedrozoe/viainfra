@@ -614,6 +614,8 @@ async function sendEvolutionMessage(instanceName: string, phoneNumber: string, t
     return;
   }
 
+  console.log(`Sending message to ${phoneNumber} via instance ${instanceName}`);
+
   try {
     const response = await fetch(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
       method: 'POST',
