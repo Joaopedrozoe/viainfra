@@ -243,11 +243,11 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
     }
   }
 
-  // PRIORITY 2: For @lid channels without phone, try to find by name AND check if they have a phone
+  // PRIORITY 2: For @lid channels without phone, try multiple strategies to find existing contact
   if (remoteJid.includes('@lid') && !phoneNumber) {
-    console.log(`Searching for existing contact by name: "${name}" in company: ${companyId}`);
+    console.log(`Searching for existing contact for @lid channel. Name: "${name}", Company: ${companyId}`);
     
-    // First, let's see all contacts with this name
+    // Strategy 1: Try to find by exact name match
     const { data: allByName } = await supabase
       .from('contacts')
       .select('*')
@@ -256,7 +256,36 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
     
     console.log(`Found ${allByName?.length || 0} contacts with name "${name}":`, JSON.stringify(allByName || []));
     
-    // Now filter for ones with phone
+    // Strategy 2: Extract any phone numbers from the pushName (in case it contains digits)
+    const phoneInName = name.match(/\d{10,15}/)?.[0];
+    console.log(`Extracted phone from name: ${phoneInName || 'none'}`);
+    
+    // Strategy 3: Search by phone if we found digits in the name
+    let existingByPhone = null;
+    if (phoneInName) {
+      const { data: foundByPhone } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('company_id', companyId)
+        .eq('phone', phoneInName)
+        .maybeSingle();
+      
+      if (foundByPhone) {
+        console.log(`✅ Found existing contact by phone extracted from name: ${foundByPhone.id}, phone: ${foundByPhone.phone}`);
+        // Update with new name and @lid remoteJid
+        await supabase
+          .from('contacts')
+          .update({ 
+            name: name, // Update to the new name from pushName
+            metadata: { ...foundByPhone.metadata, remoteJid: remoteJid },
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', foundByPhone.id);
+        return foundByPhone;
+      }
+    }
+    
+    // Strategy 4: Now filter contacts by name for ones with phone
     const { data: existingByName } = await supabase
       .from('contacts')
       .select('*')
