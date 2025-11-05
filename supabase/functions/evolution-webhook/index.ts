@@ -165,18 +165,23 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook) {
     // Get or create contact
     const contact = await getOrCreateContact(supabase, phoneNumber, contactName, remoteJid);
     
+    // Use contact's phone if available (for cases where we found existing contact)
+    const contactPhone = contact.phone || phoneNumber;
+    const sendToRemoteJid = contactPhone ? `${contactPhone}@s.whatsapp.net` : remoteJid;
+    
+    console.log(`Contact phone: ${contactPhone}, will send to: ${sendToRemoteJid}`);
+    
     // Get or create conversation
-    const conversation = await getOrCreateConversation(supabase, contact.id, phoneNumber, contactName, remoteJid);
+    const conversation = await getOrCreateConversation(supabase, contact.id, contactPhone, contactName, remoteJid);
     
     // Save message
-    await saveMessage(supabase, conversation.id, message, messageContent, phoneNumber);
+    await saveMessage(supabase, conversation.id, message, messageContent, contactPhone);
 
-    // Only trigger bot for WhatsApp channels (@s.whatsapp.net)
-    // Instagram/Facebook (@lid) channels need manual handling
-    if (remoteJid.includes('@s.whatsapp.net')) {
-      await triggerBotResponse(supabase, conversation.id, messageContent, remoteJid, webhook.instance);
+    // Trigger bot response if we have a valid phone number
+    if (contactPhone) {
+      await triggerBotResponse(supabase, conversation.id, messageContent, sendToRemoteJid, webhook.instance);
     } else {
-      console.log(`Skipping bot trigger for non-WhatsApp channel: ${remoteJid}`);
+      console.log(`Skipping bot trigger - no phone number available for contact: ${contact.id}`);
       // Mark conversation as pending for manual handling
       await supabase
         .from('conversations')
@@ -204,10 +209,71 @@ async function processConnectionUpdate(supabase: any, webhook: EvolutionWebhook)
 }
 
 async function getOrCreateContact(supabase: any, phoneNumber: string, name: string, remoteJid: string) {
-  // First, try to find existing contact by remoteJid in metadata
+  // Get first company (will be used for searches)
+  const { data: companies } = await supabase
+    .from('companies')
+    .select('id')
+    .limit(1);
+  const companyId = companies?.[0]?.id;
+
+  // PRIORITY 1: Try to find by phone number (most reliable for WhatsApp)
+  if (phoneNumber) {
+    const { data: existingByPhone } = await supabase
+      .from('contacts')
+      .select('*')
+      .eq('company_id', companyId)
+      .eq('phone', phoneNumber)
+      .maybeSingle();
+
+    if (existingByPhone) {
+      console.log('Found existing contact by phone:', existingByPhone.id);
+      // Update metadata with new remoteJid if different
+      const currentRemoteJid = existingByPhone.metadata?.remoteJid;
+      if (currentRemoteJid !== remoteJid) {
+        await supabase
+          .from('contacts')
+          .update({ 
+            metadata: { ...existingByPhone.metadata, remoteJid: remoteJid },
+            name: name, // Update name too
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingByPhone.id);
+      }
+      return existingByPhone;
+    }
+  }
+
+  // PRIORITY 2: For @lid channels without phone, try to find by name AND check if they have a phone
+  if (remoteJid.includes('@lid') && !phoneNumber) {
+    const { data: existingByName } = await supabase
+      .from('contacts')
+      .select('*')
+      .eq('company_id', companyId)
+      .ilike('name', name)
+      .not('phone', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingByName) {
+      console.log(`Found existing contact by name with phone: ${existingByName.id}, using phone: ${existingByName.phone}`);
+      // Update metadata with @lid remoteJid
+      await supabase
+        .from('contacts')
+        .update({ 
+          metadata: { ...existingByName.metadata, remoteJid: remoteJid },
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existingByName.id);
+      return existingByName;
+    }
+  }
+
+  // PRIORITY 3: Try to find by remoteJid in metadata
   const { data: existingContacts } = await supabase
     .from('contacts')
     .select('*')
+    .eq('company_id', companyId)
     .contains('metadata', { remoteJid: remoteJid });
 
   if (existingContacts && existingContacts.length > 0) {
@@ -215,35 +281,7 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
     return existingContacts[0];
   }
 
-  // Try to find by phone number
-  const { data: existingContact } = await supabase
-    .from('contacts')
-    .select('*')
-    .eq('phone', phoneNumber)
-    .maybeSingle();
-
-  if (existingContact) {
-    console.log('Found existing contact by phone:', existingContact.id);
-    // Update metadata with remoteJid
-    await supabase
-      .from('contacts')
-      .update({ 
-        metadata: { ...existingContact.metadata, remoteJid: remoteJid },
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', existingContact.id);
-    return existingContact;
-  }
-
-  // Get first company (in production, you'd determine this differently)
-  const { data: companies } = await supabase
-    .from('companies')
-    .select('id')
-    .limit(1);
-
-  const companyId = companies?.[0]?.id;
-
-  // Create new contact
+  // Create new contact (phone might be null for @lid channels)
   const { data: newContact, error: insertError } = await supabase
     .from('contacts')
     .insert({
