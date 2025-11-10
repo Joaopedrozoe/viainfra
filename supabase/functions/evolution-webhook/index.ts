@@ -527,8 +527,8 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
       created_at: new Date().toISOString(),
     });
 
-  // Enviar resposta via Evolution API usando o remoteJid completo
-  await sendEvolutionMessage(instanceName, remoteJid, result.response);
+  // Enviar resposta via Evolution API
+  await sendEvolutionMessage(supabase, conversationId, instanceName, remoteJid, result.response);
 }
 
 async function handleFetchPlacas(supabase: any, conversationId: string, remoteJid: string, instanceName: string, botFlow: any, currentState: any) {
@@ -579,7 +579,7 @@ async function handleFetchPlacas(supabase: any, conversationId: string, remoteJi
         created_at: new Date().toISOString(),
       });
     
-    await sendEvolutionMessage(instanceName, remoteJid, errorMessage);
+    await sendEvolutionMessage(supabase, conversationId, instanceName, remoteJid, errorMessage);
   }
 }
 
@@ -619,7 +619,7 @@ async function sendPlacasMenu(supabase: any, conversationId: string, remoteJid: 
       created_at: new Date().toISOString(),
     });
   
-  await sendEvolutionMessage(instanceName, remoteJid, message);
+  await sendEvolutionMessage(supabase, conversationId, instanceName, remoteJid, message);
 }
 
 async function handleCreateChamado(supabase: any, conversationId: string, remoteJid: string, instanceName: string, conversationState: any) {
@@ -774,7 +774,7 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
         created_at: new Date().toISOString(),
       });
     
-    await sendEvolutionMessage(instanceName, remoteJid, successMessage);
+    await sendEvolutionMessage(supabase, conversationId, instanceName, remoteJid, successMessage);
     
   } catch (error) {
     console.error('Error creating chamado:', error);
@@ -790,11 +790,11 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
         created_at: new Date().toISOString(),
       });
     
-    await sendEvolutionMessage(instanceName, remoteJid, errorMessage);
+    await sendEvolutionMessage(supabase, conversationId, instanceName, remoteJid, errorMessage);
   }
 }
 
-async function sendEvolutionMessage(instanceName: string, remoteJid: string, text: string) {
+async function sendEvolutionMessage(supabase: any, conversationId: string, instanceName: string, remoteJid: string, text: string) {
   const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL');
   const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
 
@@ -803,7 +803,28 @@ async function sendEvolutionMessage(instanceName: string, remoteJid: string, tex
     return;
   }
 
-  console.log(`Sending message to remoteJid: ${remoteJid} via instance ${instanceName}`);
+  // Buscar contato da conversa para usar telefone real se disponível
+  let recipientJid = remoteJid;
+  try {
+    const { data: conversation } = await supabase
+      .from('conversations')
+      .select('contacts(phone)')
+      .eq('id', conversationId)
+      .single();
+
+    if (conversation?.contacts?.phone) {
+      // Priorizar telefone do contato (formato WhatsApp padrão)
+      recipientJid = `${conversation.contacts.phone}@s.whatsapp.net`;
+      console.log(`Bot using contact phone: ${conversation.contacts.phone} -> ${recipientJid}`);
+    } else {
+      // Fallback para remoteJid (para canais @lid, etc)
+      console.log(`Bot using remoteJid from metadata: ${remoteJid}`);
+    }
+  } catch (error) {
+    console.error('Error fetching contact phone, using remoteJid:', error);
+  }
+
+  console.log(`Sending bot message to: ${recipientJid} via instance ${instanceName}`);
 
   try {
     const response = await fetch(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
@@ -813,7 +834,7 @@ async function sendEvolutionMessage(instanceName: string, remoteJid: string, tex
         'apikey': evolutionApiKey,
       },
       body: JSON.stringify({
-        number: remoteJid,
+        number: recipientJid,
         text: text,
       }),
     });
