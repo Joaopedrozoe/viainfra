@@ -9,6 +9,39 @@ const corsHeaders = {
 // Google Sheets API URL (mesma usada no canal web)
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz0viYlAJ_-v00BzqRgMROE0wdvixohvQ4d949mTvRQk_eRdqN-CsxQeAldpV6HR2xlBQ/exec';
 
+// Helper function para retry com backoff exponencial
+async function fetchWithRetry(url: string, retries = 3, delay = 1000): Promise<Response> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      console.log(`Tentativa ${i + 1}/${retries} para: ${url}`);
+      const response = await fetch(url);
+      
+      // Se não for rate limit, retorna imediatamente
+      if (response.status !== 429) {
+        return response;
+      }
+      
+      // Se for a última tentativa, retorna mesmo com erro
+      if (i === retries - 1) {
+        console.error(`❌ Todas ${retries} tentativas falharam com rate limit`);
+        return response;
+      }
+      
+      // Aguardar antes de tentar novamente (backoff exponencial)
+      const waitTime = delay * Math.pow(2, i);
+      console.log(`⏳ Rate limit detectado, aguardando ${waitTime}ms antes da próxima tentativa...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+      
+    } catch (error) {
+      console.error(`Erro na tentativa ${i + 1}:`, error);
+      if (i === retries - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)));
+    }
+  }
+  
+  throw new Error('Falha após todas as tentativas de retry');
+}
+
 interface EvolutionMessage {
   key: {
     id: string;
@@ -526,11 +559,12 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
 async function handleFetchPlacas(supabase: any, conversationId: string, remoteJid: string, instanceName: string, botFlow: any, currentState: any) {
   console.log('Fetching placas from Google Sheets...');
   
+  let placasRes;
   try {
-    // Buscar placas REAIS da API do Google Sheets (mesma API do canal web)
-    console.log('Calling Google Sheets API:', `${GOOGLE_SCRIPT_URL}?action=placas`);
-    const placasRes = await fetch(`${GOOGLE_SCRIPT_URL}?action=placas`);
-    console.log('Status placas:', placasRes.status);
+    // Buscar placas REAIS da API do Google Sheets com retry logic
+    console.log('🔄 Buscando placas da API do Google Sheets...');
+    placasRes = await fetchWithRetry(`${GOOGLE_SCRIPT_URL}?action=placas`, 3, 1000);
+    console.log('✅ Status placas:', placasRes.status);
     
     const placasText = await placasRes.text();
     console.log('Resposta placas (raw):', placasText);
@@ -556,8 +590,16 @@ async function handleFetchPlacas(supabase: any, conversationId: string, remoteJi
   } catch (error) {
     console.error('Error fetching placas:', error);
     
-    // Enviar mensagem de erro
-    const errorMessage = '❌ Erro ao buscar placas da API. Por favor, digite 0 para voltar ao menu e tente novamente.';
+    // Mensagem de erro mais específica baseada no tipo de erro
+    let errorMessage = '❌ Erro ao buscar placas da API.';
+    
+    if (error instanceof Error && error.message.includes('Nenhuma placa encontrada')) {
+      errorMessage += '\n\n📋 A lista de placas está vazia no momento.\n\nDigite **0** para voltar ao menu ou falar com um atendente.';
+    } else if (placasRes && placasRes.status === 429) {
+      errorMessage += '\n\n⚠️ Sistema temporariamente indisponível devido ao alto volume de requisições.\n\nPor favor, aguarde alguns segundos e digite **0** para voltar ao menu e tentar novamente.';
+    } else {
+      errorMessage += '\n\nDigite **0** para voltar ao menu ou falar com um atendente.';
+    }
     
     await supabase
       .from('messages')
