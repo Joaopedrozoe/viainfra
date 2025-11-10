@@ -9,6 +9,10 @@ const corsHeaders = {
 // Google Sheets API URL (mesma usada no canal web)
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz0viYlAJ_-v00BzqRgMROE0wdvixohvQ4d949mTvRQk_eRdqN-CsxQeAldpV6HR2xlBQ/exec';
 
+// Cache simples para placas (evitar rate limit do Google Sheets)
+let placasCache: { data: string[], timestamp: number } | null = null;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
+
 // Helper function para retry com backoff exponencial
 async function fetchWithRetry(url: string, retries = 3, delay = 1000): Promise<Response> {
   for (let i = 0; i < retries; i++) {
@@ -557,45 +561,76 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
 }
 
 async function handleFetchPlacas(supabase: any, conversationId: string, remoteJid: string, instanceName: string, botFlow: any, currentState: any) {
-  console.log('Fetching placas from Google Sheets...');
+  console.log('📋 Iniciando busca de placas...');
   
-  let placasRes;
+  let placas: string[] = [];
+  
   try {
-    // Buscar placas REAIS da API do Google Sheets com retry logic
-    console.log('🔄 Buscando placas da API do Google Sheets...');
-    placasRes = await fetchWithRetry(`${GOOGLE_SCRIPT_URL}?action=placas`, 3, 1000);
-    console.log('✅ Status placas:', placasRes.status);
-    
-    const placasText = await placasRes.text();
-    console.log('Resposta placas (raw):', placasText);
-    
-    let placasData;
-    try {
-      placasData = JSON.parse(placasText);
-      console.log('Dados placas (parsed):', JSON.stringify(placasData));
-    } catch (parseError) {
-      console.error('Erro ao fazer parse das placas:', parseError);
-      placasData = { placas: [] };
+    // Verificar cache primeiro
+    const now = Date.now();
+    if (placasCache && (now - placasCache.timestamp) < CACHE_DURATION) {
+      console.log('✅ Usando placas do cache (idade:', Math.round((now - placasCache.timestamp) / 1000), 'segundos)');
+      placas = placasCache.data;
+    } else {
+      console.log('🔄 Cache expirado ou vazio, buscando da API...');
+      
+      // Buscar da API com retry logic
+      const placasRes = await fetchWithRetry(`${GOOGLE_SCRIPT_URL}?action=placas`, 3, 2000);
+      console.log('✅ Status placas:', placasRes.status);
+      
+      if (placasRes.status !== 200) {
+        console.error('❌ API retornou status:', placasRes.status);
+        // Se cache existe mas expirou, usar mesmo assim
+        if (placasCache) {
+          console.log('⚠️ Usando cache expirado como fallback');
+          placas = placasCache.data;
+        } else {
+          throw new Error(`API retornou status ${placasRes.status}`);
+        }
+      } else {
+        const placasText = await placasRes.text();
+        console.log('📄 Resposta recebida (primeiros 100 chars):', placasText.substring(0, 100));
+        
+        let placasData;
+        try {
+          placasData = JSON.parse(placasText);
+          placas = placasData.placas || [];
+          
+          // Atualizar cache
+          placasCache = {
+            data: placas,
+            timestamp: now
+          };
+          console.log('✅ Cache atualizado com', placas.length, 'placas');
+        } catch (parseError) {
+          console.error('❌ Erro ao fazer parse das placas:', parseError);
+          // Se cache existe, usar como fallback
+          if (placasCache) {
+            console.log('⚠️ Usando cache como fallback após erro de parse');
+            placas = placasCache.data;
+          } else {
+            throw new Error('Resposta inválida da API de placas');
+          }
+        }
+      }
     }
     
-    const placas = placasData.placas || [];
-    console.log('Placas carregadas da API:', placas);
-    console.log('Quantidade de placas:', placas.length);
+    console.log('📊 Total de placas disponíveis:', placas.length);
     
     if (placas.length === 0) {
-      throw new Error('Nenhuma placa encontrada na API');
+      throw new Error('Nenhuma placa encontrada');
     }
     
     await sendPlacasMenu(supabase, conversationId, remoteJid, instanceName, placas, botFlow, currentState);
   } catch (error) {
     console.error('Error fetching placas:', error);
     
-    // Mensagem de erro mais específica baseada no tipo de erro
+    // Mensagem de erro mais específica
     let errorMessage = '❌ Erro ao buscar placas da API.';
     
     if (error instanceof Error && error.message.includes('Nenhuma placa encontrada')) {
       errorMessage += '\n\n📋 A lista de placas está vazia no momento.\n\nDigite **0** para voltar ao menu ou falar com um atendente.';
-    } else if (placasRes && placasRes.status === 429) {
+    } else if (error instanceof Error && error.message.includes('status 429')) {
       errorMessage += '\n\n⚠️ Sistema temporariamente indisponível devido ao alto volume de requisições.\n\nPor favor, aguarde alguns segundos e digite **0** para voltar ao menu e tentar novamente.';
     } else {
       errorMessage += '\n\nDigite **0** para voltar ao menu ou falar com um atendente.';
