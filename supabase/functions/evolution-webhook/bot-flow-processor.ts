@@ -174,7 +174,33 @@ export class BotFlowProcessor {
       };
     }
 
-    // Verificar se é uma opção válida (número)
+    // Tratamento especial para seleção de placa
+    if (node.id === 'chamado-placa') {
+      const optionIndex = parseInt(userInput) - 1;
+      const placasDisponiveis = this.conversationState.collectedData['placas_disponiveis'] || [];
+      
+      if (!isNaN(optionIndex) && optionIndex >= 0 && optionIndex < placasDisponiveis.length) {
+        const placaSelecionada = placasDisponiveis[optionIndex];
+        
+        // Salvar a placa real selecionada
+        this.conversationState.collectedData['chamado-placa'] = placaSelecionada;
+        
+        // Encontrar o próximo nó
+        const nextNode = this.getNextNode(node.id);
+        if (nextNode) {
+          return this.processNode(nextNode);
+        }
+      }
+      
+      // Se entrada inválida para placa
+      return {
+        response: `Opção inválida. Por favor, escolha um número entre 1 e ${placasDisponiveis.length}.\n\nDigite 0 para voltar ao menu.`,
+        newState: this.conversationState,
+        shouldTransferToAgent: false,
+      };
+    }
+
+    // Verificar se é uma opção válida (número) para outros nós
     const optionIndex = parseInt(userInput) - 1;
     if (!isNaN(optionIndex) && optionIndex >= 0 && optionIndex < options.length) {
       const selectedOption = options[optionIndex];
