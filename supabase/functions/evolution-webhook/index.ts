@@ -618,16 +618,24 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
   console.log('Creating chamado...');
   
   const collectedData = conversationState.collectedData;
+  const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz0viYlAJ_-v00BzqRgMROE0wdvixohvQ4d949mTvRQk_eRdqN-CsxQeAldpV6HR2xlBQ/exec';
   
   try {
     // Extrair dados coletados
-    const placaSelecionada = collectedData['chamado-placa'] || collectedData.placas_disponiveis?.[0];
+    const placaSelecionada = collectedData['chamado-placa'];
     const corretiva = collectedData['chamado-corretiva'] === 'Sim';
     const local = collectedData['chamado-local'];
     const incidente = collectedData['chamado-agendamento']; // Mantém nome interno mas é "incidente" para usuário
     const descricao = collectedData['chamado-descricao'];
     
-    // Buscar company_id da conversa e remoteJid
+    console.log('Dados coletados:', { placaSelecionada, corretiva, local, incidente, descricao });
+    
+    // Validar placa
+    if (!placaSelecionada || placaSelecionada === 'Lista dinâmica de placas da API') {
+      throw new Error('Placa não selecionada corretamente');
+    }
+    
+    // Buscar company_id da conversa
     const { data: conversation } = await supabase
       .from('conversations')
       .select('company_id, contact_id, metadata')
@@ -636,14 +644,24 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
     
     const phoneNumber = extractPhoneNumber(remoteJid);
     
-    // Gerar número do chamado
-    const numeroChamado = `CH-${Date.now().toString().slice(-8)}`;
+    // Buscar último número de chamado da API Google Sheets (igual ao canal web)
+    let numeroChamado = `CH-${Date.now().toString().slice(-8)}`;
+    try {
+      console.log('Buscando último chamado da API...');
+      const ultimoChamadoRes = await fetch(`${GOOGLE_SCRIPT_URL}?action=ultimoChamado`);
+      if (ultimoChamadoRes.ok) {
+        const ultimoChamadoData = await ultimoChamadoRes.json();
+        numeroChamado = ultimoChamadoData.numeroChamado || numeroChamado;
+        console.log('Número do chamado obtido:', numeroChamado);
+      }
+    } catch (apiError) {
+      console.error('Erro ao buscar último chamado, usando timestamp:', apiError);
+    }
     
     // Converter incidente para timestamp de forma robusta
     let incidenteTimestamp = null;
     if (incidente) {
       try {
-        // Tentar converter string de data para timestamp
         const parsedDate = new Date(incidente);
         if (!isNaN(parsedDate.getTime())) {
           incidenteTimestamp = parsedDate.toISOString();
@@ -653,13 +671,52 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
       }
     }
     
+    // Enviar para Google Sheets primeiro (igual ao canal web)
+    let chamadoData: any = null;
+    let googleSheetsSucesso = false;
+    
+    try {
+      console.log('Enviando para Google Sheets...');
+      const chamadoPayload = {
+        placa: placaSelecionada,
+        corretiva: corretiva ? 'Sim' : 'Não',
+        local: local,
+        descricao: descricao,
+      };
+      
+      const createRes = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(chamadoPayload),
+      });
+      
+      if (createRes.status === 200 || createRes.status === 201) {
+        googleSheetsSucesso = true;
+        console.log('✅ Chamado criado no Google Sheets');
+        
+        try {
+          const responseText = await createRes.text();
+          chamadoData = JSON.parse(responseText);
+        } catch (parseError) {
+          console.log('Usando dados locais');
+          chamadoData = { 
+            numeroChamado: numeroChamado,
+            ID: 'N/A'
+          };
+        }
+      }
+    } catch (googleError) {
+      console.error('Erro ao criar no Google Sheets:', googleError);
+    }
+    
     // Criar chamado no Supabase
     const { data: chamado, error: chamadoError } = await supabase
       .from('chamados')
       .insert({
         company_id: conversation?.company_id,
         conversation_id: conversationId,
-        numero_chamado: numeroChamado,
+        numero_chamado: chamadoData?.numeroChamado || numeroChamado,
+        google_sheet_id: chamadoData?.ID || null,
         placa: placaSelecionada,
         local: local,
         descricao: descricao,
@@ -670,40 +727,20 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
           origem: 'whatsapp',
           telefone: phoneNumber,
         },
-        created_at: new Date().toISOString(),
       })
       .select()
       .single();
     
     if (chamadoError) {
+      console.error('Erro ao criar chamado no Supabase:', chamadoError);
       throw chamadoError;
     }
     
-    // Tentar enviar para Google Sheets se configurado
-    const googleSheetsApiUrl = Deno.env.get('GOOGLE_SHEETS_API_URL');
-    if (googleSheetsApiUrl) {
-      try {
-        await fetch(googleSheetsApiUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            numero_chamado: numeroChamado,
-            placa: placaSelecionada,
-            local: local,
-            descricao: descricao,
-            corretiva: corretiva ? 'Sim' : 'Não',
-            agendamento: incidente,
-            telefone: phoneNumber,
-          }),
-        });
-      } catch (sheetError) {
-        console.error('Error sending to Google Sheets:', sheetError);
-        // Continuar mesmo se falhar no Google Sheets
-      }
-    }
+    console.log('✅ Chamado criado no Supabase:', chamado);
     
-    // Mensagem de sucesso
-    const successMessage = `✅ Chamado criado com sucesso!\n\n📋 Número: ${numeroChamado}\n🚗 Placa: ${placaSelecionada}\n📍 Local: ${local}\n${corretiva ? '🔧 Tipo: Corretiva\n' : ''}${incidente ? `📅 Data/Hora do Incidente: ${incidente}\n` : ''}\n\nDigite 0 para voltar ao menu principal.`;
+    // Mensagem de sucesso com o número correto e placa
+    const finalNumeroChamado = chamadoData?.numeroChamado || numeroChamado;
+    const successMessage = `✅ Chamado criado com sucesso!\n\n📋 Número: ${finalNumeroChamado}\n🚗 Placa: ${placaSelecionada}\n📍 Local: ${local}\n${corretiva ? '🔧 Tipo: Corretiva\n' : ''}${incidente ? `📅 Data/Hora do Incidente: ${incidente}\n` : ''}\n\nDigite 0 para voltar ao menu principal.`;
     
     // Resetar estado para o nó de sucesso
     await supabase
