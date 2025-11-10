@@ -55,14 +55,24 @@ serve(async (req) => {
       );
     }
 
-    // Extrair remoteJid do metadata
-    const remoteJid = conversation.metadata?.remoteJid;
-    if (!remoteJid) {
-      console.error('No remoteJid found in conversation metadata');
-      return new Response(
-        JSON.stringify({ error: 'No WhatsApp identifier found' }), 
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    // Determinar o destinatário: usar telefone se disponível, senão usar remoteJid
+    let recipientJid: string;
+    
+    if (conversation.contacts?.phone) {
+      // Se temos o telefone, usar formato WhatsApp tradicional
+      recipientJid = `${conversation.contacts.phone}@s.whatsapp.net`;
+      console.log(`Using contact phone: ${conversation.contacts.phone} -> ${recipientJid}`);
+    } else {
+      // Caso contrário, usar remoteJid do metadata (para canais @lid, etc)
+      recipientJid = conversation.metadata?.remoteJid;
+      if (!recipientJid) {
+        console.error('No phone or remoteJid found for this conversation');
+        return new Response(
+          JSON.stringify({ error: 'No WhatsApp identifier found' }), 
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      console.log(`Using remoteJid from metadata: ${recipientJid}`);
     }
 
     // Buscar instância WhatsApp conectada (status 'open' = conectada)
@@ -103,7 +113,7 @@ serve(async (req) => {
 
     console.log('Instância WhatsApp encontrada:', instance.instance_name, 'Status:', instance.status);
 
-    console.log(`Sending message to ${remoteJid} via instance ${instance.instance_name}`);
+    console.log(`Sending message to ${recipientJid} via instance ${instance.instance_name}`);
 
     // Enviar mensagem via Evolution API
     const evolutionUrl = Deno.env.get('EVOLUTION_API_URL') ?? '';
@@ -116,7 +126,7 @@ serve(async (req) => {
         'apikey': evolutionKey,
       },
       body: JSON.stringify({
-        number: remoteJid,
+        number: recipientJid,
         text: message_content,
       }),
     });
