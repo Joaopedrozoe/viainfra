@@ -576,19 +576,18 @@ async function handleFetchPlacas(supabase: any, conversationId: string, remoteJi
 }
 
 async function sendPlacasMenu(supabase: any, conversationId: string, remoteJid: string, instanceName: string, placas: string[], botFlow: any, currentState: any) {
-  // Formatar placas para WhatsApp (máximo 10 opções)
-  const placasLimitadas = placas.slice(0, 10);
-  const placasFormatadas = placasLimitadas.map((placa, idx) => `${idx + 1}. ${placa}`).join('\n');
+  // Formatar todas as placas para WhatsApp (igual ao canal web)
+  const placasFormatadas = placas.map((placa, idx) => `${idx + 1}. ${placa}`).join('\n');
   
   const message = `📋 Selecione uma placa:\n\n${placasFormatadas}\n\nDigite o número da placa desejada ou 0 para voltar ao menu.`;
   
-  // Atualizar estado com as placas disponíveis
+  // Atualizar estado com TODAS as placas disponíveis
   const newState = {
     ...currentState,
     currentNodeId: 'chamado-placa',
     collectedData: {
       ...currentState.collectedData,
-      placas_disponiveis: placasLimitadas,
+      placas_disponiveis: placas,
     },
   };
   
