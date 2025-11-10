@@ -624,7 +624,7 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
     const placaSelecionada = collectedData['chamado-placa'] || collectedData.placas_disponiveis?.[0];
     const corretiva = collectedData['chamado-corretiva'] === 'Sim';
     const local = collectedData['chamado-local'];
-    const agendamento = collectedData['chamado-agendamento'];
+    const incidente = collectedData['chamado-agendamento']; // Mantém nome interno mas é "incidente" para usuário
     const descricao = collectedData['chamado-descricao'];
     
     // Buscar company_id da conversa e remoteJid
@@ -639,6 +639,20 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
     // Gerar número do chamado
     const numeroChamado = `CH-${Date.now().toString().slice(-8)}`;
     
+    // Converter incidente para timestamp de forma robusta
+    let incidenteTimestamp = null;
+    if (incidente) {
+      try {
+        // Tentar converter string de data para timestamp
+        const parsedDate = new Date(incidente);
+        if (!isNaN(parsedDate.getTime())) {
+          incidenteTimestamp = parsedDate.toISOString();
+        }
+      } catch (e) {
+        console.error('Erro ao parsear data do incidente:', e);
+      }
+    }
+    
     // Criar chamado no Supabase
     const { data: chamado, error: chamadoError } = await supabase
       .from('chamados')
@@ -650,7 +664,7 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
         local: local,
         descricao: descricao,
         corretiva: corretiva,
-        agendamento: agendamento ? new Date(agendamento).toISOString() : null,
+        agendamento: incidenteTimestamp,
         status: 'aberto',
         metadata: {
           origem: 'whatsapp',
@@ -678,7 +692,7 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
             local: local,
             descricao: descricao,
             corretiva: corretiva ? 'Sim' : 'Não',
-            agendamento: agendamento,
+            agendamento: incidente,
             telefone: phoneNumber,
           }),
         });
@@ -689,7 +703,7 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
     }
     
     // Mensagem de sucesso
-    const successMessage = `✅ Chamado criado com sucesso!\n\n📋 Número: ${numeroChamado}\n🚗 Placa: ${placaSelecionada}\n📍 Local: ${local}\n${corretiva ? '🔧 Tipo: Corretiva\n' : ''}${agendamento ? `📅 Agendamento: ${agendamento}\n` : ''}\n\nDigite 0 para voltar ao menu principal.`;
+    const successMessage = `✅ Chamado criado com sucesso!\n\n📋 Número: ${numeroChamado}\n🚗 Placa: ${placaSelecionada}\n📍 Local: ${local}\n${corretiva ? '🔧 Tipo: Corretiva\n' : ''}${incidente ? `📅 Data/Hora do Incidente: ${incidente}\n` : ''}\n\nDigite 0 para voltar ao menu principal.`;
     
     // Resetar estado para o nó de sucesso
     await supabase
