@@ -442,6 +442,23 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
 async function triggerBotResponse(supabase: any, conversationId: string, messageContent: string, remoteJid: string, instanceName: string) {
   console.log('Triggering bot response...');
   
+  // Verificar se a conversa está em status 'pending' (transferida para atendente)
+  const { data: conversation, error: convError } = await supabase
+    .from('conversations')
+    .select('status, metadata')
+    .eq('id', conversationId)
+    .single();
+
+  if (convError) {
+    console.error('Error fetching conversation:', convError);
+    return;
+  }
+
+  if (conversation.status === 'pending') {
+    console.log('⏸️ Conversa em status "pending" - aguardando atendente. Bot não responderá.');
+    return;
+  }
+  
   // Buscar bot ativo com canal WhatsApp
   const { data: bots, error: botsError } = await supabase
     .from('bots')
@@ -462,13 +479,6 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
 
   const bot = bots[0];
   console.log('Using bot:', bot.name);
-
-  // Buscar estado da conversa
-  const { data: conversation } = await supabase
-    .from('conversations')
-    .select('metadata')
-    .eq('id', conversationId)
-    .single();
 
   const conversationState = conversation?.metadata?.bot_state || {
     currentNodeId: 'start-1',
