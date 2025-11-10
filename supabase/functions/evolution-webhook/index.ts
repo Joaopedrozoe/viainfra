@@ -9,43 +9,6 @@ const corsHeaders = {
 // Google Sheets API URL (mesma usada no canal web)
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz0viYlAJ_-v00BzqRgMROE0wdvixohvQ4d949mTvRQk_eRdqN-CsxQeAldpV6HR2xlBQ/exec';
 
-// Cache simples para placas (evitar rate limit do Google Sheets)
-let placasCache: { data: string[], timestamp: number } | null = null;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
-
-// Helper function para retry com backoff exponencial
-async function fetchWithRetry(url: string, retries = 3, delay = 1000): Promise<Response> {
-  for (let i = 0; i < retries; i++) {
-    try {
-      console.log(`Tentativa ${i + 1}/${retries} para: ${url}`);
-      const response = await fetch(url);
-      
-      // Se não for rate limit, retorna imediatamente
-      if (response.status !== 429) {
-        return response;
-      }
-      
-      // Se for a última tentativa, retorna mesmo com erro
-      if (i === retries - 1) {
-        console.error(`❌ Todas ${retries} tentativas falharam com rate limit`);
-        return response;
-      }
-      
-      // Aguardar antes de tentar novamente (backoff exponencial)
-      const waitTime = delay * Math.pow(2, i);
-      console.log(`⏳ Rate limit detectado, aguardando ${waitTime}ms antes da próxima tentativa...`);
-      await new Promise(resolve => setTimeout(resolve, waitTime));
-      
-    } catch (error) {
-      console.error(`Erro na tentativa ${i + 1}:`, error);
-      if (i === retries - 1) throw error;
-      await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)));
-    }
-  }
-  
-  throw new Error('Falha após todas as tentativas de retry');
-}
-
 interface EvolutionMessage {
   key: {
     id: string;
@@ -561,80 +524,43 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
 }
 
 async function handleFetchPlacas(supabase: any, conversationId: string, remoteJid: string, instanceName: string, botFlow: any, currentState: any) {
-  console.log('📋 Iniciando busca de placas...');
-  
-  let placas: string[] = [];
+  console.log('📋 Iniciando busca de placas - Canal WhatsApp');
   
   try {
-    // Verificar cache primeiro
-    const now = Date.now();
-    if (placasCache && (now - placasCache.timestamp) < CACHE_DURATION) {
-      console.log('✅ Usando placas do cache (idade:', Math.round((now - placasCache.timestamp) / 1000), 'segundos)');
-      placas = placasCache.data;
-    } else {
-      console.log('🔄 Cache expirado ou vazio, buscando da API...');
-      
-      // Buscar da API com retry logic
-      const placasRes = await fetchWithRetry(`${GOOGLE_SCRIPT_URL}?action=placas`, 3, 2000);
-      console.log('✅ Status placas:', placasRes.status);
-      
-      if (placasRes.status !== 200) {
-        console.error('❌ API retornou status:', placasRes.status);
-        // Se cache existe mas expirou, usar mesmo assim
-        if (placasCache) {
-          console.log('⚠️ Usando cache expirado como fallback');
-          placas = placasCache.data;
-        } else {
-          throw new Error(`API retornou status ${placasRes.status}`);
-        }
-      } else {
-        const placasText = await placasRes.text();
-        console.log('📄 Resposta recebida (primeiros 100 chars):', placasText.substring(0, 100));
-        
-        let placasData;
-        try {
-          placasData = JSON.parse(placasText);
-          placas = placasData.placas || [];
-          
-          // Atualizar cache
-          placasCache = {
-            data: placas,
-            timestamp: now
-          };
-          console.log('✅ Cache atualizado com', placas.length, 'placas');
-        } catch (parseError) {
-          console.error('❌ Erro ao fazer parse das placas:', parseError);
-          // Se cache existe, usar como fallback
-          if (placasCache) {
-            console.log('⚠️ Usando cache como fallback após erro de parse');
-            placas = placasCache.data;
-          } else {
-            throw new Error('Resposta inválida da API de placas');
-          }
-        }
-      }
+    // Buscar placas exatamente como o canal web faz
+    console.log('🔄 Buscando placas da API:', `${GOOGLE_SCRIPT_URL}?action=placas`);
+    const placasRes = await fetch(`${GOOGLE_SCRIPT_URL}?action=placas`);
+    console.log('✅ Status da resposta:', placasRes.status);
+    console.log('📄 Headers:', JSON.stringify(Object.fromEntries(placasRes.headers.entries())));
+    
+    const placasText = await placasRes.text();
+    console.log('📄 Resposta completa (primeiros 200 chars):', placasText.substring(0, 200));
+    console.log('📏 Tamanho da resposta:', placasText.length, 'chars');
+    
+    let placasData;
+    try {
+      placasData = JSON.parse(placasText);
+      console.log('✅ Parse JSON bem sucedido:', JSON.stringify(placasData));
+    } catch (parseError) {
+      console.error('❌ Erro ao fazer parse do JSON:', parseError);
+      console.error('📄 Resposta que falhou no parse:', placasText);
+      placasData = { placas: [] };
     }
     
-    console.log('📊 Total de placas disponíveis:', placas.length);
+    const placas = placasData.placas || [];
+    console.log('📊 Total de placas recebidas:', placas.length);
+    console.log('📋 Placas:', JSON.stringify(placas));
     
     if (placas.length === 0) {
-      throw new Error('Nenhuma placa encontrada');
+      throw new Error('Lista de placas vazia');
     }
     
     await sendPlacasMenu(supabase, conversationId, remoteJid, instanceName, placas, botFlow, currentState);
   } catch (error) {
-    console.error('Error fetching placas:', error);
+    console.error('❌ Erro ao buscar placas:', error);
+    console.error('Stack:', error instanceof Error ? error.stack : 'N/A');
     
-    // Mensagem de erro mais específica
-    let errorMessage = '❌ Erro ao buscar placas da API.';
-    
-    if (error instanceof Error && error.message.includes('Nenhuma placa encontrada')) {
-      errorMessage += '\n\n📋 A lista de placas está vazia no momento.\n\nDigite **0** para voltar ao menu ou falar com um atendente.';
-    } else if (error instanceof Error && error.message.includes('status 429')) {
-      errorMessage += '\n\n⚠️ Sistema temporariamente indisponível devido ao alto volume de requisições.\n\nPor favor, aguarde alguns segundos e digite **0** para voltar ao menu e tentar novamente.';
-    } else {
-      errorMessage += '\n\nDigite **0** para voltar ao menu ou falar com um atendente.';
-    }
+    const errorMessage = '❌ Erro ao buscar placas da API.\n\nDigite **0** para voltar ao menu ou falar com um atendente.';
     
     await supabase
       .from('messages')
