@@ -65,23 +65,43 @@ serve(async (req) => {
       );
     }
 
-    // Buscar instância WhatsApp da empresa
-    const { data: instance, error: instanceError } = await supabase
+    // Buscar instância WhatsApp conectada (status 'open' = conectada)
+    console.log('Buscando instância WhatsApp para company_id:', conversation.company_id);
+    
+    let { data: instance, error: instanceError } = await supabase
       .from('whatsapp_instances')
-      .select('instance_name, status')
+      .select('instance_name, status, company_id')
       .eq('company_id', conversation.company_id)
-      .eq('status', 'connected')
+      .eq('status', 'open')
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
+    // Se não encontrar instância da empresa, buscar qualquer instância conectada
+    if (!instance) {
+      console.log('Nenhuma instância encontrada para a empresa, buscando qualquer instância conectada...');
+      const { data: anyInstance, error: anyError } = await supabase
+        .from('whatsapp_instances')
+        .select('instance_name, status, company_id')
+        .eq('status', 'open')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      instance = anyInstance;
+      instanceError = anyError;
+    }
+
     if (instanceError || !instance) {
       console.error('Error fetching WhatsApp instance:', instanceError);
+      console.error('Instance data:', instance);
       return new Response(
-        JSON.stringify({ error: 'No connected WhatsApp instance found' }), 
+        JSON.stringify({ error: 'No connected WhatsApp instance found', details: instanceError }), 
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    console.log('Instância WhatsApp encontrada:', instance.instance_name, 'Status:', instance.status);
 
     console.log(`Sending message to ${remoteJid} via instance ${instance.instance_name}`);
 
