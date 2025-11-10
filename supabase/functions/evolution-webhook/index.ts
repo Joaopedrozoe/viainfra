@@ -481,18 +481,37 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
 
   const result = await processor.processUserInput(messageContent);
 
-  // Atualizar estado da conversa
+  // Atualizar estado da conversa e departamento se for transferência
+  const conversationUpdate: any = {
+    metadata: {
+      ...conversation?.metadata,
+      bot_state: result.newState,
+      bot_triggered: true,
+    },
+    status: result.shouldTransferToAgent ? 'pending' : 'open',
+    updated_at: new Date().toISOString(),
+  };
+
+  // Se for transferência, pode atribuir ao primeiro usuário do departamento de atendimento
+  if (result.shouldTransferToAgent) {
+    console.log('📞 Transferindo para atendente...');
+    
+    // Buscar primeiro usuário ativo do departamento de atendimento
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('user_id')
+      .eq('is_active', true)
+      .limit(1);
+    
+    if (profiles && profiles.length > 0) {
+      conversationUpdate.assigned_to = profiles[0].user_id;
+      console.log('✅ Conversa atribuída ao usuário:', profiles[0].user_id);
+    }
+  }
+
   await supabase
     .from('conversations')
-    .update({
-      metadata: {
-        ...conversation?.metadata,
-        bot_state: result.newState,
-        bot_triggered: true,
-      },
-      status: result.shouldTransferToAgent ? 'pending' : 'open',
-      updated_at: new Date().toISOString(),
-    })
+    .update(conversationUpdate)
     .eq('id', conversationId);
 
   // Processar chamada de API se necessário

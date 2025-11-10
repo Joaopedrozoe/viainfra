@@ -180,7 +180,10 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         console.error('Erro ao inserir mensagem:', error);
         // Remover mensagem temporária em caso de erro
         setMessages(prev => prev.filter(msg => msg.id !== tempId));
-      } else if (data) {
+        return;
+      }
+
+      if (data) {
         // Substituir mensagem temporária pela real
         setMessages(prev => prev.map(msg => 
           msg.id === tempId 
@@ -192,11 +195,35 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
               }
             : msg
         ));
+
+        // Se for conversa de WhatsApp, enviar também via Evolution API
+        if (conversationChannel === 'whatsapp') {
+          console.log('Enviando mensagem para WhatsApp...');
+          try {
+            const { error: whatsappError } = await supabase.functions.invoke(
+              'send-whatsapp-message',
+              {
+                body: {
+                  conversation_id: conversationId,
+                  message_content: content,
+                },
+              }
+            );
+
+            if (whatsappError) {
+              console.error('Erro ao enviar para WhatsApp:', whatsappError);
+            } else {
+              console.log('Mensagem enviada para WhatsApp com sucesso');
+            }
+          } catch (whatsappError) {
+            console.error('Erro ao chamar função WhatsApp:', whatsappError);
+          }
+        }
       }
     } catch (error) {
       console.error('Erro ao enviar mensagem:', error);
     }
-  }, [conversationId]);
+  }, [conversationId, conversationChannel]);
 
   const handleViewContactDetails = useCallback(() => {
     if (conversationId) {
