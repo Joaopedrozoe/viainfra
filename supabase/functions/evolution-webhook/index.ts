@@ -170,28 +170,25 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook) {
     
     // Use contact's phone if available (for cases where we found existing contact)
     const contactPhone = contact.phone || phoneNumber;
-    const sendToRemoteJid = contactPhone ? `${contactPhone}@s.whatsapp.net` : remoteJid;
     
-    console.log(`Contact phone: ${contactPhone}, will send to: ${sendToRemoteJid}`);
+    // For sending: keep original remoteJid format (supports @lid, @s.whatsapp.net, etc)
+    // Only reconstruct if we have a phone number and it's a traditional WhatsApp channel
+    let sendToRemoteJid = remoteJid;
+    if (contactPhone && remoteJid.includes('@s.whatsapp.net')) {
+      sendToRemoteJid = `${contactPhone}@s.whatsapp.net`;
+    }
     
-    // Get or create conversation
+    console.log(`Contact phone: ${contactPhone || 'none'}, will send to: ${sendToRemoteJid}`);
+    
+    // Get or create conversation (store remoteJid in metadata for later use)
     const conversation = await getOrCreateConversation(supabase, contact.id, contactPhone, contactName, remoteJid);
     
     // Save message
     await saveMessage(supabase, conversation.id, message, messageContent, contactPhone);
 
-    // Trigger bot response if we have a valid phone number
-    if (contactPhone) {
-      console.log(`✅ Triggering bot for contact ${contact.id} (${contactName}). Phone: ${contactPhone}, Send to: ${sendToRemoteJid}`);
-      await triggerBotResponse(supabase, conversation.id, messageContent, sendToRemoteJid, webhook.instance);
-    } else {
-      console.log(`⚠️ Skipping bot trigger - no phone number available for contact: ${contact.id}. Please add phone manually in the contacts interface.`);
-      // Mark conversation as pending for manual handling
-      await supabase
-        .from('conversations')
-        .update({ status: 'pending' })
-        .eq('id', conversation.id);
-    }
+    // Trigger bot response (supports all channel types including @lid)
+    console.log(`✅ Triggering bot for contact ${contact.id} (${contactName}). Phone: ${contactPhone || 'N/A'}, Send to: ${sendToRemoteJid}`);
+    await triggerBotResponse(supabase, conversation.id, messageContent, sendToRemoteJid, webhook.instance);
   }
 }
 
