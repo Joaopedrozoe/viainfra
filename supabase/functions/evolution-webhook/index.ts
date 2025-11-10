@@ -6,6 +6,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Google Sheets API URL (mesma usada no canal web)
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz0viYlAJ_-v00BzqRgMROE0wdvixohvQ4d949mTvRQk_eRdqN-CsxQeAldpV6HR2xlBQ/exec';
+
 interface EvolutionMessage {
   key: {
     id: string;
@@ -524,29 +527,37 @@ async function handleFetchPlacas(supabase: any, conversationId: string, remoteJi
   console.log('Fetching placas from Google Sheets...');
   
   try {
-    // Buscar dados da Google Sheets API
-    const googleSheetsApiUrl = Deno.env.get('GOOGLE_SHEETS_API_URL');
+    // Buscar placas REAIS da API do Google Sheets (mesma API do canal web)
+    console.log('Calling Google Sheets API:', `${GOOGLE_SCRIPT_URL}?action=placas`);
+    const placasRes = await fetch(`${GOOGLE_SCRIPT_URL}?action=placas`);
+    console.log('Status placas:', placasRes.status);
     
-    if (!googleSheetsApiUrl) {
-      console.log('Google Sheets API URL not configured');
-      // Usar placas de exemplo para demonstração
-      const placasExemplo = ['ABC-1234', 'DEF-5678', 'GHI-9012', 'JKL-3456'];
-      await sendPlacasMenu(supabase, conversationId, remoteJid, instanceName, placasExemplo, botFlow, currentState);
-      return;
+    const placasText = await placasRes.text();
+    console.log('Resposta placas (raw):', placasText);
+    
+    let placasData;
+    try {
+      placasData = JSON.parse(placasText);
+      console.log('Dados placas (parsed):', JSON.stringify(placasData));
+    } catch (parseError) {
+      console.error('Erro ao fazer parse das placas:', parseError);
+      placasData = { placas: [] };
     }
-
-    const response = await fetch(googleSheetsApiUrl);
-    const data = await response.json();
     
-    // Extrair placas dos dados (ajustar conforme estrutura da API)
-    const placas = data.placas || data.values?.map((row: any[]) => row[0]) || [];
+    const placas = placasData.placas || [];
+    console.log('Placas carregadas da API:', placas);
+    console.log('Quantidade de placas:', placas.length);
+    
+    if (placas.length === 0) {
+      throw new Error('Nenhuma placa encontrada na API');
+    }
     
     await sendPlacasMenu(supabase, conversationId, remoteJid, instanceName, placas, botFlow, currentState);
   } catch (error) {
     console.error('Error fetching placas:', error);
     
     // Enviar mensagem de erro
-    const errorMessage = '❌ Erro ao buscar placas. Digite 0 para voltar ao menu.';
+    const errorMessage = '❌ Erro ao buscar placas da API. Por favor, digite 0 para voltar ao menu e tente novamente.';
     
     await supabase
       .from('messages')
