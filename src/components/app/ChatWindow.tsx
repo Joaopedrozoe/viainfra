@@ -198,9 +198,15 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
 
         // Se for conversa de WhatsApp, enviar também via Evolution API
         if (conversationChannel === 'whatsapp') {
-          console.log('Enviando mensagem para WhatsApp...');
+          console.log('🔵 [WhatsApp] Tentando enviar mensagem via Evolution API...', {
+            conversationId,
+            messageLength: content.length,
+            timestamp: new Date().toISOString()
+          });
+          
           try {
-            const { error: whatsappError } = await supabase.functions.invoke(
+            const startTime = Date.now();
+            const { data: response, error: whatsappError } = await supabase.functions.invoke(
               'send-whatsapp-message',
               {
                 body: {
@@ -210,14 +216,34 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
               }
             );
 
+            const duration = Date.now() - startTime;
+
             if (whatsappError) {
-              console.error('Erro ao enviar para WhatsApp:', whatsappError);
+              console.error('❌ [WhatsApp] Erro ao enviar:', {
+                error: whatsappError,
+                duration: `${duration}ms`,
+                conversationId
+              });
             } else {
-              console.log('Mensagem enviada para WhatsApp com sucesso');
+              console.log('✅ [WhatsApp] Mensagem enviada com sucesso!', {
+                duration: `${duration}ms`,
+                response,
+                conversationId
+              });
             }
           } catch (whatsappError) {
-            console.error('Erro ao chamar função WhatsApp:', whatsappError);
+            console.error('💥 [WhatsApp] Exceção ao chamar função:', {
+              error: whatsappError,
+              message: whatsappError instanceof Error ? whatsappError.message : 'Unknown error',
+              stack: whatsappError instanceof Error ? whatsappError.stack : undefined,
+              conversationId
+            });
           }
+        } else {
+          console.log('ℹ️ [Chat] Canal não é WhatsApp, pulando envio via Evolution API', {
+            channel: conversationChannel,
+            conversationId
+          });
         }
       }
     } catch (error) {
