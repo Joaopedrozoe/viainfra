@@ -150,27 +150,53 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   }, [messages]);
   
   const handleSendMessage = useCallback(async (content: string) => {
-    if (!conversationId) return;
+    console.log('🚀 [SEND] Iniciando envio de mensagem:', { conversationId, content });
+    
+    if (!conversationId) {
+      console.error('❌ [SEND] Sem conversationId');
+      return;
+    }
 
     try {
       // Buscar profile do usuário autenticado
-      const { data: { user: authUser } } = await supabase.auth.getUser();
+      console.log('🔍 [SEND] Buscando usuário autenticado...');
+      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+      
+      console.log('✅ [SEND] AuthUser:', { 
+        hasUser: !!authUser, 
+        userId: authUser?.id,
+        email: authUser?.email,
+        authError 
+      });
       
       if (!authUser) {
+        console.error('❌ [SEND] Usuário não autenticado');
         toast.error('Usuário não autenticado');
         return;
       }
 
-      const { data: currentProfile } = await supabase
+      console.log('🔍 [SEND] Buscando profile para user_id:', authUser.id);
+      const { data: currentProfile, error: profileError } = await supabase
         .from('profiles')
-        .select('id, name, email')
+        .select('id, name, email, user_id')
         .eq('user_id', authUser.id)
         .single();
 
+      console.log('✅ [SEND] Profile resultado:', { 
+        hasProfile: !!currentProfile, 
+        profileId: currentProfile?.id,
+        profileName: currentProfile?.name,
+        profileEmail: currentProfile?.email,
+        profileError 
+      });
+
       if (!currentProfile) {
-        toast.error('Perfil não encontrado');
+        console.error('❌ [SEND] Perfil não encontrado');
+        toast.error('Perfil não encontrado. Por favor, faça logout e login novamente.');
         return;
       }
+      
+      console.log('✅ [SEND] Profile encontrado! Continuando com sender_id:', currentProfile.id);
       // Criar ID único para a mensagem
       const tempId = `temp-${Date.now()}`;
       
@@ -204,6 +230,14 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       });
 
       // Inserir mensagem no banco
+      console.log('💾 [SEND] Inserindo mensagem no banco:', {
+        conversation_id: conversationId,
+        sender_type: 'agent',
+        sender_id: currentProfile.id,
+        sender_name: currentProfile.name,
+        content_preview: content.substring(0, 50)
+      });
+      
       const { data, error } = await supabase
         .from('messages')
         .insert({
@@ -214,6 +248,13 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         })
         .select()
         .single();
+
+      console.log('💾 [SEND] Resultado da inserção:', { 
+        hasData: !!data, 
+        messageId: data?.id,
+        messageSenderId: data?.sender_id,
+        error 
+      });
 
       if (error) {
         console.error('❌ Erro ao inserir mensagem:', error);
