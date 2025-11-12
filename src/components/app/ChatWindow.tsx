@@ -149,36 +149,51 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   }, [messages]);
   
   const handleSendMessage = useCallback(async (content: string) => {
-    if (!conversationId) return;
+    console.log('🚀 [START] handleSendMessage chamado!', { conversationId, content });
+    
+    if (!conversationId) {
+      console.error('❌ [STOP] Sem conversationId');
+      return;
+    }
 
     try {
-      // SOLUÇÃO: Buscar profile do usuário logado DIRETAMENTE do banco
-      const { data: { user: authUser } } = await supabase.auth.getUser();
+      // Tentar buscar profile do usuário logado
+      let currentProfileId: string | null = null;
       
-      if (!authUser) {
-        console.error('❌ [ERROR] No authenticated user found!');
-        return;
+      try {
+        console.log('🔍 Buscando usuário autenticado...');
+        const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+        
+        console.log('🔍 Resultado auth:', { hasUser: !!authUser, authError });
+        
+        if (authUser) {
+          console.log('🔍 Buscando profile para user_id:', authUser.id);
+          const { data: currentProfile, error: profileError } = await supabase
+            .from('profiles')
+            .select('id, name, email, user_id')
+            .eq('user_id', authUser.id)
+            .maybeSingle();
+
+          console.log('🔍 Resultado profile:', { 
+            hasProfile: !!currentProfile, 
+            profileData: currentProfile,
+            profileError 
+          });
+
+          if (currentProfile) {
+            currentProfileId = currentProfile.id;
+            console.log('✅ Profile encontrado:', currentProfile);
+          } else {
+            console.warn('⚠️ Profile não encontrado');
+          }
+        } else {
+          console.warn('⚠️ Usuário não autenticado');
+        }
+      } catch (profileErr) {
+        console.error('⚠️ Erro ao buscar profile:', profileErr);
       }
 
-      // Buscar profile usando o user_id do auth
-      const { data: currentProfile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, name, email')
-        .eq('user_id', authUser.id)
-        .single();
-
-      if (profileError || !currentProfile) {
-        console.error('❌ [ERROR] Failed to fetch profile:', profileError);
-        return;
-      }
-
-      console.log('✅ [SUCCESS] Profile loaded:', {
-        profileId: currentProfile.id,
-        profileName: currentProfile.name,
-        profileEmail: currentProfile.email,
-        authUserId: authUser.id
-      });
-
+      console.log('📝 Criando mensagem temporária...');
       // Criar ID único para a mensagem
       const tempId = `temp-${Date.now()}`;
       
@@ -211,13 +226,13 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         usingChannel: currentChannel
       });
 
-      // Enviar mensagem para o banco com o profile_id correto
+      // Enviar mensagem para o banco (com ou sem sender_id)
       const { data, error } = await supabase
         .from('messages')
         .insert({
           conversation_id: conversationId,
           sender_type: 'agent',
-          sender_id: currentProfile.id, // USANDO O ID DO PROFILE BUSCADO DIRETAMENTE
+          sender_id: currentProfileId, // Pode ser null se não encontrou
           content,
         })
         .select()
