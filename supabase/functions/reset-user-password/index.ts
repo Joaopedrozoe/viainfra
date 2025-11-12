@@ -12,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { email, password } = await req.json();
+    const { email, password, newEmail } = await req.json();
 
     if (!email || !password) {
       throw new Error('Email and password are required');
@@ -43,10 +43,15 @@ serve(async (req) => {
       throw new Error(`User with email ${email} not found`);
     }
 
-    // Update user password
+    // Update user password and email if provided
+    const updatePayload: any = { password };
+    if (newEmail) {
+      updatePayload.email = newEmail;
+    }
+
     const { data: updateData, error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
       user.id,
-      { password }
+      updatePayload
     );
 
     if (updateError) {
@@ -56,8 +61,11 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         success: true, 
-        message: `Password updated for ${email}`,
-        userId: user.id 
+        message: newEmail 
+          ? `Password and email updated for ${email} -> ${newEmail}`
+          : `Password updated for ${email}`,
+        userId: user.id,
+        newEmail: newEmail || email
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
