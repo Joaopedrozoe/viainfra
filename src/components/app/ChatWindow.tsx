@@ -154,6 +154,19 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     if (!conversationId) return;
 
     try {
+      // DEBUG: Log profile state
+      console.log('🔍 [DEBUG] Profile state when sending message:', {
+        hasProfile: !!profile,
+        profileId: profile?.id,
+        profileName: profile?.name,
+        profileEmail: profile?.email
+      });
+
+      if (!profile?.id) {
+        console.error('❌ [ERROR] Profile ID is missing! Cannot send message.');
+        return;
+      }
+
       // Criar ID único para a mensagem
       const tempId = `temp-${Date.now()}`;
       
