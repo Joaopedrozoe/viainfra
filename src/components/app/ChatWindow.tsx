@@ -160,10 +160,29 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         id: tempId,
         content,
         sender: "agent",
-        timestamp: new Date().toISOString() // Data completa
+        timestamp: new Date().toISOString()
       };
       
       setMessages(prev => [...prev, tempMessage]);
+
+      // CRITICAL: Buscar canal da conversa DIRETAMENTE do banco para garantir que está atualizado
+      const { data: conversationData, error: convError } = await supabase
+        .from('conversations')
+        .select('channel')
+        .eq('id', conversationId)
+        .single();
+
+      if (convError) {
+        console.error('❌ Erro ao buscar canal da conversa:', convError);
+      }
+
+      const currentChannel = conversationData?.channel || conversationChannel;
+      console.log('📡 [Send] Canal da conversa:', {
+        conversationId,
+        channelFromDB: conversationData?.channel,
+        channelFromState: conversationChannel,
+        usingChannel: currentChannel
+      });
 
       // Enviar mensagem para o banco
       const { data, error } = await supabase
@@ -177,8 +196,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         .single();
 
       if (error) {
-        console.error('Erro ao inserir mensagem:', error);
-        // Remover mensagem temporária em caso de erro
+        console.error('❌ Erro ao inserir mensagem:', error);
         setMessages(prev => prev.filter(msg => msg.id !== tempId));
         return;
       }
@@ -191,16 +209,17 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
                 id: data.id,
                 content: data.content,
                 sender: 'agent',
-                timestamp: data.created_at // Data completa
+                timestamp: data.created_at
               }
             : msg
         ));
 
-        // Se for conversa de WhatsApp, enviar também via Evolution API
-        if (conversationChannel === 'whatsapp') {
-          console.log('🔵 [WhatsApp] Tentando enviar mensagem via Evolution API...', {
+        // GARANTIR envio via WhatsApp se o canal for whatsapp
+        if (currentChannel === 'whatsapp') {
+          console.log('🔵 [WhatsApp] Enviando mensagem via Evolution API...', {
             conversationId,
-            messageLength: content.length,
+            messageId: data.id,
+            contentLength: content.length,
             timestamp: new Date().toISOString()
           });
           
@@ -222,13 +241,15 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
               console.error('❌ [WhatsApp] Erro ao enviar:', {
                 error: whatsappError,
                 duration: `${duration}ms`,
-                conversationId
+                conversationId,
+                messageId: data.id
               });
             } else {
               console.log('✅ [WhatsApp] Mensagem enviada com sucesso!', {
                 duration: `${duration}ms`,
                 response,
-                conversationId
+                conversationId,
+                messageId: data.id
               });
             }
           } catch (whatsappError) {
@@ -236,18 +257,19 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
               error: whatsappError,
               message: whatsappError instanceof Error ? whatsappError.message : 'Unknown error',
               stack: whatsappError instanceof Error ? whatsappError.stack : undefined,
-              conversationId
+              conversationId,
+              messageId: data.id
             });
           }
         } else {
           console.log('ℹ️ [Chat] Canal não é WhatsApp, pulando envio via Evolution API', {
-            channel: conversationChannel,
+            channel: currentChannel,
             conversationId
           });
         }
       }
     } catch (error) {
-      console.error('Erro ao enviar mensagem:', error);
+      console.error('💥 Erro geral ao enviar mensagem:', error);
     }
   }, [conversationId, conversationChannel]);
 
