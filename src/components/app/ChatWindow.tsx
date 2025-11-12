@@ -6,6 +6,7 @@ import { Message, ChatWindowProps } from "./chat/types";
 import { Channel } from "@/types/conversation";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: ChatWindowProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -149,51 +150,27 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   }, [messages]);
   
   const handleSendMessage = useCallback(async (content: string) => {
-    console.log('🚀 [START] handleSendMessage chamado!', { conversationId, content });
-    
-    if (!conversationId) {
-      console.error('❌ [STOP] Sem conversationId');
-      return;
-    }
+    if (!conversationId) return;
 
     try {
-      // Tentar buscar profile do usuário logado
-      let currentProfileId: string | null = null;
+      // Buscar profile do usuário autenticado
+      const { data: { user: authUser } } = await supabase.auth.getUser();
       
-      try {
-        console.log('🔍 Buscando usuário autenticado...');
-        const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
-        
-        console.log('🔍 Resultado auth:', { hasUser: !!authUser, authError });
-        
-        if (authUser) {
-          console.log('🔍 Buscando profile para user_id:', authUser.id);
-          const { data: currentProfile, error: profileError } = await supabase
-            .from('profiles')
-            .select('id, name, email, user_id')
-            .eq('user_id', authUser.id)
-            .maybeSingle();
-
-          console.log('🔍 Resultado profile:', { 
-            hasProfile: !!currentProfile, 
-            profileData: currentProfile,
-            profileError 
-          });
-
-          if (currentProfile) {
-            currentProfileId = currentProfile.id;
-            console.log('✅ Profile encontrado:', currentProfile);
-          } else {
-            console.warn('⚠️ Profile não encontrado');
-          }
-        } else {
-          console.warn('⚠️ Usuário não autenticado');
-        }
-      } catch (profileErr) {
-        console.error('⚠️ Erro ao buscar profile:', profileErr);
+      if (!authUser) {
+        toast.error('Usuário não autenticado');
+        return;
       }
 
-      console.log('📝 Criando mensagem temporária...');
+      const { data: currentProfile } = await supabase
+        .from('profiles')
+        .select('id, name, email')
+        .eq('user_id', authUser.id)
+        .single();
+
+      if (!currentProfile) {
+        toast.error('Perfil não encontrado');
+        return;
+      }
       // Criar ID único para a mensagem
       const tempId = `temp-${Date.now()}`;
       
@@ -226,13 +203,13 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         usingChannel: currentChannel
       });
 
-      // Enviar mensagem para o banco (com ou sem sender_id)
+      // Inserir mensagem no banco
       const { data, error } = await supabase
         .from('messages')
         .insert({
           conversation_id: conversationId,
           sender_type: 'agent',
-          sender_id: currentProfileId, // Pode ser null se não encontrou
+          sender_id: currentProfile.id,
           content,
         })
         .select()

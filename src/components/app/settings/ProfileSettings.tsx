@@ -8,6 +8,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/contexts/auth";
 import { toast } from "sonner";
 import { Camera, Eye, EyeOff } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 export const ProfileSettings = () => {
   const { profile } = useAuth();
@@ -49,14 +50,48 @@ export const ProfileSettings = () => {
       return;
     }
 
+    if (!profile?.id) {
+      toast.error("Perfil não encontrado");
+      return;
+    }
+
     setIsLoading(true);
     
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
+      
+      // Atualizar perfil no Supabase
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          name: fullName,
+          email: email.trim(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', profile.id);
+
+      if (profileError) throw profileError;
+
+      // Atualizar email no Auth se mudou
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user && user.email !== email.trim()) {
+        const { error: authError } = await supabase.auth.updateUser({
+          email: email.trim(),
+        });
+        
+        if (authError) {
+          console.warn('Aviso ao atualizar email no auth:', authError);
+          toast.success("Perfil atualizado! Verifique seu email para confirmar a alteração.");
+          return;
+        }
+      }
       
       toast.success("Perfil atualizado com sucesso!");
+      
+      // Recarregar a página para atualizar o contexto
+      setTimeout(() => window.location.reload(), 1500);
     } catch (error) {
+      console.error('Erro ao atualizar perfil:', error);
       toast.error("Erro ao atualizar perfil");
     } finally {
       setIsLoading(false);
@@ -87,15 +122,20 @@ export const ProfileSettings = () => {
     setIsLoading(true);
     
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Atualizar senha no Supabase Auth
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+
+      if (error) throw error;
       
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
       toast.success("Senha alterada com sucesso!");
-    } catch (error) {
-      toast.error("Erro ao alterar senha");
+    } catch (error: any) {
+      console.error('Erro ao alterar senha:', error);
+      toast.error(error.message || "Erro ao alterar senha");
     } finally {
       setIsLoading(false);
     }
