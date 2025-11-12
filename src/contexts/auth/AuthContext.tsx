@@ -25,14 +25,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const initializeAuth = async () => {
     try {
+      console.log('🔐 [AuthContext] Initializing auth...');
       const { data: { session } } = await supabase.auth.getSession();
       
+      console.log('🔐 [AuthContext] Session:', {
+        hasSession: !!session,
+        userId: session?.user?.id,
+        email: session?.user?.email
+      });
+      
       if (session?.user) {
-        const { data: profileData } = await supabase
+        const { data: profileData, error: profileError } = await supabase
           .from('profiles')
           .select('*, companies(*)')
           .eq('user_id', session.user.id)
           .single();
+
+        console.log('🔐 [AuthContext] Profile query result:', {
+          hasProfileData: !!profileData,
+          profileId: profileData?.id,
+          profileName: profileData?.name,
+          profileEmail: profileData?.email,
+          error: profileError
+        });
 
         if (profileData) {
           setUser({
@@ -43,22 +58,36 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             updated_at: profileData.updated_at,
           });
           
-          setProfile({
+          const newProfile = {
             ...profileData,
             role: profileData.role as 'admin' | 'user' | 'manager',
             permissions: (profileData.permissions as any) || [],
+          };
+          
+          console.log('🔐 [AuthContext] Setting profile:', {
+            id: newProfile.id,
+            name: newProfile.name,
+            email: newProfile.email,
+            role: newProfile.role
           });
+          
+          setProfile(newProfile);
           setCompany({
             ...profileData.companies,
             plan: profileData.companies.plan as 'free' | 'pro' | 'enterprise',
             settings: (profileData.companies.settings as any) || {},
           });
+        } else {
+          console.error('❌ [AuthContext] No profile data found for user:', session.user.id);
         }
+      } else {
+        console.log('🔐 [AuthContext] No session found');
       }
     } catch (error) {
-      console.error('Failed to initialize auth:', error);
+      console.error('❌ [AuthContext] Failed to initialize auth:', error);
     } finally {
       setIsLoading(false);
+      console.log('🔐 [AuthContext] Auth initialization complete');
     }
   };
 
