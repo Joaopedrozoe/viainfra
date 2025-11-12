@@ -6,7 +6,6 @@ import { Message, ChatWindowProps } from "./chat/types";
 import { Channel } from "@/types/conversation";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/contexts/AuthContext";
 
 export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: ChatWindowProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -14,7 +13,6 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   const [conversationChannel, setConversationChannel] = useState<Channel>("web");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
-  const { profile } = useAuth();
   
   useEffect(() => {
     if (conversationId) {
@@ -154,18 +152,32 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     if (!conversationId) return;
 
     try {
-      // DEBUG: Log profile state
-      console.log('🔍 [DEBUG] Profile state when sending message:', {
-        hasProfile: !!profile,
-        profileId: profile?.id,
-        profileName: profile?.name,
-        profileEmail: profile?.email
-      });
-
-      if (!profile?.id) {
-        console.error('❌ [ERROR] Profile ID is missing! Cannot send message.');
+      // SOLUÇÃO: Buscar profile do usuário logado DIRETAMENTE do banco
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      
+      if (!authUser) {
+        console.error('❌ [ERROR] No authenticated user found!');
         return;
       }
+
+      // Buscar profile usando o user_id do auth
+      const { data: currentProfile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, name, email')
+        .eq('user_id', authUser.id)
+        .single();
+
+      if (profileError || !currentProfile) {
+        console.error('❌ [ERROR] Failed to fetch profile:', profileError);
+        return;
+      }
+
+      console.log('✅ [SUCCESS] Profile loaded:', {
+        profileId: currentProfile.id,
+        profileName: currentProfile.name,
+        profileEmail: currentProfile.email,
+        authUserId: authUser.id
+      });
 
       // Criar ID único para a mensagem
       const tempId = `temp-${Date.now()}`;
@@ -199,13 +211,13 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         usingChannel: currentChannel
       });
 
-      // Enviar mensagem para o banco
+      // Enviar mensagem para o banco com o profile_id correto
       const { data, error } = await supabase
         .from('messages')
         .insert({
           conversation_id: conversationId,
           sender_type: 'agent',
-          sender_id: profile?.id || null,
+          sender_id: currentProfile.id, // USANDO O ID DO PROFILE BUSCADO DIRETAMENTE
           content,
         })
         .select()
