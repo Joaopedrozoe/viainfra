@@ -6,6 +6,7 @@ import { Message, ChatWindowProps } from "./chat/types";
 import { Channel } from "@/types/conversation";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: ChatWindowProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -13,6 +14,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   const [conversationChannel, setConversationChannel] = useState<Channel>("web");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const { profile } = useAuth();
   
   useEffect(() => {
     if (conversationId) {
@@ -190,6 +192,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         .insert({
           conversation_id: conversationId,
           sender_type: 'agent',
+          sender_id: profile?.id || null,
           content,
         })
         .select()
