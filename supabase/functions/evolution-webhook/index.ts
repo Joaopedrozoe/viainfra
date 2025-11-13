@@ -75,7 +75,7 @@ serve(async (req) => {
     
     switch (eventType) {
       case 'MESSAGES_UPSERT':
-        await processNewMessage(supabase, webhook);
+        await processNewMessage(supabase, webhook, payload);
         break;
       case 'CONNECTION_UPDATE':
         await processConnectionUpdate(supabase, webhook);
@@ -111,10 +111,17 @@ function parseWebhookPayload(payload: any): EvolutionWebhook | null {
   }
 }
 
-async function processNewMessage(supabase: any, webhook: EvolutionWebhook) {
+async function processNewMessage(supabase: any, webhook: EvolutionWebhook, payload?: any) {
   console.log('Processing new message...');
   console.log('Webhook data type:', typeof webhook.data);
   console.log('Webhook data:', JSON.stringify(webhook.data, null, 2));
+  
+  // Extract real phone from sender field (only available when @lid is used)
+  let senderPhone = null;
+  if (payload?.sender) {
+    senderPhone = extractPhoneNumber(payload.sender);
+    console.log(`🔍 Real sender phone from payload: ${senderPhone}`);
+  }
   
   // Handle both array and single object formats
   let messagesArray = [];
@@ -156,14 +163,26 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook) {
       continue;
     }
 
-    const phoneNumber = extractPhoneNumber(message.key.remoteJid);
+    const remoteJid = message.key.remoteJid;
+    const isLidFormat = remoteJid.includes('@lid');
+    
+    // For @lid contacts, use the sender phone from payload
+    // For normal contacts, extract from remoteJid
+    let phoneNumber = '';
+    if (isLidFormat && senderPhone) {
+      phoneNumber = senderPhone;
+      console.log(`📱 Using sender phone for @lid contact: ${phoneNumber}`);
+    } else if (!isLidFormat) {
+      phoneNumber = extractPhoneNumber(remoteJid);
+      console.log(`📱 Extracted phone from remoteJid: ${phoneNumber}`);
+    } else {
+      console.warn(`⚠️ No phone number available for @lid contact without sender field`);
+    }
+    
     const messageContent = extractMessageContent(message);
     const contactName = message.pushName || phoneNumber || 'Sem Nome';
-    const remoteJid = message.key.remoteJid; // Salvar o remoteJid completo
 
     console.log(`Processing message from ${phoneNumber || 'NO_PHONE'} (remoteJid: ${remoteJid}): ${messageContent}`);
-    console.log(`Extracted phoneNumber: "${phoneNumber}" - IsEmpty: ${!phoneNumber}`);
-
 
     // Get or create contact
     const contact = await getOrCreateContact(supabase, phoneNumber, contactName, remoteJid);
@@ -850,18 +869,28 @@ async function sendEvolutionMessage(supabase: any, conversationId: string, insta
 }
 
 function extractPhoneNumber(remoteJid: string): string {
-  // Extract phone number from any remoteJid format
-  // Supports: @s.whatsapp.net, @c.us, @lid, etc.
-  const phoneMatch = remoteJid.match(/^(\d+)@/);
-  if (phoneMatch) {
-    return phoneMatch[1];
+  // NEVER extract phone from @lid - it's not a real phone number
+  if (remoteJid.includes('@lid')) {
+    return '';
   }
   
-  // Fallback: just remove known suffixes
-  return remoteJid
-    .replace('@s.whatsapp.net', '')
-    .replace('@c.us', '')
-    .replace('@lid', '');
+  // Extract phone number from valid WhatsApp formats only
+  // Supports: @s.whatsapp.net, @c.us
+  const phoneMatch = remoteJid.match(/^(\d+)@/);
+  if (phoneMatch) {
+    const phone = phoneMatch[1];
+    // Validate: Brazilian phones should start with 55 and be reasonable length
+    if (phone.startsWith('55') && phone.length >= 12) {
+      return phone;
+    }
+    // For other valid WhatsApp formats, return as-is
+    if (remoteJid.includes('@s.whatsapp.net') || remoteJid.includes('@c.us')) {
+      return phone;
+    }
+  }
+  
+  // No valid phone found
+  return '';
 }
 
 function extractMessageContent(message: EvolutionMessage): string {
