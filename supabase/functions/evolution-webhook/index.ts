@@ -850,14 +850,18 @@ async function sendEvolutionMessage(supabase: any, conversationId: string, insta
 }
 
 function extractPhoneNumber(remoteJid: string): string {
-  // For @lid (Instagram/Facebook channels), return empty string as it's not a phone number
-  if (remoteJid.includes('@lid')) {
-    return '';
+  // Extract phone number from any remoteJid format
+  // Supports: @s.whatsapp.net, @c.us, @lid, etc.
+  const phoneMatch = remoteJid.match(/^(\d+)@/);
+  if (phoneMatch) {
+    return phoneMatch[1];
   }
   
+  // Fallback: just remove known suffixes
   return remoteJid
     .replace('@s.whatsapp.net', '')
-    .replace('@c.us', '');
+    .replace('@c.us', '')
+    .replace('@lid', '');
 }
 
 function extractMessageContent(message: EvolutionMessage): string {
