@@ -247,7 +247,7 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
       .eq('phone', phoneNumber)
       .maybeSingle();
 
-    if (existingByPhone) {
+  if (existingByPhone) {
       console.log('✅ Found existing contact by phone:', existingByPhone.id);
       // Update metadata with new remoteJid if different
       const currentRemoteJid = existingByPhone.metadata?.remoteJid;
@@ -276,9 +276,10 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
   if (existingByRemoteJid) {
     console.log('✅ Found existing contact by remoteJid:', existingByRemoteJid.id);
     
-    // CRITICAL: Update phone if we now have it and contact doesn't
-    if (phoneNumber && !existingByRemoteJid.phone) {
-      console.log(`📞 Updating contact ${existingByRemoteJid.id} with phone: ${phoneNumber}`);
+    // CRITICAL: ALWAYS update phone if we have a valid one (even if contact has one already)
+    // This fixes @lid contacts that may have wrong/empty phones
+    if (phoneNumber && phoneNumber.startsWith('55')) {
+      console.log(`📞 Updating contact ${existingByRemoteJid.id} with phone: ${phoneNumber} (old: ${existingByRemoteJid.phone || 'empty'})`);
       const { error: updateError } = await supabase
         .from('contacts')
         .update({ 
