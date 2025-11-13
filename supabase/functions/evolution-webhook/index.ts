@@ -116,13 +116,6 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
   console.log('Webhook data type:', typeof webhook.data);
   console.log('Webhook data:', JSON.stringify(webhook.data, null, 2));
   
-  // Extract real phone from sender field (only available when @lid is used)
-  let senderPhone = null;
-  if (payload?.sender) {
-    senderPhone = extractPhoneNumber(payload.sender);
-    console.log(`🔍 Real sender phone from payload: ${senderPhone}`);
-  }
-  
   // Handle both array and single object formats
   let messagesArray = [];
   
@@ -166,17 +159,15 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     const remoteJid = message.key.remoteJid;
     const isLidFormat = remoteJid.includes('@lid');
     
-    // For @lid contacts, use the sender phone from payload
-    // For normal contacts, extract from remoteJid
+    // CRITICAL: ALWAYS extract phone from remoteJid - it's the ONLY reliable source
+    // When message is RECEIVED (fromMe: false), remoteJid = sender's number
+    // NEVER use payload.sender as it can contain the INSTANCE number
     let phoneNumber = '';
-    if (isLidFormat && senderPhone) {
-      phoneNumber = senderPhone;
-      console.log(`📱 Using sender phone for @lid contact: ${phoneNumber}`);
-    } else if (!isLidFormat) {
+    if (!isLidFormat) {
       phoneNumber = extractPhoneNumber(remoteJid);
       console.log(`📱 Extracted phone from remoteJid: ${phoneNumber}`);
     } else {
-      console.warn(`⚠️ No phone number available for @lid contact without sender field`);
+      console.warn(`⚠️ Contact using @lid format - no phone available from remoteJid: ${remoteJid}`);
     }
     
     const messageContent = extractMessageContent(message);
