@@ -153,13 +153,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (error) throw error;
 
       if (data.user) {
-        const { data: profileData } = await supabase
+        // Buscar todos os perfis do usuário
+        const { data: allProfiles } = await supabase
           .from('profiles')
           .select('*, companies(*)')
-          .eq('user_id', data.user.id)
-          .single();
+          .eq('user_id', data.user.id);
 
-        if (profileData) {
+        if (allProfiles && allProfiles.length > 0) {
+          // Usar o primeiro perfil como padrão
+          const profileData = allProfiles[0];
+          
+          // Armazenar todos os perfis
+          setUserProfiles(allProfiles.map(p => ({
+            ...p,
+            role: p.role as 'admin' | 'user' | 'manager',
+            permissions: (p.permissions as any) || [],
+            companies: p.companies ? {
+              ...p.companies,
+              plan: p.companies.plan as 'free' | 'pro' | 'enterprise',
+              settings: (p.companies.settings as any) || {},
+            } : undefined,
+          })));
+          
           setUser({
             id: data.user.id,
             email: data.user.email!,
@@ -178,6 +193,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               settings: (profileData.companies.settings as any) || {},
             } : undefined,
           });
+          
           setCompany({
             ...profileData.companies,
             plan: profileData.companies.plan as 'free' | 'pro' | 'enterprise',
