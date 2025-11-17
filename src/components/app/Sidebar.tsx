@@ -39,14 +39,20 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { StatusSelector } from "@/components/app/StatusSelector";
+import { CompanySwitcher } from "@/components/app/CompanySwitcher";
 
 
 export const AppSidebar = () => {
   const { state } = useSidebar();
   const location = useLocation();
-  const { profile, signOut } = useAuth();
+  const { profile, company, userProfiles, switchCompany, signOut } = useAuth();
   const { hasFeature } = usePlanPermissions();
   const collapsed = state === "collapsed";
+  
+  const companies = userProfiles.map(p => ({
+    id: p.company_id,
+    name: p.companies?.name || 'Empresa'
+  }));
   
   const isActive = (path: string) => location.pathname === path;
 
@@ -96,6 +102,17 @@ export const AppSidebar = () => {
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupContent>
+            {companies.length > 1 && (
+              <div className="px-2 mb-2">
+                <CompanySwitcher 
+                  companies={companies}
+                  currentCompanyId={company?.id || null}
+                  onCompanyChange={switchCompany}
+                  collapsed={collapsed}
+                />
+              </div>
+            )}
+            
             {!collapsed && (
               <div className="px-2 mb-4 space-y-2">
                 <DropdownMenu>
