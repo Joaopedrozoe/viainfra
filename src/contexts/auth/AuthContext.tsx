@@ -26,7 +26,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Aplicar tema baseado na empresa
   useEffect(() => {
-    if (company?.name === 'VIALOGISTIC') {
+    if (company?.name?.toUpperCase() === 'VIALOGISTIC') {
       document.body.setAttribute('data-theme', 'vialogistic');
     } else {
       document.body.removeAttribute('data-theme');
@@ -66,8 +66,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (allProfiles && allProfiles.length > 0) {
           // Ordenar perfis: VIAINFRA primeiro, depois outros
           const sortedProfiles = [...allProfiles].sort((a, b) => {
-            if (a.companies?.name === 'VIAINFRA') return -1;
-            if (b.companies?.name === 'VIAINFRA') return 1;
+            const aName = a.companies?.name?.toUpperCase();
+            const bName = b.companies?.name?.toUpperCase();
+            if (aName === 'VIAINFRA') return -1;
+            if (bName === 'VIAINFRA') return 1;
             return 0;
           });
           
@@ -199,8 +201,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (allProfiles && allProfiles.length > 0) {
           // Ordenar perfis: VIAINFRA primeiro, depois outros
           const sortedProfiles = [...allProfiles].sort((a, b) => {
-            if (a.companies?.name === 'VIAINFRA') return -1;
-            if (b.companies?.name === 'VIAINFRA') return 1;
+            const aName = a.companies?.name?.toUpperCase();
+            const bName = b.companies?.name?.toUpperCase();
+            if (aName === 'VIAINFRA') return -1;
+            if (bName === 'VIAINFRA') return 1;
             return 0;
           });
           

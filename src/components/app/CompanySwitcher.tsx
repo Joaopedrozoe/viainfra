@@ -30,8 +30,10 @@ export const CompanySwitcher = ({
   
   // Ordenar empresas: VIAINFRA primeiro, depois outras
   const sortedCompanies = [...companies].sort((a, b) => {
-    if (a.name === 'VIAINFRA') return -1;
-    if (b.name === 'VIAINFRA') return 1;
+    const aName = a.name?.toUpperCase();
+    const bName = b.name?.toUpperCase();
+    if (aName === 'VIAINFRA') return -1;
+    if (bName === 'VIAINFRA') return 1;
     return 0;
   });
 
