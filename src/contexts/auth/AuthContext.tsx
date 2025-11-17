@@ -21,6 +21,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [company, setCompany] = useState<Company | null>(null);
+  const [userProfiles, setUserProfiles] = useState<Profile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const initializeAuth = async () => {
@@ -35,21 +36,40 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       });
       
       if (session?.user) {
-        const { data: profileData, error: profileError } = await supabase
+        // Buscar todos os perfis do usuário
+        const { data: allProfiles, error: profilesError } = await supabase
           .from('profiles')
           .select('*, companies(*)')
-          .eq('user_id', session.user.id)
-          .single();
+          .eq('user_id', session.user.id);
 
-        console.log('🔐 [AuthContext] Profile query result:', {
-          hasProfileData: !!profileData,
-          profileId: profileData?.id,
-          profileName: profileData?.name,
-          profileEmail: profileData?.email,
-          error: profileError
+        console.log('🔐 [AuthContext] Profiles query result:', {
+          profilesCount: allProfiles?.length || 0,
+          error: profilesError
         });
 
-        if (profileData) {
+        if (allProfiles && allProfiles.length > 0) {
+          // Usar o primeiro perfil como padrão
+          const profileData = allProfiles[0];
+          
+          setUserProfiles(allProfiles.map(p => ({
+            ...p,
+            role: p.role as 'admin' | 'user' | 'manager',
+            permissions: (p.permissions as any) || [],
+            companies: p.companies ? {
+              ...p.companies,
+              plan: p.companies.plan as 'free' | 'pro' | 'enterprise',
+              settings: (p.companies.settings as any) || {},
+            } : undefined,
+          })));
+
+          console.log('🔐 [AuthContext] Profile query result:', {
+            hasProfileData: !!profileData,
+            profileId: profileData?.id,
+            profileName: profileData?.name,
+            profileEmail: profileData?.email,
+          });
+
+          if (profileData) {
           setUser({
             id: session.user.id,
             email: session.user.email!,
@@ -58,10 +78,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             updated_at: profileData.updated_at,
           });
           
-          const newProfile = {
+          const newProfile: Profile = {
             ...profileData,
             role: profileData.role as 'admin' | 'user' | 'manager',
             permissions: (profileData.permissions as any) || [],
+            companies: profileData.companies ? {
+              ...profileData.companies,
+              plan: profileData.companies.plan as 'free' | 'pro' | 'enterprise',
+              settings: (profileData.companies.settings as any) || {},
+            } : undefined,
           };
           
           console.log('🔐 [AuthContext] Setting profile:', {
@@ -77,6 +102,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             plan: profileData.companies.plan as 'free' | 'pro' | 'enterprise',
             settings: (profileData.companies.settings as any) || {},
           });
+          }
         } else {
           console.error('❌ [AuthContext] No profile data found for user:', session.user.id);
         }
@@ -99,6 +125,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setUser(null);
         setProfile(null);
         setCompany(null);
+        setUserProfiles([]);
       } else if (event === 'SIGNED_IN' && session) {
         initializeAuth();
       }
@@ -136,6 +163,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             ...profileData,
             role: profileData.role as 'admin' | 'user' | 'manager',
             permissions: (profileData.permissions as any) || [],
+            companies: profileData.companies ? {
+              ...profileData.companies,
+              plan: profileData.companies.plan as 'free' | 'pro' | 'enterprise',
+              settings: (profileData.companies.settings as any) || {},
+            } : undefined,
           });
           setCompany({
             ...profileData.companies,
@@ -203,9 +235,40 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setUser(null);
       setProfile(null);
       setCompany(null);
+      setUserProfiles([]);
       toast.success('Logout realizado com sucesso!');
     } catch (error) {
       console.error('Sign out error:', error);
+    }
+  };
+
+  const switchCompany = async (companyId: string) => {
+    try {
+      const selectedProfile = userProfiles.find(p => p.company_id === companyId);
+      
+      if (!selectedProfile) {
+        toast.error('Perfil não encontrado');
+        return;
+      }
+
+      const { data: companyData } = await supabase
+        .from('companies')
+        .select('*')
+        .eq('id', companyId)
+        .single();
+
+      if (companyData) {
+        setProfile(selectedProfile);
+        setCompany({
+          ...companyData,
+          plan: companyData.plan as 'free' | 'pro' | 'enterprise',
+          settings: (companyData.settings as any) || {},
+        });
+        toast.success(`Alternado para ${companyData.name}`);
+      }
+    } catch (error) {
+      console.error('Error switching company:', error);
+      toast.error('Erro ao trocar de empresa');
     }
   };
 
@@ -216,6 +279,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     profile,
     company,
     isLoading,
+    userProfiles,
+    switchCompany,
     signIn,
     signUp,
     signOut,

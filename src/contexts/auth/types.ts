@@ -18,6 +18,7 @@ export interface Profile {
   permissions: string[];
   created_at: string;
   updated_at: string;
+  companies?: Company;
 }
 
 export interface Company {
@@ -41,6 +42,8 @@ export interface AuthContextType {
   profile: Profile | null;
   company: Company | null;
   isLoading: boolean;
+  userProfiles: Profile[];
+  switchCompany: (companyId: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name: string) => Promise<any>;
   signOut: () => Promise<void>;
