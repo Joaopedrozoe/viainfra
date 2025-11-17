@@ -91,8 +91,11 @@ export const AppSidebar = () => {
             }`}
           >
             <img 
-              src="/lovable-uploads/c4694f21-258b-4986-8611-4b1b7fb7a727.png" 
-              alt="ViaInfra" 
+              src={company?.name === 'VIALOGISTIC' 
+                ? "/lovable-uploads/vialogistic-logo.png" 
+                : "/lovable-uploads/c4694f21-258b-4986-8611-4b1b7fb7a727.png"
+              } 
+              alt={company?.name || 'Logo'} 
               className={`${collapsed ? 'h-8' : 'h-10'} w-auto transition-all duration-200`}
             />
           </Link>

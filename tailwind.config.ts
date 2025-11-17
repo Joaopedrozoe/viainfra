@@ -29,6 +29,10 @@ export default {
 				'viainfra-secondary': 'hsl(var(--viainfra-secondary))',
 				'viainfra-light': 'hsl(var(--viainfra-light))',
 				'viainfra-accent': 'hsl(var(--viainfra-accent))',
+				'vialogistic-primary': 'hsl(var(--vialogistic-primary))',
+				'vialogistic-secondary': 'hsl(var(--vialogistic-secondary))',
+				'vialogistic-dark': 'hsl(var(--vialogistic-dark))',
+				'vialogistic-accent': 'hsl(var(--vialogistic-accent))',
 				primary: {
 					DEFAULT: 'hsl(var(--primary))',
 					foreground: 'hsl(var(--primary-foreground))'
