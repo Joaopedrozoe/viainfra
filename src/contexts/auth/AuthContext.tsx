@@ -64,8 +64,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
 
         if (allProfiles && allProfiles.length > 0) {
-          // Usar o primeiro perfil como padrão
-          const profileData = allProfiles[0];
+          // Ordenar perfis: VIAINFRA primeiro, depois outros
+          const sortedProfiles = [...allProfiles].sort((a, b) => {
+            if (a.companies?.name === 'VIAINFRA') return -1;
+            if (b.companies?.name === 'VIAINFRA') return 1;
+            return 0;
+          });
+          
+          // Usar o primeiro perfil (VIAINFRA) como padrão
+          const profileData = sortedProfiles[0];
           
           if (!profileData.companies) {
             console.error('❌ [AuthContext] Profile has no company data:', profileData);
@@ -73,7 +80,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             return;
           }
 
-          setUserProfiles(allProfiles.map(p => ({
+          setUserProfiles(sortedProfiles.map(p => ({
             ...p,
             role: p.role as 'admin' | 'user' | 'manager',
             permissions: (p.permissions as any) || [],
@@ -190,8 +197,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
 
         if (allProfiles && allProfiles.length > 0) {
-          // Usar o primeiro perfil como padrão
-          const profileData = allProfiles[0];
+          // Ordenar perfis: VIAINFRA primeiro, depois outros
+          const sortedProfiles = [...allProfiles].sort((a, b) => {
+            if (a.companies?.name === 'VIAINFRA') return -1;
+            if (b.companies?.name === 'VIAINFRA') return 1;
+            return 0;
+          });
+          
+          // Usar o primeiro perfil (VIAINFRA) como padrão
+          const profileData = sortedProfiles[0];
 
           if (!profileData.companies) {
             console.error('❌ [AuthContext] Profile has no company:', profileData);
@@ -199,8 +213,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             throw new Error('Profile without company');
           }
           
-          // Armazenar todos os perfis
-          setUserProfiles(allProfiles.map(p => ({
+          // Armazenar todos os perfis ordenados
+          setUserProfiles(sortedProfiles.map(p => ({
             ...p,
             role: p.role as 'admin' | 'user' | 'manager',
             permissions: (p.permissions as any) || [],

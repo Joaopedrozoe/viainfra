@@ -27,6 +27,13 @@ export const CompanySwitcher = ({
   collapsed = false 
 }: CompanySwitcherProps) => {
   const currentCompany = companies.find(c => c.id === currentCompanyId);
+  
+  // Ordenar empresas: VIAINFRA primeiro, depois outras
+  const sortedCompanies = [...companies].sort((a, b) => {
+    if (a.name === 'VIAINFRA') return -1;
+    if (b.name === 'VIAINFRA') return 1;
+    return 0;
+  });
 
   if (collapsed) {
     return (
@@ -37,7 +44,7 @@ export const CompanySwitcher = ({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-[200px]">
-          {companies.map((company) => (
+          {sortedCompanies.map((company) => (
             <DropdownMenuItem
               key={company.id}
               onClick={() => onCompanyChange(company.id)}
@@ -74,7 +81,7 @@ export const CompanySwitcher = ({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-[200px]">
-        {companies.map((company) => (
+        {sortedCompanies.map((company) => (
           <DropdownMenuItem
             key={company.id}
             onClick={() => onCompanyChange(company.id)}
