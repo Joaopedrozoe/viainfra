@@ -24,6 +24,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [userProfiles, setUserProfiles] = useState<Profile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Aplicar tema baseado na empresa
+  useEffect(() => {
+    if (company?.name === 'VIALOGISTIC') {
+      document.body.setAttribute('data-theme', 'vialogistic');
+    } else {
+      document.body.removeAttribute('data-theme');
+    }
+  }, [company]);
+
   const initializeAuth = async () => {
     try {
       console.log('🔐 [AuthContext] Initializing auth...');
