@@ -7,6 +7,7 @@ import { Channel } from "@/types/conversation";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 
 export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: ChatWindowProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -14,6 +15,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   const [conversationChannel, setConversationChannel] = useState<Channel>("web");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const { profile } = useAuth();
   
   useEffect(() => {
     if (conversationId) {
@@ -157,46 +159,19 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       return;
     }
 
+    if (!profile) {
+      console.error('❌ [SEND] Perfil não disponível no contexto');
+      toast.error('Perfil não encontrado. Por favor, faça logout e login novamente.');
+      return;
+    }
+
     try {
-      // Buscar profile do usuário autenticado
-      console.log('🔍 [SEND] Buscando usuário autenticado...');
-      const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
-      
-      console.log('✅ [SEND] AuthUser:', { 
-        hasUser: !!authUser, 
-        userId: authUser?.id,
-        email: authUser?.email,
-        authError 
+      console.log('✅ [SEND] Usando perfil do contexto:', { 
+        profileId: profile.id,
+        profileName: profile.name,
+        profileEmail: profile.email,
+        companyId: profile.company_id
       });
-      
-      if (!authUser) {
-        console.error('❌ [SEND] Usuário não autenticado');
-        toast.error('Usuário não autenticado');
-        return;
-      }
-
-      console.log('🔍 [SEND] Buscando profile para user_id:', authUser.id);
-      const { data: currentProfile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, name, email, user_id')
-        .eq('user_id', authUser.id)
-        .single();
-
-      console.log('✅ [SEND] Profile resultado:', { 
-        hasProfile: !!currentProfile, 
-        profileId: currentProfile?.id,
-        profileName: currentProfile?.name,
-        profileEmail: currentProfile?.email,
-        profileError 
-      });
-
-      if (!currentProfile) {
-        console.error('❌ [SEND] Perfil não encontrado');
-        toast.error('Perfil não encontrado. Por favor, faça logout e login novamente.');
-        return;
-      }
-      
-      console.log('✅ [SEND] Profile encontrado! Continuando com sender_id:', currentProfile.id);
       // Criar ID único para a mensagem
       const tempId = `temp-${Date.now()}`;
       
@@ -233,8 +208,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       console.log('💾 [SEND] Inserindo mensagem no banco:', {
         conversation_id: conversationId,
         sender_type: 'agent',
-        sender_id: currentProfile.id,
-        sender_name: currentProfile.name,
+        sender_id: profile.id,
+        sender_name: profile.name,
         content_preview: content.substring(0, 50)
       });
       
@@ -243,7 +218,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         .insert({
           conversation_id: conversationId,
           sender_type: 'agent',
-          sender_id: currentProfile.id,
+          sender_id: profile.id,
           content,
         })
         .select()
@@ -332,7 +307,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     } catch (error) {
       console.error('💥 Erro geral ao enviar mensagem:', error);
     }
-  }, [conversationId, conversationChannel]);
+  }, [conversationId, conversationChannel, profile]);
 
   const handleViewContactDetails = useCallback(() => {
     if (conversationId) {
