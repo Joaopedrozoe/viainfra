@@ -53,13 +53,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
         console.log('🔐 [AuthContext] Profiles query result:', {
           profilesCount: allProfiles?.length || 0,
+          profiles: allProfiles,
           error: profilesError
         });
+
+        if (profilesError) {
+          console.error('❌ [AuthContext] Error fetching profiles:', profilesError);
+          toast.error('Erro ao carregar perfil do usuário');
+          return;
+        }
 
         if (allProfiles && allProfiles.length > 0) {
           // Usar o primeiro perfil como padrão
           const profileData = allProfiles[0];
           
+          if (!profileData.companies) {
+            console.error('❌ [AuthContext] Profile has no company data:', profileData);
+            toast.error('Perfil sem empresa associada');
+            return;
+          }
+
           setUserProfiles(allProfiles.map(p => ({
             ...p,
             role: p.role as 'admin' | 'user' | 'manager',
@@ -71,14 +84,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             } : undefined,
           })));
 
-          console.log('🔐 [AuthContext] Profile query result:', {
-            hasProfileData: !!profileData,
-            profileId: profileData?.id,
-            profileName: profileData?.name,
-            profileEmail: profileData?.email,
-          });
+          console.log('🔐 [AuthContext] Setting user data...');
 
-          if (profileData) {
           setUser({
             id: session.user.id,
             email: session.user.email!,
@@ -98,11 +105,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             } : undefined,
           };
           
-          console.log('🔐 [AuthContext] Setting profile:', {
+          console.log('🔐 [AuthContext] Profile set successfully:', {
             id: newProfile.id,
             name: newProfile.name,
             email: newProfile.email,
-            role: newProfile.role
+            role: newProfile.role,
+            companyName: profileData.companies?.name
           });
           
           setProfile(newProfile);
@@ -111,18 +119,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             plan: profileData.companies.plan as 'free' | 'pro' | 'enterprise',
             settings: (profileData.companies.settings as any) || {},
           });
-          }
+
+          console.log('✅ [AuthContext] Auth initialized successfully');
         } else {
-          console.error('❌ [AuthContext] No profile data found for user:', session.user.id);
+          console.error('❌ [AuthContext] No profiles found for user:', session.user.id);
+          toast.error('Nenhum perfil encontrado. Entre em contato com o suporte.');
         }
       } else {
         console.log('🔐 [AuthContext] No session found');
       }
     } catch (error) {
       console.error('❌ [AuthContext] Failed to initialize auth:', error);
+      toast.error('Erro ao inicializar autenticação');
     } finally {
       setIsLoading(false);
-      console.log('🔐 [AuthContext] Auth initialization complete');
+      console.log('🔐 [AuthContext] Auth initialization complete. isLoading:', false);
     }
   };
 
@@ -145,23 +156,48 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const signIn = async (email: string, password: string) => {
     try {
+      console.log('🔐 [AuthContext] Attempting sign in for:', email);
+      
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ [AuthContext] Sign in error:', error);
+        throw error;
+      }
+
+      console.log('✅ [AuthContext] Auth sign in successful, fetching profiles...');
 
       if (data.user) {
         // Buscar todos os perfis do usuário
-        const { data: allProfiles } = await supabase
+        const { data: allProfiles, error: profilesError } = await supabase
           .from('profiles')
           .select('*, companies(*)')
           .eq('user_id', data.user.id);
 
+        console.log('🔐 [AuthContext] Profiles fetch result:', {
+          profilesCount: allProfiles?.length || 0,
+          profiles: allProfiles,
+          error: profilesError
+        });
+
+        if (profilesError) {
+          console.error('❌ [AuthContext] Error fetching profiles:', profilesError);
+          toast.error('Erro ao carregar perfil');
+          throw profilesError;
+        }
+
         if (allProfiles && allProfiles.length > 0) {
           // Usar o primeiro perfil como padrão
           const profileData = allProfiles[0];
+
+          if (!profileData.companies) {
+            console.error('❌ [AuthContext] Profile has no company:', profileData);
+            toast.error('Perfil sem empresa associada');
+            throw new Error('Profile without company');
+          }
           
           // Armazenar todos os perfis
           setUserProfiles(allProfiles.map(p => ({
@@ -200,11 +236,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             settings: (profileData.companies.settings as any) || {},
           });
           
-          toast.success('Login realizado com sucesso!');
+          console.log('✅ [AuthContext] Login successful for:', {
+            userName: profileData.name,
+            companyName: profileData.companies.name,
+            totalProfiles: allProfiles.length
+          });
+          
+          toast.success(`Bem-vindo(a), ${profileData.name}!`);
+        } else {
+          console.error('❌ [AuthContext] No profiles found for user');
+          toast.error('Nenhum perfil encontrado');
+          throw new Error('No profiles found');
         }
       }
     } catch (error: any) {
-      console.error('Sign in error:', error);
+      console.error('❌ [AuthContext] Sign in failed:', error);
       toast.error(error.message || 'Erro ao fazer login');
       throw error;
     }
