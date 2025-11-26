@@ -403,7 +403,7 @@ export class BotFlowProcessor {
           0: '📋 **Como abrir um chamado?**\n\nPara abrir um chamado, selecione a opção **1 - Abrir Chamado** no menu principal. Você precisará informar:\n• Seu nome\n• A placa do veículo\n• O local\n• A descrição do problema\n\nDigite **0** para voltar ao menu principal.',
           1: '⏱️ **Tempo de atendimento**\n\nO tempo médio de resposta é de até **2 horas** em dias úteis. Chamados urgentes são priorizados.\n\nDigite **0** para voltar ao menu principal.',
           2: '🔍 **Como acompanhar meu chamado?**\n\nPara acompanhar seu chamado, selecione a opção **3 - Consultar Chamado** no menu principal e informe o número do seu chamado.\n\nDigite **0** para voltar ao menu principal.',
-          3: '🕐 **Horário de atendimento**\n\nNosso horário de atendimento é de **segunda a sexta-feira**, das **8h às 17h30**.\n\nFora deste horário, você pode abrir um chamado que será atendido no próximo dia útil.\n\nDigite **0** para voltar ao menu principal.'
+          3: '🕐 **Horário de atendimento**\n\nNosso horário de atendimento:\n\n• **Segunda a Quinta**: 8h às 17h\n• **Sexta-feira**: 8h às 16h\n\nFora deste horário, você pode abrir um chamado que será atendido no próximo dia útil.\n\nDigite **0** para voltar ao menu principal.'
         };
         
         if (faqResponses[optionIndex]) {
