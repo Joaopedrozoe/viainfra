@@ -100,6 +100,15 @@ export class BotFlowProcessor {
   private async processNode(node: BotFlowNode): Promise<any> {
     this.conversationState.currentNodeId = node.id;
 
+    // Tratamento especial por ID do nó (para nós que não existem no fluxo visual)
+    if (node.id === 'consultar-chamado') {
+      return {
+        response: '🔍 **Consulta de Chamado**\n\nPara consultar o status do seu chamado, vou transferir você para um de nossos atendentes.\n\n👤 Aguarde um momento...',
+        newState: this.conversationState,
+        shouldTransferToAgent: true,
+      };
+    }
+
     switch (node.type) {
       case 'start':
         // Após a mensagem de start, avançar automaticamente para o menu
@@ -251,6 +260,15 @@ export class BotFlowProcessor {
   private async processAction(node: BotFlowNode): Promise<any> {
     const actionType = node.data.actionType;
 
+    // Opção 3 - Consultar Chamado: transferir para atendente por enquanto
+    if (node.id === 'consultar-chamado') {
+      return {
+        response: '🔍 **Consulta de Chamado**\n\nPara consultar o status do seu chamado, vou transferir você para um de nossos atendentes.\n\n👤 Aguarde um momento...',
+        newState: this.conversationState,
+        shouldTransferToAgent: true,
+      };
+    }
+
     if (actionType === 'transfer') {
       return {
         response: node.data.action || '👤 Aguarde um momento...\n\nEstou transferindo você para um atendente.',
@@ -339,7 +357,66 @@ export class BotFlowProcessor {
         
         const targetNodeId = targetMap[optionIndex];
         if (targetNodeId) {
-          return this.flow.nodes.find(n => n.id === targetNodeId) || null;
+          // Verificar se o nó existe no fluxo
+          const existingNode = this.flow.nodes.find(n => n.id === targetNodeId);
+          if (existingNode) {
+            return existingNode;
+          }
+          
+          // Criar nó virtual para fluxos que não existem no builder visual
+          const virtualNodes: Record<string, BotFlowNode> = {
+            'consultar-chamado': {
+              id: 'consultar-chamado',
+              type: 'action',
+              position: { x: 0, y: 0 },
+              data: {
+                label: 'Consultar Chamado',
+                actionType: 'transfer',
+              }
+            },
+            'faq': {
+              id: 'faq',
+              type: 'question',
+              position: { x: 0, y: 0 },
+              data: {
+                label: 'FAQ',
+                question: '❓ **Perguntas Frequentes**\n\nEscolha uma opção:',
+                options: [
+                  'Como abrir um chamado?',
+                  'Quanto tempo leva o atendimento?',
+                  'Como acompanhar meu chamado?',
+                  'Qual o horário de atendimento?'
+                ]
+              }
+            }
+          };
+          
+          if (virtualNodes[targetNodeId]) {
+            return virtualNodes[targetNodeId];
+          }
+        }
+      }
+      
+      // Tratamento para FAQ sub-opções
+      if (currentNodeId === 'faq') {
+        const faqResponses: Record<number, string> = {
+          0: '📋 **Como abrir um chamado?**\n\nPara abrir um chamado, selecione a opção **1 - Abrir Chamado** no menu principal. Você precisará informar:\n• Seu nome\n• A placa do veículo\n• O local\n• A descrição do problema\n\nDigite **0** para voltar ao menu principal.',
+          1: '⏱️ **Tempo de atendimento**\n\nO tempo médio de resposta é de até **2 horas** em dias úteis. Chamados urgentes são priorizados.\n\nDigite **0** para voltar ao menu principal.',
+          2: '🔍 **Como acompanhar meu chamado?**\n\nPara acompanhar seu chamado, selecione a opção **3 - Consultar Chamado** no menu principal e informe o número do seu chamado.\n\nDigite **0** para voltar ao menu principal.',
+          3: '🕐 **Horário de atendimento**\n\nNosso horário de atendimento é de **segunda a sexta-feira**, das **8h às 17h30**.\n\nFora deste horário, você pode abrir um chamado que será atendido no próximo dia útil.\n\nDigite **0** para voltar ao menu principal.'
+        };
+        
+        if (faqResponses[optionIndex]) {
+          // Criar nó virtual com a resposta
+          return {
+            id: `faq-resposta-${optionIndex}`,
+            type: 'message',
+            position: { x: 0, y: 0 },
+            data: {
+              label: 'FAQ Resposta',
+              message: faqResponses[optionIndex]
+            }
+          } as BotFlowNode;
         }
       }
     }
