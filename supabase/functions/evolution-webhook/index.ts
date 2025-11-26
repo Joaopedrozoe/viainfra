@@ -193,8 +193,14 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     // Get or create conversation (store remoteJid in metadata for later use)
     const conversation = await getOrCreateConversation(supabase, contact.id, contactPhone, contactName, remoteJid);
     
-    // Save message
-    await saveMessage(supabase, conversation.id, message, messageContent, contactPhone);
+    // Save message - returns null if duplicate
+    const savedMessage = await saveMessage(supabase, conversation.id, message, messageContent, contactPhone);
+    
+    // PROTEÇÃO: Se a mensagem foi duplicada, não aciona o bot
+    if (!savedMessage) {
+      console.log('⚠️ Mensagem duplicada - ignorando trigger do bot');
+      continue;
+    }
 
     // Trigger bot response (supports all channel types including @lid)
     console.log(`✅ Triggering bot for contact ${contact.id} (${contactName}). Phone: ${contactPhone || 'N/A'}, Send to: ${sendToRemoteJid}`);
@@ -395,13 +401,55 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
   return newConversation;
 }
 
+// Verificar se a mensagem já foi processada (idempotência)
+async function isMessageAlreadyProcessed(supabase: any, externalId: string): Promise<boolean> {
+  const { data: existingMessage } = await supabase
+    .from('messages')
+    .select('id')
+    .contains('metadata', { external_id: externalId })
+    .maybeSingle();
+  
+  if (existingMessage) {
+    console.log(`⚠️ Mensagem ${externalId} já foi processada anteriormente. Ignorando duplicata.`);
+    return true;
+  }
+  return false;
+}
+
+// Verificar anti-flood: se o bot já respondeu recentemente (< 5 segundos)
+async function shouldSkipBotResponse(supabase: any, conversationId: string): Promise<boolean> {
+  const fiveSecondsAgo = new Date(Date.now() - 5000).toISOString();
+  
+  const { data: recentBotMessage } = await supabase
+    .from('messages')
+    .select('id, created_at')
+    .eq('conversation_id', conversationId)
+    .eq('sender_type', 'bot')
+    .gte('created_at', fiveSecondsAgo)
+    .limit(1);
+  
+  if (recentBotMessage && recentBotMessage.length > 0) {
+    console.log(`⚠️ Bot já respondeu nos últimos 5 segundos. Ignorando para evitar flood.`);
+    return true;
+  }
+  return false;
+}
+
 async function saveMessage(supabase: any, conversationId: string, message: EvolutionMessage, content: string, phoneNumber: string) {
+  const externalId = message.key.id;
+  
+  // PROTEÇÃO 1: Verificar se a mensagem já foi processada
+  const alreadyProcessed = await isMessageAlreadyProcessed(supabase, externalId);
+  if (alreadyProcessed) {
+    return null; // Retorna null para indicar que não deve processar
+  }
+  
   const messageData = {
     conversation_id: conversationId,
     content: content,
     sender_type: 'user',
     metadata: { 
-      external_id: message.key.id,
+      external_id: externalId,
       sender_name: message.pushName || phoneNumber
     },
     created_at: new Date(message.messageTimestamp * 1000).toISOString()
@@ -416,6 +464,11 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
     .single();
 
   if (error) {
+    // Se o erro for de constraint única, é duplicata
+    if (error.code === '23505') {
+      console.log('⚠️ Mensagem duplicada detectada por constraint. Ignorando.');
+      return null;
+    }
     console.error('Error saving message:', error);
     throw error;
   }
@@ -431,6 +484,12 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
 
 async function triggerBotResponse(supabase: any, conversationId: string, messageContent: string, remoteJid: string, instanceName: string) {
   console.log('Triggering bot response...');
+  
+  // PROTEÇÃO 2: Anti-flood - evitar múltiplas respostas do bot
+  const skipFlood = await shouldSkipBotResponse(supabase, conversationId);
+  if (skipFlood) {
+    return;
+  }
   
   // Verificar se a conversa está em status 'pending' (transferida para atendente)
   const { data: conversation, error: convError } = await supabase
