@@ -62,6 +62,19 @@ export class BotFlowProcessor {
       };
     }
 
+    // Verificar se usuário quer voltar ao menu (funciona em qualquer estado)
+    if (userInput === '0') {
+      this.conversationState = {
+        currentNodeId: 'start-1',
+        collectedData: {},
+      };
+      
+      const startNode = this.flow.nodes.find(n => n.id === 'start-1');
+      if (startNode) {
+        return this.processNode(startNode);
+      }
+    }
+
     // Se estamos aguardando input de algum campo
     if (this.conversationState.waitingForInput) {
       const fieldKey = this.conversationState.waitingForInput;
@@ -167,9 +180,21 @@ export class BotFlowProcessor {
     
     // Verificar se é opção de voltar ao menu
     if (userInput === '0') {
+      // Resetar estado e voltar ao início do fluxo
+      this.conversationState = {
+        currentNodeId: 'start-1',
+        collectedData: {},
+      };
+      
+      // Encontrar o nó de start e processar para mostrar o menu
+      const startNode = this.flow.nodes.find(n => n.id === 'start-1');
+      if (startNode) {
+        return this.processNode(startNode);
+      }
+      
       return {
         response: 'Voltando ao menu principal...',
-        newState: { currentNodeId: 'menu-1', collectedData: {} },
+        newState: { currentNodeId: 'start-1', collectedData: {} },
         shouldTransferToAgent: false,
       };
     }
