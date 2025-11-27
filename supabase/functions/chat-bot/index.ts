@@ -54,47 +54,128 @@ serve(async (req) => {
     let response = '';
     let options: string[] = [];
 
-    // Criar ou recuperar contato e conversa
+    // Criar ou recuperar contato e conversa - COM PROTEÇÃO CONTRA DUPLICATAS
     if (!chatState.conversationId && contactInfo) {
-      console.log('Criando contato e conversa para company:', companyId);
+      console.log('Buscando/criando contato e conversa para company:', companyId);
       
       try {
-        const { data: contact, error: contactError } = await supabaseClient
-          .from('contacts')
-          .insert({
-            company_id: companyId,
-            name: contactInfo.name || 'Cliente Web',
-            phone: contactInfo.phone,
-            email: contactInfo.email,
-          })
-          .select()
-          .single();
-
-        if (contactError) {
-          console.error('Erro ao criar contato:', contactError);
-        } else if (contact) {
-          console.log('Contato criado:', contact.id);
-          chatState.contactId = contact.id;
+        // PRIMEIRO: Tentar encontrar contato existente pelo telefone ou email
+        let contact = null;
+        
+        if (contactInfo.phone) {
+          const { data: existingByPhone } = await supabaseClient
+            .from('contacts')
+            .select('*')
+            .eq('company_id', companyId)
+            .eq('phone', contactInfo.phone)
+            .maybeSingle();
           
-          const { data: conversation, error: conversationError } = await supabaseClient
-            .from('conversations')
+          if (existingByPhone) {
+            console.log('✅ Contato existente encontrado por telefone:', existingByPhone.id);
+            contact = existingByPhone;
+          }
+        }
+        
+        if (!contact && contactInfo.email) {
+          const { data: existingByEmail } = await supabaseClient
+            .from('contacts')
+            .select('*')
+            .eq('company_id', companyId)
+            .eq('email', contactInfo.email)
+            .maybeSingle();
+          
+          if (existingByEmail) {
+            console.log('✅ Contato existente encontrado por email:', existingByEmail.id);
+            contact = existingByEmail;
+          }
+        }
+        
+        // Se não encontrou, criar novo contato
+        if (!contact) {
+          const { data: newContact, error: contactError } = await supabaseClient
+            .from('contacts')
             .insert({
               company_id: companyId,
-              contact_id: contact.id,
-              channel: 'web',
-              status: 'open',
+              name: contactInfo.name || 'Cliente Web',
+              phone: contactInfo.phone,
+              email: contactInfo.email,
             })
-            .select('id, access_token')
+            .select()
             .single();
 
-          if (conversationError) {
-            console.error('Erro ao criar conversa:', conversationError);
-          } else if (conversation) {
-            console.log('Conversa criada:', conversation.id);
-            console.log('Access token:', conversation.access_token);
-            chatState.conversationId = conversation.id;
+          if (contactError) {
+            console.error('Erro ao criar contato:', contactError);
+          } else {
+            console.log('➕ Novo contato criado:', newContact.id);
+            contact = newContact;
+          }
+        }
+        
+        if (contact) {
+          chatState.contactId = contact.id;
+          
+          // CRÍTICO: Verificar se já existe conversa aberta para este contato
+          const { data: existingConversation } = await supabaseClient
+            .from('conversations')
+            .select('id, access_token')
+            .eq('contact_id', contact.id)
+            .eq('channel', 'web')
+            .in('status', ['open', 'pending'])
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          
+          if (existingConversation) {
+            console.log('✅ Conversa existente encontrada:', existingConversation.id);
+            chatState.conversationId = existingConversation.id;
             chatState.companyId = companyId;
-            chatState.accessToken = conversation.access_token;
+            chatState.accessToken = existingConversation.access_token;
+            
+            // Atualizar updated_at para mover pro topo da lista
+            await supabaseClient
+              .from('conversations')
+              .update({ updated_at: new Date().toISOString() })
+              .eq('id', existingConversation.id);
+          } else {
+            // Criar nova conversa
+            const { data: conversation, error: conversationError } = await supabaseClient
+              .from('conversations')
+              .insert({
+                company_id: companyId,
+                contact_id: contact.id,
+                channel: 'web',
+                status: 'open',
+              })
+              .select('id, access_token')
+              .single();
+
+            if (conversationError) {
+              // Se falhou por violação de unique constraint, buscar a existente
+              if (conversationError.code === '23505') {
+                console.log('⚠️ Violação de constraint - buscando conversa existente...');
+                const { data: fallbackConv } = await supabaseClient
+                  .from('conversations')
+                  .select('id, access_token')
+                  .eq('contact_id', contact.id)
+                  .eq('channel', 'web')
+                  .in('status', ['open', 'pending'])
+                  .limit(1)
+                  .maybeSingle();
+                
+                if (fallbackConv) {
+                  chatState.conversationId = fallbackConv.id;
+                  chatState.companyId = companyId;
+                  chatState.accessToken = fallbackConv.access_token;
+                }
+              } else {
+                console.error('Erro ao criar conversa:', conversationError);
+              }
+            } else if (conversation) {
+              console.log('➕ Nova conversa criada:', conversation.id);
+              chatState.conversationId = conversation.id;
+              chatState.companyId = companyId;
+              chatState.accessToken = conversation.access_token;
+            }
           }
         }
       } catch (error) {
