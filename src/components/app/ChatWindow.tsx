@@ -2,12 +2,19 @@ import { useState, useRef, useEffect, useCallback, memo } from "react";
 import { ChatHeader } from "./chat/ChatHeader";
 import { MessageItem } from "./chat/MessageItem";
 import { ChatInput } from "./chat/ChatInput";
-import { Message, ChatWindowProps } from "./chat/types";
+import { Message, ChatWindowProps, Attachment } from "./chat/types";
 import { Channel } from "@/types/conversation";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+
+const getFileType = (file: File): Attachment['type'] => {
+  if (file.type.startsWith('image/')) return 'image';
+  if (file.type.startsWith('video/')) return 'video';
+  if (file.type.startsWith('audio/')) return 'audio';
+  return 'document';
+};
 
 export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: ChatWindowProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -124,12 +131,24 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             seenIds.add(msg.id);
             return true;
           })
-          .map((msg: any) => ({
-            id: msg.id,
-            content: msg.content,
-            sender: msg.sender_type === 'user' ? 'user' : msg.sender_type === 'agent' ? 'agent' : 'bot',
-            timestamp: msg.created_at // Passar a data completa para formatação no MessageItem
-          }));
+          .map((msg: any) => {
+            // Extrair attachment do metadata se existir
+            const attachmentData = msg.metadata?.attachment;
+            const attachment: Attachment | undefined = attachmentData ? {
+              type: attachmentData.type,
+              url: attachmentData.url,
+              filename: attachmentData.filename,
+              mimeType: attachmentData.mimeType,
+            } : undefined;
+
+            return {
+              id: msg.id,
+              content: msg.content,
+              sender: msg.sender_type === 'user' ? 'user' : msg.sender_type === 'agent' ? 'agent' : 'bot',
+              timestamp: msg.created_at,
+              attachment,
+            };
+          });
 
         console.log('Mensagens carregadas:', mappedMessages.length);
         setMessages(mappedMessages);
@@ -151,8 +170,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
   
-  const handleSendMessage = useCallback(async (content: string) => {
-    console.log('🚀 [SEND] Iniciando envio de mensagem:', { conversationId, content });
+  const handleSendMessage = useCallback(async (content: string, file?: File) => {
+    console.log('🚀 [SEND] Iniciando envio de mensagem:', { conversationId, content, hasFile: !!file });
     
     if (!conversationId) {
       console.error('❌ [SEND] Sem conversationId');
@@ -166,6 +185,42 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     }
 
     try {
+      let attachmentData: Attachment | undefined;
+      let attachmentUrl: string | undefined;
+
+      // Upload do arquivo se houver
+      if (file) {
+        console.log('📎 [SEND] Fazendo upload do arquivo:', file.name);
+        
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${conversationId}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+        
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('chat-attachments')
+          .upload(fileName, file);
+
+        if (uploadError) {
+          console.error('❌ [SEND] Erro no upload:', uploadError);
+          toast.error('Erro ao enviar arquivo');
+          return;
+        }
+
+        // Get public URL
+        const { data: publicUrlData } = supabase.storage
+          .from('chat-attachments')
+          .getPublicUrl(fileName);
+
+        attachmentUrl = publicUrlData.publicUrl;
+        attachmentData = {
+          type: getFileType(file),
+          url: attachmentUrl,
+          filename: file.name,
+          mimeType: file.type,
+          size: file.size,
+        };
+
+        console.log('✅ [SEND] Arquivo uploaded:', attachmentUrl);
+      }
       console.log('✅ [SEND] Usando perfil do contexto:', { 
         profileId: profile.id,
         profileName: profile.name,
@@ -175,10 +230,18 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       // Criar ID único para a mensagem
       const tempId = `temp-${Date.now()}`;
       
+      // Definir conteúdo da mensagem
+      let messageContent = content;
+      if (attachmentData && !content) {
+        const typeLabels = { image: 'Imagem', video: 'Vídeo', audio: 'Áudio', document: 'Documento' };
+        messageContent = `[${typeLabels[attachmentData.type]}]`;
+      }
+      
       // Adicionar mensagem localmente primeiro para feedback instantâneo
       const tempMessage: Message = {
         id: tempId,
-        content,
+        content: messageContent,
+        attachment: attachmentData,
         sender: "agent",
         timestamp: new Date().toISOString()
       };
@@ -210,8 +273,15 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         sender_type: 'agent',
         sender_id: profile.id,
         sender_name: profile.name,
-        content_preview: content.substring(0, 50)
+        content_preview: messageContent.substring(0, 50),
+        hasAttachment: !!attachmentData
       });
+      
+      // Build metadata with attachment info if present
+      const messageMetadata: Record<string, any> = {};
+      if (attachmentData) {
+        messageMetadata.attachment = attachmentData;
+      }
       
       const { data, error } = await supabase
         .from('messages')
@@ -219,7 +289,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           conversation_id: conversationId,
           sender_type: 'agent',
           sender_id: profile.id,
-          content,
+          content: messageContent,
+          metadata: Object.keys(messageMetadata).length > 0 ? messageMetadata : undefined,
         })
         .select()
         .single();
@@ -244,8 +315,9 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             ? {
                 id: data.id,
                 content: data.content,
-                sender: 'agent',
-                timestamp: data.created_at
+                sender: 'agent' as const,
+                timestamp: data.created_at,
+                attachment: attachmentData,
               }
             : msg
         ));
@@ -255,7 +327,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           console.log('🔵 [WhatsApp] Enviando mensagem via Evolution API...', {
             conversationId,
             messageId: data.id,
-            contentLength: content.length,
+            contentLength: messageContent.length,
+            hasAttachment: !!attachmentData,
             timestamp: new Date().toISOString()
           });
           
@@ -266,7 +339,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
               {
                 body: {
                   conversation_id: conversationId,
-                  message_content: content,
+                  message_content: content || undefined,
+                  attachment: attachmentData,
                 },
               }
             );
