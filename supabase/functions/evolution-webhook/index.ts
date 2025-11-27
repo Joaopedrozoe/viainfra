@@ -383,8 +383,7 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
     .eq('id', contactId)
     .single();
 
-  // CRITICAL: Use advisory lock to prevent race conditions
-  // First, try to find existing open conversation using a more restrictive query
+  // CRITICAL: Buscar conversa existente ANTES de tentar criar
   const { data: existingConversation } = await supabase
     .from('conversations')
     .select('*')
@@ -396,7 +395,7 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
     .maybeSingle();
 
   if (existingConversation) {
-    console.log('Found existing conversation:', existingConversation.id);
+    console.log('✅ Found existing conversation:', existingConversation.id);
     
     // Update last message time
     await supabase
@@ -408,8 +407,7 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
   }
 
   // No existing conversation found - create new one
-  // Use INSERT with ON CONFLICT to handle race conditions
-  console.log('Creating new conversation for contact:', contactId);
+  console.log('➕ Creating new conversation for contact:', contactId);
   
   const { data: newConversation, error: insertError } = await supabase
     .from('conversations')
@@ -426,11 +424,30 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
     .single();
 
   if (insertError) {
-    console.error('Error creating conversation:', insertError);
+    // Se falhou por violação de unique constraint (race condition), buscar a existente
+    if (insertError.code === '23505') {
+      console.log('⚠️ Violação de constraint único - buscando conversa existente...');
+      
+      const { data: fallbackConversation } = await supabase
+        .from('conversations')
+        .select('*')
+        .eq('contact_id', contactId)
+        .eq('channel', 'whatsapp')
+        .in('status', ['open', 'pending'])
+        .limit(1)
+        .maybeSingle();
+      
+      if (fallbackConversation) {
+        console.log('✅ Conversa encontrada após constraint:', fallbackConversation.id);
+        return fallbackConversation;
+      }
+    }
+    
+    console.error('❌ Error creating conversation:', insertError);
     throw insertError;
   }
 
-  console.log('Created new conversation:', newConversation.id);
+  console.log('✅ Created new conversation:', newConversation.id);
   return newConversation;
 }
 
