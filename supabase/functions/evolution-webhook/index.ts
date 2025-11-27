@@ -221,7 +221,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     const conversation = await getOrCreateConversation(supabase, contact.id, contactPhone, contactName, remoteJid);
     
     // Save message - returns null if duplicate
-    const savedMessage = await saveMessage(supabase, conversation.id, message, messageContent, contactPhone);
+    const savedMessage = await saveMessage(supabase, conversation.id, message, messageContent, contactPhone, webhook.instance);
     
     // PROTEÇÃO: Se a mensagem foi duplicada, não aciona o bot
     if (!savedMessage) {
@@ -485,7 +485,109 @@ async function shouldSkipBotResponse(supabase: any, conversationId: string): Pro
   return false;
 }
 
-async function saveMessage(supabase: any, conversationId: string, message: EvolutionMessage, content: string, phoneNumber: string) {
+// Download media from WhatsApp via Evolution API and upload to Supabase Storage
+async function downloadAndUploadMedia(supabase: any, attachment: Attachment, message: EvolutionMessage, conversationId: string, instanceName: string): Promise<string | null> {
+  if (!attachment.url || !attachment.url.startsWith('http')) {
+    console.log('⚠️ No valid URL for attachment download');
+    return null;
+  }
+  
+  try {
+    const evolutionUrl = Deno.env.get('EVOLUTION_API_URL') || 'https://api.viainfra.chat';
+    const evolutionKey = Deno.env.get('EVOLUTION_API_KEY');
+    
+    if (!evolutionKey) {
+      console.error('❌ EVOLUTION_API_KEY not configured');
+      return null;
+    }
+    
+    console.log('📥 Downloading media from WhatsApp via Evolution API...');
+    
+    // Evolution API endpoint to get base64 from media message
+    const mediaResponse = await fetch(`${evolutionUrl}/chat/getBase64FromMediaMessage/${instanceName}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': evolutionKey,
+      },
+      body: JSON.stringify({
+        message: {
+          key: message.key,
+          message: message.message,
+        },
+        convertToMp4: false,
+      }),
+    });
+    
+    if (!mediaResponse.ok) {
+      console.error('❌ Failed to download media from Evolution API:', mediaResponse.status, await mediaResponse.text());
+      return null;
+    }
+    
+    const mediaData = await mediaResponse.json();
+    
+    if (!mediaData.base64) {
+      console.error('❌ No base64 data in response');
+      return null;
+    }
+    
+    console.log('✅ Media downloaded, uploading to Supabase Storage...');
+    
+    // Convert base64 to binary
+    const base64Data = mediaData.base64.replace(/^data:[^;]+;base64,/, '');
+    const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+    
+    // Generate unique filename
+    const extension = getExtensionFromMimeType(attachment.mimeType || 'application/octet-stream');
+    const fileName = `${conversationId}/${Date.now()}-${Math.random().toString(36).substring(7)}.${extension}`;
+    
+    // Upload to Supabase Storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('chat-attachments')
+      .upload(fileName, binaryData, {
+        contentType: attachment.mimeType || 'application/octet-stream',
+        upsert: false,
+      });
+    
+    if (uploadError) {
+      console.error('❌ Error uploading to storage:', uploadError);
+      return null;
+    }
+    
+    // Get public URL
+    const { data: publicUrlData } = supabase.storage
+      .from('chat-attachments')
+      .getPublicUrl(fileName);
+    
+    console.log('✅ Media uploaded to Supabase Storage:', publicUrlData.publicUrl);
+    return publicUrlData.publicUrl;
+    
+  } catch (error) {
+    console.error('❌ Error in downloadAndUploadMedia:', error);
+    return null;
+  }
+}
+
+function getExtensionFromMimeType(mimeType: string): string {
+  const mimeToExt: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/png': 'png',
+    'image/gif': 'gif',
+    'image/webp': 'webp',
+    'video/mp4': 'mp4',
+    'video/3gpp': '3gp',
+    'audio/ogg': 'ogg',
+    'audio/mpeg': 'mp3',
+    'audio/mp4': 'm4a',
+    'application/pdf': 'pdf',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  };
+  return mimeToExt[mimeType] || 'bin';
+}
+
+async function saveMessage(supabase: any, conversationId: string, message: EvolutionMessage, content: string, phoneNumber: string, instanceName: string) {
   const externalId = message.key.id;
   
   // PROTEÇÃO 1: Verificar se a mensagem já foi processada
@@ -495,7 +597,25 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
   }
   
   // Extrair informações de anexo se houver
-  const attachment = extractAttachment(message);
+  let attachment = extractAttachment(message);
+  
+  // Se tiver anexo, baixar e fazer upload para o Supabase Storage
+  if (attachment && attachment.url) {
+    console.log('📎 Attachment detected:', attachment.type, attachment.url);
+    
+    const storageUrl = await downloadAndUploadMedia(supabase, attachment, message, conversationId, instanceName);
+    
+    if (storageUrl) {
+      // Substituir URL temporária do WhatsApp pela URL permanente do Supabase
+      attachment = {
+        ...attachment,
+        url: storageUrl,
+      };
+      console.log('✅ Attachment URL replaced with Supabase Storage URL');
+    } else {
+      console.warn('⚠️ Failed to upload media, keeping original URL (may expire)');
+    }
+  }
   
   const messageMetadata: Record<string, any> = { 
     external_id: externalId,
@@ -504,7 +624,6 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
   
   if (attachment) {
     messageMetadata.attachment = attachment;
-    console.log('📎 Attachment detected:', attachment.type, attachment.url || 'no-url');
   }
   
   const messageData = {
