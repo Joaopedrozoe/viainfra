@@ -6,6 +6,13 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+interface Attachment {
+  type: 'image' | 'video' | 'audio' | 'document';
+  url: string;
+  filename?: string;
+  mimeType?: string;
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -20,16 +27,20 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { conversation_id, message_content } = await req.json();
+    const { conversation_id, message_content, attachment } = await req.json();
 
-    if (!conversation_id || !message_content) {
+    if (!conversation_id || (!message_content && !attachment)) {
       return new Response(
-        JSON.stringify({ error: 'Missing required fields' }), 
+        JSON.stringify({ error: 'Missing required fields (need message_content or attachment)' }), 
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('Sending WhatsApp message for conversation:', conversation_id);
+    console.log('Sending WhatsApp message for conversation:', conversation_id, {
+      hasText: !!message_content,
+      hasAttachment: !!attachment,
+      attachmentType: attachment?.type
+    });
 
     // Buscar conversa com metadata
     const { data: conversation, error: convError } = await supabase
@@ -112,24 +123,109 @@ serve(async (req) => {
     }
 
     console.log('Instância WhatsApp encontrada:', instance.instance_name, 'Status:', instance.status);
-
     console.log(`Sending message to ${recipientJid} via instance ${instance.instance_name}`);
 
     // Enviar mensagem via Evolution API
     const evolutionUrl = Deno.env.get('EVOLUTION_API_URL') ?? '';
     const evolutionKey = Deno.env.get('EVOLUTION_API_KEY') ?? '';
 
-    const response = await fetch(`${evolutionUrl}/message/sendText/${instance.instance_name}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': evolutionKey,
-      },
-      body: JSON.stringify({
+    let response: Response;
+
+    // Se temos um anexo, enviar mídia
+    if (attachment) {
+      const attachmentData = attachment as Attachment;
+      console.log('📎 Sending media message:', attachmentData.type, attachmentData.url);
+
+      let endpoint = '';
+      let body: Record<string, any> = {
         number: recipientJid,
-        text: message_content,
-      }),
-    });
+      };
+
+      switch (attachmentData.type) {
+        case 'image':
+          endpoint = `/message/sendMedia/${instance.instance_name}`;
+          body = {
+            ...body,
+            mediatype: 'image',
+            media: attachmentData.url,
+            caption: message_content || '',
+          };
+          break;
+        case 'video':
+          endpoint = `/message/sendMedia/${instance.instance_name}`;
+          body = {
+            ...body,
+            mediatype: 'video',
+            media: attachmentData.url,
+            caption: message_content || '',
+          };
+          break;
+        case 'audio':
+          endpoint = `/message/sendWhatsAppAudio/${instance.instance_name}`;
+          body = {
+            ...body,
+            audio: attachmentData.url,
+          };
+          break;
+        case 'document':
+          endpoint = `/message/sendMedia/${instance.instance_name}`;
+          body = {
+            ...body,
+            mediatype: 'document',
+            media: attachmentData.url,
+            fileName: attachmentData.filename || 'document',
+            caption: message_content || '',
+          };
+          break;
+        default:
+          // Fallback to text
+          endpoint = `/message/sendText/${instance.instance_name}`;
+          body = {
+            number: recipientJid,
+            text: message_content || '[Arquivo]',
+          };
+      }
+
+      console.log('📤 Evolution API request:', endpoint, JSON.stringify(body));
+
+      response = await fetch(`${evolutionUrl}${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': evolutionKey,
+        },
+        body: JSON.stringify(body),
+      });
+
+      // Se falhar com mídia e temos texto, tentar enviar só o texto
+      if (!response.ok && message_content) {
+        console.warn('⚠️ Media send failed, trying text-only fallback');
+        response = await fetch(`${evolutionUrl}/message/sendText/${instance.instance_name}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': evolutionKey,
+          },
+          body: JSON.stringify({
+            number: recipientJid,
+            text: message_content,
+          }),
+        });
+      }
+    } else {
+      // Enviar apenas texto
+      response = await fetch(`${evolutionUrl}/message/sendText/${instance.instance_name}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': evolutionKey,
+        },
+        body: JSON.stringify({
+          number: recipientJid,
+          text: message_content,
+        }),
+      });
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -140,7 +236,7 @@ serve(async (req) => {
       );
     }
 
-    console.log('WhatsApp message sent successfully');
+    console.log('✅ WhatsApp message sent successfully');
 
     return new Response(
       JSON.stringify({ success: true }), 

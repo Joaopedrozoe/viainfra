@@ -9,6 +9,13 @@ const corsHeaders = {
 // Google Sheets API URL (mesma usada no canal web)
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz0viYlAJ_-v00BzqRgMROE0wdvixohvQ4d949mTvRQk_eRdqN-CsxQeAldpV6HR2xlBQ/exec';
 
+interface Attachment {
+  type: 'image' | 'video' | 'audio' | 'document';
+  url: string;
+  filename?: string;
+  mimeType?: string;
+}
+
 interface EvolutionMessage {
   key: {
     id: string;
@@ -21,18 +28,38 @@ interface EvolutionMessage {
       text: string;
     };
     imageMessage?: {
-      url: string;
+      url?: string;
+      directPath?: string;
+      mediaKey?: string;
+      mimetype?: string;
       caption?: string;
     };
     audioMessage?: {
-      url: string;
+      url?: string;
+      directPath?: string;
+      mediaKey?: string;
+      mimetype?: string;
+      ptt?: boolean;
     };
     videoMessage?: {
-      url: string;
+      url?: string;
+      directPath?: string;
+      mediaKey?: string;
+      mimetype?: string;
       caption?: string;
     };
     documentMessage?: {
+      url?: string;
+      directPath?: string;
+      mediaKey?: string;
+      mimetype?: string;
       title?: string;
+      fileName?: string;
+    };
+    stickerMessage?: {
+      url?: string;
+      directPath?: string;
+      mimetype?: string;
     };
   };
   messageTimestamp: number;
@@ -444,14 +471,24 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
     return null; // Retorna null para indicar que não deve processar
   }
   
+  // Extrair informações de anexo se houver
+  const attachment = extractAttachment(message);
+  
+  const messageMetadata: Record<string, any> = { 
+    external_id: externalId,
+    sender_name: message.pushName || phoneNumber
+  };
+  
+  if (attachment) {
+    messageMetadata.attachment = attachment;
+    console.log('📎 Attachment detected:', attachment.type, attachment.url || 'no-url');
+  }
+  
   const messageData = {
     conversation_id: conversationId,
     content: content,
     sender_type: 'user',
-    metadata: { 
-      external_id: externalId,
-      sender_name: message.pushName || phoneNumber
-    },
+    metadata: messageMetadata,
     created_at: new Date(message.messageTimestamp * 1000).toISOString()
   };
   
@@ -963,6 +1000,10 @@ function extractMessageContent(message: EvolutionMessage): string {
     return msgContent.videoMessage.caption;
   }
   
+  if (msgContent.documentMessage?.title || msgContent.documentMessage?.fileName) {
+    return `[Documento: ${msgContent.documentMessage.fileName || msgContent.documentMessage.title}]`;
+  }
+  
   if (msgContent.imageMessage) {
     return '[Imagem]';
   }
@@ -972,8 +1013,51 @@ function extractMessageContent(message: EvolutionMessage): string {
   }
   
   if (msgContent.audioMessage) {
-    return '[Áudio]';
+    return msgContent.audioMessage.ptt ? '[Áudio de voz]' : '[Áudio]';
+  }
+  
+  if (msgContent.stickerMessage) {
+    return '[Sticker]';
   }
   
   return '[Mensagem não suportada]';
+}
+
+function extractAttachment(message: EvolutionMessage): Attachment | null {
+  const msgContent = message.message;
+  
+  if (msgContent.imageMessage) {
+    return {
+      type: 'image',
+      url: msgContent.imageMessage.url || msgContent.imageMessage.directPath || '',
+      mimeType: msgContent.imageMessage.mimetype,
+    };
+  }
+  
+  if (msgContent.videoMessage) {
+    return {
+      type: 'video',
+      url: msgContent.videoMessage.url || msgContent.videoMessage.directPath || '',
+      mimeType: msgContent.videoMessage.mimetype,
+    };
+  }
+  
+  if (msgContent.audioMessage) {
+    return {
+      type: 'audio',
+      url: msgContent.audioMessage.url || msgContent.audioMessage.directPath || '',
+      mimeType: msgContent.audioMessage.mimetype,
+    };
+  }
+  
+  if (msgContent.documentMessage) {
+    return {
+      type: 'document',
+      url: msgContent.documentMessage.url || msgContent.documentMessage.directPath || '',
+      filename: msgContent.documentMessage.fileName || msgContent.documentMessage.title,
+      mimeType: msgContent.documentMessage.mimetype,
+    };
+  }
+  
+  return null;
 }
