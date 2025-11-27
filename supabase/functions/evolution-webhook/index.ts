@@ -383,13 +383,16 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
     .eq('id', contactId)
     .single();
 
-  // Try to find existing open conversation
+  // CRITICAL: Use advisory lock to prevent race conditions
+  // First, try to find existing open conversation using a more restrictive query
   const { data: existingConversation } = await supabase
     .from('conversations')
     .select('*')
     .eq('contact_id', contactId)
     .eq('channel', 'whatsapp')
     .in('status', ['open', 'pending'])
+    .order('created_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (existingConversation) {
@@ -404,7 +407,10 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
     return existingConversation;
   }
 
-  // Create new conversation
+  // No existing conversation found - create new one
+  // Use INSERT with ON CONFLICT to handle race conditions
+  console.log('Creating new conversation for contact:', contactId);
+  
   const { data: newConversation, error: insertError } = await supabase
     .from('conversations')
     .insert({

@@ -52,18 +52,8 @@ export class BotFlowProcessor {
     shouldTransferToAgent: boolean;
     shouldCallApi?: { action: string; data: any };
   }> {
-    const currentNode = this.flow.nodes.find(n => n.id === this.conversationState.currentNodeId);
-    
-    if (!currentNode) {
-      return {
-        response: 'Desculpe, ocorreu um erro. Digite 0 para voltar ao menu principal.',
-        newState: { currentNodeId: 'menu-1', collectedData: {} },
-        shouldTransferToAgent: false,
-      };
-    }
-
-    // Verificar se usuário quer voltar ao menu (funciona em qualquer estado)
-    if (userInput === '0') {
+    // PRIMEIRO: Verificar se usuário quer voltar ao menu (funciona em qualquer estado)
+    if (userInput === '0' || userInput.toLowerCase() === 'menu' || userInput.toLowerCase() === 'voltar') {
       this.conversationState = {
         currentNodeId: 'start-1',
         collectedData: {},
@@ -73,6 +63,29 @@ export class BotFlowProcessor {
       if (startNode) {
         return this.processNode(startNode);
       }
+    }
+
+    const currentNode = this.flow.nodes.find(n => n.id === this.conversationState.currentNodeId);
+    
+    // Se estamos em um nó virtual (como faq-resposta-X), verificar se usuário quer interagir
+    if (!currentNode) {
+      // Se o nó atual é uma resposta de FAQ, qualquer input volta ao FAQ
+      if (this.conversationState.currentNodeId.startsWith('faq-resposta-')) {
+        // Voltar para o menu FAQ
+        this.conversationState.currentNodeId = 'faq';
+        return {
+          response: '📚 **Perguntas Frequentes (FAQ)**\n\nEscolha uma opção:\n\n1. Como abrir um chamado?\n2. Qual o tempo de atendimento?\n3. Como acompanhar meu chamado?\n4. Qual o horário de atendimento?\n\nDigite o número da opção ou **0** para voltar ao menu principal.',
+          newState: this.conversationState,
+          shouldTransferToAgent: false,
+        };
+      }
+      
+      // Nó não encontrado - voltar ao menu principal
+      return {
+        response: 'Desculpe, ocorreu um erro. Vou te levar ao menu principal.',
+        newState: { currentNodeId: 'menu-1', collectedData: {} },
+        shouldTransferToAgent: false,
+      };
     }
 
     // Se estamos aguardando input de algum campo
@@ -400,10 +413,10 @@ export class BotFlowProcessor {
       // Tratamento para FAQ sub-opções
       if (currentNodeId === 'faq') {
         const faqResponses: Record<number, string> = {
-          0: '📋 **Como abrir um chamado?**\n\nPara abrir um chamado, selecione a opção **1 - Abrir Chamado** no menu principal. Você precisará informar:\n• Seu nome\n• A placa do veículo\n• O local\n• A descrição do problema\n\nDigite **0** para voltar ao menu principal.',
-          1: '⏱️ **Tempo de atendimento**\n\nO tempo médio de resposta é de até **2 horas** em dias úteis. Chamados urgentes são priorizados.\n\nDigite **0** para voltar ao menu principal.',
-          2: '🔍 **Como acompanhar meu chamado?**\n\nPara acompanhar seu chamado, selecione a opção **3 - Consultar Chamado** no menu principal e informe o número do seu chamado.\n\nDigite **0** para voltar ao menu principal.',
-          3: '🕐 **Horário de atendimento**\n\nNosso horário de atendimento:\n\n• **Segunda a Quinta**: 8h às 17h\n• **Sexta-feira**: 8h às 16h\n\nFora deste horário, você pode abrir um chamado que será atendido no próximo dia útil.\n\nDigite **0** para voltar ao menu principal.'
+          0: '📋 **Como abrir um chamado?**\n\nPara abrir um chamado, selecione a opção **1 - Abrir Chamado** no menu principal. Você precisará informar:\n• Seu nome\n• A placa do veículo\n• O local\n• A descrição do problema\n\nDigite qualquer tecla para voltar às perguntas ou **0** para o menu principal.',
+          1: '⏱️ **Tempo de atendimento**\n\nO tempo médio de resposta é de até **2 horas** em dias úteis. Chamados urgentes são priorizados.\n\nDigite qualquer tecla para voltar às perguntas ou **0** para o menu principal.',
+          2: '🔍 **Como acompanhar meu chamado?**\n\nPara acompanhar seu chamado, selecione a opção **3 - Consultar Chamado** no menu principal e informe o número do seu chamado.\n\nDigite qualquer tecla para voltar às perguntas ou **0** para o menu principal.',
+          3: '🕐 **Horário de atendimento**\n\nNosso horário de atendimento:\n\n• **Segunda a Quinta**: 7h às 17h\n• **Sexta-feira**: 7h às 16h\n\nFora deste horário, você pode abrir um chamado que será atendido no próximo dia útil.\n\nDigite qualquer tecla para voltar às perguntas ou **0** para o menu principal.'
         };
         
         if (faqResponses[optionIndex]) {
