@@ -3,9 +3,10 @@ import { cn } from "@/lib/utils";
 import { KnowledgeBase } from "@/components/app/help/KnowledgeBase";
 import { SupportChat } from "@/components/app/help/SupportChat";
 import { FrontendDocumentation } from "@/components/app/help/frontend-documentation";
+import { Playbook } from "@/components/app/help/Playbook";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Database, Server, Code, Webhook, FileText } from "lucide-react";
+import { Database, Server, Code, Webhook, FileText, BookOpen } from "lucide-react";
 
 const Help = () => {
   const isMobile = useIsMobile();
@@ -16,8 +17,9 @@ const Help = () => {
         <h1 className="text-2xl md:text-3xl font-bold mb-6 text-center">Base de Conhecimento</h1>
         
         <Tabs defaultValue="guide" className="w-full">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="guide">Guia Geral</TabsTrigger>
+            <TabsTrigger value="playbook">Playbook</TabsTrigger>
             <TabsTrigger value="frontend">Frontend Docs</TabsTrigger>
             <TabsTrigger value="database">Banco de Dados</TabsTrigger>
             <TabsTrigger value="api">Evolution API</TabsTrigger>
@@ -26,6 +28,10 @@ const Help = () => {
           
           <TabsContent value="guide" className="space-y-4">
             <KnowledgeBase />
+          </TabsContent>
+          
+          <TabsContent value="playbook" className="space-y-4">
+            <Playbook />
           </TabsContent>
           
           <TabsContent value="frontend" className="space-y-4">
