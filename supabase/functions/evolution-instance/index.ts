@@ -61,37 +61,64 @@ serve(async (req) => {
 });
 
 async function createInstance(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
-  const { instanceName } = await req.json();
+  const { instanceName, channel = 'baileys' } = await req.json();
   
   if (!instanceName) {
-    return new Response('Instance name is required', { status: 400, headers: corsHeaders });
+    return new Response(JSON.stringify({ error: 'Instance name is required' }), { 
+      status: 400, 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    });
+  }
+
+  // Get user's company_id from auth token
+  const authHeader = req.headers.get('Authorization');
+  let companyId = null;
+  
+  if (authHeader) {
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user } } = await supabase.auth.getUser(token);
+    
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('company_id')
+        .eq('user_id', user.id)
+        .single();
+      
+      companyId = profile?.company_id;
+    }
   }
 
   const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/evolution-webhook`;
   
+  // Payload compatível com Evolution API v2
   const payload = {
     instanceName,
     token: evolutionApiKey,
     qrcode: true,
-    markMessagesRead: true,
-    delayMessage: 1000,
-    alwaysOnline: true,
-    readMessages: true,
-    readStatus: true,
-    syncFullHistory: true,
+    integration: channel === 'baileys' ? 'WHATSAPP-BAILEYS' : 'WHATSAPP-BUSINESS',
+    reject_call: false,
+    msg_call: '',
+    groups_ignore: false,
+    always_online: true,
+    read_messages: true,
+    read_status: true,
+    sync_full_history: false,
     webhook: {
       url: webhookUrl,
+      by_events: false,
+      base64: true,
+      headers: {},
       events: [
         'MESSAGES_UPSERT',
-        'MESSAGES_UPDATE',
-        'MESSAGES_DELETE',
-        'SEND_MESSAGE',
+        'MESSAGES_UPDATE', 
         'CONNECTION_UPDATE',
-        'CALL',
-        'NEW_JWT_TOKEN'
+        'QRCODE_UPDATED'
       ],
     },
   };
+
+  console.log('Creating instance with payload:', JSON.stringify(payload, null, 2));
 
   try {
     const response = await fetch(`${evolutionApiUrl}/instance/create`, {
@@ -104,20 +131,51 @@ async function createInstance(req: Request, supabase: any, evolutionApiUrl: stri
     });
 
     const data = await response.json();
+    console.log('Evolution API create response:', JSON.stringify(data, null, 2));
 
     if (response.ok) {
-      // Save instance to database
+      // Save instance to database with company_id
+      const instanceData: any = {
+        instance_name: instanceName,
+        status: 'pending',
+        connection_state: 'pending',
+        webhook_url: webhookUrl,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      
+      if (companyId) {
+        instanceData.company_id = companyId;
+      }
+
       await supabase
         .from('whatsapp_instances')
-        .upsert({
-          instance_name: instanceName,
-          status: 'created',
-          webhook_url: webhookUrl,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        });
+        .upsert(instanceData, { onConflict: 'instance_name' });
 
       console.log('Instance created successfully:', instanceName);
+
+      // Se a criação não retornou QR, buscar imediatamente
+      if (!data.qrcode?.base64 && !data.qrcode?.code) {
+        console.log('QR not in create response, fetching via connect endpoint...');
+        try {
+          const qrResponse = await fetch(`${evolutionApiUrl}/instance/connect/${instanceName}`, {
+            headers: {
+              'apikey': evolutionApiKey,
+            },
+          });
+          
+          if (qrResponse.ok) {
+            const qrData = await qrResponse.json();
+            console.log('QR connect response:', JSON.stringify(qrData, null, 2));
+            // Merge QR data into response
+            data.qrcode = qrData.qrcode || qrData;
+          }
+        } catch (qrError) {
+          console.error('Error fetching QR after create:', qrError);
+        }
+      }
+    } else {
+      console.error('Evolution API error:', data);
     }
 
     return new Response(JSON.stringify(data), {
@@ -126,9 +184,9 @@ async function createInstance(req: Request, supabase: any, evolutionApiUrl: stri
     });
   } catch (error) {
     console.error('Error creating instance:', error);
-    return new Response('Failed to create instance', { 
+    return new Response(JSON.stringify({ error: 'Failed to create instance' }), { 
       status: 500, 
-      headers: corsHeaders 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
     });
   }
 }

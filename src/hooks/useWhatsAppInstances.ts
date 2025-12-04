@@ -63,7 +63,7 @@ export const useWhatsAppInstances = () => {
     };
   }, []);
 
-  const createInstance = async (instanceName: string) => {
+  const createInstance = async (instanceName: string, channel: string = 'baileys') => {
     try {
       const response = await fetch(
         `${SUPABASE_URL}/functions/v1/evolution-instance/create`,
@@ -73,19 +73,17 @@ export const useWhatsAppInstances = () => {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
           },
-          body: JSON.stringify({ instanceName })
+          body: JSON.stringify({ instanceName, channel })
         }
       );
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'Failed to create instance');
+      if (!response.ok) throw new Error(data.message || data.error || 'Failed to create instance');
       
-      toast.success('Instância criada com sucesso!');
       await loadInstances();
       return data;
     } catch (error: any) {
       console.error('Error creating instance:', error);
-      toast.error('Erro ao criar instância');
       throw error;
     }
   };
