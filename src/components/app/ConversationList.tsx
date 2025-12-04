@@ -66,6 +66,22 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
       is_preview: true
     } as Conversation & { is_preview: boolean }));
     
+    // Helper to format time with date if not today
+    const formatConversationTime = (dateStr: string) => {
+      const date = new Date(dateStr);
+      const today = new Date();
+      const isToday = date.toDateString() === today.toDateString();
+      
+      if (isToday) {
+        return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      } else {
+        const day = date.getDate().toString().padStart(2, '0');
+        const month = (date.getMonth() + 1).toString().padStart(2, '0');
+        const time = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        return `${day}/${month} ${time}`;
+      }
+    };
+
     // Map Supabase conversations
     const processedSupabaseConversations = supabaseConversations.map(conv => {
       const lastMessage = conv.messages && conv.messages.length > 0 
@@ -99,7 +115,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         name: displayName,
         channel: conv.channel as Channel,
         preview: lastMessage?.content || 'Nova conversa',
-        time: new Date(conv.updated_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        time: formatConversationTime(conv.updated_at),
         unread: conv.status === 'open' || conv.status === 'pending' ? 1 : 0,
         avatar: conv.contact?.avatar_url,
         is_preview: false,
@@ -286,6 +302,21 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
               const otherParticipants = conv.profiles?.filter(p => p.email !== conv.profiles?.[0]?.email) || [];
               const title = conv.title || otherParticipants.map(p => p.name).join(', ') || 'Chat Interno';
               
+              // Helper to format time with date if not today
+              const formatTime = (dateStr: string) => {
+                const date = new Date(dateStr);
+                const today = new Date();
+                const isToday = date.toDateString() === today.toDateString();
+                if (isToday) {
+                  return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                } else {
+                  const day = date.getDate().toString().padStart(2, '0');
+                  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+                  const time = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                  return `${day}/${month} ${time}`;
+                }
+              };
+
               return (
                 <ConversationItem
                   key={conv.id}
@@ -294,7 +325,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
                     name: title,
                     channel: 'internal' as Channel,
                     preview: conv.last_message?.content || 'Nova conversa',
-                    time: new Date(conv.last_message?.created_at || conv.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+                    time: formatTime(conv.last_message?.created_at || conv.created_at),
                     unread: conv.unread_count || 0,
                   }}
                   isSelected={selectedId === conv.id}
