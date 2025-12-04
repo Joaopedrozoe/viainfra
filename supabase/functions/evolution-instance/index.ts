@@ -565,10 +565,11 @@ async function toggleBot(req: Request, supabase: any, evolutionApiUrl: string, e
 
     console.log(`Toggling bot for instance ${instanceName}: ${enabled ? 'ON' : 'OFF'}`);
 
-    // Update the instance metadata in database to track bot status
+    // Update the bot_enabled column in database
     const { data, error } = await supabase
       .from('whatsapp_instances')
       .update({ 
+        bot_enabled: enabled,
         updated_at: new Date().toISOString()
       })
       .eq('instance_name', instanceName)
@@ -580,10 +581,6 @@ async function toggleBot(req: Request, supabase: any, evolutionApiUrl: string, e
       throw error;
     }
 
-    // Store bot enabled status in localStorage key format for the webhook to check
-    // The webhook will check this to decide whether to process bot responses
-    const botStatusKey = `bot_enabled_${instanceName}`;
-    
     console.log(`Bot ${enabled ? 'enabled' : 'disabled'} for instance ${instanceName}`);
 
     return new Response(JSON.stringify({ 

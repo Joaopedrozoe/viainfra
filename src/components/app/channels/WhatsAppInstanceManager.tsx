@@ -25,12 +25,11 @@ export const WhatsAppInstanceManager = () => {
   const [togglingBot, setTogglingBot] = useState<string | null>(null);
   const [importingChats, setImportingChats] = useState<string | null>(null);
 
-  // Carregar status do bot do localStorage
+  // Carregar status do bot do banco de dados (através das instâncias)
   useEffect(() => {
     const savedStatus: Record<string, boolean> = {};
     instances.forEach(instance => {
-      const saved = localStorage.getItem(`bot_enabled_${instance.instance_name}`);
-      savedStatus[instance.instance_name] = saved !== 'false'; // Default true
+      savedStatus[instance.instance_name] = instance.bot_enabled !== false; // Default true
     });
     setBotStatus(savedStatus);
   }, [instances]);
@@ -349,8 +348,8 @@ export const WhatsAppInstanceManager = () => {
                   try {
                     const newStatus = !isBotEnabled;
                     await toggleBot(instance.instance_name, newStatus);
-                    localStorage.setItem(`bot_enabled_${instance.instance_name}`, String(newStatus));
                     setBotStatus(prev => ({ ...prev, [instance.instance_name]: newStatus }));
+                    await refresh(); // Recarregar instâncias do banco
                   } catch (error) {
                     console.error('Error toggling bot:', error);
                   } finally {
