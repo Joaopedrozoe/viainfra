@@ -231,15 +231,15 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
           selectedDepartment="all"
           onDepartmentChange={() => {}}
         />
-        <Tabs defaultValue="all" className="px-3 pt-2">
-          <TabsList className="w-full grid grid-cols-7 gap-1 h-auto p-1">
-            <TabsTrigger value="all" className="text-[10px] px-1 py-1.5 h-auto">Todas</TabsTrigger>
-            <TabsTrigger value="unread" className="text-[10px] px-1 py-1.5 h-auto">Não lidas</TabsTrigger>
-            <TabsTrigger value="bot" className="text-[10px] px-1 py-1.5 h-auto">Bot</TabsTrigger>
-            <TabsTrigger value="internal" className="text-[10px] px-1 py-1.5 h-auto">Equipe</TabsTrigger>
-            <TabsTrigger value="preview" className="text-[10px] px-1 py-1.5 h-auto">Preview</TabsTrigger>
-            <TabsTrigger value="resolved" className="text-[10px] px-1 py-1.5 h-auto">Resolvidas</TabsTrigger>
-            <TabsTrigger value="archived" className="text-[10px] px-1 py-1.5 h-auto">Arquivadas</TabsTrigger>
+        <Tabs defaultValue="all" className="px-2 pt-2">
+          <TabsList className="w-full flex flex-wrap gap-1 h-auto p-1 bg-muted/50">
+            <TabsTrigger value="all" className="text-xs px-2 py-1 h-7">Todas</TabsTrigger>
+            <TabsTrigger value="unread" className="text-xs px-2 py-1 h-7">Não lidas</TabsTrigger>
+            <TabsTrigger value="bot" className="text-xs px-2 py-1 h-7">Bot</TabsTrigger>
+            <TabsTrigger value="internal" className="text-xs px-2 py-1 h-7">Equipe</TabsTrigger>
+            <TabsTrigger value="preview" className="text-xs px-2 py-1 h-7">Preview</TabsTrigger>
+            <TabsTrigger value="resolved" className="text-xs px-2 py-1 h-7">Resolvidas</TabsTrigger>
+            <TabsTrigger value="archived" className="text-xs px-2 py-1 h-7">Arquivadas</TabsTrigger>
           </TabsList>
         </Tabs>
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -268,29 +268,29 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         selectedDepartment={selectedDepartment}
         onDepartmentChange={setSelectedDepartment} 
       />
-      <Tabs value={activeTab} onValueChange={setActiveTab as (value: string) => void} className="px-3 pt-2">
-        <TabsList className="w-full grid grid-cols-7 gap-0.5 h-auto p-1">
-          <TabsTrigger value="all" className="text-[9px] px-0.5 py-1.5 h-auto">
+      <Tabs value={activeTab} onValueChange={setActiveTab as (value: string) => void} className="px-2 pt-2">
+        <TabsList className="w-full flex flex-wrap gap-1 h-auto p-1 bg-muted/50">
+          <TabsTrigger value="all" className="text-xs px-2 py-1 h-7 flex-shrink-0">
             Todas
           </TabsTrigger>
-          <TabsTrigger value="unread" className="text-[9px] px-0.5 py-1.5 h-auto">
+          <TabsTrigger value="unread" className="text-xs px-2 py-1 h-7 flex-shrink-0">
             Não lidas {allConversations.filter(c => c.unread > 0 && (c as any).status !== 'resolved' && !(c as any).archived).length > 0 && `(${allConversations.filter(c => c.unread > 0 && (c as any).status !== 'resolved' && !(c as any).archived).length})`}
           </TabsTrigger>
-          <TabsTrigger value="bot" className="text-[9px] px-0.5 py-1.5 h-auto">
-            Bot {allConversations.filter(c => c.channel === 'web' && (c as any).status !== 'resolved' && !(c as any).archived).length > 0 && `(${allConversations.filter(c => c.channel === 'web' && (c as any).status !== 'resolved' && !(c as any).archived).length})`}
+          <TabsTrigger value="bot" className="text-xs px-2 py-1 h-7 flex-shrink-0">
+            Bot
           </TabsTrigger>
-          <TabsTrigger value="internal" className="text-[9px] px-0.5 py-1.5 h-auto flex items-center gap-0.5">
-            <Users className="h-2.5 w-2.5" />
-            Equipe {internalConversations.length > 0 && `(${internalConversations.length})`}
+          <TabsTrigger value="internal" className="text-xs px-2 py-1 h-7 flex-shrink-0 flex items-center gap-1">
+            <Users className="h-3 w-3" />
+            Equipe
           </TabsTrigger>
-          <TabsTrigger value="preview" className="text-[9px] px-0.5 py-1.5 h-auto">
-            Preview {allConversations.filter(c => (c as any).is_preview === true && (c as any).status !== 'resolved').length > 0 && `(${allConversations.filter(c => (c as any).is_preview === true && (c as any).status !== 'resolved').length})`}
+          <TabsTrigger value="preview" className="text-xs px-2 py-1 h-7 flex-shrink-0">
+            Preview
           </TabsTrigger>
-          <TabsTrigger value="resolved" className="text-[9px] px-0.5 py-1.5 h-auto">
-            Resolvidas {allConversations.filter(c => (c as any).status === 'resolved' && !(c as any).archived).length > 0 && `(${allConversations.filter(c => (c as any).status === 'resolved' && !(c as any).archived).length})`}
+          <TabsTrigger value="resolved" className="text-xs px-2 py-1 h-7 flex-shrink-0">
+            Resolvidas
           </TabsTrigger>
-          <TabsTrigger value="archived" className="text-[9px] px-0.5 py-1.5 h-auto">
-            Arquivadas {allConversations.filter(c => (c as any).archived === true).length > 0 && `(${allConversations.filter(c => (c as any).archived === true).length})`}
+          <TabsTrigger value="archived" className="text-xs px-2 py-1 h-7 flex-shrink-0">
+            Arquivadas
           </TabsTrigger>
         </TabsList>
       </Tabs>

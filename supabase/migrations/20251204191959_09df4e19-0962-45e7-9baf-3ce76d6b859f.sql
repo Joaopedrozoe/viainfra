@@ -1,0 +1,14 @@
+
+-- Delete test conversations with fake phone numbers (test data)
+DELETE FROM messages WHERE conversation_id IN (
+  SELECT c.id FROM conversations c
+  JOIN contacts ct ON c.contact_id = ct.id
+  WHERE ct.phone IN ('5511933332222', '5511944443333', '5511955554444', '5511966665555', '5511977776666', '5511988887777', '5511999999999')
+);
+
+DELETE FROM conversations WHERE contact_id IN (
+  SELECT id FROM contacts 
+  WHERE phone IN ('5511933332222', '5511944443333', '5511955554444', '5511966665555', '5511977776666', '5511988887777', '5511999999999')
+);
+
+DELETE FROM contacts WHERE phone IN ('5511933332222', '5511944443333', '5511955554444', '5511966665555', '5511977776666', '5511988887777', '5511999999999');
