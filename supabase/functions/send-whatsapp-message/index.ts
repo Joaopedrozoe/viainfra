@@ -27,7 +27,7 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { conversation_id, message_content, attachment } = await req.json();
+    const { conversation_id, message_content, attachment, agent_name } = await req.json();
 
     if (!conversation_id || (!message_content && !attachment)) {
       return new Response(
@@ -36,10 +36,16 @@ serve(async (req) => {
       );
     }
 
+    // Formatar mensagem com identificação do atendente em negrito
+    const formattedMessage = message_content 
+      ? `*${agent_name || 'Atendente'}*\n${message_content}`
+      : message_content;
+
     console.log('Sending WhatsApp message for conversation:', conversation_id, {
       hasText: !!message_content,
       hasAttachment: !!attachment,
-      attachmentType: attachment?.type
+      attachmentType: attachment?.type,
+      agentName: agent_name
     });
 
     // Buscar conversa com metadata
@@ -155,6 +161,11 @@ serve(async (req) => {
         number: recipientJid,
       };
 
+      // Formatar caption com nome do atendente para mídias
+      const mediaCaption = message_content 
+        ? `*${agent_name || 'Atendente'}*\n${message_content}`
+        : `*${agent_name || 'Atendente'}*`;
+
       switch (attachmentData.type) {
         case 'image':
           endpoint = `/message/sendMedia/${instance.instance_name}`;
@@ -162,7 +173,7 @@ serve(async (req) => {
             ...body,
             mediatype: 'image',
             media: attachmentData.url,
-            caption: message_content || '',
+            caption: mediaCaption,
           };
           break;
         case 'video':
@@ -171,7 +182,7 @@ serve(async (req) => {
             ...body,
             mediatype: 'video',
             media: attachmentData.url,
-            caption: message_content || '',
+            caption: mediaCaption,
           };
           break;
         case 'audio':
@@ -188,7 +199,7 @@ serve(async (req) => {
             mediatype: 'document',
             media: attachmentData.url,
             fileName: attachmentData.filename || 'document',
-            caption: message_content || '',
+            caption: mediaCaption,
           };
           break;
         default:
@@ -196,7 +207,7 @@ serve(async (req) => {
           endpoint = `/message/sendText/${instance.instance_name}`;
           body = {
             number: recipientJid,
-            text: message_content || '[Arquivo]',
+            text: formattedMessage || '[Arquivo]',
           };
       }
 
@@ -222,12 +233,12 @@ serve(async (req) => {
           },
           body: JSON.stringify({
             number: recipientJid,
-            text: message_content,
+            text: formattedMessage,
           }),
         });
       }
     } else {
-      // Enviar apenas texto
+      // Enviar apenas texto com identificação do atendente
       response = await fetch(`${evolutionUrl}/message/sendText/${instance.instance_name}`, {
         method: 'POST',
         headers: {
@@ -236,7 +247,7 @@ serve(async (req) => {
         },
         body: JSON.stringify({
           number: recipientJid,
-          text: message_content,
+          text: formattedMessage,
         }),
       });
     }
