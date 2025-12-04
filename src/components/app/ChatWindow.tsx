@@ -344,6 +344,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
                   conversation_id: conversationId,
                   message_content: content || undefined,
                   attachment: attachmentData,
+                  agent_name: profile?.name || 'Atendente',
                 },
               }
             );
