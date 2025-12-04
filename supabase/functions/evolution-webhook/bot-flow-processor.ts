@@ -67,8 +67,24 @@ export class BotFlowProcessor {
 
     const currentNode = this.flow.nodes.find(n => n.id === this.conversationState.currentNodeId);
     
-    // Se estamos em um nó virtual (como faq-resposta-X), verificar se usuário quer interagir
+    // Se estamos em um nó virtual (como faq-resposta-X ou escolher-departamento), verificar se usuário quer interagir
     if (!currentNode) {
+      // Se o nó atual é escolha de departamento, processar diretamente
+      if (this.conversationState.currentNodeId === 'escolher-departamento') {
+        // Criar um nó virtual para processar
+        const virtualNode: BotFlowNode = {
+          id: 'escolher-departamento',
+          type: 'question',
+          position: { x: 0, y: 0 },
+          data: {
+            label: 'Escolher Departamento',
+            question: 'Selecione o departamento:',
+            options: ['Atendimento', 'Comercial', 'Manutenção', 'Financeiro', 'RH']
+          }
+        };
+        return this.processQuestionResponse(virtualNode, userInput);
+      }
+      
       // Se o nó atual é uma resposta de FAQ, qualquer input volta ao FAQ
       if (this.conversationState.currentNodeId.startsWith('faq-resposta-')) {
         // Voltar para o menu FAQ
@@ -221,6 +237,40 @@ export class BotFlowProcessor {
       };
     }
 
+    // ========== FLUXO DE ESCOLHA DE DEPARTAMENTO ==========
+    if (this.conversationState.currentNodeId === 'escolher-departamento') {
+      const departamentos: Record<number, { nome: string; atendente: string }> = {
+        1: { nome: 'Atendimento', atendente: 'Joicy Souza' },
+        2: { nome: 'Comercial', atendente: 'Elisabete Silva' },
+        3: { nome: 'Manutenção', atendente: 'Suelem Souza' },
+        4: { nome: 'Financeiro', atendente: 'Giovanna Ferreira' },
+        5: { nome: 'RH', atendente: 'Sandra Romano' },
+      };
+
+      const escolha = parseInt(userInput);
+      if (escolha >= 1 && escolha <= 5) {
+        const departamento = departamentos[escolha];
+        
+        // Salvar escolha
+        this.conversationState.collectedData['departamento_selecionado'] = departamento.nome;
+        this.conversationState.collectedData['atendente_nome'] = departamento.atendente;
+        
+        // Transferir para atendente
+        return {
+          response: `✅ Você será atendido por **${departamento.atendente}** do setor ${departamento.nome}.\n\n⏳ Aguarde um momento enquanto conectamos você...`,
+          newState: this.conversationState,
+          shouldTransferToAgent: true,
+        };
+      }
+
+      // Opção inválida
+      return {
+        response: 'Opção inválida. Por favor, escolha um número entre 1 e 5.\n\n1. 📞 Atendimento\n2. 💼 Comercial\n3. 🔧 Manutenção\n4. 💰 Financeiro\n5. 👥 RH\n\nDigite **0** para voltar ao menu.',
+        newState: this.conversationState,
+        shouldTransferToAgent: false,
+      };
+    }
+
     // Tratamento especial para seleção de placa
     if (node.id === 'chamado-placa') {
       const optionIndex = parseInt(userInput) - 1;
@@ -282,9 +332,24 @@ export class BotFlowProcessor {
       };
     }
 
-    if (actionType === 'transfer') {
+    // Fluxo "Falar com Atendente" - Início: mostrar opções de departamento
+    if (node.id === 'atendente-inicio' || (actionType === 'transfer' && !this.conversationState.collectedData['departamento_selecionado'])) {
+      // Se ainda não selecionou departamento, mostrar opções
+      this.conversationState.currentNodeId = 'escolher-departamento';
       return {
-        response: node.data.action || '👤 Aguarde um momento...\n\nEstou transferindo você para um atendente.',
+        response: '👤 **Falar com Atendente**\n\nSelecione o departamento:\n\n1. 📞 Atendimento\n2. 💼 Comercial\n3. 🔧 Manutenção\n4. 💰 Financeiro\n5. 👥 RH\n\nDigite o número da opção desejada ou **0** para voltar ao menu.',
+        newState: this.conversationState,
+        shouldTransferToAgent: false,
+      };
+    }
+
+    if (actionType === 'transfer') {
+      // Se já tem departamento selecionado, transferir
+      const departamento = this.conversationState.collectedData['departamento_selecionado'];
+      const atendente = this.conversationState.collectedData['atendente_nome'];
+      
+      return {
+        response: `✅ Você será atendido por **${atendente || 'nossa equipe'}** do setor ${departamento || 'Atendimento'}.\n\n⏳ Aguarde um momento enquanto conectamos você...`,
         newState: this.conversationState,
         shouldTransferToAgent: true,
       };
