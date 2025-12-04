@@ -21,9 +21,16 @@ export const WhatsAppInstanceManager = () => {
   const [syncing, setSyncing] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
 
-  // Filtrar apenas instâncias conectadas (status open/connected)
+  // Filtrar instâncias conectadas e ocultar TESTE2 e TINFO
+  const HIDDEN_INSTANCES = ['TESTE2', 'TINFO', 'teste2', 'tinfo'];
+  
   const connectedInstances = useMemo(() => {
     return instances.filter(instance => {
+      // Ocultar instâncias específicas
+      if (HIDDEN_INSTANCES.includes(instance.instance_name)) {
+        return false;
+      }
+      
       const status = instance.status?.toLowerCase();
       const connectionState = instance.connection_state?.toLowerCase();
       return status === 'open' || status === 'connected' || 
