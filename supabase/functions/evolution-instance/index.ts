@@ -48,6 +48,10 @@ serve(async (req) => {
         return await syncInstances(req, supabase, evolutionApiUrl, evolutionApiKey);
       case 'configure-webhook':
         return await configureWebhook(req, supabase, evolutionApiUrl, evolutionApiKey);
+      case 'toggle-bot':
+        return await toggleBot(req, supabase, evolutionApiUrl, evolutionApiKey);
+      case 'fetch-chats':
+        return await fetchChats(req, supabase, evolutionApiUrl, evolutionApiKey);
       default:
         return new Response('Invalid action', { status: 400, headers: corsHeaders });
     }
@@ -543,6 +547,227 @@ async function configureWebhook(req: Request, supabase: any, evolutionApiUrl: st
     return new Response('Failed to configure webhook', { 
       status: 500, 
       headers: corsHeaders 
+    });
+  }
+}
+
+// Toggle bot on/off for an instance
+async function toggleBot(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
+  try {
+    const { instanceName, enabled } = await req.json();
+    
+    if (!instanceName) {
+      return new Response(JSON.stringify({ error: 'Instance name is required' }), { 
+        status: 400, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+
+    console.log(`Toggling bot for instance ${instanceName}: ${enabled ? 'ON' : 'OFF'}`);
+
+    // Update the instance metadata in database to track bot status
+    const { data, error } = await supabase
+      .from('whatsapp_instances')
+      .update({ 
+        updated_at: new Date().toISOString()
+      })
+      .eq('instance_name', instanceName)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating instance:', error);
+      throw error;
+    }
+
+    // Store bot enabled status in localStorage key format for the webhook to check
+    // The webhook will check this to decide whether to process bot responses
+    const botStatusKey = `bot_enabled_${instanceName}`;
+    
+    console.log(`Bot ${enabled ? 'enabled' : 'disabled'} for instance ${instanceName}`);
+
+    return new Response(JSON.stringify({ 
+      success: true, 
+      instanceName,
+      botEnabled: enabled,
+      message: enabled ? 'Bot ativado com sucesso' : 'Bot desativado com sucesso'
+    }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.error('Error toggling bot:', error);
+    return new Response(JSON.stringify({ error: 'Failed to toggle bot' }), { 
+      status: 500, 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    });
+  }
+}
+
+// Fetch and import chats from WhatsApp
+async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
+  try {
+    const { instanceName } = await req.json();
+    
+    if (!instanceName) {
+      return new Response(JSON.stringify({ error: 'Instance name is required' }), { 
+        status: 400, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+
+    console.log(`Fetching chats for instance: ${instanceName}`);
+
+    // Get user's company_id from auth token
+    const authHeader = req.headers.get('Authorization');
+    let companyId = null;
+    
+    if (authHeader) {
+      const token = authHeader.replace('Bearer ', '');
+      const { data: { user } } = await supabase.auth.getUser(token);
+      
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('company_id')
+          .eq('user_id', user.id)
+          .single();
+        
+        companyId = profile?.company_id;
+      }
+    }
+
+    if (!companyId) {
+      return new Response(JSON.stringify({ error: 'User company not found' }), { 
+        status: 400, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+
+    // Fetch chats from Evolution API
+    const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': evolutionApiKey,
+      },
+      body: JSON.stringify({})
+    });
+
+    if (!chatsResponse.ok) {
+      const errorText = await chatsResponse.text();
+      console.error('Error fetching chats from Evolution:', errorText);
+      throw new Error(`Failed to fetch chats: ${chatsResponse.status}`);
+    }
+
+    const chats = await chatsResponse.json();
+    console.log(`Fetched ${chats.length || 0} chats from Evolution API`);
+
+    let importedCount = 0;
+    let skippedCount = 0;
+
+    // Process each chat
+    for (const chat of chats || []) {
+      try {
+        // Skip group chats
+        if (chat.id?.includes('@g.us') || chat.isGroup) {
+          skippedCount++;
+          continue;
+        }
+
+        // Extract phone number from remoteJid
+        const remoteJid = chat.id || chat.remoteJid;
+        if (!remoteJid) continue;
+
+        const phoneNumber = remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '');
+        const contactName = chat.name || chat.pushName || phoneNumber;
+
+        // Check if contact exists
+        let { data: existingContact } = await supabase
+          .from('contacts')
+          .select('id')
+          .eq('company_id', companyId)
+          .eq('phone', phoneNumber)
+          .single();
+
+        let contactId;
+        if (!existingContact) {
+          // Create contact
+          const { data: newContact, error: contactError } = await supabase
+            .from('contacts')
+            .insert({
+              company_id: companyId,
+              name: contactName,
+              phone: phoneNumber,
+              metadata: { remoteJid, source: 'whatsapp_import' }
+            })
+            .select()
+            .single();
+
+          if (contactError) {
+            console.error('Error creating contact:', contactError);
+            continue;
+          }
+          contactId = newContact.id;
+        } else {
+          contactId = existingContact.id;
+        }
+
+        // Check if conversation exists
+        let { data: existingConversation } = await supabase
+          .from('conversations')
+          .select('id')
+          .eq('company_id', companyId)
+          .eq('contact_id', contactId)
+          .eq('channel', 'whatsapp')
+          .single();
+
+        if (!existingConversation) {
+          // Create conversation
+          const { error: convError } = await supabase
+            .from('conversations')
+            .insert({
+              company_id: companyId,
+              contact_id: contactId,
+              channel: 'whatsapp',
+              status: 'open',
+              metadata: { 
+                instanceName, 
+                remoteJid,
+                importedAt: new Date().toISOString()
+              }
+            });
+
+          if (convError) {
+            console.error('Error creating conversation:', convError);
+            continue;
+          }
+          importedCount++;
+        } else {
+          skippedCount++;
+        }
+      } catch (chatError) {
+        console.error('Error processing chat:', chatError);
+      }
+    }
+
+    console.log(`Import complete: ${importedCount} imported, ${skippedCount} skipped`);
+
+    return new Response(JSON.stringify({ 
+      success: true,
+      totalChats: chats?.length || 0,
+      imported: importedCount,
+      skipped: skippedCount,
+      message: `${importedCount} conversa(s) importada(s), ${skippedCount} ignorada(s)`
+    }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.error('Error fetching chats:', error);
+    return new Response(JSON.stringify({ error: 'Failed to fetch chats' }), { 
+      status: 500, 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
     });
   }
 }

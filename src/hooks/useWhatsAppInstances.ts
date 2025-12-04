@@ -205,6 +205,58 @@ export const useWhatsAppInstances = () => {
     }
   };
 
+  const toggleBot = async (instanceName: string, enabled: boolean) => {
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/evolution-instance/toggle-bot`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          },
+          body: JSON.stringify({ instanceName, enabled })
+        }
+      );
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to toggle bot');
+      
+      toast.success(data.message || (enabled ? 'Bot ativado!' : 'Bot desativado!'));
+      return data;
+    } catch (error: any) {
+      console.error('Error toggling bot:', error);
+      toast.error('Erro ao alterar status do bot');
+      throw error;
+    }
+  };
+
+  const fetchChats = async (instanceName: string) => {
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/evolution-instance/fetch-chats`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          },
+          body: JSON.stringify({ instanceName })
+        }
+      );
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to fetch chats');
+      
+      toast.success(data.message || `${data.imported} conversas importadas`);
+      return data;
+    } catch (error: any) {
+      console.error('Error fetching chats:', error);
+      toast.error('Erro ao importar conversas');
+      throw error;
+    }
+  };
+
   return {
     instances,
     loading,
@@ -214,6 +266,8 @@ export const useWhatsAppInstances = () => {
     deleteInstance,
     sendMessage,
     syncInstances,
+    toggleBot,
+    fetchChats,
     refresh: loadInstances
   };
 };
