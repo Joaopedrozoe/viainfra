@@ -52,6 +52,8 @@ serve(async (req) => {
         return await toggleBot(req, supabase, evolutionApiUrl, evolutionApiKey);
       case 'fetch-chats':
         return await fetchChats(req, supabase, evolutionApiUrl, evolutionApiKey);
+      case 'sync-messages':
+        return await syncMessages(req, supabase, evolutionApiUrl, evolutionApiKey);
       default:
         return new Response('Invalid action', { status: 400, headers: corsHeaders });
     }
@@ -971,6 +973,264 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     console.error('❌ Error in fetchChats:', error);
     return new Response(JSON.stringify({ 
       error: 'Falha ao importar conversas', 
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }), { 
+      status: 500, 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    });
+  }
+}
+
+// Sync messages from WhatsApp for conversations in inbox
+async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
+  try {
+    const { instanceName, conversationIds } = await req.json();
+    
+    if (!instanceName) {
+      return new Response(JSON.stringify({ error: 'Instance name is required' }), { 
+        status: 400, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+
+    console.log(`🔄 Syncing messages for instance: ${instanceName}`);
+
+    // Get user's company_id from auth token
+    const authHeader = req.headers.get('Authorization');
+    let companyId = null;
+    
+    if (authHeader) {
+      const token = authHeader.replace('Bearer ', '');
+      const { data: { user } } = await supabase.auth.getUser(token);
+      
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('company_id')
+          .eq('user_id', user.id)
+          .single();
+        
+        companyId = profile?.company_id;
+      }
+    }
+
+    if (!companyId) {
+      return new Response(JSON.stringify({ error: 'User company not found' }), { 
+        status: 400, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+
+    // Check instance connection
+    const statusResponse = await fetch(`${evolutionApiUrl}/instance/connectionState/${instanceName}`, {
+      method: 'GET',
+      headers: { 'apikey': evolutionApiKey }
+    });
+
+    if (!statusResponse.ok) {
+      return new Response(JSON.stringify({ error: 'Instância não acessível' }), { 
+        status: 400, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+
+    const statusData = await statusResponse.json();
+    const connectionState = statusData?.instance?.state || statusData?.state;
+    
+    if (connectionState !== 'open' && connectionState !== 'connected') {
+      return new Response(JSON.stringify({ 
+        error: `Instância não conectada: ${connectionState}` 
+      }), { 
+        status: 400, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+
+    // Get conversations to sync (only whatsapp with valid contacts)
+    let query = supabase
+      .from('conversations')
+      .select(`
+        id,
+        contact_id,
+        metadata,
+        contacts!conversations_contact_id_fkey (
+          id,
+          phone,
+          metadata
+        )
+      `)
+      .eq('company_id', companyId)
+      .eq('channel', 'whatsapp')
+      .in('status', ['open', 'pending']);
+
+    if (conversationIds && conversationIds.length > 0) {
+      query = query.in('id', conversationIds);
+    }
+
+    const { data: conversations, error: convError } = await query.limit(20); // Limit to avoid timeout
+
+    if (convError) {
+      console.error('Error fetching conversations:', convError);
+      throw convError;
+    }
+
+    console.log(`📋 Found ${conversations?.length || 0} conversations to sync`);
+
+    let syncedCount = 0;
+    let newMessagesCount = 0;
+
+    for (const conv of conversations || []) {
+      try {
+        // Get remoteJid from conversation metadata or contact
+        let remoteJid = conv.metadata?.remoteJid;
+        
+        if (!remoteJid && conv.contacts?.phone) {
+          remoteJid = `${conv.contacts.phone}@s.whatsapp.net`;
+        }
+        
+        if (!remoteJid) {
+          console.log(`⏭️ Skip conversation ${conv.id} - no remoteJid`);
+          continue;
+        }
+
+        console.log(`🔍 Fetching messages for ${remoteJid}...`);
+
+        // Fetch messages from Evolution API
+        const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': evolutionApiKey,
+          },
+          body: JSON.stringify({
+            where: {
+              key: {
+                remoteJid: remoteJid
+              }
+            },
+            limit: 50 // Last 50 messages
+          })
+        });
+
+        if (!messagesResponse.ok) {
+          console.log(`⚠️ Failed to fetch messages for ${remoteJid}: ${messagesResponse.status}`);
+          continue;
+        }
+
+        const messagesData = await messagesResponse.json();
+        const messages = messagesData?.messages || messagesData || [];
+        
+        if (!Array.isArray(messages) || messages.length === 0) {
+          console.log(`ℹ️ No messages found for ${remoteJid}`);
+          continue;
+        }
+
+        console.log(`📨 Found ${messages.length} messages for ${remoteJid}`);
+
+        // Get existing message IDs to avoid duplicates
+        const { data: existingMessages } = await supabase
+          .from('messages')
+          .select('metadata')
+          .eq('conversation_id', conv.id);
+
+        const existingMessageKeys = new Set(
+          (existingMessages || [])
+            .map((m: any) => m.metadata?.messageId || m.metadata?.key?.id)
+            .filter(Boolean)
+        );
+
+        // Process and insert new messages
+        for (const msg of messages) {
+          const messageId = msg.key?.id || msg.id;
+          
+          if (existingMessageKeys.has(messageId)) {
+            continue; // Skip existing messages
+          }
+
+          // Determine sender type
+          const fromMe = msg.key?.fromMe || msg.fromMe || false;
+          let senderType = fromMe ? 'agent' : 'user';
+          
+          // Extract content
+          let content = '';
+          const msgContent = msg.message || msg;
+          
+          if (typeof msgContent === 'string') {
+            content = msgContent;
+          } else if (msgContent.conversation) {
+            content = msgContent.conversation;
+          } else if (msgContent.extendedTextMessage?.text) {
+            content = msgContent.extendedTextMessage.text;
+          } else if (msgContent.imageMessage) {
+            content = msgContent.imageMessage.caption || '[Imagem]';
+          } else if (msgContent.videoMessage) {
+            content = msgContent.videoMessage.caption || '[Vídeo]';
+          } else if (msgContent.documentMessage) {
+            content = `[Documento: ${msgContent.documentMessage.fileName || 'arquivo'}]`;
+          } else if (msgContent.audioMessage) {
+            content = '[Áudio]';
+          } else if (msgContent.stickerMessage) {
+            content = '[Sticker]';
+          } else {
+            content = '[Mensagem não suportada]';
+          }
+
+          if (!content) continue;
+
+          // Get message timestamp
+          const messageTimestamp = msg.messageTimestamp 
+            ? new Date(Number(msg.messageTimestamp) * 1000).toISOString()
+            : new Date().toISOString();
+
+          // Insert message
+          const { error: insertError } = await supabase
+            .from('messages')
+            .insert({
+              conversation_id: conv.id,
+              sender_type: senderType,
+              content: content.substring(0, 5000), // Limit content size
+              created_at: messageTimestamp,
+              metadata: {
+                messageId,
+                key: msg.key,
+                synced: true,
+                syncedAt: new Date().toISOString()
+              }
+            });
+
+          if (!insertError) {
+            newMessagesCount++;
+          }
+        }
+
+        syncedCount++;
+        
+        // Update conversation updated_at
+        await supabase
+          .from('conversations')
+          .update({ updated_at: new Date().toISOString() })
+          .eq('id', conv.id);
+
+      } catch (convError) {
+        console.error(`Error syncing conversation ${conv.id}:`, convError);
+      }
+    }
+
+    console.log(`✅ Sync complete: ${syncedCount} conversations, ${newMessagesCount} new messages`);
+
+    return new Response(JSON.stringify({ 
+      success: true,
+      syncedConversations: syncedCount,
+      newMessages: newMessagesCount,
+      message: `${syncedCount} conversa(s) sincronizada(s), ${newMessagesCount} nova(s) mensagem(ns)`
+    }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.error('❌ Error in syncMessages:', error);
+    return new Response(JSON.stringify({ 
+      error: 'Falha ao sincronizar mensagens', 
       details: error instanceof Error ? error.message : 'Unknown error'
     }), { 
       status: 500, 

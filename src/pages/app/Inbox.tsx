@@ -23,6 +23,7 @@ const Inbox = () => {
   const [showChat, setShowChat] = useState(shouldShowChat !== undefined ? shouldShowChat : false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedInternalChat, setSelectedInternalChat] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
   const { conversations: internalConversations } = useInternalChat();
   const { updateConversationStatus, refetch } = useConversations();
   
@@ -75,24 +76,54 @@ const Inbox = () => {
   }, [handleResolveConversation, isMobile]);
 
   const handleRefresh = useCallback(async () => {
-    console.log('Refresh button clicked, updating conversations and syncing photos...');
-    setRefreshKey(prev => prev + 1);
+    if (isSyncing) return;
     
-    // Sincronizar fotos de perfil em background
+    console.log('Refresh button clicked, syncing messages and photos...');
+    setIsSyncing(true);
+    setRefreshKey(prev => prev + 1);
+    toast.info('Sincronizando conversas...');
+    
     try {
-      const { data, error } = await supabase.functions.invoke('sync-profile-pictures', {
+      // Buscar instâncias WhatsApp conectadas
+      const { data: instances } = await supabase
+        .from('whatsapp_instances')
+        .select('instance_name, connection_state')
+        .eq('connection_state', 'open');
+      
+      // Sincronizar mensagens para cada instância conectada
+      for (const instance of instances || []) {
+        try {
+          const { data: syncData, error: syncError } = await supabase.functions.invoke('evolution-instance/sync-messages', {
+            body: { instanceName: instance.instance_name }
+          });
+          
+          if (!syncError && syncData?.newMessages > 0) {
+            toast.success(`${syncData.newMessages} nova(s) mensagem(ns) sincronizada(s)`);
+          }
+        } catch (err) {
+          console.error(`Error syncing messages for ${instance.instance_name}:`, err);
+        }
+      }
+      
+      // Sincronizar fotos de perfil em background
+      const { data: photoData, error: photoError } = await supabase.functions.invoke('sync-profile-pictures', {
         body: { forceUpdate: false }
       });
       
-      if (!error && data?.updated > 0) {
-        toast.success(`${data.updated} foto(s) atualizada(s)`);
-        // Refetch para atualizar avatares na lista
-        await refetch();
+      if (!photoError && photoData?.updated > 0) {
+        toast.success(`${photoData.updated} foto(s) atualizada(s)`);
       }
+      
+      // Refetch para atualizar a lista
+      await refetch();
+      toast.success('Conversas atualizadas');
     } catch (error) {
-      console.error('Error syncing photos:', error);
+      console.error('Error syncing:', error);
+      toast.error('Erro ao sincronizar');
+    } finally {
+      setIsSyncing(false);
     }
-  }, [refetch]);
+  }, [refetch, isSyncing]);
 
   const handleSelectInternalChat = useCallback((conversationId: string) => {
     setSelectedInternalChat(conversationId);
@@ -118,9 +149,10 @@ const Inbox = () => {
                   variant="ghost"
                   size="sm"
                   onClick={handleRefresh}
+                  disabled={isSyncing}
                   className="h-8 w-8 p-0"
                 >
-                  <RefreshCw className="h-4 w-4" />
+                  <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
                 </Button>
               </div>
             </div>
@@ -151,9 +183,10 @@ const Inbox = () => {
                   variant="ghost"
                   size="sm"
                   onClick={handleRefresh}
+                  disabled={isSyncing}
                   className="h-8 w-8 p-0"
                 >
-                  <RefreshCw className="h-4 w-4" />
+                  <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
                 </Button>
               </div>
             </div>
