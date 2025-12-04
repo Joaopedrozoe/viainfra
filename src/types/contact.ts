@@ -18,6 +18,7 @@ export interface Contact {
   email?: string;
   phone?: string;
   company?: string;
+  avatar_url?: string;
   tags: string[];
   channel?: string;
   lastInteraction?: string;
