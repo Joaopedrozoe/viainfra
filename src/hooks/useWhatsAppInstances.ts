@@ -247,13 +247,19 @@ export const useWhatsAppInstances = () => {
       );
 
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Failed to fetch chats');
+      if (!response.ok) {
+        const errorMessage = data.error || 'Falha ao importar conversas';
+        toast.error(errorMessage);
+        throw new Error(errorMessage);
+      }
       
-      toast.success(data.message || `${data.imported} conversas importadas`);
+      toast.success(data.message || `${data.importedContacts || 0} contatos, ${data.importedConversations || 0} conversas importadas`);
       return data;
     } catch (error: any) {
       console.error('Error fetching chats:', error);
-      toast.error('Erro ao importar conversas');
+      if (!error.message?.includes('Falha') && !error.message?.includes('Instância')) {
+        toast.error('Erro ao importar conversas');
+      }
       throw error;
     }
   };

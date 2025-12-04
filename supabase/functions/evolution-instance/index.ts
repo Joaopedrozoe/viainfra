@@ -601,7 +601,7 @@ async function toggleBot(req: Request, supabase: any, evolutionApiUrl: string, e
   }
 }
 
-// Fetch and import chats from WhatsApp
+// Fetch and import chats/contacts from WhatsApp
 async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
   try {
     const { instanceName } = await req.json();
@@ -613,7 +613,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       });
     }
 
-    console.log(`Fetching chats for instance: ${instanceName}`);
+    console.log(`📥 Starting import for instance: ${instanceName}`);
 
     // Get user's company_id from auth token
     const authHeader = req.headers.get('Authorization');
@@ -641,53 +641,134 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       });
     }
 
-    // Fetch chats from Evolution API
-    const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
-      method: 'POST',
+    // First, check instance connection status
+    console.log(`🔍 Checking connection status for ${instanceName}...`);
+    const statusResponse = await fetch(`${evolutionApiUrl}/instance/connectionState/${instanceName}`, {
+      method: 'GET',
       headers: {
         'Content-Type': 'application/json',
         'apikey': evolutionApiKey,
-      },
-      body: JSON.stringify({})
+      }
     });
 
-    if (!chatsResponse.ok) {
-      const errorText = await chatsResponse.text();
-      console.error('Error fetching chats from Evolution:', errorText);
-      throw new Error(`Failed to fetch chats: ${chatsResponse.status}`);
+    if (!statusResponse.ok) {
+      const statusText = await statusResponse.text();
+      console.error('❌ Instance not found or not accessible:', statusText);
+      return new Response(JSON.stringify({ 
+        error: 'Instância não encontrada ou não acessível. Verifique se está conectada.',
+        details: statusText
+      }), { 
+        status: 400, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
     }
 
-    const chats = await chatsResponse.json();
-    console.log(`Fetched ${chats.length || 0} chats from Evolution API`);
+    const statusData = await statusResponse.json();
+    console.log(`📡 Instance status:`, JSON.stringify(statusData));
 
-    let importedCount = 0;
+    const connectionState = statusData?.instance?.state || statusData?.state;
+    if (connectionState !== 'open' && connectionState !== 'connected') {
+      return new Response(JSON.stringify({ 
+        error: `Instância não está conectada. Status atual: ${connectionState || 'desconhecido'}`,
+        connectionState
+      }), { 
+        status: 400, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+
+    let allContacts: any[] = [];
+    let allChats: any[] = [];
+
+    // Try to fetch contacts first
+    console.log(`👥 Fetching contacts for ${instanceName}...`);
+    try {
+      const contactsResponse = await fetch(`${evolutionApiUrl}/chat/findContacts/${instanceName}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': evolutionApiKey,
+        },
+        body: JSON.stringify({ where: {} })
+      });
+
+      if (contactsResponse.ok) {
+        const contactsData = await contactsResponse.json();
+        allContacts = Array.isArray(contactsData) ? contactsData : [];
+        console.log(`✅ Fetched ${allContacts.length} contacts`);
+      } else {
+        console.log(`⚠️ Could not fetch contacts: ${contactsResponse.status}`);
+      }
+    } catch (contactsError) {
+      console.log(`⚠️ Error fetching contacts:`, contactsError);
+    }
+
+    // Try to fetch chats
+    console.log(`💬 Fetching chats for ${instanceName}...`);
+    try {
+      const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': evolutionApiKey,
+        },
+        body: JSON.stringify({})
+      });
+
+      if (chatsResponse.ok) {
+        const chatsData = await chatsResponse.json();
+        allChats = Array.isArray(chatsData) ? chatsData : [];
+        console.log(`✅ Fetched ${allChats.length} chats`);
+      } else {
+        console.log(`⚠️ Could not fetch chats: ${chatsResponse.status}`);
+      }
+    } catch (chatsError) {
+      console.log(`⚠️ Error fetching chats:`, chatsError);
+    }
+
+    // Combine unique entries from contacts and chats
+    const processedPhones = new Set<string>();
+    let importedContacts = 0;
+    let importedConversations = 0;
     let skippedCount = 0;
 
-    // Process each chat
-    for (const chat of chats || []) {
+    // Helper function to process a contact/chat entry
+    async function processEntry(entry: any, source: string) {
       try {
         // Skip group chats
-        if (chat.id?.includes('@g.us') || chat.isGroup) {
-          skippedCount++;
-          continue;
+        const id = entry.id || entry.remoteJid;
+        if (!id || id.includes('@g.us') || entry.isGroup) {
+          return { skipped: true, reason: 'group' };
         }
 
-        // Extract phone number from remoteJid
-        const remoteJid = chat.id || chat.remoteJid;
-        if (!remoteJid) continue;
+        // Skip @lid entries
+        if (id.includes('@lid')) {
+          return { skipped: true, reason: 'lid' };
+        }
 
-        const phoneNumber = remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '');
-        const contactName = chat.name || chat.pushName || phoneNumber;
+        // Extract phone number
+        const phoneNumber = id.replace('@s.whatsapp.net', '').replace('@c.us', '');
+        
+        // Skip if already processed
+        if (processedPhones.has(phoneNumber)) {
+          return { skipped: true, reason: 'duplicate' };
+        }
+        processedPhones.add(phoneNumber);
+
+        const contactName = entry.pushName || entry.name || entry.notify || phoneNumber;
+        const profilePicUrl = entry.profilePictureUrl || entry.profilePicUrl || entry.imgUrl || null;
 
         // Check if contact exists
         let { data: existingContact } = await supabase
           .from('contacts')
-          .select('id')
+          .select('id, name, avatar_url')
           .eq('company_id', companyId)
           .eq('phone', phoneNumber)
           .single();
 
         let contactId;
+        let contactCreated = false;
+
         if (!existingContact) {
           // Create contact
           const { data: newContact, error: contactError } = await supabase
@@ -696,73 +777,116 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
               company_id: companyId,
               name: contactName,
               phone: phoneNumber,
-              metadata: { remoteJid, source: 'whatsapp_import' }
+              avatar_url: profilePicUrl,
+              metadata: { remoteJid: id, source: `whatsapp_import_${source}` }
             })
             .select()
             .single();
 
           if (contactError) {
             console.error('Error creating contact:', contactError);
-            continue;
+            return { skipped: true, reason: 'contact_error' };
           }
           contactId = newContact.id;
+          contactCreated = true;
         } else {
           contactId = existingContact.id;
-        }
-
-        // Check if conversation exists
-        let { data: existingConversation } = await supabase
-          .from('conversations')
-          .select('id')
-          .eq('company_id', companyId)
-          .eq('contact_id', contactId)
-          .eq('channel', 'whatsapp')
-          .single();
-
-        if (!existingConversation) {
-          // Create conversation
-          const { error: convError } = await supabase
-            .from('conversations')
-            .insert({
-              company_id: companyId,
-              contact_id: contactId,
-              channel: 'whatsapp',
-              status: 'open',
-              metadata: { 
-                instanceName, 
-                remoteJid,
-                importedAt: new Date().toISOString()
-              }
-            });
-
-          if (convError) {
-            console.error('Error creating conversation:', convError);
-            continue;
+          
+          // Update contact name/avatar if better data available
+          const updates: any = {};
+          if (contactName && contactName !== phoneNumber && existingContact.name === phoneNumber) {
+            updates.name = contactName;
           }
-          importedCount++;
-        } else {
-          skippedCount++;
+          if (profilePicUrl && !existingContact.avatar_url) {
+            updates.avatar_url = profilePicUrl;
+          }
+          if (Object.keys(updates).length > 0) {
+            await supabase.from('contacts').update(updates).eq('id', contactId);
+          }
         }
-      } catch (chatError) {
-        console.error('Error processing chat:', chatError);
+
+        // Check if conversation exists (only for chats source)
+        if (source === 'chats') {
+          let { data: existingConversation } = await supabase
+            .from('conversations')
+            .select('id')
+            .eq('company_id', companyId)
+            .eq('contact_id', contactId)
+            .eq('channel', 'whatsapp')
+            .single();
+
+          if (!existingConversation) {
+            // Create conversation
+            const { error: convError } = await supabase
+              .from('conversations')
+              .insert({
+                company_id: companyId,
+                contact_id: contactId,
+                channel: 'whatsapp',
+                status: 'open',
+                metadata: { 
+                  instanceName, 
+                  remoteJid: id,
+                  importedAt: new Date().toISOString()
+                }
+              });
+
+            if (convError) {
+              console.error('Error creating conversation:', convError);
+              return { contactCreated, conversationCreated: false };
+            }
+            return { contactCreated, conversationCreated: true };
+          }
+        }
+
+        return { contactCreated, conversationCreated: false };
+      } catch (entryError) {
+        console.error('Error processing entry:', entryError);
+        return { skipped: true, reason: 'error' };
       }
     }
 
-    console.log(`Import complete: ${importedCount} imported, ${skippedCount} skipped`);
+    // Process contacts
+    for (const contact of allContacts) {
+      const result = await processEntry(contact, 'contacts');
+      if (result.skipped) {
+        skippedCount++;
+      } else {
+        if (result.contactCreated) importedContacts++;
+      }
+    }
+
+    // Process chats
+    for (const chat of allChats) {
+      const result = await processEntry(chat, 'chats');
+      if (result.skipped) {
+        skippedCount++;
+      } else {
+        if (result.contactCreated) importedContacts++;
+        if (result.conversationCreated) importedConversations++;
+      }
+    }
+
+    console.log(`✅ Import complete: ${importedContacts} contacts, ${importedConversations} conversations, ${skippedCount} skipped`);
 
     return new Response(JSON.stringify({ 
       success: true,
-      totalChats: chats?.length || 0,
-      imported: importedCount,
+      totalContacts: allContacts.length,
+      totalChats: allChats.length,
+      importedContacts,
+      importedConversations,
       skipped: skippedCount,
-      message: `${importedCount} conversa(s) importada(s), ${skippedCount} ignorada(s)`
+      message: `${importedContacts} contato(s) importado(s), ${importedConversations} conversa(s) criada(s)`
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Error fetching chats:', error);
-    return new Response(JSON.stringify({ error: 'Failed to fetch chats' }), { 
+    console.error('❌ Error in fetchChats:', error);
+    return new Response(JSON.stringify({ 
+      error: 'Falha ao importar conversas', 
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }), { 
       status: 500, 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
     });
