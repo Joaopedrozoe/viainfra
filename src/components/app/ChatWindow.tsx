@@ -19,6 +19,7 @@ const getFileType = (file: File): Attachment['type'] => {
 export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: ChatWindowProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [contactName, setContactName] = useState<string>("");
+  const [contactAvatar, setContactAvatar] = useState<string | null>(null);
   const [conversationChannel, setConversationChannel] = useState<Channel>("web");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -81,7 +82,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             id,
             name,
             phone,
-            email
+            email,
+            avatar_url
           ),
           messages (
             id,
@@ -153,9 +155,10 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         console.log('Mensagens carregadas:', mappedMessages.length);
         setMessages(mappedMessages);
         
-        // Definir nome do contato
+        // Definir nome e avatar do contato
         if (conversation.contacts) {
           setContactName(conversation.contacts.name || 'Cliente Web');
+          setContactAvatar(conversation.contacts.avatar_url || null);
         }
 
         // Definir canal
@@ -418,6 +421,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     <div className="flex flex-col h-full w-full overflow-hidden">
       <ChatHeader 
         userName={contactName || 'Cliente Web'} 
+        avatar={contactAvatar}
         channel={conversationChannel} 
         conversationId={conversationId}
         onViewContactDetails={handleViewContactDetails}

@@ -20,6 +20,7 @@ import {
 
 interface ChatHeaderProps {
   userName: string;
+  avatar?: string | null;
   channel: Channel;
   className?: string;
   conversationId?: string;
@@ -30,6 +31,7 @@ interface ChatHeaderProps {
 
 export const ChatHeader = memo(({ 
   userName, 
+  avatar,
   channel, 
   className, 
   conversationId,
@@ -41,6 +43,7 @@ export const ChatHeader = memo(({
   const { departments, getDepartmentByUser } = useDepartments();
   const [showTransferDialog, setShowTransferDialog] = useState(false);
   const [selectedDepartment, setSelectedDepartment] = useState<string>("");
+  const [imageError, setImageError] = useState(false);
   
   if (!userName) return null;
 
@@ -75,9 +78,21 @@ export const ChatHeader = memo(({
         </button>
       )}
       <div 
-        className="w-10 h-10 rounded-full bg-gray-300 mr-3 flex-shrink-0 relative cursor-pointer"
+        className="w-10 h-10 rounded-full bg-gray-300 mr-3 flex-shrink-0 relative cursor-pointer overflow-hidden"
         onClick={onViewContactDetails}
       >
+        {avatar && !imageError ? (
+          <img 
+            src={avatar}
+            alt={userName}
+            className="w-full h-full object-cover"
+            onError={() => setImageError(true)}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-gray-500 font-medium">
+            {userName.charAt(0).toUpperCase()}
+          </div>
+        )}
         <ChannelIcon channel={channel} hasBackground />
       </div>
       <div onClick={onViewContactDetails} className="cursor-pointer flex-1">
