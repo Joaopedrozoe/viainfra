@@ -34,8 +34,8 @@ export const WhatsAppInstanceManager = () => {
     setBotStatus(savedStatus);
   }, [instances]);
 
-  // Filtrar instâncias conectadas e ocultar instâncias específicas
-  const HIDDEN_INSTANCES = ['TESTE2', 'TINFO', 'teste2', 'tinfo', 'JUNIORCORRETOR', 'juniorcorretor', 'teste', 'VIAINFRA', 'VIAINFRA2', 'viainfra', 'viainfra2'];
+  // Filtrar instâncias conectadas e ocultar instâncias específicas (mostrar apenas TESTE2 e novas criadas)
+  const HIDDEN_INSTANCES = ['TESTE', 'TINFO', 'tinfo', 'JUNIORCORRETOR', 'juniorcorretor', 'teste', 'VIAINFRA', 'VIAINFRA2', 'viainfra', 'viainfra2', 'TESTE CONEXÃO AUTONOMA'];
   
   const connectedInstances = useMemo(() => {
     return instances.filter(instance => {
