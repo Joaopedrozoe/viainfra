@@ -863,46 +863,64 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         // Log chat info for debugging
         console.log(`💬 Chat entry: ${contactName} - archived: ${isArchived}, unread: ${entry.unreadCount || 0}`)
 
-        // Create/check conversation only for chats with real history
+        // Check if conversation already exists for this contact
         let { data: existingConversation } = await supabase
           .from('conversations')
-          .select('id, archived')
+          .select('id, archived, status')
           .eq('company_id', companyId)
           .eq('contact_id', contactId)
           .eq('channel', 'whatsapp')
           .maybeSingle();
 
-        if (!existingConversation) {
-          // Create conversation
-          const { error: convError } = await supabase
-            .from('conversations')
-            .insert({
-              company_id: companyId,
-              contact_id: contactId,
-              channel: 'whatsapp',
-              status: isArchived ? 'resolved' : 'open',
-              archived: isArchived,
-              metadata: { 
-                instanceName, 
-                remoteJid,
-                importedAt: new Date().toISOString()
-              }
-            });
-
-          if (convError) {
-            console.error('Error creating conversation:', convError);
-            return { contactCreated, conversationCreated: false };
+        if (existingConversation) {
+          // Update existing conversation status based on import
+          const updates: any = { updated_at: new Date().toISOString() };
+          
+          if (isArchived) {
+            // If archived in WhatsApp, mark as resolved/archived
+            updates.archived = true;
+            updates.status = 'resolved';
+          } else {
+            // If active in WhatsApp, reopen the conversation
+            updates.archived = false;
+            if (existingConversation.status === 'resolved') {
+              updates.status = 'open';
+            }
           }
-          console.log(`💬 Created conversation for ${contactName}${isArchived ? ' (archived)' : ''}`);
-          return { contactCreated, conversationCreated: true };
-        } else {
-          // Update archived status if needed
-          if (isArchived && !existingConversation.archived) {
-            await supabase.from('conversations').update({ archived: true, status: 'resolved' }).eq('id', existingConversation.id);
-          }
+          
+          await supabase.from('conversations').update(updates).eq('id', existingConversation.id);
+          console.log(`📝 Updated conversation for ${contactName} (${isArchived ? 'archived' : 'active'})`);
+          return { contactCreated, conversationCreated: false };
         }
 
-        return { contactCreated, conversationCreated: false };
+        // Create new conversation only if doesn't exist
+        const { error: convError } = await supabase
+          .from('conversations')
+          .insert({
+            company_id: companyId,
+            contact_id: contactId,
+            channel: 'whatsapp',
+            status: isArchived ? 'resolved' : 'open',
+            archived: isArchived,
+            metadata: { 
+              instanceName, 
+              remoteJid,
+              importedAt: new Date().toISOString()
+            }
+          });
+
+        if (convError) {
+          // If duplicate key error, conversation was created by another concurrent request - that's OK
+          if (convError.code === '23505') {
+            console.log(`⚠️ Conversation already exists for ${contactName} (concurrent)`);
+            return { contactCreated, conversationCreated: false };
+          }
+          console.error('Error creating conversation:', convError);
+          return { contactCreated, conversationCreated: false };
+        }
+        
+        console.log(`💬 Created conversation for ${contactName}${isArchived ? ' (archived)' : ''}`);
+        return { contactCreated, conversationCreated: true };
       } catch (entryError) {
         console.error('Error processing entry:', entryError);
         return { skipped: true, reason: 'error' };
