@@ -39,11 +39,12 @@ serve(async (req) => {
 
     const { contactId, companyId, forceUpdate = false } = body;
 
-    // Get connected WhatsApp instance
+    // Get connected WhatsApp instance - check for 'open' status (Evolution API uses 'open' not 'connected')
     let instanceQuery = supabase
       .from('whatsapp_instances')
-      .select('instance_name, company_id')
-      .eq('status', 'connected')
+      .select('instance_name, company_id, phone_number')
+      .in('status', ['open', 'connected'])
+      .eq('phone_number', '5511940027215') // Only use authorized instance
       .limit(1);
 
     if (companyId) {
