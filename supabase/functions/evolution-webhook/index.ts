@@ -203,7 +203,12 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     console.log(`Processing message from ${phoneNumber || 'NO_PHONE'} (remoteJid: ${remoteJid}): ${messageContent}`);
 
     // Get or create contact
-    const contact = await getOrCreateContact(supabase, phoneNumber, contactName, remoteJid);
+    const contact = await getOrCreateContact(supabase, phoneNumber, contactName, remoteJid, webhook.instance);
+    
+    // Update profile picture if missing for existing contacts
+    if (!contact.avatar_url && contact.phone && webhook.instance) {
+      updateContactProfilePicture(supabase, contact, webhook.instance);
+    }
     
     // Use contact's phone if available (for cases where we found existing contact)
     const contactPhone = contact.phone || phoneNumber;
@@ -252,7 +257,55 @@ async function processConnectionUpdate(supabase: any, webhook: EvolutionWebhook)
   }
 }
 
-async function getOrCreateContact(supabase: any, phoneNumber: string, name: string, remoteJid: string) {
+// Fetch profile picture from WhatsApp via Evolution API
+async function fetchProfilePicture(phoneNumber: string, instanceName: string): Promise<string | null> {
+  if (!phoneNumber) return null;
+  
+  try {
+    const evolutionUrl = Deno.env.get('EVOLUTION_API_URL') || 'https://api.viainfra.chat';
+    const evolutionKey = Deno.env.get('EVOLUTION_API_KEY');
+    
+    if (!evolutionKey) {
+      console.log('⚠️ EVOLUTION_API_KEY not configured for profile picture');
+      return null;
+    }
+    
+    console.log(`📷 Fetching profile picture for ${phoneNumber}...`);
+    
+    const response = await fetch(`${evolutionUrl}/chat/fetchProfilePictureUrl/${instanceName}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': evolutionKey,
+      },
+      body: JSON.stringify({
+        number: phoneNumber,
+      }),
+    });
+    
+    if (!response.ok) {
+      console.log(`⚠️ Failed to fetch profile picture: ${response.status}`);
+      return null;
+    }
+    
+    const data = await response.json();
+    
+    if (data.profilePictureUrl || data.pictureUrl || data.url) {
+      const pictureUrl = data.profilePictureUrl || data.pictureUrl || data.url;
+      console.log(`✅ Profile picture found: ${pictureUrl.substring(0, 50)}...`);
+      return pictureUrl;
+    }
+    
+    console.log('📷 No profile picture available for this contact');
+    return null;
+    
+  } catch (error) {
+    console.error('❌ Error fetching profile picture:', error);
+    return null;
+  }
+}
+
+async function getOrCreateContact(supabase: any, phoneNumber: string, name: string, remoteJid: string, instanceName?: string) {
   // Get first company (will be used for searches)
   const { data: companies } = await supabase
     .from('companies')
@@ -352,12 +405,20 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
 
   // PRIORITY 4: Create new contact
   console.log('➕ Creating new contact...');
+  
+  // Try to fetch profile picture for new contact
+  let avatarUrl = null;
+  if (phoneNumber && instanceName) {
+    avatarUrl = await fetchProfilePicture(phoneNumber, instanceName);
+  }
+  
   const { data: newContact, error: insertError } = await supabase
     .from('contacts')
     .insert({
       name: name,
       phone: phoneNumber || null,
       email: null,
+      avatar_url: avatarUrl,
       company_id: companyId,
       metadata: { remoteJid: remoteJid },
       created_at: new Date().toISOString(),
@@ -371,8 +432,36 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
     throw insertError;
   }
 
-  console.log(`✅ Created new contact: ${newContact.id}, Phone: ${newContact.phone || 'N/A'}`);
+  console.log(`✅ Created new contact: ${newContact.id}, Phone: ${newContact.phone || 'N/A'}, Avatar: ${avatarUrl ? 'yes' : 'no'}`);
   return newContact;
+}
+
+// Update existing contact's profile picture if missing
+async function updateContactProfilePicture(supabase: any, contact: any, instanceName?: string) {
+  if (!contact || !contact.phone || contact.avatar_url || !instanceName) {
+    return;
+  }
+  
+  console.log(`📷 Updating profile picture for existing contact ${contact.id}...`);
+  
+  const avatarUrl = await fetchProfilePicture(contact.phone, instanceName);
+  
+  if (avatarUrl) {
+    const { error } = await supabase
+      .from('contacts')
+      .update({ 
+        avatar_url: avatarUrl,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', contact.id);
+    
+    if (error) {
+      console.error('❌ Error updating contact avatar:', error);
+    } else {
+      console.log(`✅ Profile picture updated for ${contact.name}`);
+      contact.avatar_url = avatarUrl;
+    }
+  }
 }
 
 async function getOrCreateConversation(supabase: any, contactId: string, phoneNumber: string, contactName: string, remoteJid: string) {

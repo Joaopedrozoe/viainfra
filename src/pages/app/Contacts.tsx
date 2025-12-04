@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Search, Plus, Filter, Users, Mail, MessageSquare, Download, Trash2 } from "lucide-react";
+import { Search, Plus, Filter, Users, Mail, MessageSquare, Download, Trash2, Camera, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,12 +9,15 @@ import { ContactFilters } from "@/components/app/contacts/ContactFilters";
 import { CreateContactModal } from "@/components/app/contacts/CreateContactModal";
 import { Contact, ContactFilter } from "@/types/contact";
 import { getDemoContacts } from "@/data/mockContacts";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import { useDemoMode } from "@/hooks/useDemoMode";
 
 const Contacts = () => {
   const { isDemoMode } = useDemoMode();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSyncingPhotos, setIsSyncingPhotos] = useState(false);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -22,6 +25,31 @@ const Contacts = () => {
   const [filters, setFilters] = useState<ContactFilter>({});
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
+
+  const handleSyncProfilePictures = async () => {
+    setIsSyncingPhotos(true);
+    toast.loading("Sincronizando fotos de perfil...");
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-profile-pictures', {
+        body: { forceUpdate: false }
+      });
+      
+      if (error) {
+        console.error('Error syncing profile pictures:', error);
+        toast.error("Erro ao sincronizar fotos");
+      } else {
+        toast.success(`Fotos sincronizadas: ${data.updated} atualizadas, ${data.skipped} ignoradas`);
+        fetchContacts();
+      }
+    } catch (error) {
+      console.error('Error syncing profile pictures:', error);
+      toast.error("Erro ao sincronizar fotos");
+    } finally {
+      setIsSyncingPhotos(false);
+      toast.dismiss();
+    }
+  };
 
   // Load contacts from Supabase
   const fetchContacts = async () => {
@@ -224,6 +252,19 @@ const Contacts = () => {
           </div>
           
           <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSyncProfilePictures}
+              disabled={isSyncingPhotos}
+            >
+              {isSyncingPhotos ? (
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Camera className="h-4 w-4 mr-2" />
+              )}
+              Sincronizar Fotos
+            </Button>
             <Button
               variant="outline"
               size="sm"
