@@ -4,13 +4,14 @@ import { ChatWindow } from "@/components/app/ChatWindow";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { X, CheckCircle, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { InternalChatWindow } from "@/components/app/InternalChatWindow";
 import { useInternalChat } from "@/hooks/useInternalChat";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useConversations } from "@/hooks/useConversations";
 import { useMessageNotifications } from "@/hooks/useMessageNotifications";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 const Inbox = () => {
   const location = useLocation();
@@ -73,10 +74,25 @@ const Inbox = () => {
     }
   }, [handleResolveConversation, isMobile]);
 
-  const handleRefresh = useCallback(() => {
-    console.log('Refresh button clicked, updating conversations...');
+  const handleRefresh = useCallback(async () => {
+    console.log('Refresh button clicked, updating conversations and syncing photos...');
     setRefreshKey(prev => prev + 1);
-  }, []);
+    
+    // Sincronizar fotos de perfil em background
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-profile-pictures', {
+        body: { forceUpdate: false }
+      });
+      
+      if (!error && data?.updated > 0) {
+        toast.success(`${data.updated} foto(s) atualizada(s)`);
+        // Refetch para atualizar avatares na lista
+        await refetch();
+      }
+    } catch (error) {
+      console.error('Error syncing photos:', error);
+    }
+  }, [refetch]);
 
   const handleSelectInternalChat = useCallback((conversationId: string) => {
     setSelectedInternalChat(conversationId);

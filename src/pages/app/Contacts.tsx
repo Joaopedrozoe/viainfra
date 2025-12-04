@@ -98,6 +98,7 @@ const Contacts = () => {
             email: c.email || undefined,
             phone: c.phone || undefined,
             company: metadata.company || undefined,
+            avatar_url: c.avatar_url || undefined,
             tags,
             channel: metadata.channel || undefined,
             lastInteraction: c.updated_at,
@@ -340,10 +341,22 @@ const Contacts = () => {
                       onClick={() => handleContactSelect(contact)}
                     >
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
-                          <span className="text-sm font-medium text-primary">
-                            {contact.name.charAt(0).toUpperCase()}
-                          </span>
+                        <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center overflow-hidden">
+                          {contact.avatar_url ? (
+                            <img 
+                              src={contact.avatar_url} 
+                              alt={contact.name}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                                e.currentTarget.parentElement!.innerHTML = `<span class="text-sm font-medium text-primary">${contact.name.charAt(0).toUpperCase()}</span>`;
+                              }}
+                            />
+                          ) : (
+                            <span className="text-sm font-medium text-primary">
+                              {contact.name.charAt(0).toUpperCase()}
+                            </span>
+                          )}
                         </div>
                         
                         <div className="flex-1">

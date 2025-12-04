@@ -44,7 +44,6 @@ serve(async (req) => {
       .from('whatsapp_instances')
       .select('instance_name, company_id, phone_number')
       .in('status', ['open', 'connected'])
-      .eq('phone_number', '5511940027215') // Only use authorized instance
       .limit(1);
 
     if (companyId) {
