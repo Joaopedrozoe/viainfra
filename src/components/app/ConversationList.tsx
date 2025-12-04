@@ -125,8 +125,9 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         avatar: conv.contact?.avatar_url,
         is_preview: false,
         status: conv.status,
-        archived: (conv as any).archived || false
-      } as Conversation & { is_preview: boolean; status?: string; archived?: boolean };
+        archived: (conv as any).archived || false,
+        lastActivityTimestamp: new Date(lastActivityTime).getTime()
+      } as Conversation & { is_preview: boolean; status?: string; archived?: boolean; lastActivityTimestamp?: number };
     });
     
     // Combine both lists
@@ -219,6 +220,14 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     }
 
     logger.debug('Final filtered conversations:', result.length);
+    
+    // Sort by last activity timestamp (most recent first)
+    result.sort((a, b) => {
+      const timeA = (a as any).lastActivityTimestamp || 0;
+      const timeB = (b as any).lastActivityTimestamp || 0;
+      return timeB - timeA;
+    });
+    
     setFilteredConversations(result);
   }, [allConversations, searchTerm, selectedChannel, selectedDepartment, activeTab, resolvedConversations]);
 
