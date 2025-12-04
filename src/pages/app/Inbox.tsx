@@ -78,10 +78,9 @@ const Inbox = () => {
   const handleRefresh = useCallback(async () => {
     if (isSyncing) return;
     
-    console.log('Refresh button clicked, syncing messages and photos...');
+    console.log('Refresh button clicked, syncing conversations...');
     setIsSyncing(true);
     setRefreshKey(prev => prev + 1);
-    toast.info('Sincronizando conversas...');
     
     try {
       // Buscar instâncias WhatsApp conectadas
@@ -90,28 +89,38 @@ const Inbox = () => {
         .select('instance_name, connection_state')
         .eq('connection_state', 'open');
       
-      // Sincronizar mensagens para cada instância conectada
-      for (const instance of instances || []) {
-        try {
-          const { data: syncData, error: syncError } = await supabase.functions.invoke('evolution-instance/sync-messages', {
-            body: { instanceName: instance.instance_name }
-          });
-          
-          if (!syncError && syncData?.newMessages > 0) {
-            toast.success(`${syncData.newMessages} nova(s) mensagem(ns) sincronizada(s)`);
+      if (!instances || instances.length === 0) {
+        toast.info('Nenhuma instância conectada');
+      } else {
+        // Sincronizar para cada instância conectada
+        for (const instance of instances) {
+          try {
+            const { data: syncData, error: syncError } = await supabase.functions.invoke('evolution-instance/sync-messages', {
+              body: { instanceName: instance.instance_name }
+            });
+            
+            if (!syncError && syncData) {
+              if (syncData.metadataFixed > 0 || syncData.timestampsUpdated > 0) {
+                toast.success(`${syncData.metadataFixed || 0} conversa(s) corrigida(s), ${syncData.timestampsUpdated || 0} atualizada(s)`);
+              }
+            }
+          } catch (err) {
+            console.error(`Error syncing for ${instance.instance_name}:`, err);
           }
-        } catch (err) {
-          console.error(`Error syncing messages for ${instance.instance_name}:`, err);
         }
       }
       
-      // Sincronizar fotos de perfil em background
-      const { data: photoData, error: photoError } = await supabase.functions.invoke('sync-profile-pictures', {
-        body: { forceUpdate: false }
-      });
-      
-      if (!photoError && photoData?.updated > 0) {
-        toast.success(`${photoData.updated} foto(s) atualizada(s)`);
+      // Sincronizar fotos de perfil
+      try {
+        const { data: photoData, error: photoError } = await supabase.functions.invoke('sync-profile-pictures', {
+          body: { forceUpdate: false }
+        });
+        
+        if (!photoError && photoData?.updated > 0) {
+          toast.success(`${photoData.updated} foto(s) atualizada(s)`);
+        }
+      } catch (photoErr) {
+        console.error('Error syncing photos:', photoErr);
       }
       
       // Refetch para atualizar a lista
