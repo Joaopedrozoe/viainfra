@@ -6,12 +6,13 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { useWhatsAppInstances } from '@/hooks/useWhatsAppInstances';
-import { Loader2, QrCode, Trash2, RefreshCw, CheckCircle2, XCircle, AlertCircle, Plus, Smartphone } from 'lucide-react';
+import { Loader2, QrCode, Trash2, RefreshCw, CheckCircle2, XCircle, AlertCircle, Plus, Smartphone, Bot, Download } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const WhatsAppInstanceManager = () => {
-  const { instances, loading, createInstance, getInstanceQR, deleteInstance, syncInstances, refresh } = useWhatsAppInstances();
+  const { instances, loading, createInstance, getInstanceQR, deleteInstance, syncInstances, toggleBot, fetchChats, refresh } = useWhatsAppInstances();
   const [newInstanceName, setNewInstanceName] = useState('');
   const [channel, setChannel] = useState('baileys');
   const [creating, setCreating] = useState(false);
@@ -20,6 +21,19 @@ export const WhatsAppInstanceManager = () => {
   const [loadingQR, setLoadingQR] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [botStatus, setBotStatus] = useState<Record<string, boolean>>({});
+  const [togglingBot, setTogglingBot] = useState<string | null>(null);
+  const [importingChats, setImportingChats] = useState<string | null>(null);
+
+  // Carregar status do bot do localStorage
+  useEffect(() => {
+    const savedStatus: Record<string, boolean> = {};
+    instances.forEach(instance => {
+      const saved = localStorage.getItem(`bot_enabled_${instance.instance_name}`);
+      savedStatus[instance.instance_name] = saved !== 'false'; // Default true
+    });
+    setBotStatus(savedStatus);
+  }, [instances]);
 
   // Filtrar instâncias conectadas e ocultar instâncias específicas
   const HIDDEN_INSTANCES = ['TESTE2', 'TINFO', 'teste2', 'tinfo', 'JUNIORCORRETOR', 'juniorcorretor', 'teste', 'VIAINFRA', 'VIAINFRA2', 'viainfra', 'viainfra2'];
@@ -327,51 +341,110 @@ export const WhatsAppInstanceManager = () => {
             </Alert>
           ) : (
             <div className="space-y-3">
-              {connectedInstances.map((instance) => (
-                <Card key={instance.id} className="bg-muted/30">
-                  <CardContent className="py-4">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-1">
-                        <h4 className="font-semibold flex items-center gap-2">
-                          <Smartphone className="w-4 h-4" />
-                          {instance.instance_name}
-                        </h4>
-                        {instance.phone_number && (
-                          <p className="text-sm text-muted-foreground">
-                            📱 {instance.phone_number}
-                          </p>
-                        )}
-                        <div className="flex items-center gap-2 mt-2">
-                          {getStatusBadge(instance.status, instance.connection_state)}
+              {connectedInstances.map((instance) => {
+                const isBotEnabled = botStatus[instance.instance_name] !== false;
+                
+                const handleToggleBot = async () => {
+                  setTogglingBot(instance.instance_name);
+                  try {
+                    const newStatus = !isBotEnabled;
+                    await toggleBot(instance.instance_name, newStatus);
+                    localStorage.setItem(`bot_enabled_${instance.instance_name}`, String(newStatus));
+                    setBotStatus(prev => ({ ...prev, [instance.instance_name]: newStatus }));
+                  } catch (error) {
+                    console.error('Error toggling bot:', error);
+                  } finally {
+                    setTogglingBot(null);
+                  }
+                };
+
+                const handleImportChats = async () => {
+                  setImportingChats(instance.instance_name);
+                  try {
+                    await fetchChats(instance.instance_name);
+                  } catch (error) {
+                    console.error('Error importing chats:', error);
+                  } finally {
+                    setImportingChats(null);
+                  }
+                };
+
+                return (
+                  <Card key={instance.id} className="bg-muted/30">
+                    <CardContent className="py-4">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-1">
+                          <h4 className="font-semibold flex items-center gap-2">
+                            <Smartphone className="w-4 h-4" />
+                            {instance.instance_name}
+                          </h4>
+                          {instance.phone_number && (
+                            <p className="text-sm text-muted-foreground">
+                              📱 {instance.phone_number}
+                            </p>
+                          )}
+                          <div className="flex items-center gap-2 mt-2">
+                            {getStatusBadge(instance.status, instance.connection_state)}
+                          </div>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          {/* Bot Toggle */}
+                          <div className="flex items-center gap-2 justify-end">
+                            <Label htmlFor={`bot-${instance.id}`} className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Bot className="w-3 h-3" />
+                              Bot
+                            </Label>
+                            <Switch
+                              id={`bot-${instance.id}`}
+                              checked={isBotEnabled}
+                              onCheckedChange={handleToggleBot}
+                              disabled={togglingBot === instance.instance_name}
+                            />
+                          </div>
+                          
+                          {/* Action Buttons */}
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={handleImportChats}
+                              disabled={importingChats === instance.instance_name}
+                              title="Importar conversas do WhatsApp"
+                            >
+                              {importingChats === instance.instance_name ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Download className="w-4 h-4" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleGetQR(instance.instance_name)}
+                              disabled={loadingQR && selectedInstance === instance.instance_name}
+                              title="Obter QR Code"
+                            >
+                              {loadingQR && selectedInstance === instance.instance_name ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <QrCode className="w-4 h-4" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDelete(instance.instance_name)}
+                              title="Deletar instância"
+                            >
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </Button>
+                          </div>
                         </div>
                       </div>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleGetQR(instance.instance_name)}
-                          disabled={loadingQR && selectedInstance === instance.instance_name}
-                          title="Obter QR Code"
-                        >
-                          {loadingQR && selectedInstance === instance.instance_name ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <QrCode className="w-4 h-4" />
-                          )}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleDelete(instance.instance_name)}
-                          title="Deletar instância"
-                        >
-                          <Trash2 className="w-4 h-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </CardContent>
