@@ -121,15 +121,27 @@ serve(async (req) => {
 
         console.log(`📷 Fetching picture for ${contact.name} (${phone})...`);
 
+        // Format phone for WhatsApp (ensure country code)
+        let formattedPhone = phone;
+        if (!phone.startsWith('55') && phone.length <= 11) {
+          formattedPhone = `55${phone}`;
+        }
+
         // Fetch profile picture from Evolution API
-        const response = await fetch(`${evolutionUrl}/chat/fetchProfilePictureUrl/${instance.instance_name}`, {
+        const apiUrl = `${evolutionUrl}/chat/fetchProfilePictureUrl/${instance.instance_name}`;
+        console.log(`🔗 Calling: ${apiUrl} with number: ${formattedPhone}`);
+        
+        const response = await fetch(apiUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'apikey': evolutionKey,
           },
-          body: JSON.stringify({ number: phone }),
+          body: JSON.stringify({ number: formattedPhone }),
         });
+
+        const responseText = await response.text();
+        console.log(`📡 Response for ${contact.name}: ${response.status} - ${responseText.substring(0, 200)}`);
 
         if (!response.ok) {
           console.log(`⚠️ Failed for ${contact.name}: ${response.status}`);
@@ -138,11 +150,19 @@ serve(async (req) => {
           continue;
         }
 
-        const data = await response.json();
-        const pictureUrl = data.profilePictureUrl || data.pictureUrl || data.url;
+        let data;
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          console.log(`⚠️ Invalid JSON for ${contact.name}`);
+          results.failed++;
+          continue;
+        }
+        
+        const pictureUrl = data.profilePictureUrl || data.pictureUrl || data.url || data.picture;
 
         if (!pictureUrl) {
-          console.log(`📷 No picture for ${contact.name}`);
+          console.log(`📷 No picture for ${contact.name} - Response: ${JSON.stringify(data)}`);
           results.skipped++;
           results.details.push({ id: contact.id, name: contact.name, status: 'skipped', reason: 'No picture available' });
           continue;
