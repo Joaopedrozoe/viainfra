@@ -732,22 +732,59 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     let importedConversations = 0;
     let skippedCount = 0;
 
+    // Helper function to validate phone number
+    function isValidPhoneNumber(phone: string): boolean {
+      // Phone should be only digits and have reasonable length (8-15 digits)
+      const digitsOnly = phone.replace(/\D/g, '');
+      return /^\d{8,15}$/.test(digitsOnly);
+    }
+
+    // Helper function to extract valid phone from entry
+    function extractPhoneNumber(entry: any): string | null {
+      // Try different fields where phone might be
+      const possibleIds = [
+        entry.id,
+        entry.remoteJid,
+        entry.jid,
+        entry.phone,
+        entry.number
+      ];
+
+      for (const id of possibleIds) {
+        if (!id || typeof id !== 'string') continue;
+        
+        // Skip @g.us (groups), @lid (internal IDs), @broadcast
+        if (id.includes('@g.us') || id.includes('@lid') || id.includes('@broadcast')) {
+          continue;
+        }
+
+        // Extract number from WhatsApp format
+        let phone = id.replace('@s.whatsapp.net', '').replace('@c.us', '');
+        
+        // Validate it's actually a phone number
+        if (isValidPhoneNumber(phone)) {
+          return phone;
+        }
+      }
+
+      return null;
+    }
+
     // Helper function to process a contact/chat entry
     async function processEntry(entry: any, source: string) {
       try {
         // Skip group chats
-        const id = entry.id || entry.remoteJid;
-        if (!id || id.includes('@g.us') || entry.isGroup) {
+        if (entry.isGroup) {
           return { skipped: true, reason: 'group' };
         }
 
-        // Skip @lid entries
-        if (id.includes('@lid')) {
-          return { skipped: true, reason: 'lid' };
+        // Extract valid phone number
+        const phoneNumber = extractPhoneNumber(entry);
+        
+        if (!phoneNumber) {
+          console.log(`⏭️ Skipping entry without valid phone:`, JSON.stringify(entry).slice(0, 200));
+          return { skipped: true, reason: 'invalid_phone' };
         }
-
-        // Extract phone number
-        const phoneNumber = id.replace('@s.whatsapp.net', '').replace('@c.us', '');
         
         // Skip if already processed
         if (processedPhones.has(phoneNumber)) {
@@ -755,13 +792,17 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         }
         processedPhones.add(phoneNumber);
 
-        const contactName = entry.pushName || entry.name || entry.notify || phoneNumber;
+        // Get contact name - prefer pushName, then name, then notify
+        const contactName = entry.pushName || entry.name || entry.notify || entry.verifiedName || phoneNumber;
         const profilePicUrl = entry.profilePictureUrl || entry.profilePicUrl || entry.imgUrl || null;
+        const remoteJid = entry.id || entry.remoteJid || `${phoneNumber}@s.whatsapp.net`;
 
-        // Check if contact exists
+        console.log(`📱 Processing contact: ${contactName} (${phoneNumber})`);
+
+        // Check if contact exists by phone
         let { data: existingContact } = await supabase
           .from('contacts')
-          .select('id, name, avatar_url')
+          .select('id, name, avatar_url, phone')
           .eq('company_id', companyId)
           .eq('phone', phoneNumber)
           .single();
@@ -778,17 +819,18 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
               name: contactName,
               phone: phoneNumber,
               avatar_url: profilePicUrl,
-              metadata: { remoteJid: id, source: `whatsapp_import_${source}` }
+              metadata: { remoteJid, source: `whatsapp_import_${source}` }
             })
             .select()
             .single();
 
           if (contactError) {
-            console.error('Error creating contact:', contactError);
+            console.error('❌ Error creating contact:', contactError);
             return { skipped: true, reason: 'contact_error' };
           }
           contactId = newContact.id;
           contactCreated = true;
+          console.log(`✅ Created contact: ${contactName} (${phoneNumber})`);
         } else {
           contactId = existingContact.id;
           
@@ -802,6 +844,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           }
           if (Object.keys(updates).length > 0) {
             await supabase.from('contacts').update(updates).eq('id', contactId);
+            console.log(`📝 Updated contact: ${contactName}`);
           }
         }
 
@@ -826,7 +869,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
                 status: 'open',
                 metadata: { 
                   instanceName, 
-                  remoteJid: id,
+                  remoteJid,
                   importedAt: new Date().toISOString()
                 }
               });
