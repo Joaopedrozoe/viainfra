@@ -854,7 +854,21 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           }
         }
 
-        // Create/check conversation for any source with valid phone
+        // Check message count from chat - only create conversation if there's history
+        const hasMessages = entry.unreadCount > 0 || entry.messageCount > 0 || entry.lastMessage || entry.messages?.length > 0;
+        
+        // For contacts source, only create the contact, not conversation
+        if (source === 'contacts') {
+          return { contactCreated, conversationCreated: false };
+        }
+
+        // For chats source, only create conversation if there are messages
+        if (!hasMessages) {
+          console.log(`⏭️ Skip conversation (no messages): ${contactName}`);
+          return { contactCreated, conversationCreated: false };
+        }
+
+        // Create/check conversation only for chats with real history
         let { data: existingConversation } = await supabase
           .from('conversations')
           .select('id, archived')
