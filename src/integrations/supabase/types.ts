@@ -248,6 +248,7 @@ export type Database = {
       conversations: {
         Row: {
           access_token: string | null
+          archived: boolean | null
           assigned_to: string | null
           channel: string
           company_id: string | null
@@ -260,6 +261,7 @@ export type Database = {
         }
         Insert: {
           access_token?: string | null
+          archived?: boolean | null
           assigned_to?: string | null
           channel: string
           company_id?: string | null
@@ -272,6 +274,7 @@ export type Database = {
         }
         Update: {
           access_token?: string | null
+          archived?: boolean | null
           assigned_to?: string | null
           channel?: string
           company_id?: string | null

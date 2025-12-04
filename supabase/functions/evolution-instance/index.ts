@@ -732,34 +732,37 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     let importedConversations = 0;
     let skippedCount = 0;
 
-    // Helper function to validate phone number
+    // Helper function to validate phone number (8-15 digits only)
     function isValidPhoneNumber(phone: string): boolean {
-      // Phone should be only digits and have reasonable length (8-15 digits)
       const digitsOnly = phone.replace(/\D/g, '');
       return /^\d{8,15}$/.test(digitsOnly);
     }
 
     // Helper function to extract valid phone from entry
+    // IMPORTANT: Do NOT use entry.id as it's often an internal database ID (cmh...)
     function extractPhoneNumber(entry: any): string | null {
-      // Try different fields where phone might be
-      const possibleIds = [
-        entry.id,
-        entry.remoteJid,
-        entry.jid,
-        entry.phone,
-        entry.number
+      // Priority order - only fields that should contain phone/WhatsApp IDs
+      const phoneFields = [
+        entry.remoteJid,      // WhatsApp JID (xxxxx@s.whatsapp.net)
+        entry.jid,            // Alternative JID field
+        entry.phone,          // Direct phone field
+        entry.number,         // Alternative number field
+        entry.wid?.user,      // Some APIs nest it in wid.user
       ];
 
-      for (const id of possibleIds) {
-        if (!id || typeof id !== 'string') continue;
+      for (const field of phoneFields) {
+        if (!field || typeof field !== 'string') continue;
         
-        // Skip @g.us (groups), @lid (internal IDs), @broadcast
-        if (id.includes('@g.us') || id.includes('@lid') || id.includes('@broadcast')) {
+        // Skip groups, internal IDs, broadcasts
+        if (field.includes('@g.us') || field.includes('@lid') || field.includes('@broadcast')) {
           continue;
         }
 
         // Extract number from WhatsApp format
-        let phone = id.replace('@s.whatsapp.net', '').replace('@c.us', '');
+        let phone = field.replace('@s.whatsapp.net', '').replace('@c.us', '');
+        
+        // Clean any remaining non-digit chars except the phone itself
+        phone = phone.replace(/\D/g, '');
         
         // Validate it's actually a phone number
         if (isValidPhoneNumber(phone)) {
@@ -771,7 +774,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     }
 
     // Helper function to process a contact/chat entry
-    async function processEntry(entry: any, source: string) {
+    async function processEntry(entry: any, source: string, isArchived: boolean = false) {
       try {
         // Skip group chats
         if (entry.isGroup) {
@@ -782,7 +785,8 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         const phoneNumber = extractPhoneNumber(entry);
         
         if (!phoneNumber) {
-          console.log(`⏭️ Skipping entry without valid phone:`, JSON.stringify(entry).slice(0, 200));
+          // Log only first 100 chars to avoid log spam
+          console.log(`⏭️ Skip (no valid phone): ${entry.pushName || entry.name || 'unknown'}`);
           return { skipped: true, reason: 'invalid_phone' };
         }
         
@@ -795,9 +799,11 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         // Get contact name - prefer pushName, then name, then notify
         const contactName = entry.pushName || entry.name || entry.notify || entry.verifiedName || phoneNumber;
         const profilePicUrl = entry.profilePictureUrl || entry.profilePicUrl || entry.imgUrl || null;
-        const remoteJid = entry.id || entry.remoteJid || `${phoneNumber}@s.whatsapp.net`;
+        
+        // Build proper WhatsApp JID from phone number
+        const remoteJid = `${phoneNumber}@s.whatsapp.net`;
 
-        console.log(`📱 Processing contact: ${contactName} (${phoneNumber})`);
+        console.log(`📱 Processing: ${contactName} (${phoneNumber})${isArchived ? ' [archived]' : ''}`);
 
         // Check if contact exists by phone
         let { data: existingContact } = await supabase
@@ -805,7 +811,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           .select('id, name, avatar_url, phone')
           .eq('company_id', companyId)
           .eq('phone', phoneNumber)
-          .single();
+          .maybeSingle();
 
         let contactId;
         let contactCreated = false;
@@ -848,37 +854,42 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           }
         }
 
-        // Check if conversation exists (only for chats source)
-        if (source === 'chats') {
-          let { data: existingConversation } = await supabase
+        // Create/check conversation for any source with valid phone
+        let { data: existingConversation } = await supabase
+          .from('conversations')
+          .select('id, archived')
+          .eq('company_id', companyId)
+          .eq('contact_id', contactId)
+          .eq('channel', 'whatsapp')
+          .maybeSingle();
+
+        if (!existingConversation) {
+          // Create conversation
+          const { error: convError } = await supabase
             .from('conversations')
-            .select('id')
-            .eq('company_id', companyId)
-            .eq('contact_id', contactId)
-            .eq('channel', 'whatsapp')
-            .single();
+            .insert({
+              company_id: companyId,
+              contact_id: contactId,
+              channel: 'whatsapp',
+              status: isArchived ? 'resolved' : 'open',
+              archived: isArchived,
+              metadata: { 
+                instanceName, 
+                remoteJid,
+                importedAt: new Date().toISOString()
+              }
+            });
 
-          if (!existingConversation) {
-            // Create conversation
-            const { error: convError } = await supabase
-              .from('conversations')
-              .insert({
-                company_id: companyId,
-                contact_id: contactId,
-                channel: 'whatsapp',
-                status: 'open',
-                metadata: { 
-                  instanceName, 
-                  remoteJid,
-                  importedAt: new Date().toISOString()
-                }
-              });
-
-            if (convError) {
-              console.error('Error creating conversation:', convError);
-              return { contactCreated, conversationCreated: false };
-            }
-            return { contactCreated, conversationCreated: true };
+          if (convError) {
+            console.error('Error creating conversation:', convError);
+            return { contactCreated, conversationCreated: false };
+          }
+          console.log(`💬 Created conversation for ${contactName}${isArchived ? ' (archived)' : ''}`);
+          return { contactCreated, conversationCreated: true };
+        } else {
+          // Update archived status if needed
+          if (isArchived && !existingConversation.archived) {
+            await supabase.from('conversations').update({ archived: true, status: 'resolved' }).eq('id', existingConversation.id);
           }
         }
 
@@ -889,19 +900,21 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       }
     }
 
-    // Process contacts
+    // Process contacts first (no conversations created)
     for (const contact of allContacts) {
-      const result = await processEntry(contact, 'contacts');
+      const result = await processEntry(contact, 'contacts', false);
       if (result.skipped) {
         skippedCount++;
       } else {
         if (result.contactCreated) importedContacts++;
+        if (result.conversationCreated) importedConversations++;
       }
     }
 
-    // Process chats
+    // Process chats (creates conversations)
     for (const chat of allChats) {
-      const result = await processEntry(chat, 'chats');
+      const isArchived = chat.archive === true || chat.archived === true;
+      const result = await processEntry(chat, 'chats', isArchived);
       if (result.skipped) {
         skippedCount++;
       } else {

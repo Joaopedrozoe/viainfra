@@ -13,6 +13,7 @@ export interface Conversation {
   metadata: any;
   created_at: string;
   updated_at: string;
+  archived?: boolean;
   contact?: {
     id: string;
     name: string;
@@ -73,6 +74,7 @@ export const useConversations = () => {
           metadata,
           created_at,
           updated_at,
+          archived,
           contacts!conversations_contact_id_fkey (
             id,
             name,
@@ -108,6 +110,7 @@ export const useConversations = () => {
           ...conv,
           status: conv.status as 'open' | 'resolved' | 'pending',
           metadata: conv.metadata || {},
+          archived: conv.archived || false,
           contact: conv.contacts || undefined,
           messages: (conv.messages || []).map(msg => ({
             ...msg,
