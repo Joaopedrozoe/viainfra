@@ -21,8 +21,8 @@ export const WhatsAppInstanceManager = () => {
   const [syncing, setSyncing] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
 
-  // Filtrar instâncias conectadas e ocultar TESTE2 e TINFO
-  const HIDDEN_INSTANCES = ['TESTE2', 'TINFO', 'teste2', 'tinfo'];
+  // Filtrar instâncias conectadas e ocultar instâncias específicas
+  const HIDDEN_INSTANCES = ['TESTE2', 'TINFO', 'teste2', 'tinfo', 'JUNIORCORRETOR', 'juniorcorretor', 'teste', 'VIAINFRA', 'VIAINFRA2', 'viainfra', 'viainfra2'];
   
   const connectedInstances = useMemo(() => {
     return instances.filter(instance => {
