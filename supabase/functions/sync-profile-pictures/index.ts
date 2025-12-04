@@ -39,11 +39,12 @@ serve(async (req) => {
 
     const { contactId, companyId, forceUpdate = false } = body;
 
-    // Get connected WhatsApp instance - check for 'open' status (Evolution API uses 'open' not 'connected')
+    // Get connected WhatsApp instance - get the most recently updated one
     let instanceQuery = supabase
       .from('whatsapp_instances')
       .select('instance_name, company_id, phone_number')
       .in('status', ['open', 'connected'])
+      .order('updated_at', { ascending: false })
       .limit(1);
 
     if (companyId) {
@@ -65,28 +66,64 @@ serve(async (req) => {
     const instance = instances[0];
     console.log(`📱 Using instance: ${instance.instance_name}`);
 
-    // Get contacts to sync
-    let contactsQuery = supabase
-      .from('contacts')
-      .select('id, name, phone, avatar_url, company_id')
-      .not('phone', 'is', null)
-      .neq('phone', '');
-
+    // Get contacts to sync - PRIORITY: contacts with active conversations
+    let contactsQuery;
+    
     if (contactId) {
-      contactsQuery = contactsQuery.eq('id', contactId);
-    } else if (companyId) {
-      contactsQuery = contactsQuery.eq('company_id', companyId);
-    } else if (instance.company_id) {
-      contactsQuery = contactsQuery.eq('company_id', instance.company_id);
+      // Sync specific contact
+      contactsQuery = supabase
+        .from('contacts')
+        .select('id, name, phone, avatar_url, company_id')
+        .eq('id', contactId)
+        .not('phone', 'is', null)
+        .neq('phone', '');
+    } else {
+      // PRIORITY: Get contacts from active conversations first
+      const { data: activeConversations } = await supabase
+        .from('conversations')
+        .select('contact_id')
+        .eq('channel', 'whatsapp')
+        .in('status', ['open', 'pending'])
+        .not('contact_id', 'is', null);
+      
+      const activeContactIds = activeConversations?.map(c => c.contact_id).filter(Boolean) || [];
+      
+      console.log(`📋 Found ${activeContactIds.length} contacts with active conversations`);
+      
+      if (activeContactIds.length > 0) {
+        // Sync contacts with active conversations
+        contactsQuery = supabase
+          .from('contacts')
+          .select('id, name, phone, avatar_url, company_id')
+          .in('id', activeContactIds)
+          .not('phone', 'is', null)
+          .neq('phone', '');
+        
+        // Only sync contacts without avatar unless forceUpdate
+        if (!forceUpdate) {
+          contactsQuery = contactsQuery.or('avatar_url.is.null,avatar_url.eq.');
+        }
+      } else {
+        // Fallback to original logic if no active conversations
+        contactsQuery = supabase
+          .from('contacts')
+          .select('id, name, phone, avatar_url, company_id')
+          .not('phone', 'is', null)
+          .neq('phone', '');
+        
+        if (companyId) {
+          contactsQuery = contactsQuery.eq('company_id', companyId);
+        } else if (instance.company_id) {
+          contactsQuery = contactsQuery.eq('company_id', instance.company_id);
+        }
+        
+        if (!forceUpdate) {
+          contactsQuery = contactsQuery.or('avatar_url.is.null,avatar_url.eq.');
+        }
+        
+        contactsQuery = contactsQuery.limit(50);
+      }
     }
-
-    // Only sync contacts without avatar unless forceUpdate
-    if (!forceUpdate) {
-      contactsQuery = contactsQuery.or('avatar_url.is.null,avatar_url.eq.');
-    }
-
-    // Limit to avoid timeout
-    contactsQuery = contactsQuery.limit(50);
 
     const { data: contacts, error: contactsError } = await contactsQuery;
 
