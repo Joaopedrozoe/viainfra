@@ -909,9 +909,12 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       }
     }
 
-    // Process contacts first (no conversations created)
-    for (const contact of allContacts) {
-      const result = await processEntry(contact, 'contacts', false);
+    // Process CHATS FIRST (creates conversations) - important to do chats before contacts
+    // so that processedPhones doesn't skip chats that were already seen as contacts
+    console.log(`📋 Processing ${allChats.length} chats first...`);
+    for (const chat of allChats) {
+      const isArchived = chat.archive === true || chat.archived === true;
+      const result = await processEntry(chat, 'chats', isArchived);
       if (result.skipped) {
         skippedCount++;
       } else {
@@ -920,10 +923,10 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       }
     }
 
-    // Process chats (creates conversations)
-    for (const chat of allChats) {
-      const isArchived = chat.archive === true || chat.archived === true;
-      const result = await processEntry(chat, 'chats', isArchived);
+    // Process contacts second (no conversations created, just creates contact if not exists)
+    console.log(`👥 Processing ${allContacts.length} contacts...`);
+    for (const contact of allContacts) {
+      const result = await processEntry(contact, 'contacts', false);
       if (result.skipped) {
         skippedCount++;
       } else {
