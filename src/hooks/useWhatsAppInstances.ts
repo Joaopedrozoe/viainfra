@@ -14,6 +14,7 @@ export interface WhatsAppInstance {
   webhook_url?: string;
   connection_state?: string;
   last_sync?: string;
+  bot_enabled?: boolean;
   created_at: string;
   updated_at: string;
 }

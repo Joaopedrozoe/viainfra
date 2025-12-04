@@ -754,6 +754,18 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
 async function triggerBotResponse(supabase: any, conversationId: string, messageContent: string, remoteJid: string, instanceName: string) {
   console.log('Triggering bot response...');
   
+  // PROTEÇÃO 0: Verificar se o bot está habilitado para esta instância
+  const { data: instance } = await supabase
+    .from('whatsapp_instances')
+    .select('bot_enabled')
+    .eq('instance_name', instanceName)
+    .single();
+  
+  if (instance && instance.bot_enabled === false) {
+    console.log(`⏸️ Bot desabilitado para instância ${instanceName}. Ignorando resposta automática.`);
+    return;
+  }
+  
   // Buscar conversa e bot em paralelo para reduzir latência
   const [floodCheck, conversationResult, botsResult] = await Promise.all([
     shouldSkipBotResponse(supabase, conversationId),

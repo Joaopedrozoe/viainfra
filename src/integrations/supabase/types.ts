@@ -502,6 +502,7 @@ export type Database = {
       }
       whatsapp_instances: {
         Row: {
+          bot_enabled: boolean | null
           company_id: string | null
           connection_state: string | null
           created_at: string
@@ -515,6 +516,7 @@ export type Database = {
           webhook_url: string | null
         }
         Insert: {
+          bot_enabled?: boolean | null
           company_id?: string | null
           connection_state?: string | null
           created_at?: string
@@ -528,6 +530,7 @@ export type Database = {
           webhook_url?: string | null
         }
         Update: {
+          bot_enabled?: boolean | null
           company_id?: string | null
           connection_state?: string | null
           created_at?: string
