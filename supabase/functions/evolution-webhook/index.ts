@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
+import { BotFlowProcessor } from './bot-flow-processor.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -753,19 +754,19 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
 async function triggerBotResponse(supabase: any, conversationId: string, messageContent: string, remoteJid: string, instanceName: string) {
   console.log('Triggering bot response...');
   
+  // Buscar conversa e bot em paralelo para reduzir latência
+  const [floodCheck, conversationResult, botsResult] = await Promise.all([
+    shouldSkipBotResponse(supabase, conversationId),
+    supabase.from('conversations').select('status, metadata, contacts(phone)').eq('id', conversationId).single(),
+    supabase.from('bots').select('*').contains('channels', ['whatsapp']).eq('status', 'published').limit(1)
+  ]);
+  
   // PROTEÇÃO 2: Anti-flood - evitar múltiplas respostas do bot
-  const skipFlood = await shouldSkipBotResponse(supabase, conversationId);
-  if (skipFlood) {
+  if (floodCheck) {
     return;
   }
-  
-  // Verificar se a conversa está em status 'pending' (transferida para atendente)
-  const { data: conversation, error: convError } = await supabase
-    .from('conversations')
-    .select('status, metadata')
-    .eq('id', conversationId)
-    .single();
 
+  const { data: conversation, error: convError } = conversationResult;
   if (convError) {
     console.error('Error fetching conversation:', convError);
     return;
@@ -776,14 +777,7 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     return;
   }
   
-  // Buscar bot ativo com canal WhatsApp
-  const { data: bots, error: botsError } = await supabase
-    .from('bots')
-    .select('*')
-    .contains('channels', ['whatsapp'])
-    .eq('status', 'published')
-    .limit(1);
-
+  const { data: bots, error: botsError } = botsResult;
   if (botsError) {
     console.error('Error fetching bots:', botsError);
     return;
@@ -802,13 +796,11 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     collectedData: {},
   };
 
-  // Importar e processar o fluxo do bot
-  const { BotFlowProcessor } = await import('./bot-flow-processor.ts');
+  // Processar o fluxo do bot (import estático no topo do arquivo)
   const processor = new BotFlowProcessor(bot.flows, conversationState);
-
   const result = await processor.processUserInput(messageContent);
 
-  // Atualizar estado da conversa e departamento se for transferência
+  // Preparar atualização da conversa
   const conversationUpdate: any = {
     metadata: {
       ...conversation?.metadata,
@@ -819,11 +811,9 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     updated_at: new Date().toISOString(),
   };
 
-  // Se for transferência, pode atribuir ao primeiro usuário do departamento de atendimento
+  // Se for transferência, atribuir ao primeiro usuário disponível
   if (result.shouldTransferToAgent) {
     console.log('📞 Transferindo para atendente...');
-    
-    // Buscar primeiro usuário ativo do departamento de atendimento
     const { data: profiles } = await supabase
       .from('profiles')
       .select('user_id')
@@ -836,13 +826,11 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     }
   }
 
-  await supabase
-    .from('conversations')
-    .update(conversationUpdate)
-    .eq('id', conversationId);
-
   // Processar chamada de API se necessário
   if (result.shouldCallApi) {
+    // Atualizar conversa antes de chamar API
+    await supabase.from('conversations').update(conversationUpdate).eq('id', conversationId);
+    
     if (result.shouldCallApi.action === 'fetch-placas') {
       await handleFetchPlacas(supabase, conversationId, remoteJid, instanceName, bot.flows, result.newState);
       return;
@@ -854,19 +842,22 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     }
   }
 
-  // Salvar resposta do bot no banco
-  await supabase
-    .from('messages')
-    .insert({
+  // Obter telefone do contato para envio direto
+  const contactPhone = conversation?.contacts?.phone;
+  const recipientJid = contactPhone ? `${contactPhone}@s.whatsapp.net` : remoteJid;
+
+  // Executar em paralelo: salvar mensagem + atualizar conversa + enviar WhatsApp
+  await Promise.all([
+    supabase.from('messages').insert({
       conversation_id: conversationId,
       content: result.response,
       sender_type: 'bot',
       metadata: { bot_id: bot.id, bot_name: bot.name },
       created_at: new Date().toISOString(),
-    });
-
-  // Enviar resposta via Evolution API
-  await sendEvolutionMessage(supabase, conversationId, instanceName, remoteJid, result.response);
+    }),
+    supabase.from('conversations').update(conversationUpdate).eq('id', conversationId),
+    sendEvolutionMessageFast(instanceName, recipientJid, result.response)
+  ]);
 }
 
 async function handleFetchPlacas(supabase: any, conversationId: string, remoteJid: string, instanceName: string, botFlow: any, currentState: any) {
@@ -1132,34 +1123,14 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
   }
 }
 
-async function sendEvolutionMessage(supabase: any, conversationId: string, instanceName: string, remoteJid: string, text: string) {
+// Função otimizada para envio rápido - sem query ao banco
+async function sendEvolutionMessageFast(instanceName: string, recipientJid: string, text: string) {
   const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL');
   const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
 
   if (!evolutionApiUrl || !evolutionApiKey) {
     console.error('Evolution API configuration missing');
     return;
-  }
-
-  // Buscar contato da conversa para usar telefone real se disponível
-  let recipientJid = remoteJid;
-  try {
-    const { data: conversation } = await supabase
-      .from('conversations')
-      .select('contacts(phone)')
-      .eq('id', conversationId)
-      .single();
-
-    if (conversation?.contacts?.phone) {
-      // Priorizar telefone do contato (formato WhatsApp padrão)
-      recipientJid = `${conversation.contacts.phone}@s.whatsapp.net`;
-      console.log(`Bot using contact phone: ${conversation.contacts.phone} -> ${recipientJid}`);
-    } else {
-      // Fallback para remoteJid (para canais @lid, etc)
-      console.log(`Bot using remoteJid from metadata: ${remoteJid}`);
-    }
-  } catch (error) {
-    console.error('Error fetching contact phone, using remoteJid:', error);
   }
 
   console.log(`Sending bot message to: ${recipientJid} via instance ${instanceName}`);
@@ -1185,6 +1156,37 @@ async function sendEvolutionMessage(supabase: any, conversationId: string, insta
   } catch (error) {
     console.error('Error sending message via Evolution API:', error);
   }
+}
+
+async function sendEvolutionMessage(supabase: any, conversationId: string, instanceName: string, remoteJid: string, text: string) {
+  const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL');
+  const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
+
+  if (!evolutionApiUrl || !evolutionApiKey) {
+    console.error('Evolution API configuration missing');
+    return;
+  }
+
+  // Buscar contato da conversa para usar telefone real se disponível
+  let recipientJid = remoteJid;
+  try {
+    const { data: conversation } = await supabase
+      .from('conversations')
+      .select('contacts(phone)')
+      .eq('id', conversationId)
+      .single();
+
+    if (conversation?.contacts?.phone) {
+      recipientJid = `${conversation.contacts.phone}@s.whatsapp.net`;
+      console.log(`Bot using contact phone: ${conversation.contacts.phone} -> ${recipientJid}`);
+    } else {
+      console.log(`Bot using remoteJid from metadata: ${remoteJid}`);
+    }
+  } catch (error) {
+    console.error('Error fetching contact phone, using remoteJid:', error);
+  }
+
+  await sendEvolutionMessageFast(instanceName, recipientJid, text);
 }
 
 function extractPhoneNumber(remoteJid: string): string {
