@@ -84,9 +84,14 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
 
     // Map Supabase conversations
     const processedSupabaseConversations = supabaseConversations.map(conv => {
-      const lastMessage = conv.messages && conv.messages.length > 0 
-        ? conv.messages[conv.messages.length - 1] 
-        : null;
+      // Sort messages by created_at to get the actual last message
+      const sortedMessages = conv.messages && conv.messages.length > 0 
+        ? [...conv.messages].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        : [];
+      const lastMessage = sortedMessages.length > 0 ? sortedMessages[0] : null;
+      
+      // Use last message time if available, otherwise fall back to updated_at
+      const lastActivityTime = lastMessage?.created_at || conv.updated_at;
       
       // Use contact name, phone, or email for display
       let displayName = 'Sem identificação';
@@ -115,7 +120,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         name: displayName,
         channel: conv.channel as Channel,
         preview: lastMessage?.content || 'Nova conversa',
-        time: formatConversationTime(conv.updated_at),
+        time: formatConversationTime(lastActivityTime),
         unread: conv.status === 'open' || conv.status === 'pending' ? 1 : 0,
         avatar: conv.contact?.avatar_url,
         is_preview: false,
