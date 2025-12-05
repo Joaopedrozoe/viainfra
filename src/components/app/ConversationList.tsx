@@ -9,6 +9,7 @@ import { usePreviewConversation } from "@/contexts/PreviewConversationContext";
 import { ConversationStorage } from "@/lib/conversation-storage";
 import { useConversations } from "@/hooks/useConversations";
 import { useInternalChat } from "@/hooks/useInternalChat";
+import { useTypingIndicator } from "@/hooks/useTypingIndicator";
 import { Users } from "lucide-react";
 
 interface ConversationListProps {
@@ -34,6 +35,13 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
   const { previewConversations } = usePreviewConversation();
   const { conversations: supabaseConversations, loading: supabaseLoading, refetch } = useConversations();
   const { conversations: internalConversations } = useInternalChat();
+  
+  // Get conversation IDs for typing indicator
+  const conversationIds = useMemo(() => 
+    supabaseConversations.map(c => c.id), 
+    [supabaseConversations]
+  );
+  const { isTyping } = useTypingIndicator(conversationIds);
 
   // Sync resolved conversations from localStorage when component mounts or refreshes
   useEffect(() => {
@@ -335,6 +343,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
               onClick={() => handleConversationSelect(conversation.id)}
               onResolve={() => handleConversationResolve(conversation.id)}
               showResolveButton={activeTab !== "resolved"}
+              isTyping={isTyping(conversation.id)}
             />
           ))
         ) : (

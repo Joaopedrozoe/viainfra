@@ -252,11 +252,41 @@ serve(async (req) => {
       });
     }
 
+    // Handle failed messages with retry queue
     if (!response.ok) {
       const errorText = await response.text();
       console.error('Evolution API error:', response.status, errorText);
+      
+      // Add to retry queue
+      const contactPhone = conversation.contacts?.phone || recipientJid.replace('@s.whatsapp.net', '');
+      const { error: queueError } = await supabase
+        .from('message_queue')
+        .insert({
+          conversation_id,
+          contact_phone: contactPhone,
+          instance_name: instance.instance_name,
+          content: formattedMessage || '',
+          message_type: attachment ? attachment.type : 'text',
+          media_url: attachment?.url || null,
+          status: 'failed',
+          retry_count: 1,
+          error_message: errorText.substring(0, 500),
+          scheduled_at: new Date(Date.now() + 60000).toISOString() // Retry in 1 minute
+        });
+      
+      if (queueError) {
+        console.error('Error adding to retry queue:', queueError);
+      } else {
+        console.log('📥 Message added to retry queue');
+      }
+      
       return new Response(
-        JSON.stringify({ error: 'Failed to send WhatsApp message', details: errorText }), 
+        JSON.stringify({ 
+          error: 'Failed to send WhatsApp message', 
+          details: errorText,
+          queued: !queueError,
+          message: queueError ? 'Message not queued' : 'Message queued for retry'
+        }), 
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }

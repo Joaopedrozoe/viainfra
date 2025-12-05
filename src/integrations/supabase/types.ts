@@ -388,6 +388,68 @@ export type Database = {
           },
         ]
       }
+      message_queue: {
+        Row: {
+          contact_phone: string
+          content: string
+          conversation_id: string | null
+          created_at: string | null
+          error_message: string | null
+          id: string
+          instance_name: string
+          max_retries: number | null
+          media_url: string | null
+          message_type: string | null
+          retry_count: number | null
+          scheduled_at: string | null
+          sent_at: string | null
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          contact_phone: string
+          content: string
+          conversation_id?: string | null
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          instance_name: string
+          max_retries?: number | null
+          media_url?: string | null
+          message_type?: string | null
+          retry_count?: number | null
+          scheduled_at?: string | null
+          sent_at?: string | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          contact_phone?: string
+          content?: string
+          conversation_id?: string | null
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          instance_name?: string
+          max_retries?: number | null
+          media_url?: string | null
+          message_type?: string | null
+          retry_count?: number | null
+          scheduled_at?: string | null
+          sent_at?: string | null
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_queue_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       messages: {
         Row: {
           content: string
@@ -472,6 +534,48 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      typing_status: {
+        Row: {
+          contact_id: string | null
+          conversation_id: string | null
+          expires_at: string | null
+          id: string
+          is_typing: boolean | null
+          updated_at: string | null
+        }
+        Insert: {
+          contact_id?: string | null
+          conversation_id?: string | null
+          expires_at?: string | null
+          id?: string
+          is_typing?: boolean | null
+          updated_at?: string | null
+        }
+        Update: {
+          contact_id?: string | null
+          conversation_id?: string | null
+          expires_at?: string | null
+          id?: string
+          is_typing?: boolean | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "typing_status_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "typing_status_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
             referencedColumns: ["id"]
           },
         ]
@@ -561,6 +665,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cleanup_expired_typing_status: { Args: never; Returns: undefined }
       get_user_company_id: { Args: { _user_id: string }; Returns: string }
       get_web_conversation_messages: {
         Args: { p_access_token: string; p_conversation_id: string }
