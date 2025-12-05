@@ -1056,15 +1056,6 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       });
     }
 
-    // Validar instância autorizada
-    if (!ALLOWED_INSTANCES.includes(instanceName)) {
-      console.log(`⛔ syncMessages: Instância ${instanceName} não autorizada`);
-      return new Response(JSON.stringify({ error: 'Instância não autorizada' }), { 
-        status: 403, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      });
-    }
-
     console.log(`🔄 Syncing conversations for instance: ${instanceName}`);
 
     // Get user's company_id from auth token
@@ -1089,6 +1080,22 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
     if (!companyId) {
       return new Response(JSON.stringify({ error: 'User company not found' }), { 
         status: 400, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+
+    // Validar que a instância pertence à empresa do usuário
+    const { data: instanceRecord } = await supabase
+      .from('whatsapp_instances')
+      .select('id, company_id, connection_state')
+      .eq('instance_name', instanceName)
+      .eq('company_id', companyId)
+      .maybeSingle();
+
+    if (!instanceRecord) {
+      console.log(`⛔ syncMessages: Instância ${instanceName} não pertence à empresa ${companyId}`);
+      return new Response(JSON.stringify({ error: 'Instância não autorizada para esta empresa' }), { 
+        status: 403, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       });
     }
