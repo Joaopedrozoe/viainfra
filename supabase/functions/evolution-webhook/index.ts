@@ -545,7 +545,7 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
     }
   }
 
-  // PRIORITY 4: Create new contact
+  // PRIORITY 4: Create new contact with race condition handling
   console.log('➕ Creating new contact...');
   
   // Try to fetch profile picture for new contact
@@ -558,7 +558,7 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
     .from('contacts')
     .insert({
       name: name,
-      phone: normalizedPhone || null, // ALWAYS use normalized phone
+      phone: normalizedPhone || null,
       email: null,
       avatar_url: avatarUrl,
       company_id: companyId,
@@ -569,7 +569,35 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
     .select()
     .single();
 
+  // Handle unique constraint violation (race condition)
   if (insertError) {
+    if (insertError.code === '23505') {
+      console.log('⚠️ Contact already exists (race condition), fetching...');
+      
+      // Fetch the contact that was created by another request
+      const { data: existingContact } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('company_id', companyId)
+        .eq('phone', normalizedPhone)
+        .maybeSingle();
+      
+      if (existingContact) {
+        console.log('✅ Found existing contact after race condition:', existingContact.id);
+        // Update remoteJid if needed
+        if (existingContact.metadata?.remoteJid !== remoteJid) {
+          await supabase
+            .from('contacts')
+            .update({ 
+              metadata: { ...existingContact.metadata, remoteJid: remoteJid },
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', existingContact.id);
+        }
+        return existingContact;
+      }
+    }
+    
     console.error('❌ Error creating contact:', insertError);
     throw insertError;
   }
