@@ -20,9 +20,7 @@ export const RecentActivity: React.FC = () => {
       const mapped = supabaseConversations
         .slice(0, 10) // Pegar apenas as 10 mais recentes
         .map(conv => {
-          const lastMessage = conv.messages && conv.messages.length > 0 
-            ? conv.messages[conv.messages.length - 1] 
-            : null;
+          const lastMessage = conv.lastMessage;
           
           return {
             id: conv.id,
