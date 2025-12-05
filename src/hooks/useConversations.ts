@@ -149,6 +149,13 @@ export const useConversations = () => {
         };
       });
 
+      // Sort by lastMessage.created_at (most recent first), fallback to updated_at
+      newConversations.sort((a, b) => {
+        const aTime = a.lastMessage?.created_at || a.updated_at;
+        const bTime = b.lastMessage?.created_at || b.updated_at;
+        return new Date(bTime).getTime() - new Date(aTime).getTime();
+      });
+
       // Verificar novas conversas para notificação
       const currentIds = new Set(newConversations.map(c => c.id));
       const previousIds = previousConversationsRef.current;
