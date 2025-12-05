@@ -981,10 +981,10 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
   }
 }
 
-// Sync messages from WhatsApp for conversations in inbox
+// Sync messages from WhatsApp - fetch real state from instance
 async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
   try {
-    const { instanceName, conversationIds } = await req.json();
+    const { instanceName } = await req.json();
     
     if (!instanceName) {
       return new Response(JSON.stringify({ error: 'Instance name is required' }), { 
@@ -1048,95 +1048,258 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       });
     }
 
-    let metadataFixedCount = 0;
-    let updatedCount = 0;
+    let newConversations = 0;
+    let updatedTimestamps = 0;
+    let syncedMessages = 0;
 
-    // sync-messages should ONLY update timestamps and fix metadata
-    // It should NOT create new conversations - that's what fetch-chats (import) is for
+    // Fetch real chats from WhatsApp
+    console.log(`📥 Fetching chats from WhatsApp for ${instanceName}...`);
+    const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
+      method: 'POST',
+      headers: {
+        'apikey': evolutionApiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({})
+    });
 
-    // Get all WhatsApp conversations to fix metadata and update timestamps
-    const { data: conversations, error: convError } = await supabase
-      .from('conversations')
-      .select(`
-        id,
-        contact_id,
-        metadata,
-        updated_at,
-        contacts!conversations_contact_id_fkey (
-          id,
-          phone,
-          metadata
-        )
-      `)
-      .eq('company_id', companyId)
-      .eq('channel', 'whatsapp');
-
-    if (convError) {
-      console.error('Error fetching conversations:', convError);
-      throw convError;
+    if (!chatsResponse.ok) {
+      console.error('Failed to fetch chats from WhatsApp');
+      throw new Error('Failed to fetch chats');
     }
 
-    console.log(`📋 Processing ${conversations?.length || 0} WhatsApp conversations`);
+    const chatsData = await chatsResponse.json();
+    const whatsappChats = Array.isArray(chatsData) ? chatsData : (chatsData?.chats || []);
+    console.log(`📋 Found ${whatsappChats.length} chats in WhatsApp`);
 
-    for (const conv of conversations || []) {
-      try {
-        const phone = conv.contacts?.phone;
-        const currentRemoteJid = conv.metadata?.remoteJid;
-        
-        // Fix missing remoteJid in metadata
-        if (!currentRemoteJid && phone) {
-          const newRemoteJid = `${phone}@s.whatsapp.net`;
-          const updatedMetadata = {
-            ...conv.metadata,
-            remoteJid: newRemoteJid,
-            instanceName: instanceName
-          };
-          
-          await supabase
-            .from('conversations')
-            .update({ metadata: updatedMetadata })
-            .eq('id', conv.id);
-          
-          console.log(`🔧 Fixed remoteJid for conversation ${conv.id}: ${newRemoteJid}`);
-          metadataFixedCount++;
-        }
+    // Get ALL existing contacts for this company (for fast lookup)
+    const { data: existingContacts } = await supabase
+      .from('contacts')
+      .select('id, phone, name')
+      .eq('company_id', companyId);
 
-        // Get last message timestamp for this conversation
-        const { data: lastMsg } = await supabase
-          .from('messages')
-          .select('created_at')
-          .eq('conversation_id', conv.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        if (lastMsg && lastMsg.created_at) {
-          const lastMsgDate = new Date(lastMsg.created_at);
-          const convUpdatedAt = new Date(conv.updated_at);
-          
-          // Update updated_at to match last message if different
-          if (lastMsgDate.getTime() !== convUpdatedAt.getTime()) {
-            await supabase
-              .from('conversations')
-              .update({ updated_at: lastMsg.created_at })
-              .eq('id', conv.id);
-            
-            updatedCount++;
-          }
-        }
-      } catch (convError) {
-        console.error(`Error processing conversation ${conv.id}:`, convError);
+    const contactsByPhone = new Map<string, any>();
+    for (const contact of existingContacts || []) {
+      if (contact.phone) {
+        contactsByPhone.set(contact.phone, contact);
       }
     }
 
-    console.log(`✅ Sync complete: ${metadataFixedCount} metadata fixed, ${updatedCount} timestamps updated`);
+    // Get ALL existing conversations for this company
+    const { data: existingConvs } = await supabase
+      .from('conversations')
+      .select('id, contact_id, status, metadata, updated_at')
+      .eq('company_id', companyId)
+      .eq('channel', 'whatsapp');
+
+    const convsByContactId = new Map<string, any>();
+    for (const conv of existingConvs || []) {
+      if (conv.contact_id) {
+        // Store only open/pending conversations, or the most recent one
+        const existing = convsByContactId.get(conv.contact_id);
+        if (!existing || conv.status === 'open' || conv.status === 'pending') {
+          convsByContactId.set(conv.contact_id, conv);
+        }
+      }
+    }
+
+    // Process WhatsApp chats - sync timestamps and create missing conversations
+    for (const chat of whatsappChats) {
+      try {
+        const remoteJid = chat.id || chat.remoteJid || chat.jid;
+        
+        // Skip groups, broadcasts, and system chats
+        if (!remoteJid || 
+            remoteJid.includes('@g.us') || 
+            remoteJid.includes('@broadcast') || 
+            remoteJid.includes('@lid') ||
+            remoteJid.startsWith('status@')) {
+          continue;
+        }
+
+        // Extract phone number
+        let phoneNumber = '';
+        if (chat.phone) {
+          phoneNumber = String(chat.phone).replace(/\D/g, '');
+        } else if (remoteJid) {
+          phoneNumber = remoteJid.split('@')[0].replace(/\D/g, '');
+        }
+
+        // Validate phone number
+        if (!phoneNumber || phoneNumber.length < 8 || phoneNumber.length > 15) {
+          continue;
+        }
+
+        const contactName = chat.pushName || chat.name || chat.notify || phoneNumber;
+        const isArchived = chat.archive === true || chat.archived === true;
+        
+        // Get chat timestamp from WhatsApp
+        let chatTimestamp: Date | null = null;
+        if (chat.lastMessage?.messageTimestamp) {
+          const ts = chat.lastMessage.messageTimestamp;
+          chatTimestamp = new Date(typeof ts === 'number' ? ts * 1000 : ts);
+        } else if (chat.timestamp) {
+          const ts = chat.timestamp;
+          chatTimestamp = new Date(typeof ts === 'number' ? (ts > 9999999999 ? ts : ts * 1000) : ts);
+        }
+
+        // Check if contact exists
+        let contact = contactsByPhone.get(phoneNumber);
+        
+        if (!contact) {
+          // Create new contact
+          const { data: newContact, error: contactError } = await supabase
+            .from('contacts')
+            .insert({
+              company_id: companyId,
+              name: contactName,
+              phone: phoneNumber,
+              avatar_url: chat.profilePictureUrl || null,
+              metadata: { remoteJid, source: 'whatsapp_sync' }
+            })
+            .select()
+            .single();
+
+          if (contactError) {
+            console.error(`Error creating contact for ${phoneNumber}:`, contactError);
+            continue;
+          }
+          
+          contact = newContact;
+          contactsByPhone.set(phoneNumber, contact);
+          console.log(`👤 Created contact: ${contactName} (${phoneNumber})`);
+        }
+
+        // Check if conversation exists for this contact
+        let conversation = convsByContactId.get(contact.id);
+
+        if (!conversation) {
+          // Create new conversation
+          const { data: newConv, error: convError } = await supabase
+            .from('conversations')
+            .insert({
+              company_id: companyId,
+              contact_id: contact.id,
+              channel: 'whatsapp',
+              status: isArchived ? 'resolved' : 'open',
+              archived: isArchived,
+              metadata: { instanceName, remoteJid },
+              updated_at: chatTimestamp?.toISOString() || new Date().toISOString()
+            })
+            .select()
+            .single();
+
+          if (!convError && newConv) {
+            convsByContactId.set(contact.id, newConv);
+            newConversations++;
+            console.log(`💬 Created conversation for: ${contactName}`);
+          }
+        } else if (chatTimestamp) {
+          // Update existing conversation timestamp if WhatsApp has newer data
+          const convUpdatedAt = new Date(conversation.updated_at);
+          
+          if (chatTimestamp > convUpdatedAt) {
+            await supabase
+              .from('conversations')
+              .update({ 
+                updated_at: chatTimestamp.toISOString(),
+                metadata: {
+                  ...conversation.metadata,
+                  instanceName,
+                  remoteJid
+                }
+              })
+              .eq('id', conversation.id);
+            
+            updatedTimestamps++;
+          }
+        }
+
+        // Fetch last message for this chat if we have a conversation
+        const conv = convsByContactId.get(contact.id);
+        if (conv && chat.lastMessage) {
+          const lastMsg = chat.lastMessage;
+          const msgContent = lastMsg.message?.conversation || 
+                            lastMsg.message?.extendedTextMessage?.text ||
+                            lastMsg.message?.imageMessage?.caption ||
+                            lastMsg.message?.videoMessage?.caption ||
+                            '[mídia]';
+          
+          if (msgContent && msgContent !== '[mídia]') {
+            // Check if we have this message
+            const msgTimestamp = lastMsg.messageTimestamp;
+            const msgDate = new Date(typeof msgTimestamp === 'number' ? msgTimestamp * 1000 : msgTimestamp);
+            
+            const { data: existingMsg } = await supabase
+              .from('messages')
+              .select('id')
+              .eq('conversation_id', conv.id)
+              .gte('created_at', new Date(msgDate.getTime() - 1000).toISOString())
+              .lte('created_at', new Date(msgDate.getTime() + 1000).toISOString())
+              .limit(1)
+              .single();
+
+            if (!existingMsg) {
+              // Insert missing message
+              const isFromMe = lastMsg.key?.fromMe === true;
+              await supabase
+                .from('messages')
+                .insert({
+                  conversation_id: conv.id,
+                  content: msgContent,
+                  sender_type: isFromMe ? 'agent' : 'user',
+                  created_at: msgDate.toISOString()
+                });
+              
+              syncedMessages++;
+              console.log(`📨 Synced message for ${contactName}: ${msgContent.substring(0, 30)}...`);
+            }
+          }
+        }
+      } catch (chatError) {
+        console.error('Error processing chat:', chatError);
+      }
+    }
+
+    // Also update timestamps based on existing messages in database
+    const { data: allConvs } = await supabase
+      .from('conversations')
+      .select('id, updated_at')
+      .eq('company_id', companyId)
+      .eq('channel', 'whatsapp');
+
+    for (const conv of allConvs || []) {
+      const { data: lastMsg } = await supabase
+        .from('messages')
+        .select('created_at')
+        .eq('conversation_id', conv.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (lastMsg) {
+        const msgDate = new Date(lastMsg.created_at);
+        const convDate = new Date(conv.updated_at);
+        
+        if (msgDate > convDate) {
+          await supabase
+            .from('conversations')
+            .update({ updated_at: lastMsg.created_at })
+            .eq('id', conv.id);
+          updatedTimestamps++;
+        }
+      }
+    }
+
+    console.log(`✅ Sync complete: ${newConversations} new, ${updatedTimestamps} updated, ${syncedMessages} messages synced`);
 
     return new Response(JSON.stringify({ 
       success: true,
-      metadataFixed: metadataFixedCount,
-      timestampsUpdated: updatedCount,
-      totalConversations: conversations?.length || 0,
-      message: `${metadataFixedCount} corrigida(s), ${updatedCount} atualizada(s)`
+      newConversations,
+      timestampsUpdated: updatedTimestamps,
+      messagesSynced: syncedMessages,
+      totalChats: whatsappChats.length,
+      message: `${newConversations} nova(s), ${updatedTimestamps} atualizada(s), ${syncedMessages} msg sincronizada(s)`
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
