@@ -21,12 +21,23 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   const [contactName, setContactName] = useState<string>("");
   const [contactAvatar, setContactAvatar] = useState<string | null>(null);
   const [conversationChannel, setConversationChannel] = useState<Channel>("web");
+  const [isLoading, setIsLoading] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { profile } = useAuth();
+  const previousConversationIdRef = useRef<string | null>(null);
   
   useEffect(() => {
     if (conversationId) {
+      // Reset states when conversation changes to avoid glitches
+      if (previousConversationIdRef.current !== conversationId) {
+        setIsLoading(true);
+        setMessages([]);
+        setContactName("");
+        setContactAvatar(null);
+        previousConversationIdRef.current = conversationId;
+      }
+      
       loadConversationData();
       
       // Configurar subscription para novas mensagens em tempo real
@@ -55,10 +66,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             setMessages(prev => {
               // Evitar duplicatas verificando se a mensagem já existe
               if (prev.some(msg => msg.id === mappedMessage.id)) {
-                console.log('Mensagem duplicada ignorada via realtime:', mappedMessage.id);
                 return prev;
               }
-              console.log('Adicionando nova mensagem via realtime:', mappedMessage.id, 'sender:', mappedMessage.sender);
               return [...prev, mappedMessage];
             });
           }
@@ -166,6 +175,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       }
     } catch (error) {
       console.error('Erro ao carregar dados da conversa:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
   
@@ -409,10 +420,30 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
 
   if (!conversationId) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-gray-50 p-4">
+      <div className="flex-1 flex items-center justify-center bg-muted p-4">
         <div className="text-center">
-          <p className="text-xl text-gray-500 mb-3">Selecione uma conversa para começar</p>
-          <p className="text-gray-400">As conversas aparecerão aqui</p>
+          <p className="text-xl text-muted-foreground mb-3">Selecione uma conversa para começar</p>
+          <p className="text-muted-foreground/70">As conversas aparecerão aqui</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading skeleton while data loads
+  if (isLoading) {
+    return (
+      <div className="flex flex-col h-full w-full overflow-hidden">
+        <div className="flex-shrink-0 p-4 border-b border-border bg-background">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-muted animate-pulse" />
+            <div className="flex-1">
+              <div className="h-4 w-32 bg-muted rounded animate-pulse mb-2" />
+              <div className="h-3 w-24 bg-muted rounded animate-pulse" />
+            </div>
+          </div>
+        </div>
+        <div className="flex-1 flex items-center justify-center bg-muted/30">
+          <div className="animate-pulse text-muted-foreground">Carregando...</div>
         </div>
       </div>
     );
