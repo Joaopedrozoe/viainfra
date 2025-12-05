@@ -12,6 +12,7 @@ import { useConversations } from "@/hooks/useConversations";
 import { useMessageNotifications } from "@/hooks/useMessageNotifications";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/auth";
 
 const Inbox = () => {
   const location = useLocation();
@@ -26,6 +27,7 @@ const Inbox = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const { conversations: internalConversations } = useInternalChat();
   const { updateConversationStatus, refetch } = useConversations();
+  const { company } = useAuth();
   
   // Ativar notificações de mensagens
   useMessageNotifications();
@@ -82,10 +84,17 @@ const Inbox = () => {
     setIsSyncing(true);
     
     try {
-      // Buscar instâncias WhatsApp conectadas da empresa
+      if (!company?.id) {
+        toast.error('Empresa não identificada');
+        setIsSyncing(false);
+        return;
+      }
+      
+      // Buscar apenas instâncias WhatsApp conectadas DESTA empresa
       const { data: instances } = await supabase
         .from('whatsapp_instances')
         .select('instance_name, connection_state, phone_number')
+        .eq('company_id', company.id)
         .eq('connection_state', 'open');
       
       let totalNew = 0;
