@@ -82,37 +82,41 @@ const Inbox = () => {
     setIsSyncing(true);
     
     try {
-      // Buscar apenas a instância autorizada (5511940027215)
-      const AUTHORIZED_PHONE = '5511940027215';
+      // Buscar instâncias WhatsApp conectadas da empresa
       const { data: instances } = await supabase
         .from('whatsapp_instances')
         .select('instance_name, connection_state, phone_number')
-        .eq('connection_state', 'open')
-        .eq('phone_number', AUTHORIZED_PHONE);
+        .eq('connection_state', 'open');
       
       let totalNew = 0;
       let totalUpdated = 0;
       let totalMessages = 0;
       
       if (instances && instances.length > 0) {
-        // Sincronizar apenas para a instância autorizada
-        const instance = instances[0]; // Pegar a primeira (geralmente TESTE ou TESTE2)
-        try {
-          console.log(`Syncing instance: ${instance.instance_name}`);
-          const { data: syncData, error: syncError } = await supabase.functions.invoke('evolution-instance/sync-messages', {
-            body: { instanceName: instance.instance_name }
-          });
-          
-          if (!syncError && syncData) {
-            totalNew = syncData.newConversations || 0;
-            totalUpdated = syncData.timestampsUpdated || 0;
-            totalMessages = syncData.messagesSynced || 0;
+        // Sincronizar cada instância conectada
+        for (const instance of instances) {
+          try {
+            console.log(`📱 Syncing instance: ${instance.instance_name} (${instance.phone_number})`);
+            const { data: syncData, error: syncError } = await supabase.functions.invoke('evolution-instance/sync-messages', {
+              body: { instanceName: instance.instance_name }
+            });
+            
+            if (syncError) {
+              console.error(`Sync error for ${instance.instance_name}:`, syncError);
+              continue;
+            }
+            
+            if (syncData) {
+              totalNew += syncData.newConversations || 0;
+              totalUpdated += syncData.timestampsUpdated || 0;
+              totalMessages += syncData.messagesSynced || 0;
+            }
+          } catch (err) {
+            console.error(`Error syncing ${instance.instance_name}:`, err);
           }
-        } catch (err) {
-          console.error(`Error syncing for ${instance.instance_name}:`, err);
         }
       } else {
-        console.log('No authorized instance found');
+        console.log('⚠️ No connected WhatsApp instances found');
       }
       
       // Sincronizar fotos de perfil em paralelo
