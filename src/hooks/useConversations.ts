@@ -190,10 +190,13 @@ export const useConversations = () => {
     mountedRef.current = true;
     fetchConversations();
 
-    // Real-time subscription with debounced refetch
+    // Real-time subscriptions
     if (company?.id) {
-      const channel = supabase
-        .channel('conversations-changes')
+      console.log('📡 Setting up real-time subscriptions for company:', company.id);
+      
+      // Canal para conversas da empresa
+      const conversationsChannel = supabase
+        .channel(`conversations-${company.id}`)
         .on(
           'postgres_changes',
           {
@@ -202,10 +205,18 @@ export const useConversations = () => {
             table: 'conversations',
             filter: `company_id=eq.${company.id}`,
           },
-          () => {
-            fetchConversations(true); // Com debounce
+          (payload) => {
+            console.log('📬 Conversation change:', payload.eventType);
+            fetchConversations(true);
           }
         )
+        .subscribe((status) => {
+          console.log('📡 Conversations subscription status:', status);
+        });
+
+      // Canal separado para mensagens (INSERT apenas)
+      const messagesChannel = supabase
+        .channel(`messages-${company.id}`)
         .on(
           'postgres_changes',
           {
@@ -213,18 +224,22 @@ export const useConversations = () => {
             schema: 'public',
             table: 'messages',
           },
-          () => {
-            fetchConversations(true); // Com debounce
+          (payload) => {
+            console.log('📨 New message received');
+            fetchConversations(true);
           }
         )
-        .subscribe();
+        .subscribe((status) => {
+          console.log('📡 Messages subscription status:', status);
+        });
 
       return () => {
         mountedRef.current = false;
         if (fetchTimeoutRef.current) {
           clearTimeout(fetchTimeoutRef.current);
         }
-        supabase.removeChannel(channel);
+        supabase.removeChannel(conversationsChannel);
+        supabase.removeChannel(messagesChannel);
       };
     }
     
