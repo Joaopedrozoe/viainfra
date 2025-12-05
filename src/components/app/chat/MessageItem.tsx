@@ -11,13 +11,23 @@ type MessageItemProps = {
 };
 
 const formatMessageTimestamp = (dateString: string) => {
-  const date = new Date(dateString);
-  
-  if (isThisYear(date)) {
-    return format(date, "dd/MM, HH:mm", { locale: ptBR });
+  try {
+    if (!dateString) return '';
+    const date = new Date(dateString);
+    
+    // Check if date is valid
+    if (isNaN(date.getTime())) {
+      return '';
+    }
+    
+    if (isThisYear(date)) {
+      return format(date, "dd/MM, HH:mm", { locale: ptBR });
+    }
+    
+    return format(date, "dd/MM/yyyy, HH:mm", { locale: ptBR });
+  } catch {
+    return '';
   }
-  
-  return format(date, "dd/MM/yyyy, HH:mm", { locale: ptBR });
 };
 
 const ImageAttachment = ({ url, alt }: { url: string; alt?: string }) => {
@@ -108,6 +118,11 @@ const DocumentAttachment = ({ url, filename }: { url: string; filename?: string 
 };
 
 export const MessageItem = memo(({ message }: MessageItemProps) => {
+  // Guard against invalid message
+  if (!message || !message.timestamp) {
+    return null;
+  }
+  
   const formattedTimestamp = formatMessageTimestamp(message.timestamp);
   const { attachment } = message;
   

@@ -1355,12 +1355,14 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
           contactsByPhone.set(phoneNumber, contact);
           console.log(`👤 Created contact: ${contactName} (${phoneNumber})`);
         } else {
-          // Update contact name/avatar if we have better data
+          // Update contact name/avatar if we have better data - NEVER clear existing avatar
           const updates: any = {};
           if (contactName && contactName !== phoneNumber && contact.name === phoneNumber) {
             updates.name = contactName;
           }
-          if (profilePicUrl && !contact.avatar_url) {
+          // Only update avatar if we have a new one AND contact doesn't have one OR new one is different
+          if (profilePicUrl && profilePicUrl !== contact.avatar_url) {
+            // Don't overwrite existing avatar with nothing
             updates.avatar_url = profilePicUrl;
           }
           if (Object.keys(updates).length > 0) {
@@ -1492,20 +1494,33 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
               }
             }
 
-            // Update conversation timestamp to match last message
-            if (lastMsgTimestamp) {
-              await supabase
+            // Update conversation timestamp ONLY if new messages found or if last message is newer
+            if (lastMsgTimestamp && syncedMessages > 0) {
+              // Get current conversation timestamp
+              const { data: currentConv } = await supabase
                 .from('conversations')
-                .update({ 
-                  updated_at: lastMsgTimestamp.toISOString(),
-                  metadata: {
-                    ...conversation.metadata,
-                    instanceName,
-                    remoteJid: whatsappJid
-                  }
-                })
-                .eq('id', conversation.id);
-              updatedTimestamps++;
+                .select('updated_at')
+                .eq('id', conversation.id)
+                .single();
+              
+              const currentTimestamp = currentConv?.updated_at ? new Date(currentConv.updated_at).getTime() : 0;
+              const newTimestamp = lastMsgTimestamp.getTime();
+              
+              // Only update if new timestamp is more recent
+              if (newTimestamp > currentTimestamp) {
+                await supabase
+                  .from('conversations')
+                  .update({ 
+                    updated_at: lastMsgTimestamp.toISOString(),
+                    metadata: {
+                      ...conversation.metadata,
+                      instanceName,
+                      remoteJid: whatsappJid
+                    }
+                  })
+                  .eq('id', conversation.id);
+                updatedTimestamps++;
+              }
             }
           } else {
             console.error(`Failed to fetch messages for ${contactName}: ${messagesResponse.status}`);

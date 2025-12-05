@@ -72,17 +72,28 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     
     // Helper to format time with date if not today
     const formatConversationTime = (dateStr: string) => {
-      const date = new Date(dateStr);
-      const today = new Date();
-      const isToday = date.toDateString() === today.toDateString();
-      
-      if (isToday) {
-        return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-      } else {
-        const day = date.getDate().toString().padStart(2, '0');
-        const month = (date.getMonth() + 1).toString().padStart(2, '0');
-        const time = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-        return `${day}/${month} ${time}`;
+      try {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        
+        // Check if date is valid
+        if (isNaN(date.getTime())) {
+          return '';
+        }
+        
+        const today = new Date();
+        const isToday = date.toDateString() === today.toDateString();
+        
+        if (isToday) {
+          return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        } else {
+          const day = date.getDate().toString().padStart(2, '0');
+          const month = (date.getMonth() + 1).toString().padStart(2, '0');
+          const time = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          return `${day}/${month} ${time}`;
+        }
+      } catch {
+        return '';
       }
     };
 
