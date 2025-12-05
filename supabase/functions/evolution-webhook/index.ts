@@ -614,25 +614,48 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
     .eq('id', contactId)
     .single();
 
-  // CRITICAL: Buscar conversa existente ANTES de tentar criar
+  // CRITICAL: Buscar QUALQUER conversa existente para este contato no WhatsApp
+  // O índice único impede múltiplas conversas por contato/canal
   const { data: existingConversation } = await supabase
     .from('conversations')
     .select('*')
     .eq('contact_id', contactId)
     .eq('channel', 'whatsapp')
-    .in('status', ['open', 'pending'])
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (existingConversation) {
-    console.log('✅ Found existing conversation:', existingConversation.id);
+    console.log(`✅ Found existing conversation: ${existingConversation.id} (status: ${existingConversation.status})`);
     
-    // Update last message time
-    await supabase
-      .from('conversations')
-      .update({ updated_at: new Date().toISOString() })
-      .eq('id', existingConversation.id);
+    // Se a conversa estava resolved/closed, reabrir com nova mensagem
+    const needsReopen = existingConversation.status === 'resolved' || existingConversation.status === 'closed';
+    
+    if (needsReopen) {
+      console.log('🔄 Reabrindo conversa resolvida com nova mensagem...');
+      const { error: updateError } = await supabase
+        .from('conversations')
+        .update({ 
+          status: 'open',
+          updated_at: new Date().toISOString(),
+          archived: false
+        })
+        .eq('id', existingConversation.id);
+      
+      if (updateError) {
+        console.error('❌ Erro ao reabrir conversa:', updateError);
+      } else {
+        console.log('✅ Conversa reaberta com sucesso');
+        existingConversation.status = 'open';
+        existingConversation.archived = false;
+      }
+    } else {
+      // Apenas atualizar timestamp
+      await supabase
+        .from('conversations')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', existingConversation.id);
+    }
     
     return existingConversation;
   }
@@ -655,21 +678,31 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
     .single();
 
   if (insertError) {
-    // Se falhou por violação de unique constraint (race condition), buscar a existente
+    // Race condition - outra requisição criou primeiro
     if (insertError.code === '23505') {
-      console.log('⚠️ Violação de constraint único - buscando conversa existente...');
+      console.log('⚠️ Violação de constraint único - buscando conversa criada por outra requisição...');
       
+      // Buscar SEM filtro de status - o constraint garante que existe
       const { data: fallbackConversation } = await supabase
         .from('conversations')
         .select('*')
         .eq('contact_id', contactId)
         .eq('channel', 'whatsapp')
-        .in('status', ['open', 'pending'])
         .limit(1)
         .maybeSingle();
       
       if (fallbackConversation) {
         console.log('✅ Conversa encontrada após constraint:', fallbackConversation.id);
+        
+        // Reabrir se necessário
+        if (fallbackConversation.status === 'resolved' || fallbackConversation.status === 'closed') {
+          await supabase
+            .from('conversations')
+            .update({ status: 'open', updated_at: new Date().toISOString(), archived: false })
+            .eq('id', fallbackConversation.id);
+          fallbackConversation.status = 'open';
+        }
+        
         return fallbackConversation;
       }
     }
