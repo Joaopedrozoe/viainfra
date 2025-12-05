@@ -194,29 +194,35 @@ export const useConversations = () => {
     if (company?.id) {
       console.log('📡 Setting up real-time subscriptions for company:', company.id);
       
-      // Canal para conversas da empresa
+      // Canal para conversas da empresa - sem filtro para evitar CHANNEL_ERROR
       const conversationsChannel = supabase
-        .channel(`conversations-${company.id}`)
+        .channel(`conversations-realtime-${company.id}-${Date.now()}`)
         .on(
           'postgres_changes',
           {
             event: '*',
             schema: 'public',
             table: 'conversations',
-            filter: `company_id=eq.${company.id}`,
           },
           (payload) => {
-            console.log('📬 Conversation change:', payload.eventType);
-            fetchConversations(true);
+            // Filtrar por company_id no cliente
+            const newData = payload.new as any;
+            if (newData?.company_id === company.id || payload.eventType === 'DELETE') {
+              console.log('📬 Conversation change:', payload.eventType);
+              fetchConversations(true);
+            }
           }
         )
         .subscribe((status) => {
           console.log('📡 Conversations subscription status:', status);
+          if (status === 'CHANNEL_ERROR') {
+            console.error('❌ Real-time subscription error for conversations');
+          }
         });
 
-      // Canal separado para mensagens (INSERT apenas)
+      // Canal separado para mensagens (INSERT apenas) - sem filtro
       const messagesChannel = supabase
-        .channel(`messages-${company.id}`)
+        .channel(`messages-realtime-${company.id}-${Date.now()}`)
         .on(
           'postgres_changes',
           {
@@ -225,12 +231,15 @@ export const useConversations = () => {
             table: 'messages',
           },
           (payload) => {
-            console.log('📨 New message received');
+            console.log('📨 New message received via real-time');
             fetchConversations(true);
           }
         )
         .subscribe((status) => {
           console.log('📡 Messages subscription status:', status);
+          if (status === 'CHANNEL_ERROR') {
+            console.error('❌ Real-time subscription error for messages');
+          }
         });
 
       return () => {
