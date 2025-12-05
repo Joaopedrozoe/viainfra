@@ -1,6 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 
+// IMPORTANTE: Instância autorizada para operações
+// Depois que VIAINFRA conectar, adicionar nova instância aqui
+const ALLOWED_INSTANCES = ['TESTE2'];
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -615,6 +619,15 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       });
     }
 
+    // Validar instância autorizada
+    if (!ALLOWED_INSTANCES.includes(instanceName)) {
+      console.log(`⛔ fetchChats: Instância ${instanceName} não autorizada`);
+      return new Response(JSON.stringify({ error: 'Instância não autorizada' }), { 
+        status: 403, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+
     console.log(`📥 Starting import for instance: ${instanceName}`);
 
     // Get user's company_id from auth token
@@ -1011,6 +1024,15 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
     if (!instanceName) {
       return new Response(JSON.stringify({ error: 'Instance name is required' }), { 
         status: 400, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+
+    // Validar instância autorizada
+    if (!ALLOWED_INSTANCES.includes(instanceName)) {
+      console.log(`⛔ syncMessages: Instância ${instanceName} não autorizada`);
+      return new Response(JSON.stringify({ error: 'Instância não autorizada' }), { 
+        status: 403, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       });
     }
