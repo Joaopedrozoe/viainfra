@@ -11,8 +11,6 @@ import { useConversations } from "@/hooks/useConversations";
 import { useInternalChat } from "@/hooks/useInternalChat";
 import { Users } from "lucide-react";
 
-let conversationUpdateCounter = 0;
-
 interface ConversationListProps {
   onSelectConversation: (id: string) => void;
   selectedId?: string;
@@ -26,8 +24,6 @@ export const resolveConversation = (conversationId: string) => {
 };
 
 export const ConversationList = ({ onSelectConversation, selectedId, refreshTrigger, onResolveConversation, onSelectInternalChat }: ConversationListProps) => {
-  const [allConversations, setAllConversations] = useState<Conversation[]>([]);
-  const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedChannel, setSelectedChannel] = useState<Channel | "all">("all");
   const [selectedDepartment, setSelectedDepartment] = useState<string | "all">("all");
@@ -136,21 +132,9 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     return combined;
   }, [previewConversations, supabaseConversations]);
 
-  // Update state only when combined conversations change
-  useEffect(() => {
-    setAllConversations(combinedConversations);
-  }, [combinedConversations]);
-
   // Handle conversation selection - memoized
   const handleConversationSelect = useCallback((conversationId: string) => {
     onSelectConversation(conversationId);
-    
-    // Mark conversation as read
-    setAllConversations(prev => 
-      prev.map(conv => 
-        conv.id === conversationId ? { ...conv, unread: 0 } : conv
-      )
-    );
   }, [onSelectConversation]);
 
   // Handle conversation resolve - memoized
@@ -158,22 +142,14 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     logger.debug('Resolvendo conversa:', conversationId);
     ConversationStorage.addResolvedConversation(conversationId);
     setResolvedConversations(ConversationStorage.getResolvedConversations());
-    
-    // Mark as read when resolved
-    setAllConversations(prev => 
-      prev.map(conv => 
-        conv.id === conversationId ? { ...conv, unread: 0 } : conv
-      )
-    );
-    
     onResolveConversation?.(conversationId);
   }, [onResolveConversation]);
 
-  // Apply filters
-  useEffect(() => {
+  // Apply filters and sorting - computed directly from combinedConversations
+  const filteredConversations = useMemo(() => {
     logger.debug('Filtering conversations...');
     
-    let result = [...allConversations];
+    let result = [...combinedConversations];
 
     // Apply search filter
     if (searchTerm) {
@@ -228,11 +204,11 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
       return timeB - timeA;
     });
     
-    setFilteredConversations(result);
-  }, [allConversations, searchTerm, selectedChannel, selectedDepartment, activeTab, resolvedConversations]);
+    return result;
+  }, [combinedConversations, searchTerm, selectedChannel, selectedDepartment, activeTab, resolvedConversations]);
 
-  // Loading state - only show skeleton on very first load (no conversations and first time loading)
-  const isInitialLoad = supabaseLoading && allConversations.length === 0 && refreshTrigger === 0;
+  // Loading state - only show skeleton on very first load
+  const isInitialLoad = supabaseLoading && combinedConversations.length === 0 && refreshTrigger === 0;
   
   if (isInitialLoad) {
     return (
@@ -288,7 +264,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
             Todas
           </TabsTrigger>
           <TabsTrigger value="unread" className="text-xs px-2 py-1 h-7 flex-shrink-0">
-            Não lidas {allConversations.filter(c => c.unread > 0 && (c as any).status !== 'resolved' && !(c as any).archived).length > 0 && `(${allConversations.filter(c => c.unread > 0 && (c as any).status !== 'resolved' && !(c as any).archived).length})`}
+            Não lidas {combinedConversations.filter(c => c.unread > 0 && (c as any).status !== 'resolved' && !(c as any).archived).length > 0 && `(${combinedConversations.filter(c => c.unread > 0 && (c as any).status !== 'resolved' && !(c as any).archived).length})`}
           </TabsTrigger>
           <TabsTrigger value="bot" className="text-xs px-2 py-1 h-7 flex-shrink-0">
             Bot

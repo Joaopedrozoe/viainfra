@@ -100,12 +100,6 @@ export const useConversations = () => {
       }
 
       const newConversations = (data || []).map(conv => {
-        console.log('Conversation data:', {
-          id: conv.id,
-          contact_id: conv.contact_id,
-          contacts: conv.contacts
-        });
-        
         return {
           ...conv,
           status: conv.status as 'open' | 'resolved' | 'pending',
@@ -136,22 +130,8 @@ export const useConversations = () => {
       // Atualizar referência de IDs anteriores
       previousConversationsRef.current = currentIds;
 
-      // Só atualizar se realmente houver mudanças
-      setConversations(prev => {
-        const prevIds = prev.map(c => c.id).sort().join(',');
-        const newIds = newConversations.map(c => c.id).sort().join(',');
-        
-        if (prevIds === newIds) {
-          // Mesmo conjunto de IDs, verificar se conteúdo mudou
-          const prevJson = JSON.stringify(prev);
-          const newJson = JSON.stringify(newConversations);
-          if (prevJson === newJson) {
-            return prev; // Sem mudanças, manter referência anterior
-          }
-        }
-        
-        return newConversations;
-      });
+      // Sempre atualizar - evitar comparações que causam bugs visuais
+      setConversations(newConversations);
     } catch (err) {
       console.warn('Error fetching conversations:', err);
       setConversations([]);
