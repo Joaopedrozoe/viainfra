@@ -1125,16 +1125,31 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
           phoneNumber = remoteJid.split('@')[0].replace(/\D/g, '');
         }
 
-        // Validate phone number - accept valid WhatsApp numbers (8-15 digits)
-        // Skip only obviously invalid numbers (too short or too long)
-        if (!phoneNumber || phoneNumber.length < 8 || phoneNumber.length > 15) {
-          console.log(`⚠️ Skipping invalid phone: ${phoneNumber} (length: ${phoneNumber?.length})`);
+        // Validate phone number - Brazilian WhatsApp numbers must be:
+        // Format: 55 + DDD (2 digits) + 9 (optional for mobile) + number (8 digits)
+        // Total: 12-13 digits starting with 55
+        if (!phoneNumber || phoneNumber.length < 10) {
+          console.log(`⚠️ Skipping invalid phone: ${phoneNumber} (too short)`);
           continue;
         }
         
-        // Normalize Brazilian numbers - add 55 prefix if missing
-        if (phoneNumber.length >= 10 && phoneNumber.length <= 11 && !phoneNumber.startsWith('55')) {
+        // Normalize: add 55 prefix if missing and looks like Brazilian number
+        if (phoneNumber.length === 10 || phoneNumber.length === 11) {
+          // Likely Brazilian number without country code
           phoneNumber = '55' + phoneNumber;
+        }
+        
+        // Final validation: must be 12-13 digits starting with 55 and valid DDD
+        if (phoneNumber.length < 12 || phoneNumber.length > 13 || !phoneNumber.startsWith('55')) {
+          console.log(`⚠️ Skipping invalid phone: ${phoneNumber} (invalid format)`);
+          continue;
+        }
+        
+        // Validate DDD (must be 11-99 for Brazilian area codes)
+        const ddd = parseInt(phoneNumber.substring(2, 4));
+        if (ddd < 11 || ddd > 99) {
+          console.log(`⚠️ Skipping invalid phone: ${phoneNumber} (invalid DDD: ${ddd})`);
+          continue;
         }
 
         const contactName = chat.pushName || chat.name || chat.notify || phoneNumber;
