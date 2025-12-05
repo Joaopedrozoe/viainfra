@@ -52,14 +52,14 @@ export const useConversations = () => {
       return;
     }
 
-    // Debounce: evitar múltiplas chamadas em sequência rápida
+    // Debounce: evitar múltiplas chamadas em sequência rápida (500ms mínimo para real-time)
     if (debounce) {
       const now = Date.now();
-      if (now - lastFetchRef.current < 2000) { // Min 2 seconds entre fetches
+      if (now - lastFetchRef.current < 500) { // Min 500ms entre fetches
         if (fetchTimeoutRef.current) {
           clearTimeout(fetchTimeoutRef.current);
         }
-        fetchTimeoutRef.current = setTimeout(() => fetchConversations(false), 1000);
+        fetchTimeoutRef.current = setTimeout(() => fetchConversations(false), 300);
         return;
       }
     }
