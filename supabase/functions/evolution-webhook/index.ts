@@ -2,6 +2,10 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import { BotFlowProcessor } from './bot-flow-processor.ts';
 
+// IMPORTANTE: Instância autorizada para processamento
+// Depois que VIAINFRA conectar, adicionar nova instância aqui
+const ALLOWED_INSTANCES = ['TESTE2'];
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -97,6 +101,14 @@ serve(async (req) => {
       console.log('Invalid webhook payload');
       return new Response('Invalid payload', { status: 400, headers: corsHeaders });
     }
+
+    // FILTRO: Ignorar instâncias não autorizadas
+    if (!ALLOWED_INSTANCES.includes(webhook.instance)) {
+      console.log(`⛔ Instância ${webhook.instance} não autorizada. Ignorando.`);
+      return new Response('Instance not allowed', { status: 200, headers: corsHeaders });
+    }
+
+    console.log(`✅ Processando instância autorizada: ${webhook.instance}`);
 
     // Process based on event type - normalize to uppercase for comparison
     const eventType = webhook.event.toUpperCase().replace('.', '_').replace('-', '_');
