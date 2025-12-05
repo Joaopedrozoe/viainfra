@@ -99,7 +99,7 @@ serve(async (req) => {
     }
 
     // Process based on event type - normalize to uppercase for comparison
-    const eventType = webhook.event.toUpperCase().replace('.', '_');
+    const eventType = webhook.event.toUpperCase().replace('.', '_').replace('-', '_');
     
     switch (eventType) {
       case 'MESSAGES_UPSERT':
@@ -107,6 +107,10 @@ serve(async (req) => {
         break;
       case 'CONNECTION_UPDATE':
         await processConnectionUpdate(supabase, webhook);
+        break;
+      case 'PRESENCE_UPDATE':
+      case 'PRESENCEUPDATE':
+        await processPresenceUpdate(supabase, webhook);
         break;
       default:
         console.log(`Unhandled event type: ${webhook.event}`);
@@ -121,6 +125,88 @@ serve(async (req) => {
     });
   }
 });
+
+// Process presence (typing) updates
+async function processPresenceUpdate(supabase: any, webhook: EvolutionWebhook) {
+  console.log('Processing presence update:', JSON.stringify(webhook.data));
+  
+  try {
+    const data = webhook.data;
+    
+    // Extract presence information
+    const remoteJid = data?.remoteJid || data?.participant || data?.key?.remoteJid;
+    const presenceType = data?.presence || data?.type || data?.status;
+    
+    if (!remoteJid) {
+      console.log('No remoteJid in presence update');
+      return;
+    }
+    
+    // Skip groups
+    if (remoteJid.includes('@g.us')) {
+      return;
+    }
+    
+    const isTyping = presenceType === 'composing' || presenceType === 'recording';
+    const phoneNumber = extractPhoneNumber(remoteJid);
+    
+    console.log(`👆 Presence: ${remoteJid} is ${presenceType} (typing: ${isTyping})`);
+    
+    if (!phoneNumber) {
+      return;
+    }
+    
+    // Find contact by phone
+    const { data: contact } = await supabase
+      .from('contacts')
+      .select('id')
+      .eq('phone', phoneNumber)
+      .maybeSingle();
+    
+    if (!contact) {
+      console.log(`No contact found for ${phoneNumber}`);
+      return;
+    }
+    
+    // Find conversation for this contact
+    const { data: conversation } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('contact_id', contact.id)
+      .eq('channel', 'whatsapp')
+      .in('status', ['open', 'pending'])
+      .maybeSingle();
+    
+    if (!conversation) {
+      console.log(`No active conversation found for contact ${contact.id}`);
+      return;
+    }
+    
+    // Update typing status
+    const expiresAt = new Date(Date.now() + 10000).toISOString(); // 10 seconds
+    
+    const { error } = await supabase
+      .from('typing_status')
+      .upsert({
+        conversation_id: conversation.id,
+        contact_id: contact.id,
+        is_typing: isTyping,
+        updated_at: new Date().toISOString(),
+        expires_at: expiresAt
+      }, {
+        onConflict: 'conversation_id,contact_id'
+      });
+    
+    if (error) {
+      console.error('Error updating typing status:', error);
+    } else {
+      console.log(`✅ Updated typing status: ${isTyping ? 'typing' : 'stopped'}`);
+    }
+    
+  } catch (error) {
+    console.error('Error processing presence update:', error);
+  }
+}
 
 function parseWebhookPayload(payload: any): EvolutionWebhook | null {
   try {

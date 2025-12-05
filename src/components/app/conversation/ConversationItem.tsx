@@ -12,6 +12,7 @@ interface ConversationItemProps {
   onClick: () => void;
   onResolve?: () => void;
   showResolveButton?: boolean;
+  isTyping?: boolean;
 }
 
 export const ConversationItem = memo(({ 
@@ -19,7 +20,8 @@ export const ConversationItem = memo(({
   isSelected, 
   onClick,
   onResolve,
-  showResolveButton = false
+  showResolveButton = false,
+  isTyping = false
 }: ConversationItemProps) => {
   const [imageError, setImageError] = useState(false);
 
@@ -35,7 +37,7 @@ export const ConversationItem = memo(({
       alt={conversation.name}
       className="w-full h-full object-cover"
       onError={handleImageError}
-      loading="lazy" // Add lazy loading for images
+      loading="lazy"
     />
   ) : (
     <div className="w-full h-full flex items-center justify-center text-gray-500 font-medium">
@@ -44,7 +46,7 @@ export const ConversationItem = memo(({
   );
 
   const handleResolveClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent conversation selection
+    e.stopPropagation();
     onResolve?.();
   }, [onResolve]);
 
@@ -72,7 +74,18 @@ export const ConversationItem = memo(({
             <div className="font-medium truncate">{conversation.name}</div>
             <div className="text-xs text-gray-500">{conversation.time}</div>
           </div>
-          <div className="text-sm text-gray-500 truncate">{conversation.preview}</div>
+          {isTyping ? (
+            <div className="text-sm text-primary italic flex items-center gap-1">
+              <span className="inline-flex">
+                <span className="animate-bounce" style={{ animationDelay: '0ms' }}>.</span>
+                <span className="animate-bounce" style={{ animationDelay: '150ms' }}>.</span>
+                <span className="animate-bounce" style={{ animationDelay: '300ms' }}>.</span>
+              </span>
+              <span>digitando</span>
+            </div>
+          ) : (
+            <div className="text-sm text-gray-500 truncate">{conversation.preview}</div>
+          )}
         </div>
         
         {conversation.unread > 0 && (
