@@ -1052,6 +1052,10 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 }
 
 // Sync messages from WhatsApp - fetch real state from instance with FULL message history
+// RESOURCE LIMITS to prevent WORKER_LIMIT errors
+const MAX_CHATS_TO_PROCESS = 10; // Process max 10 chats per sync
+const MAX_MESSAGES_PER_CHAT = 50; // Fetch max 50 messages per chat
+
 async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
   try {
     const { instanceName } = await req.json();
@@ -1063,7 +1067,7 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       });
     }
 
-    console.log(`🔄 Syncing conversations for instance: ${instanceName}`);
+    console.log(`🔄 Syncing conversations for instance: ${instanceName} (max ${MAX_CHATS_TO_PROCESS} chats)`);
 
     // Get user's company_id from auth token
     const authHeader = req.headers.get('Authorization');
@@ -1194,14 +1198,7 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       const msg = messageObj?.message || messageObj;
       
       if (!msg) {
-        console.log(`  ⚠️ No message content in object: ${JSON.stringify(Object.keys(messageObj || {}))}`);
         return { content: '', type: 'unknown' };
-      }
-
-      // Log the message structure for debugging
-      if (typeof msg === 'object') {
-        const msgKeys = Object.keys(msg);
-        console.log(`  📝 Message keys: ${msgKeys.join(', ')}`);
       }
 
       // Text message formats
@@ -1241,21 +1238,25 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
         return { content: '📍 Localização', type: 'location' };
       }
       
-      console.log(`  ⚠️ Unsupported message type: ${JSON.stringify(Object.keys(msg))}`);
       return { content: '[Mensagem não suportada]', type: 'unknown' };
     }
 
-    // Process WhatsApp chats
+    // Process WhatsApp chats with LIMIT
     let processedChats = 0;
     let skippedChats = 0;
     
-    // Log first chat structure for debugging
-    if (whatsappChats.length > 0) {
-      console.log(`📋 First chat structure: ${JSON.stringify(Object.keys(whatsappChats[0]))}`);
-      console.log(`📋 First chat sample: ${JSON.stringify(whatsappChats[0]).substring(0, 500)}`);
-    }
+    // Sort chats by updatedAt descending to process most recent first
+    const sortedChats = whatsappChats.sort((a: any, b: any) => {
+      const dateA = new Date(a.updatedAt || 0).getTime();
+      const dateB = new Date(b.updatedAt || 0).getTime();
+      return dateB - dateA;
+    });
     
-    for (const chat of whatsappChats) {
+    // Limit chats to process
+    const chatsToProcess = sortedChats.slice(0, MAX_CHATS_TO_PROCESS);
+    console.log(`📋 Processing ${chatsToProcess.length} of ${whatsappChats.length} chats`);
+    
+    for (const chat of chatsToProcess) {
       try {
         // Try to get proper WhatsApp JID from various fields
         let remoteJid = '';
@@ -1405,23 +1406,14 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
                   remoteJid: whatsappJid
                 }
               },
-              limit: 100 // Fetch last 100 messages per conversation
+              limit: MAX_MESSAGES_PER_CHAT
             })
           });
 
           if (messagesResponse.ok) {
             const messagesData = await messagesResponse.json();
-            console.log(`  📡 API Response type: ${typeof messagesData}, isArray: ${Array.isArray(messagesData)}`);
-            console.log(`  📡 API Response keys: ${typeof messagesData === 'object' && messagesData !== null ? Object.keys(messagesData).join(', ') : 'N/A'}`);
-            
             const messages = Array.isArray(messagesData) ? messagesData : 
                             (messagesData?.messages?.records || messagesData?.messages || []);
-            
-            console.log(`  📋 Found ${messages.length} messages for ${contactName}`);
-            
-            if (messages.length > 0) {
-              console.log(`  📋 First message structure: ${JSON.stringify(Object.keys(messages[0] || {}))}`);
-            }
 
             // Get existing message timestamps for this conversation (to avoid duplicates)
             const { data: existingMsgs } = await supabase
@@ -1518,35 +1510,7 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       }
     }
 
-    // Final pass: update all conversation timestamps based on their actual last message
-    console.log(`🔄 Updating conversation timestamps...`);
-    const { data: allConvs } = await supabase
-      .from('conversations')
-      .select('id, updated_at')
-      .eq('company_id', companyId)
-      .eq('channel', 'whatsapp');
-
-    for (const conv of allConvs || []) {
-      const { data: lastMsg } = await supabase
-        .from('messages')
-        .select('created_at')
-        .eq('conversation_id', conv.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      if (lastMsg) {
-        const msgDate = new Date(lastMsg.created_at);
-        const convDate = new Date(conv.updated_at);
-        
-        if (Math.abs(msgDate.getTime() - convDate.getTime()) > 1000) {
-          await supabase
-            .from('conversations')
-            .update({ updated_at: lastMsg.created_at })
-            .eq('id', conv.id);
-        }
-      }
-    }
+    // Skip final timestamp pass to reduce resource usage - timestamps were already updated during sync
 
     console.log(`✅ Sync complete: ${newConversations} new, ${updatedTimestamps} updated, ${syncedMessages} messages synced`);
 
