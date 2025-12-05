@@ -404,6 +404,40 @@ async function fetchProfilePicture(phoneNumber: string, instanceName: string): P
   }
 }
 
+// Normaliza telefone brasileiro para sempre ter prefixo 55
+function normalizePhoneNumber(phone: string): string {
+  if (!phone) return '';
+  // Remove todos os caracteres não numéricos
+  const digits = phone.replace(/\D/g, '');
+  // Se tem 10-11 dígitos e não começa com 55, adiciona
+  if (digits.length >= 10 && digits.length <= 11 && !digits.startsWith('55')) {
+    return '55' + digits;
+  }
+  // Se tem 12-13 dígitos e começa com 55, mantém
+  if (digits.length >= 12 && digits.length <= 13 && digits.startsWith('55')) {
+    return digits;
+  }
+  return digits;
+}
+
+// Gera variações de telefone para busca flexível
+function getPhoneVariations(phone: string): string[] {
+  if (!phone) return [];
+  const normalized = normalizePhoneNumber(phone);
+  const variations = [normalized];
+  
+  // Se tem 55, adiciona versão sem
+  if (normalized.startsWith('55') && normalized.length >= 12) {
+    variations.push(normalized.substring(2));
+  }
+  // Se não tem 55, adiciona versão com
+  if (!normalized.startsWith('55') && normalized.length >= 10) {
+    variations.push('55' + normalized);
+  }
+  
+  return [...new Set(variations)]; // Remove duplicatas
+}
+
 async function getOrCreateContact(supabase: any, phoneNumber: string, name: string, remoteJid: string, instanceName?: string) {
   // Get first company (will be used for searches)
   const { data: companies } = await supabase
@@ -412,30 +446,39 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
     .limit(1);
   const companyId = companies?.[0]?.id;
 
-  console.log(`🔍 Searching contact - Phone: ${phoneNumber || 'N/A'}, Name: ${name}, RemoteJid: ${remoteJid}`);
+  // NORMALIZAR telefone ANTES de qualquer busca
+  const normalizedPhone = normalizePhoneNumber(phoneNumber);
+  const phoneVariations = getPhoneVariations(phoneNumber);
 
-  // PRIORITY 1: Try to find by phone number (most reliable for WhatsApp)
-  if (phoneNumber) {
+  console.log(`🔍 Searching contact - Phone: ${phoneNumber || 'N/A'} (normalized: ${normalizedPhone}), Name: ${name}, RemoteJid: ${remoteJid}`);
+  console.log(`📱 Phone variations to search: ${JSON.stringify(phoneVariations)}`);
+
+  // PRIORITY 1: Try to find by phone number with flexible matching
+  if (normalizedPhone && phoneVariations.length > 0) {
     const { data: existingByPhone } = await supabase
       .from('contacts')
       .select('*')
       .eq('company_id', companyId)
-      .eq('phone', phoneNumber)
+      .in('phone', phoneVariations)
+      .limit(1)
       .maybeSingle();
 
-  if (existingByPhone) {
+    if (existingByPhone) {
       console.log('✅ Found existing contact by phone:', existingByPhone.id);
-      // Update metadata with new remoteJid if different
-      const currentRemoteJid = existingByPhone.metadata?.remoteJid;
-      if (currentRemoteJid !== remoteJid) {
+      // ALWAYS update to normalized phone format
+      const needsUpdate = existingByPhone.phone !== normalizedPhone || 
+                          existingByPhone.metadata?.remoteJid !== remoteJid;
+      if (needsUpdate) {
         await supabase
           .from('contacts')
           .update({ 
+            phone: normalizedPhone, // Always use normalized
             metadata: { ...existingByPhone.metadata, remoteJid: remoteJid },
-            name: name,
+            name: name || existingByPhone.name,
             updated_at: new Date().toISOString()
           })
           .eq('id', existingByPhone.id);
+        existingByPhone.phone = normalizedPhone;
       }
       return existingByPhone;
     }
@@ -454,12 +497,12 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
     
     // CRITICAL: ALWAYS update phone if we have a valid one (even if contact has one already)
     // This fixes @lid contacts that may have wrong/empty phones
-    if (phoneNumber && phoneNumber.startsWith('55')) {
-      console.log(`📞 Updating contact ${existingByRemoteJid.id} with phone: ${phoneNumber} (old: ${existingByRemoteJid.phone || 'empty'})`);
+    if (normalizedPhone) {
+      console.log(`📞 Updating contact ${existingByRemoteJid.id} with phone: ${normalizedPhone} (old: ${existingByRemoteJid.phone || 'empty'})`);
       const { error: updateError } = await supabase
         .from('contacts')
         .update({ 
-          phone: phoneNumber,
+          phone: normalizedPhone,
           name: name,
           updated_at: new Date().toISOString()
         })
@@ -469,8 +512,7 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
         console.error('Error updating contact phone:', updateError);
       } else {
         console.log('✅ Phone updated successfully');
-        // Return updated contact
-        existingByRemoteJid.phone = phoneNumber;
+        existingByRemoteJid.phone = normalizedPhone;
         existingByRemoteJid.name = name;
       }
     }
@@ -479,21 +521,22 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
   }
 
   // PRIORITY 3: Try to find by name (for cases where remoteJid changed)
-  if (name && phoneNumber) {
+  if (name && normalizedPhone) {
     const { data: existingByName } = await supabase
       .from('contacts')
       .select('*')
       .eq('company_id', companyId)
       .ilike('name', name)
-      .eq('phone', phoneNumber)
+      .in('phone', phoneVariations)
+      .limit(1)
       .maybeSingle();
 
     if (existingByName) {
       console.log('✅ Found existing contact by name+phone:', existingByName.id);
-      // Update metadata with remoteJid
       await supabase
         .from('contacts')
         .update({ 
+          phone: normalizedPhone,
           metadata: { ...existingByName.metadata, remoteJid: remoteJid },
           updated_at: new Date().toISOString()
         })
@@ -507,15 +550,15 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
   
   // Try to fetch profile picture for new contact
   let avatarUrl = null;
-  if (phoneNumber && instanceName) {
-    avatarUrl = await fetchProfilePicture(phoneNumber, instanceName);
+  if (normalizedPhone && instanceName) {
+    avatarUrl = await fetchProfilePicture(normalizedPhone, instanceName);
   }
   
   const { data: newContact, error: insertError } = await supabase
     .from('contacts')
     .insert({
       name: name,
-      phone: phoneNumber || null,
+      phone: normalizedPhone || null, // ALWAYS use normalized phone
       email: null,
       avatar_url: avatarUrl,
       company_id: companyId,

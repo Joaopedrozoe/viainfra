@@ -755,6 +755,30 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       return /^\d{10,15}$/.test(digitsOnly);
     }
 
+    // Normaliza telefone brasileiro para sempre ter prefixo 55
+    function normalizePhone(phone: string): string {
+      if (!phone) return '';
+      const digits = phone.replace(/\D/g, '');
+      if (digits.length >= 10 && digits.length <= 11 && !digits.startsWith('55')) {
+        return '55' + digits;
+      }
+      return digits;
+    }
+
+    // Gera variações de telefone para busca flexível
+    function getPhoneVariations(phone: string): string[] {
+      if (!phone) return [];
+      const normalized = normalizePhone(phone);
+      const variations = [normalized];
+      if (normalized.startsWith('55') && normalized.length >= 12) {
+        variations.push(normalized.substring(2));
+      }
+      if (!normalized.startsWith('55') && normalized.length >= 10) {
+        variations.push('55' + normalized);
+      }
+      return [...new Set(variations)];
+    }
+
     // Helper function to extract valid phone from entry
     // CRITICAL: ONLY accept fields that contain valid WhatsApp JIDs (@s.whatsapp.net or @c.us)
     // This prevents internal database IDs (cmh..., etc) from being treated as phone numbers
@@ -842,25 +866,29 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
         console.log(`📱 Processing: ${contactName} (${phoneNumber})${isArchived ? ' [archived]' : ''}`);
 
-        // Check if contact exists by phone
+        // Check if contact exists by phone (flexible search)
+        const phoneVariations = getPhoneVariations(phoneNumber);
+        const normalizedPhone = normalizePhone(phoneNumber);
+        
         let { data: existingContact } = await supabase
           .from('contacts')
           .select('id, name, avatar_url, phone')
           .eq('company_id', companyId)
-          .eq('phone', phoneNumber)
+          .in('phone', phoneVariations)
+          .limit(1)
           .maybeSingle();
 
         let contactId;
         let contactCreated = false;
 
         if (!existingContact) {
-          // Create contact
+          // Create contact with normalized phone
           const { data: newContact, error: contactError } = await supabase
             .from('contacts')
             .insert({
               company_id: companyId,
               name: contactName,
-              phone: phoneNumber,
+              phone: normalizedPhone, // Always use normalized
               avatar_url: profilePicUrl,
               metadata: { remoteJid, source: `whatsapp_import_${source}` }
             })
