@@ -1125,8 +1125,14 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
           phoneNumber = remoteJid.split('@')[0].replace(/\D/g, '');
         }
 
-        // Validate phone number
-        if (!phoneNumber || phoneNumber.length < 8 || phoneNumber.length > 15) {
+        // Validate phone number - Brazilian numbers must start with 55 and have 12-13 digits
+        // Format: 55 + DDD (2 digits) + number (8-9 digits)
+        if (!phoneNumber || phoneNumber.length < 12 || phoneNumber.length > 13) {
+          continue;
+        }
+        
+        // Must start with 55 (Brazil country code)
+        if (!phoneNumber.startsWith('55')) {
           continue;
         }
 
