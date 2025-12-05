@@ -80,7 +80,6 @@ const Inbox = () => {
     
     console.log('Refresh button clicked, syncing conversations...');
     setIsSyncing(true);
-    setRefreshKey(prev => prev + 1);
     
     try {
       // Buscar instâncias WhatsApp conectadas
@@ -89,9 +88,10 @@ const Inbox = () => {
         .select('instance_name, connection_state')
         .eq('connection_state', 'open');
       
-      if (!instances || instances.length === 0) {
-        toast.info('Nenhuma instância conectada');
-      } else {
+      let totalNew = 0;
+      let totalUpdated = 0;
+      
+      if (instances && instances.length > 0) {
         // Sincronizar para cada instância conectada
         for (const instance of instances) {
           try {
@@ -100,9 +100,8 @@ const Inbox = () => {
             });
             
             if (!syncError && syncData) {
-              if (syncData.metadataFixed > 0 || syncData.timestampsUpdated > 0) {
-                toast.success(`${syncData.metadataFixed || 0} conversa(s) corrigida(s), ${syncData.timestampsUpdated || 0} atualizada(s)`);
-              }
+              totalNew += syncData.newConversations || 0;
+              totalUpdated += syncData.timestampsUpdated || 0;
             }
           } catch (err) {
             console.error(`Error syncing for ${instance.instance_name}:`, err);
@@ -110,22 +109,20 @@ const Inbox = () => {
         }
       }
       
-      // Sincronizar fotos de perfil
-      try {
-        const { data: photoData, error: photoError } = await supabase.functions.invoke('sync-profile-pictures', {
-          body: { forceUpdate: false }
-        });
-        
-        if (!photoError && photoData?.updated > 0) {
-          toast.success(`${photoData.updated} foto(s) atualizada(s)`);
-        }
-      } catch (photoErr) {
-        console.error('Error syncing photos:', photoErr);
-      }
+      // Sincronizar fotos de perfil em paralelo
+      supabase.functions.invoke('sync-profile-pictures', {
+        body: { forceUpdate: false }
+      }).catch(err => console.error('Photo sync error:', err));
       
       // Refetch para atualizar a lista
       await refetch();
-      toast.success('Conversas atualizadas');
+      setRefreshKey(prev => prev + 1);
+      
+      if (totalNew > 0 || totalUpdated > 0) {
+        toast.success(`${totalNew} nova(s), ${totalUpdated} atualizada(s)`);
+      } else {
+        toast.success('Conversas sincronizadas');
+      }
     } catch (error) {
       console.error('Error syncing:', error);
       toast.error('Erro ao sincronizar');

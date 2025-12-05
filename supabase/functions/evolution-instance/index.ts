@@ -1048,6 +1048,110 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       });
     }
 
+    let newConversationsCount = 0;
+    let metadataFixedCount = 0;
+    let updatedCount = 0;
+
+    // Fetch recent chats from WhatsApp to catch any missed conversations
+    try {
+      console.log(`📥 Fetching recent chats from ${instanceName}...`);
+      const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
+        method: 'POST',
+        headers: {
+          'apikey': evolutionApiKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({})
+      });
+
+      if (chatsResponse.ok) {
+        const chatsData = await chatsResponse.json();
+        const allChats = Array.isArray(chatsData) ? chatsData : (chatsData?.chats || []);
+        
+        console.log(`📋 Found ${allChats.length} chats from WhatsApp`);
+
+        // Get existing conversations to compare
+        const { data: existingConvs } = await supabase
+          .from('conversations')
+          .select('id, contact_id, contacts!conversations_contact_id_fkey(phone)')
+          .eq('company_id', companyId)
+          .eq('channel', 'whatsapp');
+
+        const existingPhones = new Set(
+          (existingConvs || [])
+            .map(c => c.contacts?.phone)
+            .filter(Boolean)
+        );
+
+        // Process only new chats (not in our database)
+        for (const chat of allChats.slice(0, 20)) { // Limit to 20 most recent for sync
+          const remoteJid = chat.id || chat.remoteJid || chat.jid;
+          if (!remoteJid || remoteJid.includes('@g.us') || remoteJid.includes('@broadcast') || remoteJid.includes('@lid')) {
+            continue;
+          }
+
+          // Extract phone number
+          let phoneNumber = '';
+          if (chat.phone) {
+            phoneNumber = chat.phone.replace(/\D/g, '');
+          } else if (remoteJid) {
+            phoneNumber = remoteJid.split('@')[0].replace(/\D/g, '');
+          }
+
+          if (!phoneNumber || phoneNumber.length < 8 || phoneNumber.length > 15) {
+            continue;
+          }
+
+          // Skip if we already have this conversation
+          if (existingPhones.has(phoneNumber)) {
+            continue;
+          }
+
+          const contactName = chat.pushName || chat.name || chat.notify || phoneNumber;
+          const isArchived = chat.archive === true || chat.archived === true;
+
+          console.log(`➕ New chat found: ${contactName} (${phoneNumber})`);
+
+          // Create contact
+          const { data: newContact, error: contactError } = await supabase
+            .from('contacts')
+            .insert({
+              company_id: companyId,
+              name: contactName,
+              phone: phoneNumber,
+              avatar_url: chat.profilePictureUrl || null,
+              metadata: { remoteJid, source: 'whatsapp_sync' }
+            })
+            .select()
+            .single();
+
+          if (contactError) {
+            console.error('Error creating contact:', contactError);
+            continue;
+          }
+
+          // Create conversation
+          const { error: convError } = await supabase
+            .from('conversations')
+            .insert({
+              company_id: companyId,
+              contact_id: newContact.id,
+              channel: 'whatsapp',
+              status: isArchived ? 'resolved' : 'open',
+              archived: isArchived,
+              metadata: { instanceName, remoteJid }
+            });
+
+          if (!convError) {
+            newConversationsCount++;
+            existingPhones.add(phoneNumber);
+          }
+        }
+      }
+    } catch (chatFetchError) {
+      console.error('Error fetching chats for sync:', chatFetchError);
+    }
+
     // Get all WhatsApp conversations to fix metadata and update timestamps
     const { data: conversations, error: convError } = await supabase
       .from('conversations')
@@ -1070,10 +1174,7 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       throw convError;
     }
 
-    console.log(`📋 Found ${conversations?.length || 0} WhatsApp conversations`);
-
-    let updatedCount = 0;
-    let metadataFixedCount = 0;
+    console.log(`📋 Processing ${conversations?.length || 0} WhatsApp conversations`);
 
     for (const conv of conversations || []) {
       try {
@@ -1126,14 +1227,15 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       }
     }
 
-    console.log(`✅ Sync complete: ${metadataFixedCount} metadata fixed, ${updatedCount} timestamps updated`);
+    console.log(`✅ Sync complete: ${newConversationsCount} new, ${metadataFixedCount} metadata fixed, ${updatedCount} timestamps updated`);
 
     return new Response(JSON.stringify({ 
       success: true,
+      newConversations: newConversationsCount,
       metadataFixed: metadataFixedCount,
       timestampsUpdated: updatedCount,
       totalConversations: conversations?.length || 0,
-      message: `${metadataFixedCount} metadata corrigido(s), ${updatedCount} timestamp(s) atualizado(s)`
+      message: `${newConversationsCount} nova(s), ${metadataFixedCount} corrigida(s), ${updatedCount} atualizada(s)`
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -39,9 +39,10 @@ export const useConversations = () => {
   const previousConversationsRef = useRef<Set<string>>(new Set());
   const { notifyNewConversation } = useNotifications();
   const isFetchingRef = useRef(false);
+  const mountedRef = useRef(true);
 
   const fetchConversations = useCallback(async (debounce = false) => {
-    if (!company?.id) {
+    if (!company?.id || !mountedRef.current) {
       setLoading(false);
       return;
     }
@@ -65,7 +66,7 @@ export const useConversations = () => {
 
     try {
       isFetchingRef.current = true;
-      setLoading(true);
+      if (mountedRef.current) setLoading(true);
       setError(null);
       lastFetchRef.current = Date.now();
       
@@ -94,6 +95,8 @@ export const useConversations = () => {
         .eq('company_id', company.id)
         .order('updated_at', { ascending: false });
 
+      if (!mountedRef.current) return;
+
       if (convError) {
         console.error('Supabase query error:', convError);
         setError(convError as Error);
@@ -114,6 +117,8 @@ export const useConversations = () => {
           .select('id, conversation_id, content, sender_type, created_at')
           .in('conversation_id', conversationIds)
           .order('created_at', { ascending: false });
+        
+        if (!mountedRef.current) return;
         
         // Group by conversation and take only the first (latest)
         if (allLastMessages) {
@@ -162,17 +167,20 @@ export const useConversations = () => {
       // Atualizar referência de IDs anteriores
       previousConversationsRef.current = currentIds;
 
-      setConversations(newConversations);
+      if (mountedRef.current) {
+        setConversations(newConversations);
+      }
     } catch (err) {
       console.warn('Error fetching conversations:', err);
-      setError(null);
+      if (mountedRef.current) setError(null);
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
       isFetchingRef.current = false;
     }
   }, [company?.id, notifyNewConversation]);
 
   useEffect(() => {
+    mountedRef.current = true;
     fetchConversations();
 
     // Real-time subscription with debounced refetch
@@ -205,12 +213,17 @@ export const useConversations = () => {
         .subscribe();
 
       return () => {
+        mountedRef.current = false;
         if (fetchTimeoutRef.current) {
           clearTimeout(fetchTimeoutRef.current);
         }
         supabase.removeChannel(channel);
       };
     }
+    
+    return () => {
+      mountedRef.current = false;
+    };
   }, [company?.id, fetchConversations]);
 
   const updateConversationStatus = async (conversationId: string, status: 'open' | 'resolved' | 'pending') => {
