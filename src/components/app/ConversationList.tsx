@@ -80,11 +80,8 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
 
     // Map Supabase conversations
     const processedSupabaseConversations = supabaseConversations.map(conv => {
-      // Sort messages by created_at to get the actual last message
-      const sortedMessages = conv.messages && conv.messages.length > 0 
-        ? [...conv.messages].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        : [];
-      const lastMessage = sortedMessages.length > 0 ? sortedMessages[0] : null;
+      // Use lastMessage from hook instead of messages array
+      const lastMessage = conv.lastMessage;
       
       // Use last message time if available, otherwise fall back to updated_at
       const lastActivityTime = lastMessage?.created_at || conv.updated_at;

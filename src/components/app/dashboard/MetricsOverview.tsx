@@ -24,7 +24,7 @@ export const MetricsOverview: React.FC = () => {
       if (supabaseConversations.length > 0) {
         const activeCount = supabaseConversations.filter(c => c.status === 'open' || c.status === 'pending').length;
         const resolvedCount = supabaseConversations.filter(c => c.status === 'resolved').length;
-        const totalMessages = supabaseConversations.reduce((sum, conv) => sum + (conv.messages?.length || 0), 0);
+        const totalMessages = supabaseConversations.filter(c => c.lastMessage).length; // Count conversations with messages
         
         calculatedMetrics.activeConversations = activeCount;
         calculatedMetrics.todayMessages = totalMessages;
