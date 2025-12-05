@@ -1067,6 +1067,18 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       });
     }
 
+    // CRITICAL: Only allow sync for authorized instances
+    if (!ALLOWED_INSTANCES.includes(instanceName)) {
+      console.log(`⛔ syncMessages: Instance ${instanceName} not in ALLOWED_INSTANCES`);
+      return new Response(JSON.stringify({ 
+        error: `Instância ${instanceName} não autorizada para sincronização`,
+        allowed: ALLOWED_INSTANCES 
+      }), { 
+        status: 403, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+
     console.log(`🔄 Syncing conversations for instance: ${instanceName} (max ${MAX_CHATS_TO_PROCESS} chats)`);
 
     // Get user's company_id from auth token
