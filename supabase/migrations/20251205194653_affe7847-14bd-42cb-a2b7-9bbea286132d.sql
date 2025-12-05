@@ -1,0 +1,3 @@
+-- Set REPLICA IDENTITY FULL for better change detection
+ALTER TABLE conversations REPLICA IDENTITY FULL;
+ALTER TABLE messages REPLICA IDENTITY FULL;
