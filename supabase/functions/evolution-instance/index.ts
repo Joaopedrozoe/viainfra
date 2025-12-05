@@ -1102,17 +1102,37 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       }
     }
 
-    // Helper function to extract message content
-    function extractMessageContent(message: any): { content: string; type: string } {
-      const msg = message?.message;
-      if (!msg) return { content: '', type: 'unknown' };
+    // Helper function to extract message content - handles various Evolution API message formats
+    function extractMessageContent(messageObj: any): { content: string; type: string } {
+      // Try different possible structures
+      const msg = messageObj?.message || messageObj;
+      
+      if (!msg) {
+        console.log(`  ⚠️ No message content in object: ${JSON.stringify(Object.keys(messageObj || {}))}`);
+        return { content: '', type: 'unknown' };
+      }
 
+      // Log the message structure for debugging
+      if (typeof msg === 'object') {
+        const msgKeys = Object.keys(msg);
+        console.log(`  📝 Message keys: ${msgKeys.join(', ')}`);
+      }
+
+      // Text message formats
       if (msg.conversation) {
         return { content: msg.conversation, type: 'text' };
       }
       if (msg.extendedTextMessage?.text) {
         return { content: msg.extendedTextMessage.text, type: 'text' };
       }
+      // Direct text field (some API versions)
+      if (msg.text) {
+        return { content: msg.text, type: 'text' };
+      }
+      if (msg.body) {
+        return { content: msg.body, type: 'text' };
+      }
+      // Media messages
       if (msg.imageMessage) {
         return { content: msg.imageMessage.caption || '📷 Imagem', type: 'image' };
       }
@@ -1135,10 +1155,14 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
         return { content: '📍 Localização', type: 'location' };
       }
       
+      console.log(`  ⚠️ Unsupported message type: ${JSON.stringify(Object.keys(msg))}`);
       return { content: '[Mensagem não suportada]', type: 'unknown' };
     }
 
     // Process WhatsApp chats
+    let processedChats = 0;
+    let skippedChats = 0;
+    
     for (const chat of whatsappChats) {
       try {
         const remoteJid = chat.id || chat.remoteJid || chat.jid;
@@ -1149,6 +1173,7 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
             remoteJid.includes('@broadcast') || 
             remoteJid.includes('@lid') ||
             remoteJid.startsWith('status@')) {
+          skippedChats++;
           continue;
         }
 
@@ -1162,6 +1187,8 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
 
         // Simple validation - just ensure we have a phone number with at least 10 digits
         if (!phoneNumber || phoneNumber.length < 10) {
+          console.log(`⏭️ Skipping chat (invalid phone): ${remoteJid}`);
+          skippedChats++;
           continue;
         }
         
@@ -1173,6 +1200,9 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
         const contactName = chat.pushName || chat.name || chat.notify || phoneNumber;
         const isArchived = chat.archive === true || chat.archived === true;
         const profilePicUrl = chat.profilePictureUrl || chat.profilePicUrl || chat.imgUrl || null;
+        
+        processedChats++;
+        console.log(`🔄 Processing chat ${processedChats}: ${contactName} (${phoneNumber}) - JID: ${remoteJid}`);
 
         // Check if contact exists
         let contact = contactsByPhone.get(phoneNumber);
@@ -1265,10 +1295,17 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
 
           if (messagesResponse.ok) {
             const messagesData = await messagesResponse.json();
+            console.log(`  📡 API Response type: ${typeof messagesData}, isArray: ${Array.isArray(messagesData)}`);
+            console.log(`  📡 API Response keys: ${typeof messagesData === 'object' && messagesData !== null ? Object.keys(messagesData).join(', ') : 'N/A'}`);
+            
             const messages = Array.isArray(messagesData) ? messagesData : 
                             (messagesData?.messages?.records || messagesData?.messages || []);
             
             console.log(`  📋 Found ${messages.length} messages for ${contactName}`);
+            
+            if (messages.length > 0) {
+              console.log(`  📋 First message structure: ${JSON.stringify(Object.keys(messages[0] || {}))}`);
+            }
 
             // Get existing message timestamps for this conversation (to avoid duplicates)
             const { data: existingMsgs } = await supabase
