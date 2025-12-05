@@ -734,39 +734,61 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     let importedConversations = 0;
     let skippedCount = 0;
 
-    // Helper function to validate phone number (8-15 digits only)
+    // Helper function to validate phone number (10-15 digits, must start with country code)
     function isValidPhoneNumber(phone: string): boolean {
       const digitsOnly = phone.replace(/\D/g, '');
-      return /^\d{8,15}$/.test(digitsOnly);
+      // Brazilian numbers: 55 + DDD (2 digits) + number (8-9 digits) = 12-13 digits
+      // International: country code + number = 10-15 digits
+      return /^\d{10,15}$/.test(digitsOnly);
     }
 
     // Helper function to extract valid phone from entry
-    // IMPORTANT: Do NOT use entry.id as it's often an internal database ID (cmh...)
+    // CRITICAL: ONLY accept fields that contain valid WhatsApp JIDs (@s.whatsapp.net or @c.us)
+    // This prevents internal database IDs (cmh..., etc) from being treated as phone numbers
     function extractPhoneNumber(entry: any): string | null {
       // Priority order - only fields that should contain phone/WhatsApp IDs
-      const phoneFields = [
+      const jidFields = [
         entry.remoteJid,      // WhatsApp JID (xxxxx@s.whatsapp.net)
         entry.jid,            // Alternative JID field
-        entry.phone,          // Direct phone field
-        entry.number,         // Alternative number field
-        entry.wid?.user,      // Some APIs nest it in wid.user
       ];
 
-      for (const field of phoneFields) {
+      // FIRST: Try to extract from valid WhatsApp JID format (REQUIRED for import)
+      for (const field of jidFields) {
         if (!field || typeof field !== 'string') continue;
         
-        // Skip groups, internal IDs, broadcasts
+        // Skip groups, internal IDs, broadcasts, @lid
         if (field.includes('@g.us') || field.includes('@lid') || field.includes('@broadcast')) {
+          continue;
+        }
+
+        // CRITICAL: MUST contain @s.whatsapp.net or @c.us to be a valid WhatsApp JID
+        // This filters out internal Evolution API IDs like "cmhj9de3b0003o64ibz62hbc1"
+        if (!field.includes('@s.whatsapp.net') && !field.includes('@c.us')) {
+          console.log(`⏭️ Skip JID field (no valid WhatsApp suffix): ${field.substring(0, 30)}...`);
           continue;
         }
 
         // Extract number from WhatsApp format
         let phone = field.replace('@s.whatsapp.net', '').replace('@c.us', '');
-        
-        // Clean any remaining non-digit chars except the phone itself
         phone = phone.replace(/\D/g, '');
         
-        // Validate it's actually a phone number
+        if (isValidPhoneNumber(phone)) {
+          return phone;
+        }
+      }
+
+      // SECOND: Try direct phone/number fields (fallback)
+      const phoneFields = [entry.phone, entry.number, entry.wid?.user];
+      for (const field of phoneFields) {
+        if (!field || typeof field !== 'string') continue;
+        
+        let phone = field.replace(/\D/g, '');
+        
+        // Add Brazil country code if missing (9-digit numbers)
+        if (phone.length >= 10 && phone.length <= 11 && !phone.startsWith('55')) {
+          phone = '55' + phone;
+        }
+        
         if (isValidPhoneNumber(phone)) {
           return phone;
         }
