@@ -88,7 +88,9 @@ const Inbox = () => {
         .select('instance_name, connection_state')
         .eq('connection_state', 'open');
       
+      let totalNew = 0;
       let totalUpdated = 0;
+      let totalMessages = 0;
       
       if (instances && instances.length > 0) {
         // Sincronizar para cada instância conectada
@@ -99,7 +101,9 @@ const Inbox = () => {
             });
             
             if (!syncError && syncData) {
+              totalNew += syncData.newConversations || 0;
               totalUpdated += syncData.timestampsUpdated || 0;
+              totalMessages += syncData.messagesSynced || 0;
             }
           } catch (err) {
             console.error(`Error syncing for ${instance.instance_name}:`, err);
@@ -116,8 +120,13 @@ const Inbox = () => {
       await refetch();
       setRefreshKey(prev => prev + 1);
       
-      if (totalUpdated > 0) {
-        toast.success(`${totalUpdated} conversa(s) atualizada(s)`);
+      const parts = [];
+      if (totalNew > 0) parts.push(`${totalNew} nova(s)`);
+      if (totalUpdated > 0) parts.push(`${totalUpdated} atualizada(s)`);
+      if (totalMessages > 0) parts.push(`${totalMessages} msg`);
+      
+      if (parts.length > 0) {
+        toast.success(parts.join(', '));
       } else {
         toast.success('Conversas sincronizadas');
       }
