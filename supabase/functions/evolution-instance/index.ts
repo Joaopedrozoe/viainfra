@@ -1052,9 +1052,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 }
 
 // Sync messages from WhatsApp - fetch real state from instance with FULL message history
-// RESOURCE LIMITS to prevent WORKER_LIMIT errors
-const MAX_CHATS_TO_PROCESS = 10; // Process max 10 chats per sync
-const MAX_MESSAGES_PER_CHAT = 50; // Fetch max 50 messages per chat
+// NO LIMITS - process all chats and messages
 
 async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
   try {
@@ -1079,7 +1077,7 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       });
     }
 
-    console.log(`🔄 Syncing conversations for instance: ${instanceName} (max ${MAX_CHATS_TO_PROCESS} chats)`);
+    console.log(`🔄 Syncing ALL conversations for instance: ${instanceName} (no limits)`);
 
     // Get user's company_id from auth token
     const authHeader = req.headers.get('Authorization');
@@ -1253,7 +1251,7 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       return { content: '[Mensagem não suportada]', type: 'unknown' };
     }
 
-    // Process WhatsApp chats with LIMIT
+    // Process ALL WhatsApp chats - NO LIMITS
     let processedChats = 0;
     let skippedChats = 0;
     
@@ -1264,11 +1262,9 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       return dateB - dateA;
     });
     
-    // Limit chats to process
-    const chatsToProcess = sortedChats.slice(0, MAX_CHATS_TO_PROCESS);
-    console.log(`📋 Processing ${chatsToProcess.length} of ${whatsappChats.length} chats`);
+    console.log(`📋 Processing ALL ${sortedChats.length} chats (no limits)`);
     
-    for (const chat of chatsToProcess) {
+    for (const chat of sortedChats) {
       try {
         // Try to get proper WhatsApp JID from various fields
         let remoteJid = '';
@@ -1417,8 +1413,8 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
                 key: {
                   remoteJid: whatsappJid
                 }
-              },
-              limit: MAX_MESSAGES_PER_CHAT
+              }
+              // NO LIMIT - fetch all messages
             })
           });
 
