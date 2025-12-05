@@ -1163,9 +1163,25 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
     let processedChats = 0;
     let skippedChats = 0;
     
+    // Log first chat structure for debugging
+    if (whatsappChats.length > 0) {
+      console.log(`📋 First chat structure: ${JSON.stringify(Object.keys(whatsappChats[0]))}`);
+      console.log(`📋 First chat sample: ${JSON.stringify(whatsappChats[0]).substring(0, 500)}`);
+    }
+    
     for (const chat of whatsappChats) {
       try {
-        const remoteJid = chat.id || chat.remoteJid || chat.jid;
+        // Try to get proper WhatsApp JID from various fields
+        let remoteJid = '';
+        
+        // Priority: remoteJid field -> id if it contains @s.whatsapp.net -> jid
+        if (chat.remoteJid && chat.remoteJid.includes('@s.whatsapp.net')) {
+          remoteJid = chat.remoteJid;
+        } else if (chat.id && chat.id.includes('@s.whatsapp.net')) {
+          remoteJid = chat.id;
+        } else if (chat.jid && chat.jid.includes('@s.whatsapp.net')) {
+          remoteJid = chat.jid;
+        }
         
         // Skip groups, broadcasts, and system chats
         if (!remoteJid || 
@@ -1173,15 +1189,26 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
             remoteJid.includes('@broadcast') || 
             remoteJid.includes('@lid') ||
             remoteJid.startsWith('status@')) {
-          skippedChats++;
-          continue;
+          // If we don't have a valid JID yet, try to build from phone
+          if (!remoteJid && chat.phone) {
+            const phone = String(chat.phone).replace(/\D/g, '');
+            if (phone.length >= 10) {
+              remoteJid = `${phone}@s.whatsapp.net`;
+            }
+          }
+          
+          // If still no valid JID, skip
+          if (!remoteJid || remoteJid.includes('@g.us') || remoteJid.includes('@broadcast')) {
+            skippedChats++;
+            continue;
+          }
         }
 
-        // Extract phone number
+        // Extract phone number from JID or chat.phone
         let phoneNumber = '';
         if (chat.phone) {
           phoneNumber = String(chat.phone).replace(/\D/g, '');
-        } else if (remoteJid) {
+        } else if (remoteJid.includes('@')) {
           phoneNumber = remoteJid.split('@')[0].replace(/\D/g, '');
         }
 
@@ -1201,8 +1228,11 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
         const isArchived = chat.archive === true || chat.archived === true;
         const profilePicUrl = chat.profilePictureUrl || chat.profilePicUrl || chat.imgUrl || null;
         
+        // Build proper WhatsApp JID from the extracted phone number
+        const whatsappJid = `${phoneNumber}@s.whatsapp.net`;
+        
         processedChats++;
-        console.log(`🔄 Processing chat ${processedChats}: ${contactName} (${phoneNumber}) - JID: ${remoteJid}`);
+        console.log(`🔄 Processing chat ${processedChats}: ${contactName} (${phoneNumber}) - WhatsApp JID: ${whatsappJid}`);
 
         // Check if contact exists
         let contact = contactsByPhone.get(phoneNumber);
@@ -1216,7 +1246,7 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
               name: contactName,
               phone: phoneNumber,
               avatar_url: profilePicUrl,
-              metadata: { remoteJid, source: 'whatsapp_sync' }
+              metadata: { remoteJid: whatsappJid, source: 'whatsapp_sync' }
             })
             .select()
             .single();
@@ -1257,7 +1287,7 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
               channel: 'whatsapp',
               status: isArchived ? 'resolved' : 'open',
               archived: isArchived,
-              metadata: { instanceName, remoteJid }
+              metadata: { instanceName, remoteJid: whatsappJid }
             })
             .select()
             .single();
@@ -1273,8 +1303,8 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
           }
         }
 
-        // FETCH MESSAGE HISTORY for this chat
-        console.log(`📨 Fetching messages for: ${contactName} (${remoteJid})...`);
+        // FETCH MESSAGE HISTORY for this chat using proper WhatsApp JID
+        console.log(`📨 Fetching messages for: ${contactName} (${whatsappJid})...`);
         
         try {
           const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
@@ -1286,7 +1316,7 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
             body: JSON.stringify({
               where: {
                 key: {
-                  remoteJid: remoteJid
+                  remoteJid: whatsappJid
                 }
               },
               limit: 100 // Fetch last 100 messages per conversation
@@ -1385,7 +1415,7 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
                   metadata: {
                     ...conversation.metadata,
                     instanceName,
-                    remoteJid
+                    remoteJid: whatsappJid
                   }
                 })
                 .eq('id', conversation.id);
