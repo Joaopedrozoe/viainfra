@@ -981,7 +981,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
   }
 }
 
-// Sync messages from WhatsApp - fetch real state from instance
+// Sync messages from WhatsApp - fetch real state from instance with FULL message history
 async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
   try {
     const { instanceName } = await req.json();
@@ -1075,7 +1075,7 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
     // Get ALL existing contacts for this company (for fast lookup)
     const { data: existingContacts } = await supabase
       .from('contacts')
-      .select('id, phone, name')
+      .select('id, phone, name, avatar_url')
       .eq('company_id', companyId);
 
     const contactsByPhone = new Map<string, any>();
@@ -1095,7 +1095,6 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
     const convsByContactId = new Map<string, any>();
     for (const conv of existingConvs || []) {
       if (conv.contact_id) {
-        // Store only open/pending conversations, or the most recent one
         const existing = convsByContactId.get(conv.contact_id);
         if (!existing || conv.status === 'open' || conv.status === 'pending') {
           convsByContactId.set(conv.contact_id, conv);
@@ -1103,7 +1102,43 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       }
     }
 
-    // Process WhatsApp chats - sync timestamps and create missing conversations
+    // Helper function to extract message content
+    function extractMessageContent(message: any): { content: string; type: string } {
+      const msg = message?.message;
+      if (!msg) return { content: '', type: 'unknown' };
+
+      if (msg.conversation) {
+        return { content: msg.conversation, type: 'text' };
+      }
+      if (msg.extendedTextMessage?.text) {
+        return { content: msg.extendedTextMessage.text, type: 'text' };
+      }
+      if (msg.imageMessage) {
+        return { content: msg.imageMessage.caption || '📷 Imagem', type: 'image' };
+      }
+      if (msg.videoMessage) {
+        return { content: msg.videoMessage.caption || '🎬 Vídeo', type: 'video' };
+      }
+      if (msg.audioMessage) {
+        return { content: '🎵 Áudio', type: 'audio' };
+      }
+      if (msg.documentMessage) {
+        return { content: `📄 ${msg.documentMessage.fileName || 'Documento'}`, type: 'document' };
+      }
+      if (msg.stickerMessage) {
+        return { content: '🎨 Sticker', type: 'sticker' };
+      }
+      if (msg.contactMessage) {
+        return { content: `👤 Contato: ${msg.contactMessage.displayName || 'N/A'}`, type: 'contact' };
+      }
+      if (msg.locationMessage) {
+        return { content: '📍 Localização', type: 'location' };
+      }
+      
+      return { content: '[Mensagem não suportada]', type: 'unknown' };
+    }
+
+    // Process WhatsApp chats
     for (const chat of whatsappChats) {
       try {
         const remoteJid = chat.id || chat.remoteJid || chat.jid;
@@ -1137,16 +1172,7 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
 
         const contactName = chat.pushName || chat.name || chat.notify || phoneNumber;
         const isArchived = chat.archive === true || chat.archived === true;
-        
-        // Get chat timestamp from WhatsApp
-        let chatTimestamp: Date | null = null;
-        if (chat.lastMessage?.messageTimestamp) {
-          const ts = chat.lastMessage.messageTimestamp;
-          chatTimestamp = new Date(typeof ts === 'number' ? ts * 1000 : ts);
-        } else if (chat.timestamp) {
-          const ts = chat.timestamp;
-          chatTimestamp = new Date(typeof ts === 'number' ? (ts > 9999999999 ? ts : ts * 1000) : ts);
-        }
+        const profilePicUrl = chat.profilePictureUrl || chat.profilePicUrl || chat.imgUrl || null;
 
         // Check if contact exists
         let contact = contactsByPhone.get(phoneNumber);
@@ -1159,7 +1185,7 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
               company_id: companyId,
               name: contactName,
               phone: phoneNumber,
-              avatar_url: chat.profilePictureUrl || null,
+              avatar_url: profilePicUrl,
               metadata: { remoteJid, source: 'whatsapp_sync' }
             })
             .select()
@@ -1173,6 +1199,19 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
           contact = newContact;
           contactsByPhone.set(phoneNumber, contact);
           console.log(`👤 Created contact: ${contactName} (${phoneNumber})`);
+        } else {
+          // Update contact name/avatar if we have better data
+          const updates: any = {};
+          if (contactName && contactName !== phoneNumber && contact.name === phoneNumber) {
+            updates.name = contactName;
+          }
+          if (profilePicUrl && !contact.avatar_url) {
+            updates.avatar_url = profilePicUrl;
+          }
+          if (Object.keys(updates).length > 0) {
+            await supabase.from('contacts').update(updates).eq('id', contact.id);
+            contact = { ...contact, ...updates };
+          }
         }
 
         // Check if conversation exists for this contact
@@ -1188,85 +1227,146 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
               channel: 'whatsapp',
               status: isArchived ? 'resolved' : 'open',
               archived: isArchived,
-              metadata: { instanceName, remoteJid },
-              updated_at: chatTimestamp?.toISOString() || new Date().toISOString()
+              metadata: { instanceName, remoteJid }
             })
             .select()
             .single();
 
           if (!convError && newConv) {
+            conversation = newConv;
             convsByContactId.set(contact.id, newConv);
             newConversations++;
             console.log(`💬 Created conversation for: ${contactName}`);
-          }
-        } else if (chatTimestamp) {
-          // Update existing conversation timestamp if WhatsApp has newer data
-          const convUpdatedAt = new Date(conversation.updated_at);
-          
-          if (chatTimestamp > convUpdatedAt) {
-            await supabase
-              .from('conversations')
-              .update({ 
-                updated_at: chatTimestamp.toISOString(),
-                metadata: {
-                  ...conversation.metadata,
-                  instanceName,
-                  remoteJid
-                }
-              })
-              .eq('id', conversation.id);
-            
-            updatedTimestamps++;
+          } else {
+            console.error(`Error creating conversation for ${contactName}:`, convError);
+            continue;
           }
         }
 
-        // Fetch last message for this chat if we have a conversation
-        const conv = convsByContactId.get(contact.id);
-        if (conv && chat.lastMessage) {
-          const lastMsg = chat.lastMessage;
-          const msgContent = lastMsg.message?.conversation || 
-                            lastMsg.message?.extendedTextMessage?.text ||
-                            lastMsg.message?.imageMessage?.caption ||
-                            lastMsg.message?.videoMessage?.caption ||
-                            '[mídia]';
-          
-          if (msgContent && msgContent !== '[mídia]') {
-            // Check if we have this message
-            const msgTimestamp = lastMsg.messageTimestamp;
-            const msgDate = new Date(typeof msgTimestamp === 'number' ? msgTimestamp * 1000 : msgTimestamp);
-            
-            const { data: existingMsg } = await supabase
-              .from('messages')
-              .select('id')
-              .eq('conversation_id', conv.id)
-              .gte('created_at', new Date(msgDate.getTime() - 1000).toISOString())
-              .lte('created_at', new Date(msgDate.getTime() + 1000).toISOString())
-              .limit(1)
-              .single();
+        // FETCH MESSAGE HISTORY for this chat
+        console.log(`📨 Fetching messages for: ${contactName} (${remoteJid})...`);
+        
+        try {
+          const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+            method: 'POST',
+            headers: {
+              'apikey': evolutionApiKey,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              where: {
+                key: {
+                  remoteJid: remoteJid
+                }
+              },
+              limit: 100 // Fetch last 100 messages per conversation
+            })
+          });
 
-            if (!existingMsg) {
-              // Insert missing message
-              const isFromMe = lastMsg.key?.fromMe === true;
-              await supabase
-                .from('messages')
-                .insert({
-                  conversation_id: conv.id,
-                  content: msgContent,
-                  sender_type: isFromMe ? 'agent' : 'user',
-                  created_at: msgDate.toISOString()
-                });
-              
-              syncedMessages++;
-              console.log(`📨 Synced message for ${contactName}: ${msgContent.substring(0, 30)}...`);
+          if (messagesResponse.ok) {
+            const messagesData = await messagesResponse.json();
+            const messages = Array.isArray(messagesData) ? messagesData : 
+                            (messagesData?.messages?.records || messagesData?.messages || []);
+            
+            console.log(`  📋 Found ${messages.length} messages for ${contactName}`);
+
+            // Get existing message timestamps for this conversation (to avoid duplicates)
+            const { data: existingMsgs } = await supabase
+              .from('messages')
+              .select('created_at')
+              .eq('conversation_id', conversation.id);
+
+            const existingTimestamps = new Set(
+              (existingMsgs || []).map(m => new Date(m.created_at).getTime())
+            );
+
+            let lastMsgTimestamp: Date | null = null;
+            
+            // Insert new messages
+            for (const msg of messages) {
+              try {
+                const { content, type } = extractMessageContent(msg);
+                
+                if (!content || content === '' || type === 'unknown') continue;
+
+                // Get message timestamp
+                const timestamp = msg.messageTimestamp || msg.key?.messageTimestamp;
+                if (!timestamp) continue;
+
+                const msgDate = new Date(typeof timestamp === 'number' ? 
+                  (timestamp > 9999999999 ? timestamp : timestamp * 1000) : timestamp);
+
+                // Track latest message for conversation timestamp
+                if (!lastMsgTimestamp || msgDate > lastMsgTimestamp) {
+                  lastMsgTimestamp = msgDate;
+                }
+
+                // Check if message already exists (within 2 second window)
+                const msgTime = msgDate.getTime();
+                let isDuplicate = false;
+                for (const existingTime of existingTimestamps) {
+                  if (Math.abs(existingTime - msgTime) < 2000) {
+                    isDuplicate = true;
+                    break;
+                  }
+                }
+                
+                if (isDuplicate) continue;
+
+                // Determine sender type
+                const isFromMe = msg.key?.fromMe === true;
+                
+                // Insert message
+                const { error: msgError } = await supabase
+                  .from('messages')
+                  .insert({
+                    conversation_id: conversation.id,
+                    content: content,
+                    sender_type: isFromMe ? 'agent' : 'user',
+                    created_at: msgDate.toISOString(),
+                    metadata: {
+                      messageId: msg.key?.id,
+                      type: type
+                    }
+                  });
+
+                if (!msgError) {
+                  existingTimestamps.add(msgTime);
+                  syncedMessages++;
+                }
+              } catch (msgError) {
+                console.error('Error processing message:', msgError);
+              }
             }
+
+            // Update conversation timestamp to match last message
+            if (lastMsgTimestamp) {
+              await supabase
+                .from('conversations')
+                .update({ 
+                  updated_at: lastMsgTimestamp.toISOString(),
+                  metadata: {
+                    ...conversation.metadata,
+                    instanceName,
+                    remoteJid
+                  }
+                })
+                .eq('id', conversation.id);
+              updatedTimestamps++;
+            }
+          } else {
+            console.error(`Failed to fetch messages for ${contactName}: ${messagesResponse.status}`);
           }
+        } catch (msgFetchError) {
+          console.error(`Error fetching messages for ${contactName}:`, msgFetchError);
         }
       } catch (chatError) {
         console.error('Error processing chat:', chatError);
       }
     }
 
-    // Also update timestamps based on existing messages in database
+    // Final pass: update all conversation timestamps based on their actual last message
+    console.log(`🔄 Updating conversation timestamps...`);
     const { data: allConvs } = await supabase
       .from('conversations')
       .select('id, updated_at')
@@ -1286,12 +1386,11 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
         const msgDate = new Date(lastMsg.created_at);
         const convDate = new Date(conv.updated_at);
         
-        if (msgDate > convDate) {
+        if (Math.abs(msgDate.getTime() - convDate.getTime()) > 1000) {
           await supabase
             .from('conversations')
             .update({ updated_at: lastMsg.created_at })
             .eq('id', conv.id);
-          updatedTimestamps++;
         }
       }
     }
