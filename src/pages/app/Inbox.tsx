@@ -135,10 +135,18 @@ const Inbox = () => {
         console.log('⚠️ No connected WhatsApp instances found');
       }
       
-      // Sincronizar fotos de perfil em paralelo
-      supabase.functions.invoke('sync-profile-pictures', {
-        body: { forceUpdate: false }
-      }).catch(err => console.error('Photo sync error:', err));
+      // Sincronizar fotos de perfil para contatos sem avatar
+      let photosUpdated = 0;
+      try {
+        const { data: photoData } = await supabase.functions.invoke('sync-profile-pictures', {
+          body: { forceUpdate: false }
+        });
+        if (photoData?.updated) {
+          photosUpdated = photoData.updated;
+        }
+      } catch (err) {
+        console.error('Photo sync error:', err);
+      }
       
       // Refetch para atualizar a lista
       await refetch();
@@ -148,6 +156,7 @@ const Inbox = () => {
       if (totalNew > 0) parts.push(`${totalNew} nova(s)`);
       if (totalUpdated > 0) parts.push(`${totalUpdated} atualizada(s)`);
       if (totalMessages > 0) parts.push(`${totalMessages} msg`);
+      if (photosUpdated > 0) parts.push(`${photosUpdated} foto(s)`);
       
       if (parts.length > 0) {
         toast.success(parts.join(', '));
