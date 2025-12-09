@@ -8,6 +8,79 @@ const corsHeaders = {
 
 // Instância autorizada para buscar fotos
 const AUTHORIZED_INSTANCE = 'TESTE2';
+const BUCKET_NAME = 'profile-pictures';
+
+// Helper to download image and upload to storage
+async function downloadAndUploadImage(
+  supabase: any,
+  imageUrl: string,
+  contactId: string
+): Promise<string | null> {
+  try {
+    console.log(`📥 Downloading image from: ${imageUrl.substring(0, 80)}...`);
+    
+    // Download the image with timeout
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    
+    const response = await fetch(imageUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+    });
+    
+    clearTimeout(timeout);
+    
+    if (!response.ok) {
+      console.log(`❌ Failed to download image: ${response.status}`);
+      return null;
+    }
+    
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    const arrayBuffer = await response.arrayBuffer();
+    const blob = new Uint8Array(arrayBuffer);
+    
+    if (blob.length < 100) {
+      console.log(`❌ Image too small (${blob.length} bytes)`);
+      return null;
+    }
+    
+    // Determine file extension
+    let extension = 'jpg';
+    if (contentType.includes('png')) extension = 'png';
+    else if (contentType.includes('webp')) extension = 'webp';
+    else if (contentType.includes('gif')) extension = 'gif';
+    
+    const fileName = `${contactId}.${extension}`;
+    console.log(`📤 Uploading to storage: ${fileName} (${blob.length} bytes)`);
+    
+    // Upload to Supabase Storage (upsert to replace if exists)
+    const { error: uploadError } = await supabase.storage
+      .from(BUCKET_NAME)
+      .upload(fileName, blob, {
+        contentType,
+        upsert: true,
+      });
+    
+    if (uploadError) {
+      console.error(`❌ Upload error:`, uploadError);
+      return null;
+    }
+    
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from(BUCKET_NAME)
+      .getPublicUrl(fileName);
+    
+    console.log(`✅ Uploaded successfully: ${urlData.publicUrl}`);
+    return urlData.publicUrl;
+    
+  } catch (error) {
+    console.error(`❌ Download/upload error:`, error);
+    return null;
+  }
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -30,6 +103,21 @@ serve(async (req) => {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
+
+    // Ensure storage bucket exists
+    const { data: buckets } = await supabase.storage.listBuckets();
+    const bucketExists = buckets?.some((b: any) => b.name === BUCKET_NAME);
+    
+    if (!bucketExists) {
+      console.log(`📦 Creating storage bucket: ${BUCKET_NAME}`);
+      const { error: createError } = await supabase.storage.createBucket(BUCKET_NAME, {
+        public: true,
+        fileSizeLimit: 5242880, // 5MB
+      });
+      if (createError && !createError.message?.includes('already exists')) {
+        console.error(`❌ Failed to create bucket:`, createError);
+      }
     }
 
     // Get request body for optional filters
@@ -97,9 +185,9 @@ serve(async (req) => {
           .not('phone', 'is', null)
           .neq('phone', '');
         
-        // Only sync contacts without avatar unless forceUpdate
+        // Only sync contacts without avatar OR with WhatsApp URLs (which expire)
         if (!forceUpdate) {
-          contactsQuery = contactsQuery.or('avatar_url.is.null,avatar_url.eq.');
+          contactsQuery = contactsQuery.or('avatar_url.is.null,avatar_url.eq.,avatar_url.like.%pps.whatsapp.net%');
         }
       } else {
         // Fallback to original logic if no active conversations
@@ -116,7 +204,7 @@ serve(async (req) => {
         }
         
         if (!forceUpdate) {
-          contactsQuery = contactsQuery.or('avatar_url.is.null,avatar_url.eq.');
+          contactsQuery = contactsQuery.or('avatar_url.is.null,avatar_url.eq.,avatar_url.like.%pps.whatsapp.net%');
         }
         
         contactsQuery = contactsQuery.limit(50);
@@ -149,6 +237,16 @@ serve(async (req) => {
         
         if (!phone || phone.length < 10) {
           console.log(`⏭️ Skipping ${contact.name}: invalid phone`);
+          results.skipped++;
+          continue;
+        }
+
+        // Skip if already has a Supabase storage URL (not WhatsApp URL)
+        if (contact.avatar_url && 
+            !contact.avatar_url.includes('pps.whatsapp.net') && 
+            contact.avatar_url.includes('supabase') &&
+            !forceUpdate) {
+          console.log(`⏭️ Skipping ${contact.name}: already has stored avatar`);
           results.skipped++;
           continue;
         }
@@ -202,11 +300,21 @@ serve(async (req) => {
           continue;
         }
 
-        // Update contact with avatar URL
+        // Download and upload to Supabase Storage
+        const storedUrl = await downloadAndUploadImage(supabase, pictureUrl, contact.id);
+        
+        if (!storedUrl) {
+          console.log(`⚠️ Failed to store image for ${contact.name}`);
+          results.failed++;
+          results.details.push({ id: contact.id, name: contact.name, status: 'failed', reason: 'Failed to store image' });
+          continue;
+        }
+
+        // Update contact with stored avatar URL
         const { error: updateError } = await supabase
           .from('contacts')
           .update({ 
-            avatar_url: pictureUrl,
+            avatar_url: storedUrl,
             updated_at: new Date().toISOString()
           })
           .eq('id', contact.id);
@@ -216,13 +324,13 @@ serve(async (req) => {
           results.failed++;
           results.details.push({ id: contact.id, name: contact.name, status: 'failed', reason: updateError.message });
         } else {
-          console.log(`✅ Updated ${contact.name}`);
+          console.log(`✅ Updated ${contact.name} with stored URL`);
           results.updated++;
-          results.details.push({ id: contact.id, name: contact.name, status: 'updated', avatar_url: pictureUrl });
+          results.details.push({ id: contact.id, name: contact.name, status: 'updated', avatar_url: storedUrl });
         }
 
         // Small delay to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, 300));
 
       } catch (error) {
         console.error(`❌ Error processing ${contact.name}:`, error);
