@@ -62,8 +62,8 @@ export const ConversationItem = memo(({
       <button
         onClick={onClick}
         className={cn(
-          "flex items-start p-4 w-full text-left border-b border-gray-200 space-x-3 transition-colors hover:bg-gray-50",
-          isSelected ? "bg-gray-100" : ""
+          "flex items-start p-4 w-full text-left border-b border-gray-200 space-x-3 transition-all duration-150 ease-out hover:bg-gray-50",
+          isSelected ? "bg-primary/10 border-l-2 border-l-primary" : ""
         )}
       >
         <div className="relative">
@@ -77,22 +77,24 @@ export const ConversationItem = memo(({
         </div>
         
         <div className="flex-1 min-w-0">
-          <div className="flex justify-between">
-            <div className="font-medium truncate">{conversation.name}</div>
-            <div className="text-xs text-gray-500">{conversation.time}</div>
+          <div className="flex justify-between items-center">
+            <div className="font-medium truncate transition-colors duration-100">{conversation.name}</div>
+            <div className="text-xs text-muted-foreground tabular-nums">{conversation.time}</div>
           </div>
-          {isTyping ? (
-            <div className="text-sm text-primary italic flex items-center gap-1">
-              <span className="inline-flex">
-                <span className="animate-bounce" style={{ animationDelay: '0ms' }}>.</span>
-                <span className="animate-bounce" style={{ animationDelay: '150ms' }}>.</span>
-                <span className="animate-bounce" style={{ animationDelay: '300ms' }}>.</span>
-              </span>
-              <span>digitando</span>
-            </div>
-          ) : (
-            <div className="text-sm text-gray-500 truncate">{conversation.preview}</div>
-          )}
+          <div className="h-5 overflow-hidden">
+            {isTyping ? (
+              <div className="text-sm text-primary italic flex items-center gap-1 animate-pulse">
+                <span className="inline-flex gap-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: '300ms' }} />
+                </span>
+                <span>digitando</span>
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground truncate">{conversation.preview}</div>
+            )}
+          </div>
         </div>
         
         {conversation.unread > 0 && (
