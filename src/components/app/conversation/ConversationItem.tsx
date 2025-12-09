@@ -1,5 +1,5 @@
 
-import { useState, useCallback, memo } from "react";
+import { useState, useCallback, memo, useEffect } from "react";
 import { Conversation } from "@/types/conversation";
 import { cn } from "@/lib/utils";
 import { ChannelIcon } from "./ChannelIcon";
@@ -25,12 +25,18 @@ export const ConversationItem = memo(({
 }: ConversationItemProps) => {
   const [imageError, setImageError] = useState(false);
 
-  // Optimize image error handling
-  const handleImageError = useCallback(() => {
-    setImageError(true);
-  }, []);
+  // Reset image error when avatar URL changes
+  useEffect(() => {
+    setImageError(false);
+  }, [conversation.avatar]);
 
-  // Pre-compute avatar element to avoid conditional rendering on each update
+  // Handle image error
+  const handleImageError = useCallback(() => {
+    console.log(`❌ Image failed to load for ${conversation.name}:`, conversation.avatar);
+    setImageError(true);
+  }, [conversation.name, conversation.avatar]);
+
+  // Render avatar with image or fallback initial
   const avatarElement = conversation.avatar && !imageError ? (
     <img 
       src={conversation.avatar}
@@ -38,10 +44,11 @@ export const ConversationItem = memo(({
       className="w-full h-full object-cover"
       onError={handleImageError}
       loading="lazy"
+      referrerPolicy="no-referrer"
     />
   ) : (
-    <div className="w-full h-full flex items-center justify-center text-gray-500 font-medium">
-      {conversation.name.charAt(0)}
+    <div className="w-full h-full flex items-center justify-center text-gray-500 font-medium bg-gray-100">
+      {conversation.name.charAt(0).toUpperCase()}
     </div>
   );
 
