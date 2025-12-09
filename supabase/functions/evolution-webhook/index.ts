@@ -520,7 +520,7 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
     return existingByRemoteJid;
   }
 
-  // PRIORITY 3: Try to find by name (for cases where remoteJid changed)
+  // PRIORITY 3: Try to find by name + phone variations
   if (name && normalizedPhone) {
     const { data: existingByName } = await supabase
       .from('contacts')
@@ -545,7 +545,56 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
     }
   }
 
-  // PRIORITY 4: Create new contact with race condition handling
+  // PRIORITY 4: For @lid contacts WITHOUT phone, find by exact name match 
+  // This prevents creating duplicates when WhatsApp uses @lid format
+  const isLidFormat = remoteJid.includes('@lid');
+  if (isLidFormat && !normalizedPhone && name) {
+    console.log(`🔍 @lid contact without phone - searching by name: "${name}"`);
+    
+    const { data: existingByExactName } = await supabase
+      .from('contacts')
+      .select('*')
+      .eq('company_id', companyId)
+      .eq('name', name)
+      .limit(1)
+      .maybeSingle();
+
+    if (existingByExactName) {
+      console.log('✅ Found existing contact by exact name (for @lid):', existingByExactName.id);
+      // Update remoteJid but DON'T clear phone if it exists
+      await supabase
+        .from('contacts')
+        .update({ 
+          metadata: { ...existingByExactName.metadata, remoteJid: remoteJid },
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existingByExactName.id);
+      return existingByExactName;
+    }
+    
+    // Also try case-insensitive match
+    const { data: existingByNameInsensitive } = await supabase
+      .from('contacts')
+      .select('*')
+      .eq('company_id', companyId)
+      .ilike('name', name)
+      .limit(1)
+      .maybeSingle();
+
+    if (existingByNameInsensitive) {
+      console.log('✅ Found existing contact by name (case-insensitive for @lid):', existingByNameInsensitive.id);
+      await supabase
+        .from('contacts')
+        .update({ 
+          metadata: { ...existingByNameInsensitive.metadata, remoteJid: remoteJid },
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existingByNameInsensitive.id);
+      return existingByNameInsensitive;
+    }
+  }
+
+  // PRIORITY 5: Create new contact with race condition handling
   console.log('➕ Creating new contact...');
   
   // Try to fetch profile picture for new contact
