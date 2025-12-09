@@ -6,6 +6,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Instância autorizada para buscar fotos
+const AUTHORIZED_INSTANCE = 'TESTE2';
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -39,23 +42,18 @@ serve(async (req) => {
 
     const { contactId, companyId, forceUpdate = false } = body;
 
-    // Get connected WhatsApp instance - get the most recently updated one
-    let instanceQuery = supabase
+    // Get the authorized WhatsApp instance (TESTE2)
+    const { data: instances, error: instanceError } = await supabase
       .from('whatsapp_instances')
-      .select('instance_name, company_id, phone_number')
-      .in('status', ['open', 'connected'])
-      .order('updated_at', { ascending: false })
+      .select('instance_name, company_id, phone_number, connection_state')
+      .eq('instance_name', AUTHORIZED_INSTANCE)
+      .eq('connection_state', 'open')
       .limit(1);
 
-    if (companyId) {
-      instanceQuery = instanceQuery.eq('company_id', companyId);
-    }
-
-    const { data: instances, error: instanceError } = await instanceQuery;
-
     if (instanceError || !instances?.length) {
+      console.log(`⚠️ Authorized instance ${AUTHORIZED_INSTANCE} not connected`);
       return new Response(JSON.stringify({ 
-        error: 'No connected WhatsApp instance found',
+        error: `Instance ${AUTHORIZED_INSTANCE} not connected`,
         details: instanceError 
       }), {
         status: 400,
@@ -163,8 +161,8 @@ serve(async (req) => {
           formattedPhone = `55${phone}`;
         }
 
-        // Fetch profile picture from Evolution API
-        const apiUrl = `${evolutionUrl}/chat/fetchProfilePictureUrl/${instance.instance_name}`;
+        // Fetch profile picture from Evolution API using authorized instance
+        const apiUrl = `${evolutionUrl}/chat/fetchProfilePictureUrl/${AUTHORIZED_INSTANCE}`;
         console.log(`🔗 Calling: ${apiUrl} with number: ${formattedPhone}`);
         
         const response = await fetch(apiUrl, {
