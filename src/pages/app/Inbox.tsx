@@ -102,16 +102,23 @@ const Inbox = () => {
       let totalMessages = 0;
       
       if (instances && instances.length > 0) {
-        // Sincronizar cada instância conectada
-        for (const instance of instances) {
+        // Sincronizar apenas instâncias autorizadas (TESTE2 por enquanto)
+        const authorizedInstances = instances.filter(i => i.instance_name === 'TESTE2');
+        
+        for (const instance of authorizedInstances) {
           try {
             console.log(`📱 Syncing instance: ${instance.instance_name} (${instance.phone_number})`);
             const { data: syncData, error: syncError } = await supabase.functions.invoke('evolution-instance/sync-messages', {
               body: { instanceName: instance.instance_name }
             });
             
+            // Ignorar erros 403 (instância não autorizada) silenciosamente
             if (syncError) {
-              console.error(`Sync error for ${instance.instance_name}:`, syncError);
+              if (syncError.message?.includes('403') || syncError.context?.status === 403) {
+                console.warn(`⚠️ Instance ${instance.instance_name} not authorized, skipping`);
+              } else {
+                console.error(`Sync error for ${instance.instance_name}:`, syncError);
+              }
               continue;
             }
             
