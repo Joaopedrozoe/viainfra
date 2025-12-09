@@ -634,9 +634,11 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           .from('profiles')
           .select('company_id')
           .eq('user_id', user.id)
-          .single();
+          .limit(1)
+          .maybeSingle();
         
         companyId = profile?.company_id;
+        console.log(`👤 User ${user.id} company_id: ${companyId}`);
       }
     }
 
@@ -1092,9 +1094,11 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
           .from('profiles')
           .select('company_id')
           .eq('user_id', user.id)
-          .single();
+          .limit(1)
+          .maybeSingle();
         
         companyId = profile?.company_id;
+        console.log(`👤 User ${user.id} company_id: ${companyId}`);
       }
     }
 
