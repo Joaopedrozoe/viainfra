@@ -285,16 +285,18 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     const remoteJid = message.key.remoteJid;
     const isLidFormat = remoteJid.includes('@lid');
     
-    // CRITICAL: ALWAYS extract phone from remoteJid - it's the ONLY reliable source
-    // When message is RECEIVED (fromMe: false), remoteJid = sender's number
-    // NEVER use payload.sender as it can contain the INSTANCE number
-    let phoneNumber = '';
-    if (!isLidFormat) {
-      phoneNumber = extractPhoneNumber(remoteJid);
-      console.log(`📱 Extracted phone from remoteJid: ${phoneNumber}`);
-    } else {
-      console.warn(`⚠️ Contact using @lid format - no phone available from remoteJid: ${remoteJid}`);
+    // CRITICAL FIX: IGNORE @lid messages completely
+    // Evolution API sends the same message twice - once with @lid and once with @s.whatsapp.net
+    // Processing @lid creates duplicate contacts/conversations and corrupts bot state
+    if (isLidFormat) {
+      console.log(`⛔ Ignorando mensagem @lid (duplicata): ${remoteJid}`);
+      console.log(`   A versão @s.whatsapp.net desta mensagem será processada separadamente`);
+      continue;
     }
+    
+    // Extract phone from remoteJid - it's the ONLY reliable source
+    const phoneNumber = extractPhoneNumber(remoteJid);
+    console.log(`📱 Extracted phone from remoteJid: ${phoneNumber}`);
     
     const messageContent = extractMessageContent(message);
     const contactName = message.pushName || phoneNumber || 'Sem Nome';
