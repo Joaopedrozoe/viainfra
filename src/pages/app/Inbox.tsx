@@ -148,7 +148,9 @@ const Inbox = () => {
         console.error('Photo sync error:', err);
       }
       
-      // Refetch para atualizar a lista
+      // Refetch para atualizar a lista com fotos atualizadas
+      // Aguardar um pouco para garantir que o banco foi atualizado
+      await new Promise(resolve => setTimeout(resolve, 300));
       await refetch();
       setRefreshKey(prev => prev + 1);
       
