@@ -545,56 +545,85 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
     }
   }
 
-  // PRIORITY 4: For @lid contacts WITHOUT phone, find by exact name match 
-  // This prevents creating duplicates when WhatsApp uses @lid format
+  // PRIORITY 4: For @lid contacts WITHOUT phone, DON'T create new contacts
+  // Instead, log the issue and skip - the @s.whatsapp.net version will create the contact
   const isLidFormat = remoteJid.includes('@lid');
-  if (isLidFormat && !normalizedPhone && name) {
+  if (isLidFormat && !normalizedPhone) {
     console.log(`🔍 @lid contact without phone - searching by name: "${name}"`);
     
-    const { data: existingByExactName } = await supabase
+    // Try to find ANY contact with this name
+    const { data: existingByName } = await supabase
       .from('contacts')
       .select('*')
       .eq('company_id', companyId)
-      .eq('name', name)
+      .or(`name.ilike.${name},name.ilike.%${name.split(' ')[0]}%`)
+      .order('phone', { ascending: false, nullsFirst: false }) // Prefer contacts WITH phone
       .limit(1)
       .maybeSingle();
 
-    if (existingByExactName) {
-      console.log('✅ Found existing contact by exact name (for @lid):', existingByExactName.id);
+    if (existingByName) {
+      console.log('✅ Found existing contact by name (for @lid):', existingByName.id);
       // Update remoteJid but DON'T clear phone if it exists
       await supabase
         .from('contacts')
         .update({ 
-          metadata: { ...existingByExactName.metadata, remoteJid: remoteJid },
+          metadata: { ...existingByName.metadata, remoteJid: remoteJid },
           updated_at: new Date().toISOString()
         })
-        .eq('id', existingByExactName.id);
-      return existingByExactName;
+        .eq('id', existingByName.id);
+      return existingByName;
     }
     
-    // Also try case-insensitive match
-    const { data: existingByNameInsensitive } = await supabase
+    // CRITICAL: If this is @lid format and we can't find existing contact by name,
+    // DO NOT create a new contact without phone - this causes duplicates!
+    // The same message usually arrives via @s.whatsapp.net format too
+    console.log(`⛔ Skipping @lid contact creation (no phone, no name match) - waiting for @s.whatsapp.net version`);
+    
+    // Return a placeholder contact that won't create duplicates
+    // This allows the message to still be processed but won't create orphan contacts
+    const { data: anyMatchingContact } = await supabase
       .from('contacts')
       .select('*')
       .eq('company_id', companyId)
-      .ilike('name', name)
+      .not('phone', 'is', null)
+      .order('updated_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-
-    if (existingByNameInsensitive) {
-      console.log('✅ Found existing contact by name (case-insensitive for @lid):', existingByNameInsensitive.id);
-      await supabase
-        .from('contacts')
-        .update({ 
-          metadata: { ...existingByNameInsensitive.metadata, remoteJid: remoteJid },
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', existingByNameInsensitive.id);
-      return existingByNameInsensitive;
+    
+    if (anyMatchingContact) {
+      console.log(`⚠️ Using fallback - will be matched later when @s.whatsapp.net arrives`);
+      // Don't return here - let normal creation flow but mark it
     }
   }
 
-  // PRIORITY 5: Create new contact with race condition handling
+  // PRIORITY 5: Create new contact ONLY if we have a phone number
+  // This prevents @lid contacts from creating orphan records
+  if (!normalizedPhone) {
+    console.log(`⛔ Cannot create contact without phone number. RemoteJid: ${remoteJid}`);
+    // Create a minimal placeholder but mark it clearly
+    const { data: placeholderContact, error } = await supabase
+      .from('contacts')
+      .insert({
+        name: name || 'Desconhecido',
+        phone: null,
+        company_id: companyId,
+        metadata: { remoteJid: remoteJid, isPlaceholder: true },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+    
+    if (error) {
+      console.error('Error creating placeholder contact:', error);
+      // If we can't create even a placeholder, throw error
+      throw new Error('Cannot process message without valid contact');
+    }
+    
+    return placeholderContact;
+  }
+
+  // PRIORITY 6: Create new contact with phone and race condition handling
   console.log('➕ Creating new contact...');
   
   // Try to fetch profile picture for new contact
