@@ -1338,6 +1338,7 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
 }
 
 // Função otimizada para envio rápido - sem query ao banco
+// Suporta tanto números reais (@s.whatsapp.net) quanto IDs internos (@lid)
 async function sendEvolutionMessageFast(instanceName: string, recipientJid: string, text: string) {
   const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL');
   const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
@@ -1350,20 +1351,28 @@ async function sendEvolutionMessageFast(instanceName: string, recipientJid: stri
   console.log(`Sending bot message to: ${recipientJid} via instance ${instanceName}`);
 
   try {
+    // Para @lid e outros formatos especiais, usar remoteJid diretamente
+    // Para números normais, usar o campo number
+    const isSpecialFormat = recipientJid.includes('@lid') || recipientJid.includes('@g.us');
+    
+    const body = isSpecialFormat 
+      ? { remoteJid: recipientJid, text: text }
+      : { number: recipientJid.replace(/@s\.whatsapp\.net|@c\.us/g, ''), text: text };
+    
+    console.log(`📤 Sending message with body:`, JSON.stringify(body));
+    
     const response = await fetch(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'apikey': evolutionApiKey,
       },
-      body: JSON.stringify({
-        number: recipientJid,
-        text: text,
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
-      console.error('Failed to send message via Evolution API:', response.statusText);
+      const errorText = await response.text();
+      console.error('Failed to send message via Evolution API:', response.statusText, errorText);
     } else {
       console.log('Message sent successfully via Evolution API');
     }
