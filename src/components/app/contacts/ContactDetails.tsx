@@ -59,11 +59,14 @@ export const ContactDetails = ({ contact, onUpdate }: ContactDetailsProps) => {
   const handleEditSubmit = async () => {
     setIsSubmitting(true);
     try {
+      // Normalizar telefone (remover caracteres não numéricos)
+      const normalizedPhone = editForm.phone ? editForm.phone.replace(/\D/g, '') : null;
+      
       const { error } = await supabase
         .from("contacts")
         .update({
           name: editForm.name,
-          phone: editForm.phone || null,
+          phone: normalizedPhone || null,
           email: editForm.email || null,
           metadata: {
             ...contact.metadata,
@@ -73,14 +76,21 @@ export const ContactDetails = ({ contact, onUpdate }: ContactDetailsProps) => {
         })
         .eq("id", contact.id);
 
-      if (error) throw error;
+      if (error) {
+        // Verificar se é erro de duplicidade de telefone
+        if (error.code === '23505' && error.message?.includes('phone')) {
+          toast.error("Este telefone já está cadastrado para outro contato");
+          return;
+        }
+        throw error;
+      }
 
       toast.success("Contato atualizado com sucesso!");
       setIsEditDialogOpen(false);
       onUpdate?.();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erro ao atualizar contato:", error);
-      toast.error("Erro ao atualizar contato");
+      toast.error(error.message || "Erro ao atualizar contato");
     } finally {
       setIsSubmitting(false);
     }
