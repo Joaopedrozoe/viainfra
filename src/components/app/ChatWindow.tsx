@@ -52,21 +52,26 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             filter: `conversation_id=eq.${conversationId}`
           },
           (payload) => {
-            console.log('Nova mensagem recebida via realtime:', payload);
             const newMessage = payload.new as any;
             
-            // Mapear tipo de sender corretamente
+            // Mapear tipo de sender corretamente com attachment se existir
+            const attachmentData = newMessage.metadata?.attachment;
             const mappedMessage: Message = {
               id: newMessage.id,
               content: newMessage.content,
               sender: newMessage.sender_type === 'user' ? 'user' : newMessage.sender_type === 'agent' ? 'agent' : 'bot',
-              timestamp: newMessage.created_at
+              timestamp: newMessage.created_at,
+              attachment: attachmentData,
             };
             
+            // Update imediato sem re-render desnecessário
             setMessages(prev => {
-              // Evitar duplicatas verificando se a mensagem já existe
-              if (prev.some(msg => msg.id === mappedMessage.id)) {
-                return prev;
+              // Evitar duplicatas verificando se a mensagem já existe (incluindo temporárias)
+              if (prev.some(msg => msg.id === mappedMessage.id || (msg.id.startsWith('temp-') && msg.content === mappedMessage.content))) {
+                // Substituir mensagem temporária pela real se existir
+                return prev.map(msg => 
+                  msg.id.startsWith('temp-') && msg.content === mappedMessage.content ? mappedMessage : msg
+                );
               }
               return [...prev, mappedMessage];
             });
@@ -181,7 +186,10 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   };
   
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Scroll instantâneo para nova mensagem com requestAnimationFrame
+    requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    });
   }, [messages]);
   
   const handleSendMessage = useCallback(async (content: string, file?: File) => {
@@ -460,10 +468,16 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         onBackToList={handleBackToList}
         onEndConversation={onEndConversation ? () => onEndConversation(conversationId) : undefined}
       />
-      <div className="flex-1 overflow-y-auto bg-gray-50 p-4">
-        <div className="space-y-4">
-          {messages.map((message) => (
-            <MessageItem key={message.id} message={message} />
+      <div className="flex-1 overflow-y-auto bg-gray-50/50 p-4 scroll-smooth">
+        <div className="space-y-3">
+          {messages.map((message, index) => (
+            <div 
+              key={message.id} 
+              className="animate-in fade-in-0 slide-in-from-bottom-2 duration-200"
+              style={{ animationDelay: index === messages.length - 1 ? '0ms' : undefined }}
+            >
+              <MessageItem message={message} />
+            </div>
           ))}
           <div ref={messagesEndRef} />
         </div>

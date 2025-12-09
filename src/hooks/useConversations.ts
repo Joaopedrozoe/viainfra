@@ -52,21 +52,22 @@ export const useConversations = () => {
       return;
     }
 
-    // Debounce: evitar múltiplas chamadas em sequência rápida (200ms mínimo para real-time instantâneo)
+    // Ultra-fast debounce: 50ms mínimo para real-time instantâneo
     if (debounce) {
       const now = Date.now();
-      if (now - lastFetchRef.current < 200) { // Min 200ms entre fetches para real-time rápido
+      if (now - lastFetchRef.current < 50) {
         if (fetchTimeoutRef.current) {
           clearTimeout(fetchTimeoutRef.current);
         }
-        fetchTimeoutRef.current = setTimeout(() => fetchConversations(false), 100);
+        fetchTimeoutRef.current = setTimeout(() => fetchConversations(false), 30);
         return;
       }
     }
 
     try {
       isFetchingRef.current = true;
-      if (mountedRef.current) setLoading(true);
+      // Não mostrar loading em updates real-time para evitar flicker
+      if (!debounce && mountedRef.current) setLoading(true);
       setError(null);
       lastFetchRef.current = Date.now();
       
