@@ -736,26 +736,36 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
   if (existingConversation) {
     console.log(`✅ Found existing conversation: ${existingConversation.id} (status: ${existingConversation.status})`);
     
-    // Se a conversa estava resolved/closed, reabrir com nova mensagem
+    // Se a conversa estava resolved/closed, reabrir com nova mensagem E RESETAR BOT STATE
     const needsReopen = existingConversation.status === 'resolved' || existingConversation.status === 'closed';
     
     if (needsReopen) {
-      console.log('🔄 Reabrindo conversa resolvida com nova mensagem...');
+      console.log('🔄 Reabrindo conversa resolvida com nova mensagem - RESETANDO BOT STATE...');
+      
+      // CRITICAL: Reset bot_state para que o bot comece do início
+      const newMetadata = {
+        ...(existingConversation.metadata || {}),
+        bot_state: null, // RESET - será inicializado como start-1 no triggerBotResponse
+        bot_triggered: false
+      };
+      
       const { error: updateError } = await supabase
         .from('conversations')
         .update({ 
           status: 'open',
           updated_at: new Date().toISOString(),
-          archived: false
+          archived: false,
+          metadata: newMetadata
         })
         .eq('id', existingConversation.id);
       
       if (updateError) {
         console.error('❌ Erro ao reabrir conversa:', updateError);
       } else {
-        console.log('✅ Conversa reaberta com sucesso');
+        console.log('✅ Conversa reaberta com sucesso - Bot state resetado');
         existingConversation.status = 'open';
         existingConversation.archived = false;
+        existingConversation.metadata = newMetadata;
       }
     } else {
       // Apenas atualizar timestamp
