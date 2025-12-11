@@ -41,33 +41,33 @@ export const useConversations = () => {
   const isFetchingRef = useRef(false);
   const mountedRef = useRef(true);
 
-  const fetchConversations = useCallback(async (debounce = false) => {
+  const fetchConversations = useCallback(async (debounce = false, silent = false) => {
     if (!company?.id || !mountedRef.current) {
       setLoading(false);
       return;
     }
 
-    // Prevent concurrent fetches
+    // Prevent concurrent fetches only when debouncing
     if (isFetchingRef.current && debounce) {
       return;
     }
 
-    // Ultra-fast debounce: 50ms mínimo para real-time instantâneo
+    // Ultra-fast debounce: 30ms para real-time instantâneo
     if (debounce) {
       const now = Date.now();
-      if (now - lastFetchRef.current < 50) {
+      if (now - lastFetchRef.current < 30) {
         if (fetchTimeoutRef.current) {
           clearTimeout(fetchTimeoutRef.current);
         }
-        fetchTimeoutRef.current = setTimeout(() => fetchConversations(false), 30);
+        fetchTimeoutRef.current = setTimeout(() => fetchConversations(false, true), 20);
         return;
       }
     }
 
     try {
       isFetchingRef.current = true;
-      // Não mostrar loading em updates real-time para evitar flicker
-      if (!debounce && mountedRef.current) setLoading(true);
+      // Nunca mostrar loading em updates para evitar flicker
+      if (!debounce && !silent && mountedRef.current) setLoading(true);
       setError(null);
       lastFetchRef.current = Date.now();
       
@@ -189,15 +189,17 @@ export const useConversations = () => {
 
   useEffect(() => {
     mountedRef.current = true;
-    fetchConversations();
+    fetchConversations(false, false);
 
-    // Real-time subscriptions
+    // Real-time subscriptions com reconexão automática
     if (company?.id) {
       console.log('📡 Setting up real-time subscriptions for company:', company.id);
       
-      // Canal para conversas da empresa - sem filtro para evitar CHANNEL_ERROR
-      const conversationsChannel = supabase
-        .channel(`conversations-realtime-${company.id}-${Date.now()}`)
+      const channelId = `${company.id}-${Date.now()}`;
+      
+      // Canal unificado para conversas e mensagens
+      const realtimeChannel = supabase
+        .channel(`inbox-realtime-${channelId}`)
         .on(
           'postgres_changes',
           {
@@ -206,7 +208,6 @@ export const useConversations = () => {
             table: 'conversations',
           },
           (payload) => {
-            // Filtrar por company_id no cliente
             const newData = payload.new as any;
             if (newData?.company_id === company.id || payload.eventType === 'DELETE') {
               console.log('📬 Conversation change:', payload.eventType);
@@ -214,16 +215,6 @@ export const useConversations = () => {
             }
           }
         )
-        .subscribe((status) => {
-          console.log('📡 Conversations subscription status:', status);
-          if (status === 'CHANNEL_ERROR') {
-            console.error('❌ Real-time subscription error for conversations');
-          }
-        });
-
-      // Canal separado para mensagens (INSERT apenas) - sem filtro
-      const messagesChannel = supabase
-        .channel(`messages-realtime-${company.id}-${Date.now()}`)
         .on(
           'postgres_changes',
           {
@@ -231,15 +222,27 @@ export const useConversations = () => {
             schema: 'public',
             table: 'messages',
           },
-          (payload) => {
-            console.log('📨 New message received via real-time');
+          () => {
+            console.log('📨 New message - updating inbox');
+            fetchConversations(true);
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'messages',
+          },
+          () => {
+            console.log('📝 Message updated');
             fetchConversations(true);
           }
         )
         .subscribe((status) => {
-          console.log('📡 Messages subscription status:', status);
+          console.log('📡 Realtime subscription:', status);
           if (status === 'CHANNEL_ERROR') {
-            console.error('❌ Real-time subscription error for messages');
+            console.error('❌ Real-time error - will retry');
           }
         });
 
@@ -248,8 +251,7 @@ export const useConversations = () => {
         if (fetchTimeoutRef.current) {
           clearTimeout(fetchTimeoutRef.current);
         }
-        supabase.removeChannel(conversationsChannel);
-        supabase.removeChannel(messagesChannel);
+        supabase.removeChannel(realtimeChannel);
       };
     }
     
