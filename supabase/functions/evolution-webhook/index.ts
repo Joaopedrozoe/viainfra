@@ -284,22 +284,58 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
 
     const remoteJid = message.key.remoteJid;
     const isLidFormat = remoteJid.includes('@lid');
+    const messageContent = extractMessageContent(message);
+    const contactName = message.pushName || 'Sem Nome';
     
-    // CRITICAL FIX: IGNORE @lid messages completely
-    // Evolution API sends the same message twice - once with @lid and once with @s.whatsapp.net
-    // Processing @lid creates duplicate contacts/conversations and corrupts bot state
+    // For @lid messages: try to find existing contact by name
     if (isLidFormat) {
-      console.log(`⛔ Ignorando mensagem @lid (duplicata): ${remoteJid}`);
-      console.log(`   A versão @s.whatsapp.net desta mensagem será processada separadamente`);
+      console.log(`📱 Mensagem @lid recebida de: ${contactName}`);
+      
+      // Try to find existing contact by pushName in the company
+      const { data: existingContacts, error: searchError } = await supabase
+        .from('contacts')
+        .select('id, name, phone, avatar_url, company_id')
+        .ilike('name', contactName)
+        .not('phone', 'is', null)
+        .limit(5);
+      
+      if (searchError) {
+        console.error('Error searching for @lid contact:', searchError);
+        continue;
+      }
+      
+      if (!existingContacts || existingContacts.length === 0) {
+        console.log(`⛔ @lid sem contato existente encontrado para "${contactName}" - ignorando`);
+        continue;
+      }
+      
+      // Use the first matching contact with a phone number
+      const matchedContact = existingContacts[0];
+      console.log(`✅ @lid matched to existing contact: ${matchedContact.name} (${matchedContact.phone})`);
+      
+      // Build sendToRemoteJid from the contact's phone
+      const sendToRemoteJid = `${matchedContact.phone}@s.whatsapp.net`;
+      
+      // Get or create conversation for this contact
+      const conversation = await getOrCreateConversation(supabase, matchedContact.id, matchedContact.phone, matchedContact.name, sendToRemoteJid);
+      
+      // Save message
+      const savedMessage = await saveMessage(supabase, conversation.id, message, messageContent, matchedContact.phone, webhook.instance);
+      
+      if (!savedMessage) {
+        console.log('⚠️ Mensagem @lid duplicada - ignorando trigger do bot');
+        continue;
+      }
+      
+      // Trigger bot response
+      console.log(`✅ Triggering bot for @lid contact ${matchedContact.id} (${matchedContact.name}). Phone: ${matchedContact.phone}, Send to: ${sendToRemoteJid}`);
+      await triggerBotResponse(supabase, conversation.id, messageContent, sendToRemoteJid, webhook.instance);
       continue;
     }
     
-    // Extract phone from remoteJid - it's the ONLY reliable source
+    // Regular @s.whatsapp.net messages - extract phone from remoteJid
     const phoneNumber = extractPhoneNumber(remoteJid);
     console.log(`📱 Extracted phone from remoteJid: ${phoneNumber}`);
-    
-    const messageContent = extractMessageContent(message);
-    const contactName = message.pushName || phoneNumber || 'Sem Nome';
 
     console.log(`Processing message from ${phoneNumber || 'NO_PHONE'} (remoteJid: ${remoteJid}): ${messageContent}`);
 
