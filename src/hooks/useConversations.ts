@@ -187,6 +187,43 @@ export const useConversations = () => {
     }
   }, [company?.id, notifyNewConversation]);
 
+  // Optimistic update for messages - atualiza UI instantaneamente
+  const handleNewMessage = useCallback((payload: any) => {
+    const newMsg = payload.new as any;
+    if (!newMsg?.conversation_id) return;
+    
+    console.log('📨 New message received - instant update');
+    
+    // Atualização otimista: atualiza o estado local imediatamente
+    setConversations(prev => {
+      const updated = prev.map(conv => {
+        if (conv.id === newMsg.conversation_id) {
+          return {
+            ...conv,
+            lastMessage: {
+              id: newMsg.id,
+              content: newMsg.content,
+              sender_type: newMsg.sender_type,
+              created_at: newMsg.created_at,
+            },
+            updated_at: newMsg.created_at,
+          };
+        }
+        return conv;
+      });
+      
+      // Re-sort by last message time
+      return updated.sort((a, b) => {
+        const aTime = a.lastMessage?.created_at || a.updated_at;
+        const bTime = b.lastMessage?.created_at || b.updated_at;
+        return new Date(bTime).getTime() - new Date(aTime).getTime();
+      });
+    });
+    
+    // Background refresh para garantir consistência
+    fetchConversations(true, true);
+  }, [fetchConversations]);
+
   useEffect(() => {
     mountedRef.current = true;
     fetchConversations(false, false);
@@ -195,11 +232,11 @@ export const useConversations = () => {
     if (company?.id) {
       console.log('📡 Setting up real-time subscriptions for company:', company.id);
       
-      const channelId = `${company.id}-${Date.now()}`;
+      const channelId = `inbox-${company.id}-${Date.now()}`;
       
-      // Canal unificado para conversas e mensagens
+      // Canal unificado para conversas e mensagens - com filtro por company
       const realtimeChannel = supabase
-        .channel(`inbox-realtime-${channelId}`)
+        .channel(channelId)
         .on(
           'postgres_changes',
           {
@@ -211,7 +248,24 @@ export const useConversations = () => {
             const newData = payload.new as any;
             if (newData?.company_id === company.id || payload.eventType === 'DELETE') {
               console.log('📬 Conversation change:', payload.eventType);
-              fetchConversations(true);
+              
+              // Atualização otimista para novas conversas
+              if (payload.eventType === 'INSERT' && newData) {
+                setConversations(prev => {
+                  // Check if already exists
+                  if (prev.some(c => c.id === newData.id)) return prev;
+                  
+                  const newConv: Conversation = {
+                    ...newData,
+                    status: newData.status as 'open' | 'resolved' | 'pending',
+                    metadata: newData.metadata || {},
+                    archived: newData.archived || false,
+                  };
+                  return [newConv, ...prev];
+                });
+              }
+              
+              fetchConversations(true, true);
             }
           }
         )
@@ -222,10 +276,7 @@ export const useConversations = () => {
             schema: 'public',
             table: 'messages',
           },
-          () => {
-            console.log('📨 New message - updating inbox');
-            fetchConversations(true);
-          }
+          handleNewMessage
         )
         .on(
           'postgres_changes',
@@ -236,18 +287,32 @@ export const useConversations = () => {
           },
           () => {
             console.log('📝 Message updated');
-            fetchConversations(true);
+            fetchConversations(true, true);
           }
         )
         .subscribe((status) => {
           console.log('📡 Realtime subscription:', status);
           if (status === 'CHANNEL_ERROR') {
             console.error('❌ Real-time error - will retry');
+            // Retry subscription after error
+            setTimeout(() => {
+              if (mountedRef.current) {
+                fetchConversations(false, true);
+              }
+            }, 2000);
           }
         });
 
+      // Heartbeat para manter conexão ativa e detectar desconexões
+      const heartbeatInterval = setInterval(() => {
+        if (mountedRef.current) {
+          fetchConversations(true, true);
+        }
+      }, 15000); // A cada 15s verifica se há updates
+
       return () => {
         mountedRef.current = false;
+        clearInterval(heartbeatInterval);
         if (fetchTimeoutRef.current) {
           clearTimeout(fetchTimeoutRef.current);
         }
@@ -258,7 +323,7 @@ export const useConversations = () => {
     return () => {
       mountedRef.current = false;
     };
-  }, [company?.id, fetchConversations]);
+  }, [company?.id, fetchConversations, handleNewMessage]);
 
   const updateConversationStatus = async (conversationId: string, status: 'open' | 'resolved' | 'pending') => {
     try {
