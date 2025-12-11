@@ -32,6 +32,18 @@ const Inbox = () => {
   // Ativar notificações de mensagens
   useMessageNotifications();
   
+  // Auto-refresh a cada 30 segundos
+  useEffect(() => {
+    const autoRefreshInterval = setInterval(() => {
+      if (!isSyncing) {
+        console.log('🔄 Auto-refresh triggered (30s interval)');
+        refetch();
+      }
+    }, 30000);
+    
+    return () => clearInterval(autoRefreshInterval);
+  }, [refetch, isSyncing]);
+  
   // Effect to update the state when navigation happens
   useEffect(() => {
     if (location.state?.selectedConversation !== undefined) {
