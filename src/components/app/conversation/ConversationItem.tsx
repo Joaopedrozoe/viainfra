@@ -1,10 +1,9 @@
-
 import { useState, useCallback, memo, useEffect } from "react";
 import { Conversation } from "@/types/conversation";
 import { cn } from "@/lib/utils";
 import { ChannelIcon } from "./ChannelIcon";
 import { Button } from "@/components/ui/button";
-import { CheckCircle } from "lucide-react";
+import { CheckCircle, MessageCircle } from "lucide-react";
 
 interface ConversationItemProps {
   conversation: Conversation;
@@ -13,6 +12,7 @@ interface ConversationItemProps {
   onResolve?: () => void;
   showResolveButton?: boolean;
   isTyping?: boolean;
+  hasNewMessage?: boolean;
 }
 
 export const ConversationItem = memo(({ 
@@ -21,9 +21,25 @@ export const ConversationItem = memo(({
   onClick,
   onResolve,
   showResolveButton = false,
-  isTyping = false
+  isTyping = false,
+  hasNewMessage = false
 }: ConversationItemProps) => {
   const [imageError, setImageError] = useState(false);
+  const [showNewBadge, setShowNewBadge] = useState(hasNewMessage);
+
+  // Atualizar badge quando hasNewMessage mudar
+  useEffect(() => {
+    if (hasNewMessage) {
+      setShowNewBadge(true);
+    }
+  }, [hasNewMessage]);
+
+  // Esconder badge quando selecionado
+  useEffect(() => {
+    if (isSelected && showNewBadge) {
+      setShowNewBadge(false);
+    }
+  }, [isSelected, showNewBadge]);
 
   // Reset image error when avatar URL changes
   useEffect(() => {
@@ -59,27 +75,52 @@ export const ConversationItem = memo(({
 
   return (
     <div className="relative">
+      {/* Indicador de nova mensagem com animação */}
+      {showNewBadge && !isSelected && (
+        <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary animate-pulse z-10 rounded-r" />
+      )}
+      
       <button
         onClick={onClick}
         className={cn(
           "flex items-start p-4 w-full text-left border-b border-gray-200 space-x-3 transition-all duration-150 ease-out hover:bg-gray-50",
-          isSelected ? "bg-primary/10 border-l-2 border-l-primary" : ""
+          isSelected ? "bg-primary/10 border-l-2 border-l-primary" : "",
+          showNewBadge && !isSelected && "bg-primary/5 animate-in slide-in-from-left-1 duration-300"
         )}
       >
         <div className="relative">
-          <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden">
+          <div className={cn(
+            "w-10 h-10 rounded-full bg-gray-200 overflow-hidden transition-transform",
+            showNewBadge && !isSelected && "ring-2 ring-primary ring-offset-1"
+          )}>
             {avatarElement}
           </div>
           <ChannelIcon 
             channel={conversation.channel} 
             hasBackground 
           />
+          {/* Badge de nova mensagem no avatar */}
+          {showNewBadge && !isSelected && (
+            <div className="absolute -top-1 -right-1 w-4 h-4 bg-primary rounded-full flex items-center justify-center animate-bounce">
+              <MessageCircle className="w-2.5 h-2.5 text-primary-foreground" />
+            </div>
+          )}
         </div>
         
         <div className="flex-1 min-w-0">
           <div className="flex justify-between items-center">
-            <div className="font-medium truncate transition-colors duration-100">{conversation.name}</div>
-            <div className="text-xs text-muted-foreground tabular-nums">{conversation.time}</div>
+            <div className={cn(
+              "font-medium truncate transition-colors duration-100",
+              showNewBadge && !isSelected && "text-primary font-semibold"
+            )}>
+              {conversation.name}
+            </div>
+            <div className={cn(
+              "text-xs tabular-nums",
+              showNewBadge && !isSelected ? "text-primary font-medium" : "text-muted-foreground"
+            )}>
+              {conversation.time}
+            </div>
           </div>
           <div className="h-5 overflow-hidden">
             {isTyping ? (
@@ -92,13 +133,21 @@ export const ConversationItem = memo(({
                 <span>digitando</span>
               </div>
             ) : (
-              <div className="text-sm text-muted-foreground truncate">{conversation.preview}</div>
+              <div className={cn(
+                "text-sm truncate",
+                showNewBadge && !isSelected ? "text-foreground font-medium" : "text-muted-foreground"
+              )}>
+                {conversation.preview}
+              </div>
             )}
           </div>
         </div>
         
         {conversation.unread > 0 && (
-          <div className="w-5 h-5 rounded-full bg-viainfra-primary text-white text-xs flex items-center justify-center">
+          <div className={cn(
+            "w-5 h-5 rounded-full text-white text-xs flex items-center justify-center",
+            showNewBadge && !isSelected ? "bg-primary animate-pulse" : "bg-viainfra-primary"
+          )}>
             {conversation.unread}
           </div>
         )}

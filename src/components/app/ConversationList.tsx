@@ -33,7 +33,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     return ConversationStorage.getResolvedConversations();
   });
   const { previewConversations } = usePreviewConversation();
-  const { conversations: supabaseConversations, loading: supabaseLoading, refetch } = useConversations();
+  const { conversations: supabaseConversations, loading: supabaseLoading, refetch, clearNewMessageFlag } = useConversations();
   const { conversations: internalConversations } = useInternalChat();
   
   // Get conversation IDs for typing indicator
@@ -127,6 +127,9 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         }
       }
       
+      // Find if this conversation has new message flag from hook
+      const hasNewMsg = (conv as any).hasNewMessage || false;
+      
       return {
         id: conv.id,
         name: displayName,
@@ -138,8 +141,9 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         is_preview: false,
         status: conv.status,
         archived: (conv as any).archived || false,
-        lastActivityTimestamp: new Date(lastActivityTime).getTime()
-      } as Conversation & { is_preview: boolean; status?: string; archived?: boolean; lastActivityTimestamp?: number };
+        lastActivityTimestamp: new Date(lastActivityTime).getTime(),
+        hasNewMessage: hasNewMsg
+      } as Conversation & { is_preview: boolean; status?: string; archived?: boolean; lastActivityTimestamp?: number; hasNewMessage?: boolean };
     });
     
     // Combine both lists
@@ -150,8 +154,9 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
 
   // Handle conversation selection - memoized
   const handleConversationSelect = useCallback((conversationId: string) => {
+    clearNewMessageFlag(conversationId); // Limpar flag de nova mensagem
     onSelectConversation(conversationId);
-  }, [onSelectConversation]);
+  }, [onSelectConversation, clearNewMessageFlag]);
 
   // Handle conversation resolve - memoized
   const handleConversationResolve = useCallback((conversationId: string) => {
@@ -355,6 +360,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
               onResolve={() => handleConversationResolve(conversation.id)}
               showResolveButton={activeTab !== "resolved"}
               isTyping={isTyping(conversation.id)}
+              hasNewMessage={(conversation as any).hasNewMessage}
             />
           ))
         ) : (
