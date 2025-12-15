@@ -27,6 +27,7 @@ export interface Conversation {
     sender_type: 'user' | 'agent' | 'bot';
     created_at: string;
   };
+  hasNewMessage?: boolean; // Flag para indicar nova mensagem
 }
 
 export const useConversations = () => {
@@ -37,9 +38,11 @@ export const useConversations = () => {
   const fetchTimeoutRef = useRef<NodeJS.Timeout>();
   const lastFetchRef = useRef<number>(0);
   const previousConversationsRef = useRef<Set<string>>(new Set());
-  const { notifyNewConversation } = useNotifications();
+  const previousMessagesRef = useRef<Map<string, string>>(new Map()); // conversation_id -> last_message_id
+  const { notifyNewConversation, notifyNewMessage, playNotificationSound } = useNotifications();
   const isFetchingRef = useRef(false);
   const mountedRef = useRef(true);
+  const newMessageConvsRef = useRef<Set<string>>(new Set()); // Conversas com novas mensagens
 
   const fetchConversations = useCallback(async (debounce = false, silent = false) => {
     if (!company?.id || !mountedRef.current) {
@@ -187,6 +190,16 @@ export const useConversations = () => {
     }
   }, [company?.id, notifyNewConversation]);
 
+  // Limpar flag de nova mensagem após visualização
+  const clearNewMessageFlag = useCallback((conversationId: string) => {
+    newMessageConvsRef.current.delete(conversationId);
+    setConversations(prev => 
+      prev.map(conv => 
+        conv.id === conversationId ? { ...conv, hasNewMessage: false } : conv
+      )
+    );
+  }, []);
+
   // Optimistic update for messages - atualiza UI instantaneamente
   const handleNewMessage = useCallback((payload: any) => {
     const newMsg = payload.new as any;
@@ -194,8 +207,25 @@ export const useConversations = () => {
     
     console.log('📨 New message received - instant update');
     
+    // Verificar se é uma mensagem do contato (não do agente/bot)
+    const isContactMessage = newMsg.sender_type === 'user';
+    
+    // Marcar como nova mensagem para animação
+    if (isContactMessage) {
+      newMessageConvsRef.current.add(newMsg.conversation_id);
+    }
+    
     // Atualização otimista: atualiza o estado local imediatamente
     setConversations(prev => {
+      const conversation = prev.find(c => c.id === newMsg.conversation_id);
+      const contactName = conversation?.contact?.name || 'Cliente';
+      
+      // Notificar nova mensagem se for do contato
+      if (isContactMessage && conversation) {
+        notifyNewMessage(contactName, newMsg.content);
+        playNotificationSound();
+      }
+      
       const updated = prev.map(conv => {
         if (conv.id === newMsg.conversation_id) {
           return {
@@ -207,6 +237,7 @@ export const useConversations = () => {
               created_at: newMsg.created_at,
             },
             updated_at: newMsg.created_at,
+            hasNewMessage: isContactMessage, // Flag de nova mensagem
           };
         }
         return conv;
@@ -222,7 +253,7 @@ export const useConversations = () => {
     
     // Background refresh para garantir consistência
     fetchConversations(true, true);
-  }, [fetchConversations]);
+  }, [fetchConversations, notifyNewMessage, playNotificationSound]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -367,5 +398,6 @@ export const useConversations = () => {
     refetch: fetchConversations,
     updateConversationStatus,
     sendMessage,
+    clearNewMessageFlag,
   };
 };
