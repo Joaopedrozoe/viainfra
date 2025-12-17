@@ -748,6 +748,10 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         const chatsData = await chatsResponse.json();
         allChats = Array.isArray(chatsData) ? chatsData : [];
         console.log(`✅ Fetched ${allChats.length} chats`);
+        
+        // Log all chat JIDs for debugging
+        const chatJids = allChats.map((c: any) => c.remoteJid || c.id || c.jid).filter(Boolean);
+        console.log(`📋 Available chat JIDs: ${chatJids.slice(0, 20).join(', ')}${chatJids.length > 20 ? '...' : ''}`);
       } else {
         console.log(`⚠️ Could not fetch chats: ${chatsResponse.status}`);
       }
@@ -914,37 +918,60 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         }
         console.log(`📋 Conversation already has ${existingMessageIds.size} messages with IDs`);
         
-        const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
-          method: 'POST',
-          headers: {
-            'apikey': evolutionApiKey,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            where: {
-              key: {
-                remoteJid: remoteJid
-              }
+        // Try multiple JID formats - some contacts may have different formats in the API
+        const phoneOnly = remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '');
+        const jidVariants = [
+          remoteJid,
+          `${phoneOnly}@s.whatsapp.net`,
+          phoneOnly.startsWith('55') ? `${phoneOnly.substring(2)}@s.whatsapp.net` : null,
+          !phoneOnly.startsWith('55') ? `55${phoneOnly}@s.whatsapp.net` : null,
+        ].filter(Boolean) as string[];
+        
+        let messages: any[] = [];
+        let usedJid = remoteJid;
+        
+        for (const jidToTry of jidVariants) {
+          console.log(`🔍 Trying JID format: ${jidToTry}...`);
+          
+          const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+            method: 'POST',
+            headers: {
+              'apikey': evolutionApiKey,
+              'Content-Type': 'application/json'
             },
-            limit: 9999 // High limit to get full message history
-          })
-        });
+            body: JSON.stringify({
+              where: {
+                key: {
+                  remoteJid: jidToTry
+                }
+              },
+              limit: 9999 // High limit to get full message history
+            })
+          });
 
-        if (!messagesResponse.ok) {
-          console.error(`Failed to fetch messages: ${messagesResponse.status}`);
-          return 0;
+          if (!messagesResponse.ok) {
+            console.log(`⚠️ Failed to fetch with JID ${jidToTry}: ${messagesResponse.status}`);
+            continue;
+          }
+
+          const messagesData = await messagesResponse.json();
+          const fetchedMsgs = Array.isArray(messagesData) ? messagesData : 
+                          (messagesData?.messages?.records || messagesData?.messages || []);
+          
+          if (fetchedMsgs.length > 0) {
+            messages = fetchedMsgs;
+            usedJid = jidToTry;
+            console.log(`✅ Found ${messages.length} messages with JID: ${jidToTry}`);
+            break;
+          }
         }
-
-        const messagesData = await messagesResponse.json();
-        const messages = Array.isArray(messagesData) ? messagesData : 
-                        (messagesData?.messages?.records || messagesData?.messages || []);
 
         if (messages.length === 0) {
-          console.log(`📭 No messages found for ${remoteJid}`);
+          console.log(`📭 No messages found for ${remoteJid} (tried ${jidVariants.length} JID formats)`);
           return 0;
         }
 
-        console.log(`📬 Found ${messages.length} messages from API`);
+        console.log(`📬 Found ${messages.length} messages from API (JID: ${usedJid})`);
 
         let importedCount = 0;
         let skippedDuplicates = 0;
