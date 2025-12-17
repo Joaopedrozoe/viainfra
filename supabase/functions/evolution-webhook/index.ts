@@ -883,20 +883,20 @@ async function isMessageAlreadyProcessed(supabase: any, externalId: string): Pro
   return false;
 }
 
-// Verificar anti-flood: se o bot já respondeu recentemente (< 2 segundos)
+// Verificar anti-flood: se o bot já respondeu recentemente (< 5 segundos)
 async function shouldSkipBotResponse(supabase: any, conversationId: string): Promise<boolean> {
-  const twoSecondsAgo = new Date(Date.now() - 2000).toISOString();
+  const fiveSecondsAgo = new Date(Date.now() - 5000).toISOString();
   
   const { data: recentBotMessage } = await supabase
     .from('messages')
     .select('id')
     .eq('conversation_id', conversationId)
     .eq('sender_type', 'bot')
-    .gte('created_at', twoSecondsAgo)
+    .gte('created_at', fiveSecondsAgo)
     .limit(1);
   
   if (recentBotMessage && recentBotMessage.length > 0) {
-    console.log(`⚠️ Bot já respondeu nos últimos 2 segundos. Ignorando para evitar flood.`);
+    console.log(`⚠️ Bot já respondeu nos últimos 5 segundos. Ignorando para evitar flood.`);
     return true;
   }
   return false;
