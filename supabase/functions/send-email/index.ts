@@ -91,11 +91,17 @@ serve(async (req) => {
     console.log(`📧 Using SMTP: ${smtpSettings.smtp_host}:${smtpSettings.smtp_port}`);
 
     // Configure SMTP client
+    // Port 587 uses STARTTLS (starts plaintext, upgrades to TLS)
+    // Port 465 uses direct SSL/TLS
+    const useDirectTls = smtpSettings.smtp_port === 465 || smtpSettings.smtp_security === 'SSL';
+    
+    console.log(`📧 SMTP Config: port=${smtpSettings.smtp_port}, security=${smtpSettings.smtp_security}, directTls=${useDirectTls}`);
+    
     const client = new SMTPClient({
       connection: {
         hostname: smtpSettings.smtp_host,
         port: smtpSettings.smtp_port,
-        tls: smtpSettings.smtp_security === 'TLS' || smtpSettings.smtp_security === 'SSL',
+        tls: useDirectTls,
         auth: {
           username: smtpSettings.smtp_user,
           password: smtpSettings.smtp_password,
