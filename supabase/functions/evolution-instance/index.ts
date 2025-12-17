@@ -1566,6 +1566,7 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
         console.log(`📨 Fetching messages for: ${contactName} (${whatsappJid})...`);
         
         try {
+          // Fetch messages with high limit to get full history
           const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
             method: 'POST',
             headers: {
@@ -1577,10 +1578,12 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
                 key: {
                   remoteJid: whatsappJid
                 }
-              }
-              // NO LIMIT - fetch all messages
+              },
+              limit: 9999 // High limit to get full message history
             })
           });
+          
+          console.log(`📨 Fetching messages for ${contactName} - response status: ${messagesResponse.status}`);
 
           if (messagesResponse.ok) {
             const messagesData = await messagesResponse.json();
