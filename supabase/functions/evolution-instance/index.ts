@@ -1237,17 +1237,84 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       }
     }
 
-    console.log(`✅ Import complete: ${importedContacts} contacts, ${importedConversations} conversations, ${totalMessagesImported} messages, ${skippedCount} skipped`);
+    // THIRD PASS: Update contacts with phone-as-name and sync messages for existing conversations
+    console.log(`🔄 Third pass: updating contacts with phone-as-name and syncing existing conversations...`);
+    
+    // Find all contacts with name = phone in this company
+    const { data: contactsNeedingUpdate } = await supabase
+      .from('contacts')
+      .select('id, name, phone, metadata')
+      .eq('company_id', companyId)
+      .not('phone', 'is', null);
+    
+    let contactsUpdatedFromAPI = 0;
+    let existingConversationsSynced = 0;
+    
+    if (contactsNeedingUpdate) {
+      for (const contact of contactsNeedingUpdate) {
+        const nameIsJustPhone = contact.name === contact.phone || /^\d+$/.test(contact.name);
+        const remoteJid = contact.metadata?.remoteJid || `${contact.phone}@s.whatsapp.net`;
+        const phoneFromJid = remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '');
+        
+        // Skip if already processed in this import
+        if (processedPhones.has(phoneFromJid) || processedPhones.has(contact.phone)) {
+          continue;
+        }
+        
+        // Try to get contact info from Evolution API if name needs update
+        if (nameIsJustPhone) {
+          try {
+            // Search in allContacts first (already fetched)
+            const apiContact = allContacts.find((c: any) => {
+              const cPhone = c.remoteJid?.replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '');
+              return cPhone === contact.phone || cPhone === phoneFromJid;
+            });
+            
+            if (apiContact?.pushName && apiContact.pushName !== contact.phone) {
+              await supabase
+                .from('contacts')
+                .update({ name: apiContact.pushName })
+                .eq('id', contact.id);
+              console.log(`📝 Updated contact name: ${contact.phone} → ${apiContact.pushName}`);
+              contactsUpdatedFromAPI++;
+            }
+          } catch (err) {
+            console.log(`⚠️ Could not update contact ${contact.phone}:`, err);
+          }
+        }
+        
+        // Sync messages for existing conversation if not already done
+        const { data: existingConv } = await supabase
+          .from('conversations')
+          .select('id')
+          .eq('contact_id', contact.id)
+          .eq('channel', 'whatsapp')
+          .maybeSingle();
+        
+        if (existingConv && !processedPhones.has(phoneFromJid)) {
+          const msgCount = await syncConversationMessages(existingConv.id, remoteJid, instanceName);
+          if (msgCount > 0) {
+            totalMessagesImported += msgCount;
+            existingConversationsSynced++;
+            console.log(`📨 Synced ${msgCount} messages for existing conversation: ${contact.name}`);
+          }
+          processedPhones.add(phoneFromJid);
+        }
+      }
+    }
+
+    console.log(`✅ Import complete: ${importedContacts} contacts, ${importedConversations} conversations, ${totalMessagesImported} messages`);
+    console.log(`✅ Third pass: ${contactsUpdatedFromAPI} contacts updated, ${existingConversationsSynced} existing conversations synced`);
 
     return new Response(JSON.stringify({ 
       success: true,
       totalContacts: allContacts.length,
       totalChats: allChats.length,
-      importedContacts,
-      importedConversations,
+      importedContacts: importedContacts + contactsUpdatedFromAPI,
+      importedConversations: importedConversations + existingConversationsSynced,
       totalMessagesImported,
       skipped: skippedCount,
-      message: `${importedContacts} contato(s) processado(s), ${importedConversations} conversa(s) processada(s), ${totalMessagesImported} mensagem(ns) importada(s)`
+      message: `${importedContacts + contactsUpdatedFromAPI} contato(s) processado(s), ${importedConversations + existingConversationsSynced} conversa(s) sincronizada(s), ${totalMessagesImported} mensagem(ns) importada(s)`
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
