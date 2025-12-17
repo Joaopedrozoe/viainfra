@@ -1218,9 +1218,8 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         let contactUpdated = false;
         let existingContact = null;
 
-        // Search for existing contact
+        // PRIORITY 1: Search by phone variations (most reliable)
         if (phoneNumber) {
-          // Search by phone variations
           const phoneVariations = getPhoneVariations(phoneNumber);
           const { data: byPhone } = await supabase
             .from('contacts')
@@ -1230,9 +1229,27 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             .limit(1)
             .maybeSingle();
           existingContact = byPhone;
+          if (byPhone) console.log(`✅ Found by phone: ${byPhone.name} (${byPhone.phone})`);
         }
         
-        // Also search by remoteJid if not found by phone
+        // PRIORITY 2: Search by exact name (case-insensitive) if we have a name
+        if (!existingContact && entryName && entryName.length > 2) {
+          const { data: byName } = await supabase
+            .from('contacts')
+            .select('id, name, avatar_url, phone, metadata')
+            .eq('company_id', companyId)
+            .ilike('name', entryName)
+            .not('phone', 'is', null) // Only match contacts that have a phone
+            .limit(1)
+            .maybeSingle();
+          
+          if (byName) {
+            existingContact = byName;
+            console.log(`✅ Found by name: ${byName.name} (${byName.phone})`);
+          }
+        }
+        
+        // PRIORITY 3: Search by remoteJid in metadata
         if (!existingContact) {
           const { data: byJid } = await supabase
             .from('contacts')
@@ -1241,11 +1258,24 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             .eq('metadata->>remoteJid', jid)
             .maybeSingle();
           existingContact = byJid;
+          if (byJid) console.log(`✅ Found by JID: ${byJid.name}`);
+        }
+
+        // CRITICAL: For @lid without phone, DON'T create new contact - SKIP
+        if (!existingContact && !phoneNumber && idInfo.type === 'lid') {
+          console.log(`⏭️ SKIP @lid without phone and no existing contact: ${contactName}`);
+          return { skipped: true, reason: 'lid_no_phone' };
         }
 
         if (!existingContact) {
-          // Create new contact
+          // Only create if we have a phone or it's not a @lid
           const normalizedPhone = phoneNumber ? normalizePhone(phoneNumber) : null;
+          
+          if (!normalizedPhone && source === 'contacts') {
+            console.log(`⏭️ SKIP contact without phone: ${contactName}`);
+            return { skipped: true, reason: 'no_phone_contact_source' };
+          }
+          
           const { data: newContact, error: contactError } = await supabase
             .from('contacts')
             .insert({
@@ -1268,7 +1298,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           }
           contactId = newContact.id;
           contactUpdated = true;
-          console.log(`✅ Created contact: ${contactName}`);
+          console.log(`✅ Created contact: ${contactName} (${normalizedPhone || 'no phone'})`);
         } else {
           contactId = existingContact.id;
           
