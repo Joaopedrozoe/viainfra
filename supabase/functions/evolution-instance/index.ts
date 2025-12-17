@@ -1,9 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 
-// IMPORTANTE: Instância autorizada para operações
-// Depois que VIAINFRA conectar, adicionar nova instância aqui
-const ALLOWED_INSTANCES = ['TESTE2'];
+// IMPORTANTE: Instâncias autorizadas para operações
+const ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'viainfraoficial'];
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
