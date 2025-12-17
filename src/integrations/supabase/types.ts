@@ -250,6 +250,7 @@ export type Database = {
           access_token: string | null
           archived: boolean | null
           assigned_to: string | null
+          bot_active: boolean | null
           channel: string
           company_id: string | null
           contact_id: string | null
@@ -263,6 +264,7 @@ export type Database = {
           access_token?: string | null
           archived?: boolean | null
           assigned_to?: string | null
+          bot_active?: boolean | null
           channel: string
           company_id?: string | null
           contact_id?: string | null
@@ -276,6 +278,7 @@ export type Database = {
           access_token?: string | null
           archived?: boolean | null
           assigned_to?: string | null
+          bot_active?: boolean | null
           channel?: string
           company_id?: string | null
           contact_id?: string | null
