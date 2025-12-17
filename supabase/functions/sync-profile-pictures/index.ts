@@ -6,8 +6,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Instância autorizada para buscar fotos
-const AUTHORIZED_INSTANCE = 'TESTE2';
+// Instâncias autorizadas para buscar fotos
+const AUTHORIZED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL'];
 const BUCKET_NAME = 'profile-pictures';
 
 // Helper to download image and upload to storage
@@ -130,18 +130,18 @@ serve(async (req) => {
 
     const { contactId, companyId, forceUpdate = false } = body;
 
-    // Get the authorized WhatsApp instance (TESTE2)
+    // Get any authorized WhatsApp instance that is connected
     const { data: instances, error: instanceError } = await supabase
       .from('whatsapp_instances')
       .select('instance_name, company_id, phone_number, connection_state')
-      .eq('instance_name', AUTHORIZED_INSTANCE)
+      .in('instance_name', AUTHORIZED_INSTANCES)
       .eq('connection_state', 'open')
       .limit(1);
 
     if (instanceError || !instances?.length) {
-      console.log(`⚠️ Authorized instance ${AUTHORIZED_INSTANCE} not connected`);
+      console.log(`⚠️ No authorized instance connected (checked: ${AUTHORIZED_INSTANCES.join(', ')})`);
       return new Response(JSON.stringify({ 
-        error: `Instance ${AUTHORIZED_INSTANCE} not connected`,
+        error: `No authorized instance connected`,
         details: instanceError 
       }), {
         status: 400,

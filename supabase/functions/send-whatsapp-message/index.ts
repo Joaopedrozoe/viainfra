@@ -93,29 +93,31 @@ serve(async (req) => {
     }
 
     // Buscar instância WhatsApp conectada (status 'open' = conectada)
-    // IMPORTANTE: Usar apenas instâncias com o número autorizado (5511940027215)
+    // Instâncias autorizadas por nome ou número
+    const AUTHORIZED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL'];
     const AUTHORIZED_PHONE = '5511940027215';
     
     console.log('Buscando instância WhatsApp para company_id:', conversation.company_id);
     
+    // Primeiro tenta buscar instância autorizada por nome
     let { data: instance, error: instanceError } = await supabase
       .from('whatsapp_instances')
       .select('instance_name, status, company_id, phone_number')
       .eq('company_id', conversation.company_id)
       .eq('status', 'open')
-      .eq('phone_number', AUTHORIZED_PHONE)
+      .in('instance_name', AUTHORIZED_INSTANCES)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    // Se não encontrar instância da empresa, buscar instância autorizada conectada
+    // Se não encontrar instância da empresa, buscar qualquer instância autorizada conectada
     if (!instance) {
       console.log('Nenhuma instância encontrada para a empresa, buscando instância autorizada...');
       const { data: authorizedInstance, error: authError } = await supabase
         .from('whatsapp_instances')
         .select('instance_name, status, company_id, phone_number')
         .eq('status', 'open')
-        .eq('phone_number', AUTHORIZED_PHONE)
+        .in('instance_name', AUTHORIZED_INSTANCES)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -124,9 +126,9 @@ serve(async (req) => {
       instanceError = authError;
     }
     
-    // Log de segurança
-    if (instance && instance.phone_number !== AUTHORIZED_PHONE) {
-      console.error('⚠️ SEGURANÇA: Instância com número não autorizado bloqueada:', instance.phone_number);
+    // Log de segurança - verificar se é instância autorizada
+    if (instance && !AUTHORIZED_INSTANCES.includes(instance.instance_name)) {
+      console.error('⚠️ SEGURANÇA: Instância não autorizada bloqueada:', instance.instance_name);
       return new Response(
         JSON.stringify({ error: 'Instância WhatsApp não autorizada' }), 
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
