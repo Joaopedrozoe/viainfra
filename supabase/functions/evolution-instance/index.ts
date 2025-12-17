@@ -842,6 +842,144 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       return null;
     }
 
+    // Helper function to extract message content - handles various Evolution API message formats
+    function extractMessageContent(messageObj: any): { content: string; type: string } {
+      const msg = messageObj?.message || messageObj;
+      
+      if (!msg) {
+        return { content: '', type: 'unknown' };
+      }
+
+      if (msg.conversation) {
+        return { content: msg.conversation, type: 'text' };
+      }
+      if (msg.extendedTextMessage?.text) {
+        return { content: msg.extendedTextMessage.text, type: 'text' };
+      }
+      if (msg.text) {
+        return { content: msg.text, type: 'text' };
+      }
+      if (msg.body) {
+        return { content: msg.body, type: 'text' };
+      }
+      if (msg.imageMessage) {
+        return { content: msg.imageMessage.caption || '📷 Imagem', type: 'image' };
+      }
+      if (msg.videoMessage) {
+        return { content: msg.videoMessage.caption || '🎬 Vídeo', type: 'video' };
+      }
+      if (msg.audioMessage) {
+        return { content: '🎵 Áudio', type: 'audio' };
+      }
+      if (msg.documentMessage) {
+        return { content: `📄 ${msg.documentMessage.fileName || 'Documento'}`, type: 'document' };
+      }
+      if (msg.stickerMessage) {
+        return { content: '🎨 Sticker', type: 'sticker' };
+      }
+      if (msg.contactMessage) {
+        return { content: `👤 Contato: ${msg.contactMessage.displayName || 'N/A'}`, type: 'contact' };
+      }
+      if (msg.locationMessage) {
+        return { content: '📍 Localização', type: 'location' };
+      }
+      
+      return { content: '[Mensagem não suportada]', type: 'unknown' };
+    }
+
+    // Helper function to sync messages for a conversation during import
+    async function syncConversationMessages(conversationId: string, remoteJid: string, instanceName: string): Promise<number> {
+      try {
+        console.log(`📨 Fetching messages for: ${remoteJid}...`);
+        
+        const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+          method: 'POST',
+          headers: {
+            'apikey': evolutionApiKey,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            where: {
+              key: {
+                remoteJid: remoteJid
+              }
+            }
+          })
+        });
+
+        if (!messagesResponse.ok) {
+          console.error(`Failed to fetch messages: ${messagesResponse.status}`);
+          return 0;
+        }
+
+        const messagesData = await messagesResponse.json();
+        const messages = Array.isArray(messagesData) ? messagesData : 
+                        (messagesData?.messages?.records || messagesData?.messages || []);
+
+        if (messages.length === 0) {
+          console.log(`📭 No messages found for ${remoteJid}`);
+          return 0;
+        }
+
+        console.log(`📬 Found ${messages.length} messages to import`);
+
+        let importedCount = 0;
+        let lastMsgTimestamp: Date | null = null;
+        
+        for (const msg of messages) {
+          try {
+            const { content, type } = extractMessageContent(msg);
+            
+            if (!content || content === '' || type === 'unknown') continue;
+
+            const timestamp = msg.messageTimestamp || msg.key?.messageTimestamp;
+            if (!timestamp) continue;
+
+            const msgDate = new Date(typeof timestamp === 'number' ? 
+              (timestamp > 9999999999 ? timestamp : timestamp * 1000) : timestamp);
+
+            if (!lastMsgTimestamp || msgDate > lastMsgTimestamp) {
+              lastMsgTimestamp = msgDate;
+            }
+
+            const isFromMe = msg.key?.fromMe === true;
+            
+            const { error: msgError } = await supabase
+              .from('messages')
+              .insert({
+                conversation_id: conversationId,
+                content: content,
+                sender_type: isFromMe ? 'agent' : 'user',
+                created_at: msgDate.toISOString(),
+                metadata: {
+                  messageId: msg.key?.id,
+                  type: type
+                }
+              });
+
+            if (!msgError) {
+              importedCount++;
+            }
+          } catch (msgError) {
+            console.error('Error importing message:', msgError);
+          }
+        }
+
+        // Update conversation timestamp to match last message
+        if (lastMsgTimestamp) {
+          await supabase
+            .from('conversations')
+            .update({ updated_at: lastMsgTimestamp.toISOString() })
+            .eq('id', conversationId);
+        }
+
+        return importedCount;
+      } catch (error) {
+        console.error('Error syncing messages:', error);
+        return 0;
+      }
+    }
+
     // Helper function to process a contact/chat entry
     async function processEntry(entry: any, source: string, isArchived: boolean = false) {
       try {
@@ -967,7 +1105,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         }
 
         // Create new conversation only if doesn't exist
-        const { error: convError } = await supabase
+        const { data: newConversation, error: convError } = await supabase
           .from('conversations')
           .insert({
             company_id: companyId,
@@ -980,7 +1118,9 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
               remoteJid,
               importedAt: new Date().toISOString()
             }
-          });
+          })
+          .select()
+          .single();
 
         if (convError) {
           // If duplicate key error, conversation was created by another concurrent request - that's OK
@@ -993,6 +1133,13 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         }
         
         console.log(`💬 Created conversation for ${contactName}${isArchived ? ' (archived)' : ''}`);
+        
+        // SYNC MESSAGES for the new conversation
+        if (newConversation) {
+          const messagesImported = await syncConversationMessages(newConversation.id, remoteJid, instanceName);
+          console.log(`📨 Imported ${messagesImported} messages for ${contactName}`);
+        }
+        
         return { contactCreated, conversationCreated: true };
       } catch (entryError) {
         console.error('Error processing entry:', entryError);
