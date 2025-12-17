@@ -620,46 +620,52 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
     console.log(`📥 Starting import for instance: ${instanceName}`);
 
-    // Get user's company_id from auth token
+    // First, get the instance record to find its company_id
+    const { data: instanceRecord } = await supabase
+      .from('whatsapp_instances')
+      .select('id, company_id, connection_state')
+      .eq('instance_name', instanceName)
+      .maybeSingle();
+
+    if (!instanceRecord) {
+      console.log(`⛔ fetchChats: Instância ${instanceName} não encontrada`);
+      return new Response(JSON.stringify({ error: 'Instância não encontrada' }), { 
+        status: 404, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+
+    const companyId = instanceRecord.company_id;
+    console.log(`📋 Instance ${instanceName} belongs to company: ${companyId}`);
+
+    // Verify user has access to this company
     const authHeader = req.headers.get('Authorization');
-    let companyId = null;
-    
     if (authHeader) {
       const token = authHeader.replace('Bearer ', '');
       const { data: { user } } = await supabase.auth.getUser(token);
       
       if (user) {
-        const { data: profile } = await supabase
+        const { data: userProfile } = await supabase
           .from('profiles')
           .select('company_id')
           .eq('user_id', user.id)
-          .limit(1)
+          .eq('company_id', companyId)
           .maybeSingle();
         
-        companyId = profile?.company_id;
-        console.log(`👤 User ${user.id} company_id: ${companyId}`);
+        if (!userProfile) {
+          console.log(`⛔ fetchChats: User ${user.id} não tem acesso à empresa ${companyId}`);
+          return new Response(JSON.stringify({ error: 'Instância não autorizada para esta empresa' }), { 
+            status: 403, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          });
+        }
+        console.log(`👤 User ${user.id} authorized for company ${companyId}`);
       }
     }
 
     if (!companyId) {
-      return new Response(JSON.stringify({ error: 'User company not found' }), { 
+      return new Response(JSON.stringify({ error: 'Company not found for instance' }), { 
         status: 400, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      });
-    }
-
-    // Validar que a instância pertence à empresa do usuário
-    const { data: instanceRecord } = await supabase
-      .from('whatsapp_instances')
-      .select('id, company_id, connection_state')
-      .eq('instance_name', instanceName)
-      .eq('company_id', companyId)
-      .maybeSingle();
-
-    if (!instanceRecord) {
-      console.log(`⛔ fetchChats: Instância ${instanceName} não pertence à empresa ${companyId}`);
-      return new Response(JSON.stringify({ error: 'Instância não autorizada para esta empresa' }), { 
-        status: 403, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       });
     }
@@ -1227,46 +1233,52 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
 
     console.log(`🔄 Syncing ALL conversations for instance: ${instanceName} (no limits)`);
 
-    // Get user's company_id from auth token
+    // First, get the instance record to find its company_id
+    const { data: instanceRecord } = await supabase
+      .from('whatsapp_instances')
+      .select('id, company_id, connection_state')
+      .eq('instance_name', instanceName)
+      .maybeSingle();
+
+    if (!instanceRecord) {
+      console.log(`⛔ syncMessages: Instância ${instanceName} não encontrada`);
+      return new Response(JSON.stringify({ error: 'Instância não encontrada' }), { 
+        status: 404, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+
+    const companyId = instanceRecord.company_id;
+    console.log(`📋 Instance ${instanceName} belongs to company: ${companyId}`);
+
+    // Verify user has access to this company
     const authHeader = req.headers.get('Authorization');
-    let companyId = null;
-    
     if (authHeader) {
       const token = authHeader.replace('Bearer ', '');
       const { data: { user } } = await supabase.auth.getUser(token);
       
       if (user) {
-        const { data: profile } = await supabase
+        const { data: userProfile } = await supabase
           .from('profiles')
           .select('company_id')
           .eq('user_id', user.id)
-          .limit(1)
+          .eq('company_id', companyId)
           .maybeSingle();
         
-        companyId = profile?.company_id;
-        console.log(`👤 User ${user.id} company_id: ${companyId}`);
+        if (!userProfile) {
+          console.log(`⛔ syncMessages: User ${user.id} não tem acesso à empresa ${companyId}`);
+          return new Response(JSON.stringify({ error: 'Instância não autorizada para esta empresa' }), { 
+            status: 403, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          });
+        }
+        console.log(`👤 User ${user.id} authorized for company ${companyId}`);
       }
     }
 
     if (!companyId) {
-      return new Response(JSON.stringify({ error: 'User company not found' }), { 
+      return new Response(JSON.stringify({ error: 'Company not found for instance' }), { 
         status: 400, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      });
-    }
-
-    // Validar que a instância pertence à empresa do usuário
-    const { data: instanceRecord } = await supabase
-      .from('whatsapp_instances')
-      .select('id, company_id, connection_state')
-      .eq('instance_name', instanceName)
-      .eq('company_id', companyId)
-      .maybeSingle();
-
-    if (!instanceRecord) {
-      console.log(`⛔ syncMessages: Instância ${instanceName} não pertence à empresa ${companyId}`);
-      return new Response(JSON.stringify({ error: 'Instância não autorizada para esta empresa' }), { 
-        status: 403, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       });
     }
