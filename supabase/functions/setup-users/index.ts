@@ -95,6 +95,12 @@ serve(async (req) => {
         name: 'Sandra Romano',
         role: 'user',
       },
+      {
+        email: 'administracao@viainfra.com.br',
+        password: 'atendimento@25',
+        name: 'Flavia',
+        role: 'user',
+      },
     ];
 
     const results = [];
