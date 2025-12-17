@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,17 +7,20 @@ import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/contexts/auth";
 import { toast } from "sonner";
-import { Camera, Eye, EyeOff } from "lucide-react";
+import { Camera, Eye, EyeOff, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 export const ProfileSettings = () => {
   const { profile } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Profile data
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -36,6 +39,7 @@ export const ProfileSettings = () => {
       setFirstName(nameParts[0] || "");
       setLastName(nameParts.slice(1).join(" ") || "");
       setEmail(profile.email || "");
+      setAvatarUrl((profile as any)?.avatar_url || null);
     }
   }, [profile]);
 
@@ -122,6 +126,18 @@ export const ProfileSettings = () => {
     setIsLoading(true);
     
     try {
+      // Verificar senha atual fazendo login
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email,
+        password: currentPassword,
+      });
+
+      if (signInError) {
+        toast.error("Senha atual incorreta");
+        setIsLoading(false);
+        return;
+      }
+
       // Atualizar senha no Supabase Auth
       const { error } = await supabase.auth.updateUser({
         password: newPassword,
@@ -141,9 +157,80 @@ export const ProfileSettings = () => {
     }
   };
 
-  const handleAvatarUpload = () => {
-    // Simulate file upload
-    toast.success("Funcionalidade de upload será implementada em breve");
+  const handleAvatarClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error("Por favor, selecione uma imagem");
+      return;
+    }
+
+    // Validate file size (2MB max)
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("A imagem deve ter no máximo 2MB");
+      return;
+    }
+
+    if (!profile?.id) {
+      toast.error("Perfil não encontrado");
+      return;
+    }
+
+    setIsUploading(true);
+
+    try {
+      // Generate unique filename
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${profile.id}-${Date.now()}.${fileExt}`;
+      const filePath = `avatars/${fileName}`;
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('profile-pictures')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('profile-pictures')
+        .getPublicUrl(filePath);
+
+      // Update profile with avatar URL
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          avatar_url: publicUrl,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', profile.id);
+
+      if (updateError) throw updateError;
+
+      setAvatarUrl(publicUrl);
+      toast.success("Foto de perfil atualizada!");
+      
+      // Reload to update context
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (error: any) {
+      console.error('Erro ao fazer upload:', error);
+      toast.error(error.message || "Erro ao fazer upload da imagem");
+    } finally {
+      setIsUploading(false);
+      // Reset input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
   };
 
   return (
@@ -159,20 +246,44 @@ export const ProfileSettings = () => {
         <CardContent className="space-y-6">
           {/* Avatar Section */}
           <div className="flex items-center space-x-4">
-            <Avatar className="h-20 w-20">
-              <AvatarImage src={(profile as any)?.avatar_url} />
-              <AvatarFallback className="text-lg">
-                {firstName.charAt(0)}{lastName.charAt(0)}
-              </AvatarFallback>
-            </Avatar>
+            <div className="relative">
+              <Avatar className="h-20 w-20">
+                <AvatarImage src={avatarUrl || undefined} />
+                <AvatarFallback className="text-lg">
+                  {firstName.charAt(0)}{lastName.charAt(0)}
+                </AvatarFallback>
+              </Avatar>
+              {isUploading && (
+                <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center">
+                  <Loader2 className="h-6 w-6 text-white animate-spin" />
+                </div>
+              )}
+            </div>
             <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="hidden"
+              />
               <Button 
                 variant="outline" 
-                onClick={handleAvatarUpload}
+                onClick={handleAvatarClick}
+                disabled={isUploading}
                 className="flex items-center gap-2"
               >
-                <Camera className="h-4 w-4" />
-                Alterar Foto
+                {isUploading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Enviando...
+                  </>
+                ) : (
+                  <>
+                    <Camera className="h-4 w-4" />
+                    Alterar Foto
+                  </>
+                )}
               </Button>
               <p className="text-xs text-muted-foreground mt-1">
                 JPG, PNG até 2MB
@@ -221,7 +332,14 @@ export const ProfileSettings = () => {
             disabled={isLoading}
             variant="viainfra"
           >
-            {isLoading ? "Salvando..." : "Salvar Alterações"}
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Salvando...
+              </>
+            ) : (
+              "Salvar Alterações"
+            )}
           </Button>
         </CardFooter>
       </Card>
@@ -319,7 +437,14 @@ export const ProfileSettings = () => {
             disabled={isLoading}
             variant="viainfra"
           >
-            {isLoading ? "Alterando..." : "Alterar Senha"}
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Alterando...
+              </>
+            ) : (
+              "Alterar Senha"
+            )}
           </Button>
         </CardFooter>
       </Card>
