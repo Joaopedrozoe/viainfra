@@ -3,7 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import { BotFlowProcessor } from './bot-flow-processor.ts';
 
 // IMPORTANTE: Instâncias autorizadas para processamento
-const ALLOWED_INSTANCES = ['TESTE2', 'viainfraoficial'];
+const ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'viainfraoficial'];
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
