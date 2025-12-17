@@ -760,9 +760,10 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     }
 
     // Combine unique entries from contacts and chats
-    const processedPhones = new Set<string>();
+    const processedIdentifiers = new Set<string>();
     let importedContacts = 0;
     let importedConversations = 0;
+    let importedGroups = 0;
     let skippedCount = 0;
 
     // Helper function to validate phone number (10-15 digits, must start with country code)
@@ -797,93 +798,86 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       return [...new Set(variations)];
     }
 
-    // Helper function to extract valid phone from entry
-    // CRITICAL: ONLY accept fields that contain valid WhatsApp JIDs (@s.whatsapp.net or @c.us)
-    // This prevents internal database IDs (cmh..., etc) from being treated as phone numbers
-    // ALSO: Try to find phone from allContacts when entry uses @lid format
-    function extractPhoneNumber(entry: any, allContactsList?: any[]): string | null {
-      // Priority order - only fields that should contain phone/WhatsApp IDs
-      const jidFields = [
-        entry.remoteJid,      // WhatsApp JID (xxxxx@s.whatsapp.net)
-        entry.jid,            // Alternative JID field
-      ];
-
-      // Check if this is an @lid entry
-      const hasLidFormat = jidFields.some(f => f && typeof f === 'string' && f.includes('@lid'));
+    // Helper function to extract identifier from entry
+    // NOW ACCEPTS: phone numbers, @lid IDs, group IDs - EVERYTHING
+    function extractIdentifier(entry: any, allContactsList?: any[]): { identifier: string; type: 'phone' | 'lid' | 'group' | 'other'; phone?: string } | null {
+      const jid = entry.remoteJid || entry.jid || entry.id;
       
-      // FIRST: Try to extract from valid WhatsApp JID format (REQUIRED for import)
-      for (const field of jidFields) {
-        if (!field || typeof field !== 'string') continue;
-        
-        // Skip groups, broadcasts
-        if (field.includes('@g.us') || field.includes('@broadcast')) {
-          continue;
-        }
-        
-        // Skip @lid - but we'll try to find phone via pushName below
-        if (field.includes('@lid')) {
-          continue;
-        }
-
-        // CRITICAL: MUST contain @s.whatsapp.net or @c.us to be a valid WhatsApp JID
-        // This filters out internal Evolution API IDs like "cmhj9de3b0003o64ibz62hbc1"
-        if (!field.includes('@s.whatsapp.net') && !field.includes('@c.us')) {
-          console.log(`⏭️ Skip JID field (no valid WhatsApp suffix): ${field.substring(0, 30)}...`);
-          continue;
-        }
-
-        // Extract number from WhatsApp format
-        let phone = field.replace('@s.whatsapp.net', '').replace('@c.us', '');
+      if (!jid || typeof jid !== 'string') {
+        return null;
+      }
+      
+      // Skip broadcasts only
+      if (jid.includes('@broadcast')) {
+        return null;
+      }
+      
+      // GROUP: @g.us
+      if (jid.includes('@g.us')) {
+        return { 
+          identifier: jid, 
+          type: 'group' 
+        };
+      }
+      
+      // PHONE: @s.whatsapp.net or @c.us
+      if (jid.includes('@s.whatsapp.net') || jid.includes('@c.us')) {
+        let phone = jid.replace('@s.whatsapp.net', '').replace('@c.us', '');
         phone = phone.replace(/\D/g, '');
         
         if (isValidPhoneNumber(phone)) {
-          return phone;
-        }
-      }
-
-      // SECOND: Try direct phone/number fields (fallback)
-      const phoneFields = [entry.phone, entry.number, entry.wid?.user];
-      for (const field of phoneFields) {
-        if (!field || typeof field !== 'string') continue;
-        
-        let phone = field.replace(/\D/g, '');
-        
-        // Add Brazil country code if missing (9-digit numbers)
-        if (phone.length >= 10 && phone.length <= 11 && !phone.startsWith('55')) {
-          phone = '55' + phone;
-        }
-        
-        if (isValidPhoneNumber(phone)) {
-          return phone;
+          return { 
+            identifier: phone, 
+            type: 'phone',
+            phone: phone 
+          };
         }
       }
       
-      // THIRD: For @lid entries, try to find phone from allContacts by pushName
-      if (hasLidFormat && allContactsList && entry.pushName) {
-        const pushName = entry.pushName.toLowerCase().trim();
-        console.log(`🔍 @lid detected for "${entry.pushName}", searching in contacts...`);
+      // LID: @lid format - try to find phone from contacts by pushName
+      if (jid.includes('@lid')) {
+        const pushName = entry.pushName || entry.name;
         
-        for (const contact of allContactsList) {
-          const contactPushName = (contact.pushName || contact.name || '').toLowerCase().trim();
-          
-          if (contactPushName === pushName) {
-            // Found matching contact, try to extract phone from it
-            const contactJid = contact.remoteJid || contact.jid;
-            if (contactJid && (contactJid.includes('@s.whatsapp.net') || contactJid.includes('@c.us'))) {
-              let phone = contactJid.replace('@s.whatsapp.net', '').replace('@c.us', '');
-              phone = phone.replace(/\D/g, '');
-              
-              if (isValidPhoneNumber(phone)) {
-                console.log(`✅ Found phone for @lid "${entry.pushName}": ${phone}`);
-                return phone;
+        // Try to find matching phone from contacts
+        if (pushName && allContactsList) {
+          for (const contact of allContactsList) {
+            const contactName = (contact.pushName || contact.name || '').toLowerCase().trim();
+            if (contactName === pushName.toLowerCase().trim()) {
+              const contactJid = contact.remoteJid || contact.jid;
+              if (contactJid && (contactJid.includes('@s.whatsapp.net') || contactJid.includes('@c.us'))) {
+                let phone = contactJid.replace('@s.whatsapp.net', '').replace('@c.us', '');
+                phone = phone.replace(/\D/g, '');
+                if (isValidPhoneNumber(phone)) {
+                  console.log(`✅ Found phone for @lid "${pushName}": ${phone}`);
+                  return { identifier: phone, type: 'phone', phone };
+                }
               }
             }
           }
         }
-        console.log(`⚠️ Could not find phone for @lid "${entry.pushName}" in contacts`);
+        
+        // No phone found - use lid as identifier
+        return { 
+          identifier: jid, 
+          type: 'lid' 
+        };
       }
-
-      return null;
+      
+      // Fallback: Try direct phone fields
+      const phoneFields = [entry.phone, entry.number, entry.wid?.user];
+      for (const field of phoneFields) {
+        if (!field || typeof field !== 'string') continue;
+        let phone = field.replace(/\D/g, '');
+        if (isValidPhoneNumber(phone)) {
+          return { identifier: phone, type: 'phone', phone };
+        }
+      }
+      
+      // OTHER: any other format - still import it
+      return { 
+        identifier: jid, 
+        type: 'other' 
+      };
     }
 
     // Helper function to extract message content - handles various Evolution API message formats
@@ -1075,64 +1069,195 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       }
     }
 
-    // Helper function to process a contact/chat entry
+    // Helper function to process a contact/chat entry - NOW IMPORTS EVERYTHING
     async function processEntry(entry: any, source: string, isArchived: boolean = false) {
       try {
-        // Skip group chats
-        if (entry.isGroup) {
-          return { skipped: true, reason: 'group' };
-        }
-
-        // Extract valid phone number - pass allContacts for @lid resolution
-        const phoneNumber = extractPhoneNumber(entry, allContacts);
+        // Extract identifier - accepts phone, @lid, groups, everything
+        const idInfo = extractIdentifier(entry, allContacts);
         
-        if (!phoneNumber) {
-          // Log only first 100 chars to avoid log spam
-          console.log(`⏭️ Skip (no valid phone): ${entry.pushName || entry.name || 'unknown'}`);
-          return { skipped: true, reason: 'invalid_phone' };
+        if (!idInfo) {
+          console.log(`⏭️ Skip (no identifier): ${entry.pushName || entry.name || JSON.stringify(entry).substring(0, 50)}`);
+          return { skipped: true, reason: 'no_identifier' };
         }
         
         // Skip if already processed in this import run
-        if (processedPhones.has(phoneNumber)) {
+        if (processedIdentifiers.has(idInfo.identifier)) {
           return { skipped: true, reason: 'duplicate' };
         }
-        processedPhones.add(phoneNumber);
+        processedIdentifiers.add(idInfo.identifier);
 
-        // Get contact name from WhatsApp - prefer pushName over generic fields
-        const whatsAppName = entry.pushName || entry.name || entry.notify || entry.verifiedName || null;
-        const contactName = whatsAppName || phoneNumber;
+        const jid = entry.remoteJid || entry.jid || entry.id || idInfo.identifier;
+        const isGroup = idInfo.type === 'group' || entry.isGroup === true || jid.includes('@g.us');
+        
+        // Get name from entry
+        const entryName = entry.pushName || entry.name || entry.subject || entry.notify || entry.verifiedName || null;
         const profilePicUrl = entry.profilePictureUrl || entry.profilePicUrl || entry.imgUrl || null;
-        
-        // Build proper WhatsApp JID from phone number
-        const remoteJid = `${phoneNumber}@s.whatsapp.net`;
 
-        console.log(`📱 Processing: ${contactName} (${phoneNumber})${isArchived ? ' [archived]' : ''}`);
+        console.log(`📱 Processing ${isGroup ? 'GROUP' : idInfo.type}: ${entryName || idInfo.identifier}${isArchived ? ' [archived]' : ''}`);
 
-        // Check if contact exists by phone (flexible search)
-        const phoneVariations = getPhoneVariations(phoneNumber);
-        const normalizedPhone = normalizePhone(phoneNumber);
+        // ===== HANDLE GROUPS =====
+        if (isGroup) {
+          const groupName = entryName || `Grupo ${jid.split('@')[0]}`;
+          
+          // Check if group contact exists
+          let { data: existingGroupContact } = await supabase
+            .from('contacts')
+            .select('id, name')
+            .eq('company_id', companyId)
+            .eq('metadata->>remoteJid', jid)
+            .maybeSingle();
+          
+          let contactId;
+          let contactUpdated = false;
+          
+          if (!existingGroupContact) {
+            // Create group contact
+            const { data: newContact, error: contactError } = await supabase
+              .from('contacts')
+              .insert({
+                company_id: companyId,
+                name: groupName,
+                phone: null, // Groups don't have phone
+                avatar_url: profilePicUrl,
+                metadata: { 
+                  remoteJid: jid, 
+                  isGroup: true,
+                  source: `whatsapp_import_${source}` 
+                }
+              })
+              .select()
+              .single();
+
+            if (contactError) {
+              console.error('❌ Error creating group contact:', contactError);
+              return { skipped: true, reason: 'contact_error' };
+            }
+            contactId = newContact.id;
+            contactUpdated = true;
+            console.log(`✅ Created GROUP contact: ${groupName}`);
+          } else {
+            contactId = existingGroupContact.id;
+            
+            // Update name if we have a better one
+            if (entryName && existingGroupContact.name !== entryName) {
+              await supabase.from('contacts').update({ name: entryName }).eq('id', contactId);
+              contactUpdated = true;
+              console.log(`📝 Updated group name: ${existingGroupContact.name} → ${entryName}`);
+            }
+          }
+          
+          // For contacts source, only create/update the contact
+          if (source === 'contacts') {
+            return { contactUpdated, conversationUpdated: false, messagesImported: 0, isGroup: true };
+          }
+          
+          // Check if group conversation exists
+          let { data: existingConv } = await supabase
+            .from('conversations')
+            .select('id, archived, status')
+            .eq('company_id', companyId)
+            .eq('contact_id', contactId)
+            .eq('channel', 'whatsapp')
+            .maybeSingle();
+          
+          let conversationId: string;
+          let conversationUpdated = false;
+          
+          if (existingConv) {
+            conversationId = existingConv.id;
+            const updates: any = {};
+            if (isArchived && !existingConv.archived) {
+              updates.archived = true;
+              updates.status = 'resolved';
+            } else if (!isArchived && existingConv.archived) {
+              updates.archived = false;
+              updates.status = 'open';
+            }
+            if (Object.keys(updates).length > 0) {
+              await supabase.from('conversations').update(updates).eq('id', conversationId);
+              conversationUpdated = true;
+            }
+          } else {
+            const { data: newConv, error: convError } = await supabase
+              .from('conversations')
+              .insert({
+                company_id: companyId,
+                contact_id: contactId,
+                channel: 'whatsapp',
+                status: isArchived ? 'resolved' : 'open',
+                archived: isArchived,
+                metadata: { instanceName, remoteJid: jid, isGroup: true, importedAt: new Date().toISOString() }
+              })
+              .select()
+              .single();
+            
+            if (convError) {
+              console.error('❌ Error creating group conversation:', convError);
+              return { contactUpdated, conversationUpdated: false, messagesImported: 0, isGroup: true };
+            }
+            conversationId = newConv.id;
+            conversationUpdated = true;
+            console.log(`💬 Created GROUP conversation: ${groupName}`);
+          }
+          
+          // Sync group messages
+          const messagesImported = await syncConversationMessages(conversationId, jid, instanceName);
+          console.log(`📨 Synced ${messagesImported} messages for group ${groupName}`);
+          
+          return { contactUpdated, conversationUpdated, messagesImported, isGroup: true };
+        }
         
-        let { data: existingContact } = await supabase
-          .from('contacts')
-          .select('id, name, avatar_url, phone')
-          .eq('company_id', companyId)
-          .in('phone', phoneVariations)
-          .limit(1)
-          .maybeSingle();
+        // ===== HANDLE INDIVIDUAL CONTACTS =====
+        const phoneNumber = idInfo.phone || null;
+        const contactName = entryName || phoneNumber || idInfo.identifier;
+        const remoteJid = phoneNumber ? `${phoneNumber}@s.whatsapp.net` : jid;
+        
+        console.log(`👤 Individual: ${contactName} (phone: ${phoneNumber || 'N/A'}, type: ${idInfo.type})`);
 
         let contactId;
         let contactUpdated = false;
+        let existingContact = null;
+
+        // Search for existing contact
+        if (phoneNumber) {
+          // Search by phone variations
+          const phoneVariations = getPhoneVariations(phoneNumber);
+          const { data: byPhone } = await supabase
+            .from('contacts')
+            .select('id, name, avatar_url, phone, metadata')
+            .eq('company_id', companyId)
+            .in('phone', phoneVariations)
+            .limit(1)
+            .maybeSingle();
+          existingContact = byPhone;
+        }
+        
+        // Also search by remoteJid if not found by phone
+        if (!existingContact) {
+          const { data: byJid } = await supabase
+            .from('contacts')
+            .select('id, name, avatar_url, phone, metadata')
+            .eq('company_id', companyId)
+            .eq('metadata->>remoteJid', jid)
+            .maybeSingle();
+          existingContact = byJid;
+        }
 
         if (!existingContact) {
-          // Create contact with normalized phone
+          // Create new contact
+          const normalizedPhone = phoneNumber ? normalizePhone(phoneNumber) : null;
           const { data: newContact, error: contactError } = await supabase
             .from('contacts')
             .insert({
               company_id: companyId,
               name: contactName,
-              phone: normalizedPhone, // Always use normalized
+              phone: normalizedPhone,
               avatar_url: profilePicUrl,
-              metadata: { remoteJid, source: `whatsapp_import_${source}` }
+              metadata: { 
+                remoteJid: jid, 
+                idType: idInfo.type,
+                source: `whatsapp_import_${source}` 
+              }
             })
             .select()
             .single();
@@ -1143,31 +1268,44 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           }
           contactId = newContact.id;
           contactUpdated = true;
-          console.log(`✅ Created contact: ${contactName} (${phoneNumber})`);
+          console.log(`✅ Created contact: ${contactName}`);
         } else {
           contactId = existingContact.id;
           
-          // ALWAYS update contact if WhatsApp has a name and current name is just the phone number
+          // ALWAYS update contact if we have better data
           const updates: any = {};
-          const existingNameIsJustPhone = existingContact.name === existingContact.phone || 
-                                           existingContact.name === normalizedPhone ||
-                                           /^\d+$/.test(existingContact.name);
+          const normalizedPhone = phoneNumber ? normalizePhone(phoneNumber) : null;
           
-          // If we have a real name from WhatsApp and current name is just a number, update it
-          if (whatsAppName && existingNameIsJustPhone) {
-            updates.name = whatsAppName;
-            console.log(`📝 Updating contact name from "${existingContact.name}" to "${whatsAppName}"`);
+          // Update name if current name is just numbers or phone
+          const existingNameIsJustPhone = !existingContact.name || 
+            existingContact.name === existingContact.phone || 
+            /^\d+$/.test(existingContact.name);
+          
+          if (entryName && existingNameIsJustPhone) {
+            updates.name = entryName;
+            console.log(`📝 Updating name: "${existingContact.name}" → "${entryName}"`);
           }
           
-          // Update avatar if available and contact doesn't have one
+          // Update phone if we have one and contact doesn't
+          if (normalizedPhone && !existingContact.phone) {
+            updates.phone = normalizedPhone;
+            console.log(`📝 Adding phone: ${normalizedPhone}`);
+          }
+          
+          // Update avatar if needed
           if (profilePicUrl && !existingContact.avatar_url) {
             updates.avatar_url = profilePicUrl;
+          }
+          
+          // Update remoteJid in metadata if we have a better one (phone-based)
+          if (phoneNumber && existingContact.metadata?.remoteJid?.includes('@lid')) {
+            updates.metadata = { ...existingContact.metadata, remoteJid };
+            console.log(`📝 Updating remoteJid from @lid to phone-based`);
           }
           
           if (Object.keys(updates).length > 0) {
             await supabase.from('contacts').update(updates).eq('id', contactId);
             contactUpdated = true;
-            console.log(`📝 Updated contact: ${contactName}`);
           }
         }
 
@@ -1176,10 +1314,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           return { contactUpdated, conversationUpdated: false, messagesImported: 0 };
         }
         
-        // Log chat info for debugging
-        console.log(`💬 Chat entry: ${contactName} - archived: ${isArchived}, unread: ${entry.unreadCount || 0}`)
-
-        // Check if conversation already exists for this contact
+        // Check if conversation exists
         let { data: existingConversation } = await supabase
           .from('conversations')
           .select('id, archived, status')
@@ -1194,9 +1329,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         if (existingConversation) {
           conversationId = existingConversation.id;
           
-          // Update existing conversation status based on import
           const updates: any = {};
-          
           if (isArchived) {
             updates.archived = true;
             updates.status = 'resolved';
@@ -1211,7 +1344,6 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             await supabase.from('conversations').update(updates).eq('id', existingConversation.id);
             conversationUpdated = true;
           }
-          console.log(`📝 Found existing conversation for ${contactName}`);
         } else {
           // Create new conversation
           const { data: newConversation, error: convError } = await supabase
@@ -1225,6 +1357,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
               metadata: { 
                 instanceName, 
                 remoteJid,
+                idType: idInfo.type,
                 importedAt: new Date().toISOString()
               }
             })
@@ -1233,7 +1366,6 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
           if (convError) {
             if (convError.code === '23505') {
-              // Duplicate - fetch the existing one
               const { data: existing } = await supabase
                 .from('conversations')
                 .select('id')
@@ -1244,7 +1376,6 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
               
               if (existing) {
                 conversationId = existing.id;
-                console.log(`⚠️ Using existing conversation for ${contactName}`);
               } else {
                 return { contactUpdated, conversationUpdated: false, messagesImported: 0 };
               }
@@ -1255,11 +1386,11 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           } else {
             conversationId = newConversation.id;
             conversationUpdated = true;
-            console.log(`💬 Created conversation for ${contactName}${isArchived ? ' (archived)' : ''}`);
+            console.log(`💬 Created conversation for ${contactName}`);
           }
         }
         
-        // ALWAYS SYNC MESSAGES for all conversations (new AND existing)
+        // ALWAYS SYNC MESSAGES
         const messagesImported = await syncConversationMessages(conversationId, remoteJid, instanceName);
         console.log(`📨 Synced ${messagesImported} messages for ${contactName}`);
         
@@ -1270,9 +1401,8 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       }
     }
 
-    // Process CHATS FIRST (creates conversations) - important to do chats before contacts
-    // so that processedPhones doesn't skip chats that were already seen as contacts
-    console.log(`📋 Processing ${allChats.length} chats first...`);
+    // Process CHATS FIRST (creates conversations) - NOW INCLUDES GROUPS
+    console.log(`📋 Processing ${allChats.length} chats (including groups)...`);
     let totalMessagesImported = 0;
     
     for (const chat of allChats) {
@@ -1284,6 +1414,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         if (result.contactUpdated) importedContacts++;
         if (result.conversationUpdated) importedConversations++;
         if (result.messagesImported) totalMessagesImported += result.messagesImported;
+        if (result.isGroup) importedGroups++;
       }
     }
 
@@ -1364,7 +1495,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       }
     }
 
-    console.log(`✅ Import complete: ${importedContacts} contacts, ${importedConversations} conversations, ${totalMessagesImported} messages`);
+    console.log(`✅ Import complete: ${importedContacts} contacts, ${importedGroups} groups, ${importedConversations} conversations, ${totalMessagesImported} messages`);
     console.log(`✅ Third pass: ${contactsUpdatedFromAPI} contacts updated, ${existingConversationsSynced} existing conversations synced`);
 
     return new Response(JSON.stringify({ 
@@ -1372,10 +1503,11 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       totalContacts: allContacts.length,
       totalChats: allChats.length,
       importedContacts: importedContacts + contactsUpdatedFromAPI,
+      importedGroups,
       importedConversations: importedConversations + existingConversationsSynced,
       totalMessagesImported,
       skipped: skippedCount,
-      message: `${importedContacts + contactsUpdatedFromAPI} contato(s) processado(s), ${importedConversations + existingConversationsSynced} conversa(s) sincronizada(s), ${totalMessagesImported} mensagem(ns) importada(s)`
+      message: `${importedContacts + contactsUpdatedFromAPI} contato(s), ${importedGroups} grupo(s), ${importedConversations + existingConversationsSynced} conversa(s), ${totalMessagesImported} mensagem(ns) importada(s)`
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
