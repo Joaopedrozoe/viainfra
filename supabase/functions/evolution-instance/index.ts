@@ -1240,26 +1240,28 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     // THIRD PASS: Update contacts with phone-as-name and sync messages for existing conversations
     console.log(`🔄 Third pass: updating contacts with phone-as-name and syncing existing conversations...`);
     
-    // Find all contacts with name = phone in this company
-    const { data: contactsNeedingUpdate } = await supabase
+    // Find all contacts with name = phone (or just digits) that have conversations
+    const { data: contactsWithPhoneNames } = await supabase
       .from('contacts')
-      .select('id, name, phone, metadata')
+      .select(`
+        id, name, phone, metadata,
+        conversations!inner(id)
+      `)
       .eq('company_id', companyId)
+      .eq('conversations.channel', 'whatsapp')
       .not('phone', 'is', null);
     
     let contactsUpdatedFromAPI = 0;
     let existingConversationsSynced = 0;
     
-    if (contactsNeedingUpdate) {
-      for (const contact of contactsNeedingUpdate) {
+    console.log(`📋 Found ${contactsWithPhoneNames?.length || 0} contacts with conversations to check`);
+    
+    if (contactsWithPhoneNames) {
+      for (const contact of contactsWithPhoneNames) {
         const nameIsJustPhone = contact.name === contact.phone || /^\d+$/.test(contact.name);
         const remoteJid = contact.metadata?.remoteJid || `${contact.phone}@s.whatsapp.net`;
-        const phoneFromJid = remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '');
         
-        // Skip if already processed in this import
-        if (processedPhones.has(phoneFromJid) || processedPhones.has(contact.phone)) {
-          continue;
-        }
+        console.log(`🔍 Checking contact: ${contact.name} (${contact.phone}) - nameIsJustPhone: ${nameIsJustPhone}`);
         
         // Try to get contact info from Evolution API if name needs update
         if (nameIsJustPhone) {
@@ -1267,7 +1269,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             // Search in allContacts first (already fetched)
             const apiContact = allContacts.find((c: any) => {
               const cPhone = c.remoteJid?.replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '');
-              return cPhone === contact.phone || cPhone === phoneFromJid;
+              return cPhone === contact.phone || cPhone === contact.phone?.replace(/^55/, '');
             });
             
             if (apiContact?.pushName && apiContact.pushName !== contact.phone) {
@@ -1277,28 +1279,26 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
                 .eq('id', contact.id);
               console.log(`📝 Updated contact name: ${contact.phone} → ${apiContact.pushName}`);
               contactsUpdatedFromAPI++;
+            } else {
+              console.log(`⚠️ No pushName found for ${contact.phone} in API contacts`);
             }
           } catch (err) {
             console.log(`⚠️ Could not update contact ${contact.phone}:`, err);
           }
         }
         
-        // Sync messages for existing conversation if not already done
-        const { data: existingConv } = await supabase
-          .from('conversations')
-          .select('id')
-          .eq('contact_id', contact.id)
-          .eq('channel', 'whatsapp')
-          .maybeSingle();
-        
-        if (existingConv && !processedPhones.has(phoneFromJid)) {
-          const msgCount = await syncConversationMessages(existingConv.id, remoteJid, instanceName);
+        // ALWAYS sync messages for contacts with phone-as-name (they likely have incomplete history)
+        const conversations = contact.conversations as any[];
+        for (const conv of conversations) {
+          console.log(`📨 Syncing messages for conversation ${conv.id} (${contact.name})...`);
+          const msgCount = await syncConversationMessages(conv.id, remoteJid, instanceName);
           if (msgCount > 0) {
             totalMessagesImported += msgCount;
             existingConversationsSynced++;
-            console.log(`📨 Synced ${msgCount} messages for existing conversation: ${contact.name}`);
+            console.log(`✅ Synced ${msgCount} NEW messages for: ${contact.name}`);
+          } else {
+            console.log(`📭 No new messages to sync for: ${contact.name}`);
           }
-          processedPhones.add(phoneFromJid);
         }
       }
     }
