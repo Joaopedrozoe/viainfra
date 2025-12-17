@@ -43,6 +43,14 @@ const Settings = () => {
   const isAdmin = profile?.role === 'admin' || 
     profile?.email === "elisabete.silva@viainfra.com.br" || 
     profile?.email === "admin@sistema.com";
+  
+  // Debug log
+  console.log("Settings isAdmin check:", { 
+    role: profile?.role, 
+    email: profile?.email, 
+    isAdmin 
+  });
+  
   const tabsRef = useRef<HTMLDivElement>(null);
   const [isTabsOverflowing, setIsTabsOverflowing] = useState(false);
   
