@@ -259,8 +259,8 @@ serve(async (req) => {
           formattedPhone = `55${phone}`;
         }
 
-        // Fetch profile picture from Evolution API using authorized instance
-        const apiUrl = `${evolutionUrl}/chat/fetchProfilePictureUrl/${AUTHORIZED_INSTANCE}`;
+        // Fetch profile picture from Evolution API using the authorized instance
+        const apiUrl = `${evolutionUrl}/chat/fetchProfilePictureUrl/${instance.instance_name}`;
         console.log(`🔗 Calling: ${apiUrl} with number: ${formattedPhone}`);
         
         const response = await fetch(apiUrl, {
