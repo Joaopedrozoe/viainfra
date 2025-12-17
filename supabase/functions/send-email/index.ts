@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
-import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
+import nodemailer from "npm:nodemailer@6.9.8";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -88,46 +88,41 @@ serve(async (req) => {
       throw new Error('No SMTP settings configured. Please configure SMTP in Settings > Email.');
     }
 
-    console.log(`📧 Using SMTP: ${smtpSettings.smtp_host}:${smtpSettings.smtp_port}`);
+    console.log(`📧 Using SMTP: ${smtpSettings.smtp_host}:${smtpSettings.smtp_port} (security: ${smtpSettings.smtp_security})`);
 
-    // Configure SMTP client
-    // Port 587 uses STARTTLS (starts plaintext, upgrades to TLS)
-    // Port 465 uses direct SSL/TLS
-    const useDirectTls = smtpSettings.smtp_port === 465 || smtpSettings.smtp_security === 'SSL';
+    // Configure nodemailer transporter
+    const isSSL = smtpSettings.smtp_port === 465 || smtpSettings.smtp_security === 'SSL';
     
-    console.log(`📧 SMTP Config: port=${smtpSettings.smtp_port}, security=${smtpSettings.smtp_security}, directTls=${useDirectTls}`);
-    
-    const client = new SMTPClient({
-      connection: {
-        hostname: smtpSettings.smtp_host,
-        port: smtpSettings.smtp_port,
-        tls: useDirectTls,
-        auth: {
-          username: smtpSettings.smtp_user,
-          password: smtpSettings.smtp_password,
-        },
+    const transporter = nodemailer.createTransport({
+      host: smtpSettings.smtp_host,
+      port: smtpSettings.smtp_port,
+      secure: isSSL, // true for 465, false for other ports (STARTTLS)
+      auth: {
+        user: smtpSettings.smtp_user,
+        pass: smtpSettings.smtp_password,
       },
+      tls: {
+        rejectUnauthorized: false // Accept self-signed certificates
+      }
     });
 
     // Send email
-    await client.send({
+    const info = await transporter.sendMail({
       from: smtpSettings.from_name 
-        ? `${smtpSettings.from_name} <${smtpSettings.from_email}>` 
+        ? `"${smtpSettings.from_name}" <${smtpSettings.from_email}>` 
         : smtpSettings.from_email,
       to: to,
       subject: subject,
-      content: "auto",
       html: html,
     });
 
-    await client.close();
-
-    console.log(`✅ Email sent successfully to: ${to}`);
+    console.log(`✅ Email sent successfully to: ${to}, messageId: ${info.messageId}`);
 
     return new Response(
       JSON.stringify({ 
         success: true, 
-        message: `Email sent to ${to}`
+        message: `Email sent to ${to}`,
+        messageId: info.messageId
       }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
