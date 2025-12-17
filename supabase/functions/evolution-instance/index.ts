@@ -1424,6 +1424,36 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           .eq('channel', 'whatsapp')
           .maybeSingle();
 
+        // CRITICAL: Before creating a NEW conversation, verify there are actual messages
+        // This prevents importing contacts that have no message history
+        if (!existingConversation && source === 'chats') {
+          // First, check if there are any messages for this contact in Evolution API
+          const testJid = phoneNumber ? `${phoneNumber}@s.whatsapp.net` : remoteJid;
+          const testResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+            method: 'POST',
+            headers: {
+              'apikey': evolutionApiKey,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              where: { key: { remoteJid: testJid } },
+              limit: 5 // Just check if ANY messages exist
+            })
+          });
+          
+          if (testResponse.ok) {
+            const testData = await testResponse.json();
+            const testMsgs = Array.isArray(testData) ? testData : 
+                            (testData?.messages?.records || testData?.messages || []);
+            
+            if (testMsgs.length === 0) {
+              console.log(`⏭️ SKIP ${contactName}: No messages found in API - contact only, no conversation`);
+              return { contactUpdated, conversationUpdated: false, messagesImported: 0 };
+            }
+            console.log(`✅ ${contactName} has ${testMsgs.length}+ messages - will create conversation`);
+          }
+        }
+
         let conversationId: string;
         let conversationUpdated = false;
 
@@ -1446,7 +1476,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             conversationUpdated = true;
           }
         } else {
-          // Create new conversation
+          // Create new conversation - only if we passed the message check above
           const { data: newConversation, error: convError } = await supabase
             .from('conversations')
             .insert({
@@ -1491,7 +1521,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           }
         }
         
-        // ALWAYS SYNC MESSAGES
+        // ALWAYS SYNC MESSAGES for existing or new conversations
         const messagesImported = await syncConversationMessages(conversationId, remoteJid, instanceName);
         console.log(`📨 Synced ${messagesImported} messages for ${contactName}`);
         
