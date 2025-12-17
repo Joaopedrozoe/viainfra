@@ -800,19 +800,28 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     // Helper function to extract valid phone from entry
     // CRITICAL: ONLY accept fields that contain valid WhatsApp JIDs (@s.whatsapp.net or @c.us)
     // This prevents internal database IDs (cmh..., etc) from being treated as phone numbers
-    function extractPhoneNumber(entry: any): string | null {
+    // ALSO: Try to find phone from allContacts when entry uses @lid format
+    function extractPhoneNumber(entry: any, allContactsList?: any[]): string | null {
       // Priority order - only fields that should contain phone/WhatsApp IDs
       const jidFields = [
         entry.remoteJid,      // WhatsApp JID (xxxxx@s.whatsapp.net)
         entry.jid,            // Alternative JID field
       ];
 
+      // Check if this is an @lid entry
+      const hasLidFormat = jidFields.some(f => f && typeof f === 'string' && f.includes('@lid'));
+      
       // FIRST: Try to extract from valid WhatsApp JID format (REQUIRED for import)
       for (const field of jidFields) {
         if (!field || typeof field !== 'string') continue;
         
-        // Skip groups, internal IDs, broadcasts, @lid
-        if (field.includes('@g.us') || field.includes('@lid') || field.includes('@broadcast')) {
+        // Skip groups, broadcasts
+        if (field.includes('@g.us') || field.includes('@broadcast')) {
+          continue;
+        }
+        
+        // Skip @lid - but we'll try to find phone via pushName below
+        if (field.includes('@lid')) {
           continue;
         }
 
@@ -847,6 +856,31 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         if (isValidPhoneNumber(phone)) {
           return phone;
         }
+      }
+      
+      // THIRD: For @lid entries, try to find phone from allContacts by pushName
+      if (hasLidFormat && allContactsList && entry.pushName) {
+        const pushName = entry.pushName.toLowerCase().trim();
+        console.log(`🔍 @lid detected for "${entry.pushName}", searching in contacts...`);
+        
+        for (const contact of allContactsList) {
+          const contactPushName = (contact.pushName || contact.name || '').toLowerCase().trim();
+          
+          if (contactPushName === pushName) {
+            // Found matching contact, try to extract phone from it
+            const contactJid = contact.remoteJid || contact.jid;
+            if (contactJid && (contactJid.includes('@s.whatsapp.net') || contactJid.includes('@c.us'))) {
+              let phone = contactJid.replace('@s.whatsapp.net', '').replace('@c.us', '');
+              phone = phone.replace(/\D/g, '');
+              
+              if (isValidPhoneNumber(phone)) {
+                console.log(`✅ Found phone for @lid "${entry.pushName}": ${phone}`);
+                return phone;
+              }
+            }
+          }
+        }
+        console.log(`⚠️ Could not find phone for @lid "${entry.pushName}" in contacts`);
       }
 
       return null;
@@ -1049,8 +1083,8 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           return { skipped: true, reason: 'group' };
         }
 
-        // Extract valid phone number
-        const phoneNumber = extractPhoneNumber(entry);
+        // Extract valid phone number - pass allContacts for @lid resolution
+        const phoneNumber = extractPhoneNumber(entry, allContacts);
         
         if (!phoneNumber) {
           // Log only first 100 chars to avoid log spam
