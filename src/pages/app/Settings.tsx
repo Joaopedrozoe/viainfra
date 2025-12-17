@@ -40,15 +40,9 @@ const Settings = () => {
   
   
   // Verificar se é admin para abas empresa, email e permissões
-  const isAdmin = profile?.email === "elisabete.silva@viainfra.com.br" || profile?.email === "admin@sistema.com";
-  
-  // Debug logs
-  console.log("Settings Debug:", { 
-    profileEmail: profile?.email, 
-    isAdmin, 
-    expectedEmail: "elisabete.silva@viainfra.com.br",
-    match: profile?.email === "elisabete.silva@viainfra.com.br"
-  });
+  const isAdmin = profile?.role === 'admin' || 
+    profile?.email === "elisabete.silva@viainfra.com.br" || 
+    profile?.email === "admin@sistema.com";
   const tabsRef = useRef<HTMLDivElement>(null);
   const [isTabsOverflowing, setIsTabsOverflowing] = useState(false);
   
