@@ -34,14 +34,22 @@ export const WhatsAppInstanceManager = () => {
     setBotStatus(savedStatus);
   }, [instances]);
 
-  // Filtrar instâncias conectadas e ocultar instâncias específicas (mostrar apenas TESTE2 e novas criadas)
-  const HIDDEN_INSTANCES = ['TESTE', 'TINFO', 'tinfo', 'JUNIORCORRETOR', 'juniorcorretor', 'teste', 'VIAINFRA', 'VIAINFRA2', 'viainfra', 'viainfra2', 'TESTE CONEXÃO AUTONOMA', 'Via Infra ', 'Via Infra'];
+  // Filtrar instâncias e ocultar instâncias específicas
+  const HIDDEN_INSTANCES = ['TESTE', 'TINFO', 'tinfo', 'JUNIORCORRETOR', 'juniorcorretor', 'teste', 'VIAINFRA', 'VIAINFRA2', 'viainfra', 'viainfra2', 'TESTE CONEXÃO AUTONOMA', 'Via Infra ', 'Via Infra', 'OFICIAL', 'TINFO - 35'];
+  
+  // Instâncias que devem sempre ser mostradas (mesmo desconectadas)
+  const ALWAYS_SHOW_INSTANCES = ['VIAINFRAOFICIAL', 'TESTE2'];
   
   const connectedInstances = useMemo(() => {
     return instances.filter(instance => {
       // Ocultar instâncias específicas
       if (HIDDEN_INSTANCES.includes(instance.instance_name)) {
         return false;
+      }
+      
+      // Sempre mostrar instâncias prioritárias
+      if (ALWAYS_SHOW_INSTANCES.includes(instance.instance_name)) {
+        return true;
       }
       
       const status = instance.status?.toLowerCase();
