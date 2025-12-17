@@ -1,6 +1,6 @@
 
-import { memo, useState } from "react";
-import { ArrowLeft, MoreVertical, User, X, ArrowRightLeft } from "lucide-react";
+import { memo, useState, useEffect } from "react";
+import { ArrowLeft, MoreVertical, User, X, ArrowRightLeft, Bot, BotOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChannelIcon } from "../conversation/ChannelIcon";
 import { Channel } from "@/types/conversation";
@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,9 +45,96 @@ export const ChatHeader = memo(({
   const [showTransferDialog, setShowTransferDialog] = useState(false);
   const [selectedDepartment, setSelectedDepartment] = useState<string>("");
   const [imageError, setImageError] = useState(false);
+  const [botActive, setBotActive] = useState<boolean>(true);
+  const [botLoading, setBotLoading] = useState(false);
+  
+  // Carregar estado do bot e subscription para atualizações em tempo real
+  useEffect(() => {
+    if (!conversationId) return;
+    
+    const loadBotState = async () => {
+      const { data } = await supabase
+        .from('conversations')
+        .select('bot_active, metadata')
+        .eq('id', conversationId)
+        .single();
+      
+      if (data) {
+        // Verificar ambos: coluna bot_active E metadata.agent_takeover
+        const metadata = data.metadata as Record<string, unknown> | null;
+        const agentTakeover = metadata?.agent_takeover === true;
+        setBotActive(data.bot_active !== false && !agentTakeover);
+      }
+    };
+    
+    loadBotState();
+    
+    // Subscription para atualizações em tempo real
+    const channel = supabase
+      .channel(`bot-status-${conversationId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'conversations',
+        filter: `id=eq.${conversationId}`
+      }, (payload) => {
+        if (payload.new) {
+          const newData = payload.new as { bot_active?: boolean; metadata?: Record<string, unknown> };
+          const agentTakeover = newData.metadata?.agent_takeover === true;
+          setBotActive(newData.bot_active !== false && !agentTakeover);
+        }
+      })
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [conversationId]);
   
   if (!userName) return null;
 
+  // FUNÇÃO CRÍTICA: Assumir/Reativar Conversa
+  const handleToggleBot = async () => {
+    if (!conversationId) return;
+    
+    setBotLoading(true);
+    try {
+      const newBotState = !botActive;
+      
+      // Buscar metadata atual para preservar outros dados
+      const { data: currentConv } = await supabase
+        .from('conversations')
+        .select('metadata')
+        .eq('id', conversationId)
+        .single();
+      
+      const currentMetadata = (currentConv?.metadata as Record<string, unknown>) || {};
+      
+      // ATUALIZAÇÃO CRÍTICA: Atualizar AMBOS bot_active E metadata.agent_takeover
+      const { error } = await supabase
+        .from('conversations')
+        .update({ 
+          bot_active: newBotState,
+          metadata: {
+            ...currentMetadata,
+            agent_takeover: !newBotState, // true quando agente assume (bot desativado)
+            agent_takeover_at: !newBotState ? new Date().toISOString() : null
+          }
+        })
+        .eq('id', conversationId);
+      
+      if (error) throw error;
+      
+      setBotActive(newBotState);
+      toast.success(newBotState ? 'Bot reativado' : 'Você assumiu a conversa');
+      
+    } catch (error) {
+      console.error('Erro ao alternar bot:', error);
+      toast.error('Erro ao alternar controle da conversa');
+    } finally {
+      setBotLoading(false);
+    }
+  };
 
   const handleTransferDepartment = () => {
     if (!selectedDepartment || !conversationId) return;
@@ -116,6 +204,19 @@ export const ChatHeader = memo(({
           <DropdownMenuItem onClick={() => setShowTransferDialog(true)}>
             <ArrowRightLeft className="mr-2 h-4 w-4" />
             Transferir Departamento
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleToggleBot} disabled={botLoading}>
+            {botActive ? (
+              <>
+                <BotOff className="mr-2 h-4 w-4" />
+                Assumir Conversa
+              </>
+            ) : (
+              <>
+                <Bot className="mr-2 h-4 w-4" />
+                Reativar Bot
+              </>
+            )}
           </DropdownMenuItem>
           {onEndConversation && (
             <DropdownMenuItem 

@@ -1093,6 +1093,50 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     return;
   }
   
+  // ============================================================
+  // VERIFICAÇÃO TRIPLA - AGENT TAKEOVER
+  // ============================================================
+  
+  // BUSCAR ESTADO FRESCO DO BANCO - NUNCA usar estado em cache!
+  const { data: freshConversation, error: freshError } = await supabase
+    .from('conversations')
+    .select('id, bot_active, metadata, status, contacts(phone)')
+    .eq('id', conversationId)
+    .single();
+
+  if (freshError) {
+    console.error('[BOT] Erro ao buscar estado FRESCO da conversa:', freshError);
+    return;
+  }
+
+  // Log detalhado para debug
+  console.log('[BOT] Estado FRESCO da conversa:', {
+    id: freshConversation.id,
+    bot_active: freshConversation.bot_active,
+    agent_takeover: freshConversation.metadata?.agent_takeover,
+    status: freshConversation.status
+  });
+
+  // DECISÃO TRIPLA: Bot deve responder SOMENTE se:
+  // 1. bot_active === true (coluna não foi desativada)
+  // 2. agent_takeover !== true (agente não assumiu via metadata)
+  // 3. status !== 'pending' (não está aguardando atendente)
+  const botActive = freshConversation.bot_active !== false;
+  const agentTakeover = freshConversation.metadata?.agent_takeover === true;
+  const isPending = freshConversation.status === 'pending';
+  
+  const botShouldRespond = botActive && !agentTakeover && !isPending;
+
+  if (!botShouldRespond) {
+    console.log('[BOT] ❌ Bot NÃO responderá.');
+    console.log('  - bot_active:', botActive);
+    console.log('  - agent_takeover:', agentTakeover);
+    console.log('  - isPending:', isPending);
+    return;
+  }
+
+  console.log('[BOT] ✅ Bot ATIVO - processando resposta...');
+  
   // PROTEÇÃO 1: Anti-flood ANTES de qualquer processamento
   const floodCheck = await shouldSkipBotResponse(supabase, conversationId);
   if (floodCheck) {
@@ -1102,20 +1146,8 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
   // PROTEÇÃO 2: Lock otimista - verificar e adquirir lock
   const lockTimestamp = Date.now();
   
-  // Buscar conversa para verificar lock existente
-  const { data: conversation, error: convError } = await supabase
-    .from('conversations')
-    .select('status, metadata, contacts(phone)')
-    .eq('id', conversationId)
-    .single();
-  
-  if (convError) {
-    console.error('Error fetching conversation:', convError);
-    return;
-  }
-  
   // Verificar se outro processo já está processando (lock ativo nos últimos 10 segundos)
-  const existingLock = conversation?.metadata?.bot_processing_lock;
+  const existingLock = freshConversation?.metadata?.bot_processing_lock;
   if (existingLock && (lockTimestamp - existingLock) < 10000 && existingLock !== lockTimestamp) {
     console.log(`🔒 Bot já está processando esta conversa (lock: ${existingLock}). Ignorando.`);
     return;
@@ -1126,7 +1158,7 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     .from('conversations')
     .update({ 
       metadata: {
-        ...conversation.metadata,
+        ...freshConversation.metadata,
         bot_processing_lock: lockTimestamp
       }
     })
@@ -1145,10 +1177,8 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     return;
   }
 
-  if (conversation.status === 'pending') {
-    console.log('⏸️ Conversa em status "pending" - aguardando atendente. Bot não responderá.');
-    return;
-  }
+  // Usar freshConversation como conversation daqui em diante
+  const conversation = freshConversation;
 
   if (!bots || bots.length === 0) {
     console.log('No active WhatsApp bots found');
