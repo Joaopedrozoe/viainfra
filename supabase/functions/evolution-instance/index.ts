@@ -925,10 +925,10 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       return { content: '[Mensagem não suportada]', type: 'unknown' };
     }
 
-    // Helper function to sync messages for a conversation during import
+    // Helper function to sync ALL messages for a conversation - NO LIMITS
     async function syncConversationMessages(conversationId: string, remoteJid: string, instanceName: string): Promise<number> {
       try {
-        console.log(`📨 Fetching messages for: ${remoteJid}...`);
+        console.log(`📨 Fetching ALL messages for: ${remoteJid}...`);
         
         // First, get existing message IDs to avoid duplicates
         const { data: existingMessages } = await supabase
@@ -946,13 +946,16 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         }
         console.log(`📋 Conversation already has ${existingMessageIds.size} messages with IDs`);
         
-        // Try multiple JID formats - some contacts may have different formats in the API
-        const phoneOnly = remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '');
-        const jidVariants = [
+        // For groups, use the JID directly
+        const isGroup = remoteJid.includes('@g.us');
+        
+        // Try multiple JID formats for individual contacts
+        const phoneOnly = remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '').replace('@g.us', '');
+        const jidVariants = isGroup ? [remoteJid] : [
           remoteJid,
           `${phoneOnly}@s.whatsapp.net`,
           phoneOnly.startsWith('55') ? `${phoneOnly.substring(2)}@s.whatsapp.net` : null,
-          !phoneOnly.startsWith('55') ? `55${phoneOnly}@s.whatsapp.net` : null,
+          !phoneOnly.startsWith('55') && phoneOnly.length >= 10 ? `55${phoneOnly}@s.whatsapp.net` : null,
         ].filter(Boolean) as string[];
         
         let messages: any[] = [];
@@ -961,37 +964,56 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         for (const jidToTry of jidVariants) {
           console.log(`🔍 Trying JID format: ${jidToTry}...`);
           
-          const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
-            method: 'POST',
-            headers: {
-              'apikey': evolutionApiKey,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              where: {
-                key: {
-                  remoteJid: jidToTry
-                }
-              },
-              limit: 9999 // High limit to get full message history
-            })
-          });
-
-          if (!messagesResponse.ok) {
-            console.log(`⚠️ Failed to fetch with JID ${jidToTry}: ${messagesResponse.status}`);
-            continue;
-          }
-
-          const messagesData = await messagesResponse.json();
-          const fetchedMsgs = Array.isArray(messagesData) ? messagesData : 
-                          (messagesData?.messages?.records || messagesData?.messages || []);
+          // Try fetching with NO limit first, then with high limit
+          const fetchConfigs = [
+            { limit: undefined }, // No limit
+            { limit: 99999 },     // Very high limit
+            {}                    // Default
+          ];
           
-          if (fetchedMsgs.length > 0) {
-            messages = fetchedMsgs;
-            usedJid = jidToTry;
-            console.log(`✅ Found ${messages.length} messages with JID: ${jidToTry}`);
-            break;
+          for (const config of fetchConfigs) {
+            try {
+              const requestBody: any = {
+                where: {
+                  key: {
+                    remoteJid: jidToTry
+                  }
+                }
+              };
+              
+              if (config.limit) {
+                requestBody.limit = config.limit;
+              }
+              
+              const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+                method: 'POST',
+                headers: {
+                  'apikey': evolutionApiKey,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
+              });
+
+              if (!messagesResponse.ok) {
+                continue;
+              }
+
+              const messagesData = await messagesResponse.json();
+              const fetchedMsgs = Array.isArray(messagesData) ? messagesData : 
+                              (messagesData?.messages?.records || messagesData?.messages || []);
+              
+              if (fetchedMsgs.length > 0) {
+                messages = fetchedMsgs;
+                usedJid = jidToTry;
+                console.log(`✅ Found ${messages.length} messages with JID: ${jidToTry}`);
+                break;
+              }
+            } catch (e) {
+              continue;
+            }
           }
+          
+          if (messages.length > 0) break;
         }
 
         if (messages.length === 0) {
@@ -1005,6 +1027,13 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         let skippedDuplicates = 0;
         let lastMsgTimestamp: Date | null = null;
         
+        // Sort messages by timestamp to ensure correct order
+        messages.sort((a, b) => {
+          const tsA = a.messageTimestamp || a.key?.messageTimestamp || 0;
+          const tsB = b.messageTimestamp || b.key?.messageTimestamp || 0;
+          return (typeof tsA === 'number' ? tsA : 0) - (typeof tsB === 'number' ? tsB : 0);
+        });
+        
         for (const msg of messages) {
           try {
             const messageId = msg.key?.id;
@@ -1017,7 +1046,8 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             
             const { content, type } = extractMessageContent(msg);
             
-            if (!content || content === '' || type === 'unknown') continue;
+            // Allow empty content for some message types (stickers, etc)
+            if (type === 'unknown') continue;
 
             const timestamp = msg.messageTimestamp || msg.key?.messageTimestamp;
             if (!timestamp) continue;
@@ -1031,16 +1061,25 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
             const isFromMe = msg.key?.fromMe === true;
             
+            // Get participant name for group messages
+            let senderName = '';
+            if (isGroup && !isFromMe && msg.pushName) {
+              senderName = msg.pushName;
+            }
+            
+            const finalContent = senderName && content ? `${senderName}: ${content}` : (content || '[Mídia]');
+            
             const { error: msgError } = await supabase
               .from('messages')
               .insert({
                 conversation_id: conversationId,
-                content: content,
+                content: finalContent,
                 sender_type: isFromMe ? 'agent' : 'user',
                 created_at: msgDate.toISOString(),
                 metadata: {
                   messageId: messageId,
-                  type: type
+                  type: type,
+                  participant: senderName || undefined
                 }
               });
 
@@ -1089,15 +1128,43 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         const jid = entry.remoteJid || entry.jid || entry.id || idInfo.identifier;
         const isGroup = idInfo.type === 'group' || entry.isGroup === true || jid.includes('@g.us');
         
-        // Get name from entry
-        const entryName = entry.pushName || entry.name || entry.subject || entry.notify || entry.verifiedName || null;
-        const profilePicUrl = entry.profilePictureUrl || entry.profilePicUrl || entry.imgUrl || null;
+        // Get name from entry - try ALL possible fields
+        const entryName = entry.pushName || entry.name || entry.subject || entry.notify || 
+                         entry.verifiedName || entry.formattedName || entry.displayName || null;
+        const profilePicUrl = entry.profilePictureUrl || entry.profilePicUrl || entry.imgUrl || 
+                             entry.profilePicThumbObj?.eurl || null;
 
-        console.log(`📱 Processing ${isGroup ? 'GROUP' : idInfo.type}: ${entryName || idInfo.identifier}${isArchived ? ' [archived]' : ''}`);
+        console.log(`📱 Processing ${isGroup ? 'GROUP' : idInfo.type}: ${entryName || idInfo.identifier}${isArchived ? ' [archived]' : ''} (pushName: ${entry.pushName}, name: ${entry.name}, subject: ${entry.subject})`);
 
         // ===== HANDLE GROUPS =====
         if (isGroup) {
-          const groupName = entryName || `Grupo ${jid.split('@')[0]}`;
+          let groupName = entryName;
+          
+          // If no name, try to fetch group info from API
+          if (!groupName || groupName.startsWith('Grupo ')) {
+            try {
+              const groupInfoResponse = await fetch(`${evolutionApiUrl}/group/findGroupInfos/${instanceName}`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'apikey': evolutionApiKey,
+                },
+                body: JSON.stringify({ groupJid: jid })
+              });
+              
+              if (groupInfoResponse.ok) {
+                const groupInfo = await groupInfoResponse.json();
+                if (groupInfo?.subject) {
+                  groupName = groupInfo.subject;
+                  console.log(`📛 Got group name from API: ${groupName}`);
+                }
+              }
+            } catch (e) {
+              console.log(`⚠️ Could not fetch group info for ${jid}`);
+            }
+          }
+          
+          groupName = groupName || `Grupo ${jid.split('@')[0]}`;
           
           // Check if group contact exists
           let { data: existingGroupContact } = await supabase
@@ -1334,9 +1401,18 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           }
         }
 
-        // For contacts source, only create/update the contact, not conversation
+        // For contacts source ALSO create conversation if they have chats in allChats
         if (source === 'contacts') {
-          return { contactUpdated, conversationUpdated: false, messagesImported: 0 };
+          // Check if this contact has a chat - if so, we should create conversation
+          const hasChat = allChats.some((chat: any) => {
+            const chatPhone = (chat.remoteJid || chat.jid || '').replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '');
+            return phoneNumber && (chatPhone === phoneNumber || chatPhone === normalizePhone(phoneNumber));
+          });
+          
+          if (!hasChat) {
+            return { contactUpdated, conversationUpdated: false, messagesImported: 0 };
+          }
+          console.log(`📱 Contact ${contactName} has chat - creating conversation`);
         }
         
         // Check if conversation exists
