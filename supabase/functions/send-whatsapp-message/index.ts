@@ -93,9 +93,8 @@ serve(async (req) => {
     }
 
     // Buscar instância WhatsApp conectada (status 'open' = conectada)
-    // Instâncias autorizadas por nome ou número
+    // Instâncias autorizadas por nome
     const AUTHORIZED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL'];
-    const AUTHORIZED_PHONE = '5511940027215';
     
     console.log('Buscando instância WhatsApp para company_id:', conversation.company_id);
     
