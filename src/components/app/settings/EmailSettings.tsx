@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,11 +7,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Mail, Server, Shield, TestTube, AlertCircle } from "lucide-react";
+import { Mail, Server, Shield, TestTube, AlertCircle, Eye, EyeOff, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/auth";
 
 export const EmailSettings = () => {
+  const { profile } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connected' | 'testing'>('disconnected');
+  const [showPassword, setShowPassword] = useState(false);
   
   // SMTP Configuration
   const [smtpHost, setSmtpHost] = useState("");
@@ -21,26 +26,83 @@ export const EmailSettings = () => {
   const [smtpSecurity, setSmtpSecurity] = useState("TLS");
   const [fromEmail, setFromEmail] = useState("");
   const [fromName, setFromName] = useState("");
+  const [existingId, setExistingId] = useState<string | null>(null);
+
+  // Load existing settings
+  useEffect(() => {
+    const loadSettings = async () => {
+      if (!profile?.company_id) return;
+
+      try {
+        const { data, error } = await supabase
+          .from('smtp_settings')
+          .select('*')
+          .eq('company_id', profile.company_id)
+          .maybeSingle();
+
+        if (error) {
+          console.error('Error loading SMTP settings:', error);
+          return;
+        }
+
+        if (data) {
+          setExistingId(data.id);
+          setSmtpHost(data.smtp_host || '');
+          setSmtpPort(String(data.smtp_port) || '587');
+          setSmtpUser(data.smtp_user || '');
+          setSmtpPassword(data.smtp_password || '');
+          setSmtpSecurity(data.smtp_security || 'TLS');
+          setFromEmail(data.from_email || '');
+          setFromName(data.from_name || '');
+          setConnectionStatus(data.is_active ? 'connected' : 'disconnected');
+        }
+      } catch (err) {
+        console.error('Error:', err);
+      }
+    };
+
+    loadSettings();
+  }, [profile?.company_id]);
 
   const handleTestConnection = async () => {
-    if (!smtpHost || !smtpUser || !smtpPassword) {
+    if (!smtpHost || !smtpUser || !smtpPassword || !fromEmail) {
       toast.error("Preencha todos os campos obrigatórios");
       return;
     }
 
     setConnectionStatus('testing');
-    setIsLoading(true);
+    setIsTesting(true);
 
     try {
-      // Simulate connection test
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      setConnectionStatus('connected');
-      toast.success("Conexão SMTP testada com sucesso!");
-    } catch (error) {
+      // Test by sending email to the from address
+      const { data, error } = await supabase.functions.invoke('send-email', {
+        body: {
+          to: fromEmail,
+          subject: 'Teste de Conexão SMTP - ChatVia',
+          html: `
+            <h1>Teste de Conexão SMTP</h1>
+            <p>Se você recebeu este e-mail, sua configuração SMTP está funcionando corretamente!</p>
+            <p><strong>Servidor:</strong> ${smtpHost}:${smtpPort}</p>
+            <p><strong>Data:</strong> ${new Date().toLocaleString('pt-BR')}</p>
+          `,
+          companyId: profile?.company_id
+        }
+      });
+
+      if (error) throw error;
+
+      if (data?.success) {
+        setConnectionStatus('connected');
+        toast.success("Conexão SMTP testada com sucesso! Verifique seu e-mail.");
+      } else {
+        throw new Error(data?.error || 'Falha no teste');
+      }
+    } catch (error: any) {
       setConnectionStatus('disconnected');
-      toast.error("Falha na conexão SMTP. Verifique as configurações.");
+      console.error('SMTP test error:', error);
+      toast.error(error.message || "Falha na conexão SMTP. Verifique as configurações.");
     } finally {
-      setIsLoading(false);
+      setIsTesting(false);
     }
   };
 
@@ -50,14 +112,56 @@ export const EmailSettings = () => {
       return;
     }
 
+    if (!profile?.company_id) {
+      toast.error("Empresa não encontrada");
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      // Simulate save
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const settingsData = {
+        company_id: profile.company_id,
+        smtp_host: smtpHost.trim(),
+        smtp_port: parseInt(smtpPort),
+        smtp_user: smtpUser.trim(),
+        smtp_password: smtpPassword,
+        smtp_security: smtpSecurity,
+        from_email: fromEmail.trim(),
+        from_name: fromName.trim() || null,
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      };
+
+      let error;
+
+      if (existingId) {
+        // Update existing
+        const result = await supabase
+          .from('smtp_settings')
+          .update(settingsData)
+          .eq('id', existingId);
+        error = result.error;
+      } else {
+        // Insert new
+        const result = await supabase
+          .from('smtp_settings')
+          .insert(settingsData)
+          .select()
+          .single();
+        error = result.error;
+        if (result.data) {
+          setExistingId(result.data.id);
+        }
+      }
+
+      if (error) throw error;
+
+      setConnectionStatus('connected');
       toast.success("Configurações de e-mail salvas com sucesso!");
-    } catch (error) {
-      toast.error("Erro ao salvar configurações");
+    } catch (error: any) {
+      console.error('Error saving SMTP settings:', error);
+      toast.error(error.message || "Erro ao salvar configurações");
     } finally {
       setIsLoading(false);
     }
@@ -66,11 +170,11 @@ export const EmailSettings = () => {
   const getStatusBadge = () => {
     switch (connectionStatus) {
       case 'connected':
-        return <Badge className="bg-green-100 text-green-800">Conectado</Badge>;
+        return <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">Configurado</Badge>;
       case 'testing':
-        return <Badge className="bg-yellow-100 text-yellow-800">Testando...</Badge>;
+        return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">Testando...</Badge>;
       default:
-        return <Badge variant="outline">Desconectado</Badge>;
+        return <Badge variant="outline">Não configurado</Badge>;
     }
   };
 
@@ -85,7 +189,7 @@ export const EmailSettings = () => {
                 Configurações de E-mail
               </CardTitle>
               <CardDescription>
-                Configure seu servidor SMTP para envio de e-mails do sistema.
+                Configure seu servidor SMTP para envio de e-mails do sistema (recuperação de senha, notificações, etc).
               </CardDescription>
             </div>
             {getStatusBadge()}
@@ -116,6 +220,9 @@ export const EmailSettings = () => {
                       onChange={(e) => setSmtpHost(e.target.value)}
                       placeholder="smtp.gmail.com"
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Ex: smtp.gmail.com, smtp.office365.com
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="smtp-port">Porta *</Label>
@@ -125,7 +232,7 @@ export const EmailSettings = () => {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="25">25 (Não seguro)</SelectItem>
-                        <SelectItem value="587">587 (TLS)</SelectItem>
+                        <SelectItem value="587">587 (TLS - Recomendado)</SelectItem>
                         <SelectItem value="465">465 (SSL)</SelectItem>
                       </SelectContent>
                     </Select>
@@ -134,23 +241,37 @@ export const EmailSettings = () => {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="smtp-user">Usuário *</Label>
+                    <Label htmlFor="smtp-user">Usuário/E-mail *</Label>
                     <Input
                       id="smtp-user"
                       value={smtpUser}
                       onChange={(e) => setSmtpUser(e.target.value)}
-                      placeholder="seu-email@exemplo.com"
+                      placeholder="noreply@viainfra.com.br"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="smtp-password">Senha *</Label>
-                    <Input
-                      id="smtp-password"
-                      type="password"
-                      value={smtpPassword}
-                      onChange={(e) => setSmtpPassword(e.target.value)}
-                      placeholder="••••••••"
-                    />
+                    <Label htmlFor="smtp-password">Senha/App Password *</Label>
+                    <div className="relative">
+                      <Input
+                        id="smtp-password"
+                        type={showPassword ? "text" : "password"}
+                        value={smtpPassword}
+                        onChange={(e) => setSmtpPassword(e.target.value)}
+                        placeholder="••••••••••••••••"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                        onClick={() => setShowPassword(!showPassword)}
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Para Gmail/Google Workspace, use uma "Senha de App"
+                    </p>
                   </div>
                 </div>
 
@@ -162,7 +283,7 @@ export const EmailSettings = () => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="NONE">Nenhuma</SelectItem>
-                      <SelectItem value="TLS">TLS</SelectItem>
+                      <SelectItem value="TLS">TLS (Recomendado)</SelectItem>
                       <SelectItem value="SSL">SSL</SelectItem>
                     </SelectContent>
                   </Select>
@@ -186,6 +307,9 @@ export const EmailSettings = () => {
                       onChange={(e) => setFromEmail(e.target.value)}
                       placeholder="noreply@viainfra.com.br"
                     />
+                    <p className="text-xs text-muted-foreground">
+                      Deve ser autorizado no servidor SMTP
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="from-name">Nome do Remetente</Label>
@@ -193,7 +317,7 @@ export const EmailSettings = () => {
                       id="from-name"
                       value={fromName}
                       onChange={(e) => setFromName(e.target.value)}
-                      placeholder="ChatVia Infra"
+                      placeholder="ChatVia ViaInfra"
                     />
                   </div>
                 </div>
@@ -206,15 +330,22 @@ export const EmailSettings = () => {
                   <h4 className="font-medium text-blue-800 dark:text-blue-200">Testar Configuração</h4>
                 </div>
                 <p className="text-sm text-blue-700 dark:text-blue-300 mb-3">
-                  Teste a conexão SMTP antes de salvar as configurações.
+                  Enviaremos um e-mail de teste para {fromEmail || 'o endereço do remetente'}.
                 </p>
                 <Button 
                   onClick={handleTestConnection}
-                  disabled={isLoading || connectionStatus === 'testing'}
+                  disabled={isTesting || !smtpHost || !smtpUser || !smtpPassword || !fromEmail}
                   variant="outline"
                   size="sm"
                 >
-                  {connectionStatus === 'testing' ? "Testando..." : "Testar Conexão"}
+                  {isTesting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Enviando teste...
+                    </>
+                  ) : (
+                    "Testar Conexão"
+                  )}
                 </Button>
               </div>
             </TabsContent>
@@ -230,17 +361,13 @@ export const EmailSettings = () => {
                   <CardHeader>
                     <CardTitle className="text-base">Redefinição de Senha</CardTitle>
                     <CardDescription>
-                      Template usado para envio de links de redefinição de senha.
+                      Template usado para envio de códigos de redefinição de senha.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-2">
-                      <Label htmlFor="reset-subject">Assunto</Label>
-                      <Input
-                        id="reset-subject"
-                        defaultValue="Redefinir sua senha - ChatVia"
-                        placeholder="Assunto do e-mail"
-                      />
+                    <div className="bg-muted p-4 rounded-lg text-sm">
+                      <p><strong>Assunto:</strong> Redefinição de Senha - ChatVia</p>
+                      <p className="mt-2"><strong>Conteúdo:</strong> Inclui código de 6 dígitos válido por 30 minutos.</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -249,17 +376,12 @@ export const EmailSettings = () => {
                   <CardHeader>
                     <CardTitle className="text-base">Boas-vindas</CardTitle>
                     <CardDescription>
-                      Template enviado para novos usuários cadastrados.
+                      Template enviado para novos usuários cadastrados (em breve).
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-2">
-                      <Label htmlFor="welcome-subject">Assunto</Label>
-                      <Input
-                        id="welcome-subject"
-                        defaultValue="Bem-vindo ao ChatVia!"
-                        placeholder="Assunto do e-mail"
-                      />
+                    <div className="bg-muted p-4 rounded-lg text-sm text-muted-foreground">
+                      Template será disponibilizado em atualizações futuras.
                     </div>
                   </CardContent>
                 </Card>
@@ -271,10 +393,17 @@ export const EmailSettings = () => {
         <CardFooter>
           <Button 
             onClick={handleSaveSettings}
-            disabled={isLoading}
+            disabled={isLoading || !smtpHost || !smtpUser || !smtpPassword || !fromEmail}
             variant="viainfra"
           >
-            {isLoading ? "Salvando..." : "Salvar Configurações"}
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Salvando...
+              </>
+            ) : (
+              "Salvar Configurações"
+            )}
           </Button>
         </CardFooter>
       </Card>

@@ -541,6 +541,59 @@ export type Database = {
           },
         ]
       }
+      smtp_settings: {
+        Row: {
+          company_id: string
+          created_at: string
+          from_email: string
+          from_name: string | null
+          id: string
+          is_active: boolean | null
+          smtp_host: string
+          smtp_password: string
+          smtp_port: number
+          smtp_security: string
+          smtp_user: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          from_email: string
+          from_name?: string | null
+          id?: string
+          is_active?: boolean | null
+          smtp_host: string
+          smtp_password: string
+          smtp_port?: number
+          smtp_security?: string
+          smtp_user: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          from_email?: string
+          from_name?: string | null
+          id?: string
+          is_active?: boolean | null
+          smtp_host?: string
+          smtp_password?: string
+          smtp_port?: number
+          smtp_security?: string
+          smtp_user?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "smtp_settings_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       typing_status: {
         Row: {
           contact_id: string | null
