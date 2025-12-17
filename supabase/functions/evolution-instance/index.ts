@@ -1261,20 +1261,16 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           if (byJid) console.log(`✅ Found by JID: ${byJid.name}`);
         }
 
-        // CRITICAL: For @lid without phone, DON'T create new contact - SKIP
-        if (!existingContact && !phoneNumber && idInfo.type === 'lid') {
-          console.log(`⏭️ SKIP @lid without phone and no existing contact: ${contactName}`);
-          return { skipped: true, reason: 'lid_no_phone' };
+        // CRITICAL: For ANY entry without phone, DON'T create new contact - SKIP
+        // This prevents @lid duplicates and contacts without valid phone numbers
+        if (!existingContact && !phoneNumber) {
+          console.log(`⏭️ SKIP no phone and no existing contact: ${contactName} (type: ${idInfo.type})`);
+          return { skipped: true, reason: 'no_phone_no_match' };
         }
 
         if (!existingContact) {
-          // Only create if we have a phone or it's not a @lid
-          const normalizedPhone = phoneNumber ? normalizePhone(phoneNumber) : null;
-          
-          if (!normalizedPhone && source === 'contacts') {
-            console.log(`⏭️ SKIP contact without phone: ${contactName}`);
-            return { skipped: true, reason: 'no_phone_contact_source' };
-          }
+          // At this point we MUST have phoneNumber (checked above)
+          const normalizedPhone = normalizePhone(phoneNumber!);
           
           const { data: newContact, error: contactError } = await supabase
             .from('contacts')
@@ -1285,7 +1281,6 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
               avatar_url: profilePicUrl,
               metadata: { 
                 remoteJid: jid, 
-                idType: idInfo.type,
                 source: `whatsapp_import_${source}` 
               }
             })
@@ -1298,7 +1293,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           }
           contactId = newContact.id;
           contactUpdated = true;
-          console.log(`✅ Created contact: ${contactName} (${normalizedPhone || 'no phone'})`);
+          console.log(`✅ Created contact: ${contactName} (${normalizedPhone})`);
         } else {
           contactId = existingContact.id;
           
