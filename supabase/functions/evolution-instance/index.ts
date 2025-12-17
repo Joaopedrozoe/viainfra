@@ -898,6 +898,22 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       try {
         console.log(`📨 Fetching messages for: ${remoteJid}...`);
         
+        // First, get existing message IDs to avoid duplicates
+        const { data: existingMessages } = await supabase
+          .from('messages')
+          .select('metadata')
+          .eq('conversation_id', conversationId);
+        
+        const existingMessageIds = new Set<string>();
+        if (existingMessages) {
+          for (const msg of existingMessages) {
+            if (msg.metadata?.messageId) {
+              existingMessageIds.add(msg.metadata.messageId);
+            }
+          }
+        }
+        console.log(`📋 Conversation already has ${existingMessageIds.size} messages with IDs`);
+        
         const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
           method: 'POST',
           headers: {
@@ -909,7 +925,8 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
               key: {
                 remoteJid: remoteJid
               }
-            }
+            },
+            limit: 9999 // High limit to get full message history
           })
         });
 
@@ -927,13 +944,22 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           return 0;
         }
 
-        console.log(`📬 Found ${messages.length} messages to import`);
+        console.log(`📬 Found ${messages.length} messages from API`);
 
         let importedCount = 0;
+        let skippedDuplicates = 0;
         let lastMsgTimestamp: Date | null = null;
         
         for (const msg of messages) {
           try {
+            const messageId = msg.key?.id;
+            
+            // Skip if we already have this message
+            if (messageId && existingMessageIds.has(messageId)) {
+              skippedDuplicates++;
+              continue;
+            }
+            
             const { content, type } = extractMessageContent(msg);
             
             if (!content || content === '' || type === 'unknown') continue;
@@ -958,13 +984,14 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
                 sender_type: isFromMe ? 'agent' : 'user',
                 created_at: msgDate.toISOString(),
                 metadata: {
-                  messageId: msg.key?.id,
+                  messageId: messageId,
                   type: type
                 }
               });
 
             if (!msgError) {
               importedCount++;
+              if (messageId) existingMessageIds.add(messageId);
             }
           } catch (msgError) {
             console.error('Error importing message:', msgError);
@@ -979,6 +1006,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             .eq('id', conversationId);
         }
 
+        console.log(`📊 Messages: ${importedCount} imported, ${skippedDuplicates} duplicates skipped`);
         return importedCount;
       } catch (error) {
         console.error('Error syncing messages:', error);
@@ -1003,14 +1031,15 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           return { skipped: true, reason: 'invalid_phone' };
         }
         
-        // Skip if already processed
+        // Skip if already processed in this import run
         if (processedPhones.has(phoneNumber)) {
           return { skipped: true, reason: 'duplicate' };
         }
         processedPhones.add(phoneNumber);
 
-        // Get contact name - prefer pushName, then name, then notify
-        const contactName = entry.pushName || entry.name || entry.notify || entry.verifiedName || phoneNumber;
+        // Get contact name from WhatsApp - prefer pushName over generic fields
+        const whatsAppName = entry.pushName || entry.name || entry.notify || entry.verifiedName || null;
+        const contactName = whatsAppName || phoneNumber;
         const profilePicUrl = entry.profilePictureUrl || entry.profilePicUrl || entry.imgUrl || null;
         
         // Build proper WhatsApp JID from phone number
@@ -1031,7 +1060,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           .maybeSingle();
 
         let contactId;
-        let contactCreated = false;
+        let contactUpdated = false;
 
         if (!existingContact) {
           // Create contact with normalized phone
@@ -1052,29 +1081,38 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             return { skipped: true, reason: 'contact_error' };
           }
           contactId = newContact.id;
-          contactCreated = true;
+          contactUpdated = true;
           console.log(`✅ Created contact: ${contactName} (${phoneNumber})`);
         } else {
           contactId = existingContact.id;
           
-          // Update contact name/avatar if better data available
+          // ALWAYS update contact if WhatsApp has a name and current name is just the phone number
           const updates: any = {};
-          if (contactName && contactName !== phoneNumber && existingContact.name === phoneNumber) {
-            updates.name = contactName;
+          const existingNameIsJustPhone = existingContact.name === existingContact.phone || 
+                                           existingContact.name === normalizedPhone ||
+                                           /^\d+$/.test(existingContact.name);
+          
+          // If we have a real name from WhatsApp and current name is just a number, update it
+          if (whatsAppName && existingNameIsJustPhone) {
+            updates.name = whatsAppName;
+            console.log(`📝 Updating contact name from "${existingContact.name}" to "${whatsAppName}"`);
           }
+          
+          // Update avatar if available and contact doesn't have one
           if (profilePicUrl && !existingContact.avatar_url) {
             updates.avatar_url = profilePicUrl;
           }
+          
           if (Object.keys(updates).length > 0) {
             await supabase.from('contacts').update(updates).eq('id', contactId);
+            contactUpdated = true;
             console.log(`📝 Updated contact: ${contactName}`);
           }
         }
 
-        // For contacts source, only create the contact, not conversation
-        // For chats source, always create conversation - if it's in chats list, it has history
+        // For contacts source, only create/update the contact, not conversation
         if (source === 'contacts') {
-          return { contactCreated, conversationCreated: false };
+          return { contactUpdated, conversationUpdated: false, messagesImported: 0 };
         }
         
         // Log chat info for debugging
@@ -1089,64 +1127,82 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           .eq('channel', 'whatsapp')
           .maybeSingle();
 
+        let conversationId: string;
+        let conversationUpdated = false;
+
         if (existingConversation) {
+          conversationId = existingConversation.id;
+          
           // Update existing conversation status based on import
-          const updates: any = { updated_at: new Date().toISOString() };
+          const updates: any = {};
           
           if (isArchived) {
-            // If archived in WhatsApp, mark as resolved/archived
             updates.archived = true;
             updates.status = 'resolved';
           } else {
-            // If active in WhatsApp, reopen the conversation
             updates.archived = false;
             if (existingConversation.status === 'resolved') {
               updates.status = 'open';
             }
           }
           
-          await supabase.from('conversations').update(updates).eq('id', existingConversation.id);
-          console.log(`📝 Updated conversation for ${contactName} (${isArchived ? 'archived' : 'active'})`);
-          return { contactCreated, conversationCreated: false };
-        }
-
-        // Create new conversation only if doesn't exist
-        const { data: newConversation, error: convError } = await supabase
-          .from('conversations')
-          .insert({
-            company_id: companyId,
-            contact_id: contactId,
-            channel: 'whatsapp',
-            status: isArchived ? 'resolved' : 'open',
-            archived: isArchived,
-            metadata: { 
-              instanceName, 
-              remoteJid,
-              importedAt: new Date().toISOString()
-            }
-          })
-          .select()
-          .single();
-
-        if (convError) {
-          // If duplicate key error, conversation was created by another concurrent request - that's OK
-          if (convError.code === '23505') {
-            console.log(`⚠️ Conversation already exists for ${contactName} (concurrent)`);
-            return { contactCreated, conversationCreated: false };
+          if (Object.keys(updates).length > 0) {
+            await supabase.from('conversations').update(updates).eq('id', existingConversation.id);
+            conversationUpdated = true;
           }
-          console.error('Error creating conversation:', convError);
-          return { contactCreated, conversationCreated: false };
+          console.log(`📝 Found existing conversation for ${contactName}`);
+        } else {
+          // Create new conversation
+          const { data: newConversation, error: convError } = await supabase
+            .from('conversations')
+            .insert({
+              company_id: companyId,
+              contact_id: contactId,
+              channel: 'whatsapp',
+              status: isArchived ? 'resolved' : 'open',
+              archived: isArchived,
+              metadata: { 
+                instanceName, 
+                remoteJid,
+                importedAt: new Date().toISOString()
+              }
+            })
+            .select()
+            .single();
+
+          if (convError) {
+            if (convError.code === '23505') {
+              // Duplicate - fetch the existing one
+              const { data: existing } = await supabase
+                .from('conversations')
+                .select('id')
+                .eq('company_id', companyId)
+                .eq('contact_id', contactId)
+                .eq('channel', 'whatsapp')
+                .maybeSingle();
+              
+              if (existing) {
+                conversationId = existing.id;
+                console.log(`⚠️ Using existing conversation for ${contactName}`);
+              } else {
+                return { contactUpdated, conversationUpdated: false, messagesImported: 0 };
+              }
+            } else {
+              console.error('Error creating conversation:', convError);
+              return { contactUpdated, conversationUpdated: false, messagesImported: 0 };
+            }
+          } else {
+            conversationId = newConversation.id;
+            conversationUpdated = true;
+            console.log(`💬 Created conversation for ${contactName}${isArchived ? ' (archived)' : ''}`);
+          }
         }
         
-        console.log(`💬 Created conversation for ${contactName}${isArchived ? ' (archived)' : ''}`);
+        // ALWAYS SYNC MESSAGES for all conversations (new AND existing)
+        const messagesImported = await syncConversationMessages(conversationId, remoteJid, instanceName);
+        console.log(`📨 Synced ${messagesImported} messages for ${contactName}`);
         
-        // SYNC MESSAGES for the new conversation
-        if (newConversation) {
-          const messagesImported = await syncConversationMessages(newConversation.id, remoteJid, instanceName);
-          console.log(`📨 Imported ${messagesImported} messages for ${contactName}`);
-        }
-        
-        return { contactCreated, conversationCreated: true };
+        return { contactUpdated, conversationUpdated, messagesImported };
       } catch (entryError) {
         console.error('Error processing entry:', entryError);
         return { skipped: true, reason: 'error' };
@@ -1156,14 +1212,17 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     // Process CHATS FIRST (creates conversations) - important to do chats before contacts
     // so that processedPhones doesn't skip chats that were already seen as contacts
     console.log(`📋 Processing ${allChats.length} chats first...`);
+    let totalMessagesImported = 0;
+    
     for (const chat of allChats) {
       const isArchived = chat.archive === true || chat.archived === true;
       const result = await processEntry(chat, 'chats', isArchived);
       if (result.skipped) {
         skippedCount++;
       } else {
-        if (result.contactCreated) importedContacts++;
-        if (result.conversationCreated) importedConversations++;
+        if (result.contactUpdated) importedContacts++;
+        if (result.conversationUpdated) importedConversations++;
+        if (result.messagesImported) totalMessagesImported += result.messagesImported;
       }
     }
 
@@ -1174,12 +1233,11 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       if (result.skipped) {
         skippedCount++;
       } else {
-        if (result.contactCreated) importedContacts++;
-        if (result.conversationCreated) importedConversations++;
+        if (result.contactUpdated) importedContacts++;
       }
     }
 
-    console.log(`✅ Import complete: ${importedContacts} contacts, ${importedConversations} conversations, ${skippedCount} skipped`);
+    console.log(`✅ Import complete: ${importedContacts} contacts, ${importedConversations} conversations, ${totalMessagesImported} messages, ${skippedCount} skipped`);
 
     return new Response(JSON.stringify({ 
       success: true,
@@ -1187,8 +1245,9 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       totalChats: allChats.length,
       importedContacts,
       importedConversations,
+      totalMessagesImported,
       skipped: skippedCount,
-      message: `${importedContacts} contato(s) importado(s), ${importedConversations} conversa(s) criada(s)`
+      message: `${importedContacts} contato(s) processado(s), ${importedConversations} conversa(s) processada(s), ${totalMessagesImported} mensagem(ns) importada(s)`
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
