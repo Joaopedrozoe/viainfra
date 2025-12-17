@@ -1093,32 +1093,60 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     return;
   }
   
-  // Buscar conversa e bot em paralelo para reduzir latência
-  const [floodCheck, conversationResult, botsResult] = await Promise.all([
-    shouldSkipBotResponse(supabase, conversationId),
-    supabase.from('conversations').select('status, metadata, contacts(phone)').eq('id', conversationId).single(),
-    supabase.from('bots').select('*').contains('channels', ['whatsapp']).eq('status', 'published').limit(1)
-  ]);
-  
-  // PROTEÇÃO 2: Anti-flood - evitar múltiplas respostas do bot
+  // PROTEÇÃO 1: Anti-flood ANTES de qualquer processamento
+  const floodCheck = await shouldSkipBotResponse(supabase, conversationId);
   if (floodCheck) {
     return;
   }
-
-  const { data: conversation, error: convError } = conversationResult;
+  
+  // PROTEÇÃO 2: Lock otimista - verificar e adquirir lock
+  const lockTimestamp = Date.now();
+  
+  // Buscar conversa para verificar lock existente
+  const { data: conversation, error: convError } = await supabase
+    .from('conversations')
+    .select('status, metadata, contacts(phone)')
+    .eq('id', conversationId)
+    .single();
+  
   if (convError) {
     console.error('Error fetching conversation:', convError);
+    return;
+  }
+  
+  // Verificar se outro processo já está processando (lock ativo nos últimos 10 segundos)
+  const existingLock = conversation?.metadata?.bot_processing_lock;
+  if (existingLock && (lockTimestamp - existingLock) < 10000 && existingLock !== lockTimestamp) {
+    console.log(`🔒 Bot já está processando esta conversa (lock: ${existingLock}). Ignorando.`);
+    return;
+  }
+  
+  // Atualizar lock no metadata
+  await supabase
+    .from('conversations')
+    .update({ 
+      metadata: {
+        ...conversation.metadata,
+        bot_processing_lock: lockTimestamp
+      }
+    })
+    .eq('id', conversationId);
+  
+  // Buscar bot
+  const { data: bots, error: botsError } = await supabase
+    .from('bots')
+    .select('*')
+    .contains('channels', ['whatsapp'])
+    .eq('status', 'published')
+    .limit(1);
+
+  if (botsError) {
+    console.error('Error fetching bots:', botsError);
     return;
   }
 
   if (conversation.status === 'pending') {
     console.log('⏸️ Conversa em status "pending" - aguardando atendente. Bot não responderá.');
-    return;
-  }
-  
-  const { data: bots, error: botsError } = botsResult;
-  if (botsError) {
-    console.error('Error fetching bots:', botsError);
     return;
   }
 
