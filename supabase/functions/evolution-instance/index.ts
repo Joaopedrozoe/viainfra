@@ -478,7 +478,7 @@ async function toggleBot(req: Request, supabase: any, evolutionApiUrl: string, e
 }
 
 // ============================================================
-// FETCH CHATS - IMPORTAÇÃO COMPLETA PROFISSIONAL
+// FETCH CHATS - IMPORTAÇÃO COMPLETA PROFISSIONAL v3
 // ============================================================
 async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
   try {
@@ -491,7 +491,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     }
 
     console.log(`\n========================================`);
-    console.log(`📥 IMPORTAÇÃO COMPLETA: ${instanceName}`);
+    console.log(`📥 IMPORTAÇÃO COMPLETA v3: ${instanceName}`);
     console.log(`========================================\n`);
 
     // Get instance record
@@ -561,64 +561,45 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     }
 
     // ============================================================
-    // FETCH ALL DATA FROM EVOLUTION API
-    // ============================================================
-    
-    let allContacts: any[] = [];
-    let allChats: any[] = [];
-
-    // Fetch contacts
-    console.log(`👥 Buscando contatos...`);
-    try {
-      const contactsResponse = await fetch(`${evolutionApiUrl}/chat/findContacts/${instanceName}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-        body: JSON.stringify({ where: {} })
-      });
-
-      if (contactsResponse.ok) {
-        const contactsData = await contactsResponse.json();
-        allContacts = Array.isArray(contactsData) ? contactsData : [];
-        console.log(`✅ ${allContacts.length} contatos encontrados`);
-      }
-    } catch (e) {
-      console.log(`⚠️ Erro ao buscar contatos:`, e);
-    }
-
-    // Fetch chats
-    console.log(`💬 Buscando chats...`);
-    try {
-      const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-        body: JSON.stringify({})
-      });
-
-      if (chatsResponse.ok) {
-        const chatsData = await chatsResponse.json();
-        allChats = Array.isArray(chatsData) ? chatsData : [];
-        console.log(`✅ ${allChats.length} chats encontrados`);
-      }
-    } catch (e) {
-      console.log(`⚠️ Erro ao buscar chats:`, e);
-    }
-
-    // ============================================================
     // HELPER FUNCTIONS
     // ============================================================
+
+    function isValidBrazilianPhone(phone: string): boolean {
+      const digits = phone.replace(/\D/g, '');
+      // Valid formats: 11 digits (with country code 55) or 10-11 without
+      // Examples: 5511999999999 (13), 11999999999 (11), 999999999 (9-10)
+      return /^55\d{10,11}$/.test(digits) || /^\d{10,11}$/.test(digits);
+    }
 
     function normalizePhone(phone: string): string {
       if (!phone) return '';
       const digits = phone.replace(/\D/g, '');
-      if (digits.length >= 10 && digits.length <= 11 && !digits.startsWith('55')) {
+      // Add country code if missing and looks like Brazilian number
+      if ((digits.length === 10 || digits.length === 11) && !digits.startsWith('55')) {
         return '55' + digits;
       }
       return digits;
     }
 
-    function isValidPhone(phone: string): boolean {
-      const digits = phone.replace(/\D/g, '');
-      return /^\d{10,15}$/.test(digits);
+    function extractPhoneFromJid(jid: string): string | null {
+      if (!jid) return null;
+      
+      // Skip non-phone JIDs
+      if (jid.includes('@g.us') || jid.includes('@broadcast') || 
+          jid.includes('@lid') || jid.startsWith('status@')) {
+        return null;
+      }
+      
+      // Extract from @s.whatsapp.net or @c.us
+      const match = jid.match(/^(\d+)@/);
+      if (match && match[1]) {
+        const digits = match[1];
+        // Valid phone should be 10-15 digits
+        if (digits.length >= 10 && digits.length <= 15 && isValidBrazilianPhone(digits)) {
+          return digits;
+        }
+      }
+      return null;
     }
 
     function extractMessageContent(msg: any): { content: string; type: string } {
@@ -640,20 +621,78 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       return { content: '[Mensagem]', type: 'other' };
     }
 
-    // Build contacts lookup map from Evolution API contacts (for name resolution)
+    // ============================================================
+    // FETCH ALL DATA FROM EVOLUTION API
+    // ============================================================
+    
+    let allContacts: any[] = [];
+    let allChats: any[] = [];
+
+    // Fetch contacts first
+    console.log(`👥 Buscando contatos...`);
+    try {
+      const contactsResponse = await fetch(`${evolutionApiUrl}/chat/findContacts/${instanceName}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
+        body: JSON.stringify({ where: {} })
+      });
+
+      if (contactsResponse.ok) {
+        const contactsData = await contactsResponse.json();
+        allContacts = Array.isArray(contactsData) ? contactsData : [];
+        console.log(`✅ ${allContacts.length} contatos encontrados na API`);
+        
+        // Log first 5 contacts for debugging
+        console.log(`📇 Amostra de contatos:`);
+        allContacts.slice(0, 5).forEach((c, i) => {
+          console.log(`  ${i+1}. JID: ${c.remoteJid || c.jid}, Name: ${c.pushName || c.name || 'N/A'}`);
+        });
+      }
+    } catch (e) {
+      console.log(`⚠️ Erro ao buscar contatos:`, e);
+    }
+
+    // Build contacts lookup map (phone -> name)
     const contactsNameMap = new Map<string, string>();
     for (const contact of allContacts) {
-      const jid = contact.remoteJid || contact.jid;
+      const jid = contact.remoteJid || contact.jid || '';
       const name = contact.pushName || contact.name || contact.notify || contact.verifiedName;
-      if (jid && name) {
-        const phone = jid.replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '');
+      
+      if (name) {
+        const phone = extractPhoneFromJid(jid);
         if (phone) {
+          const normalized = normalizePhone(phone);
           contactsNameMap.set(phone, name);
-          contactsNameMap.set(normalizePhone(phone), name);
+          contactsNameMap.set(normalized, name);
         }
       }
     }
     console.log(`📇 Mapa de nomes criado: ${contactsNameMap.size} entradas`);
+
+    // Fetch chats
+    console.log(`💬 Buscando chats...`);
+    try {
+      const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
+        body: JSON.stringify({})
+      });
+
+      if (chatsResponse.ok) {
+        const chatsData = await chatsResponse.json();
+        allChats = Array.isArray(chatsData) ? chatsData : [];
+        console.log(`✅ ${allChats.length} chats encontrados na API`);
+        
+        // Log first 10 chats for debugging
+        console.log(`💬 Amostra de chats:`);
+        allChats.slice(0, 10).forEach((c, i) => {
+          const jid = c.remoteJid || c.id || c.jid || '';
+          console.log(`  ${i+1}. JID: ${jid}, Name: ${c.pushName || c.name || c.subject || 'N/A'}, Archived: ${c.archive || c.archived || false}`);
+        });
+      }
+    } catch (e) {
+      console.log(`⚠️ Erro ao buscar chats:`, e);
+    }
 
     // ============================================================
     // PROCESS ALL CHATS
@@ -664,9 +703,11 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       contactsUpdated: 0,
       conversationsCreated: 0,
       conversationsUpdated: 0,
+      conversationsReused: 0,
       messagesImported: 0,
       groupsCreated: 0,
-      skipped: 0
+      skipped: 0,
+      invalidPhone: 0
     };
 
     const processedPhones = new Set<string>();
@@ -794,6 +835,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             stats.conversationsCreated++;
           } else {
             conversationId = existingConv.id;
+            stats.conversationsReused++;
             if (isArchived !== existingConv.archived) {
               await supabase.from('conversations')
                 .update({ archived: isArchived, status: isArchived ? 'resolved' : 'open' })
@@ -816,30 +858,13 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         // PROCESS INDIVIDUAL CHATS
         // ============================================================
         
-        // Extract phone number
-        let phone = '';
-        if (jid.includes('@s.whatsapp.net') || jid.includes('@c.us')) {
-          phone = jid.replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '');
-        } else if (chat.phone) {
-          phone = String(chat.phone).replace(/\D/g, '');
-        }
-
-        // Skip @lid without phone
-        if (jid.includes('@lid') && !phone) {
-          // Try to find phone from pushName match
-          const pushName = chat.pushName || chat.name;
-          if (pushName) {
-            for (const [p, n] of contactsNameMap.entries()) {
-              if (n.toLowerCase() === pushName.toLowerCase()) {
-                phone = p;
-                break;
-              }
-            }
-          }
-        }
-
-        if (!phone || !isValidPhone(phone)) {
-          stats.skipped++;
+        // Extract phone number from JID - STRICT validation
+        const phone = extractPhoneFromJid(jid);
+        
+        if (!phone) {
+          // Log why we're skipping
+          console.log(`⏭️ Skip: ${jid} (invalid phone format)`);
+          stats.invalidPhone++;
           continue;
         }
 
@@ -864,14 +889,32 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
         console.log(`📱 ${contactName} (${normalizedPhone})${isArchived ? ' [arquivado]' : ''}`);
 
-        // Find or create contact
-        let { data: existingContact } = await supabase
+        // Find or create contact - try multiple phone variations
+        let existingContact = null;
+        
+        // Try normalized phone first
+        let { data: contactByNorm } = await supabase
           .from('contacts')
           .select('id, name, avatar_url, phone')
           .eq('company_id', companyId)
-          .or(`phone.eq.${normalizedPhone},phone.eq.${phone}`)
-          .limit(1)
+          .eq('phone', normalizedPhone)
           .maybeSingle();
+        
+        if (contactByNorm) {
+          existingContact = contactByNorm;
+        } else {
+          // Try original phone
+          let { data: contactByOrig } = await supabase
+            .from('contacts')
+            .select('id, name, avatar_url, phone')
+            .eq('company_id', companyId)
+            .eq('phone', phone)
+            .maybeSingle();
+          
+          if (contactByOrig) {
+            existingContact = contactByOrig;
+          }
+        }
 
         let contactId;
         
@@ -952,7 +995,10 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
                 .eq('contact_id', contactId)
                 .eq('channel', 'whatsapp')
                 .maybeSingle();
-              if (dup) conversationId = dup.id;
+              if (dup) {
+                conversationId = dup.id;
+                stats.conversationsReused++;
+              }
             } else {
               console.error(`❌ Erro ao criar conversa:`, error);
               continue;
@@ -963,6 +1009,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           }
         } else {
           conversationId = existingConv.id;
+          stats.conversationsReused++;
           
           if (isArchived !== existingConv.archived) {
             await supabase.from('conversations')
@@ -974,11 +1021,18 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
         if (!conversationId) continue;
 
-        // Sync messages
-        const msgCount = await syncMessagesForConversation(
-          supabase, evolutionApiUrl, evolutionApiKey, instanceName,
-          conversationId, whatsappJid, extractMessageContent
-        );
+        // Sync messages - use both the original JID and normalized JID
+        const jidsToTry = [jid, whatsappJid, `${phone}@s.whatsapp.net`];
+        let msgCount = 0;
+        
+        for (const tryJid of [...new Set(jidsToTry)]) {
+          msgCount = await syncMessagesForConversation(
+            supabase, evolutionApiUrl, evolutionApiKey, instanceName,
+            conversationId, tryJid, extractMessageContent
+          );
+          if (msgCount > 0) break;
+        }
+        
         stats.messagesImported += msgCount;
 
       } catch (chatError) {
@@ -1015,23 +1069,30 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     console.log(`\n========================================`);
     console.log(`✅ IMPORTAÇÃO CONCLUÍDA`);
     console.log(`========================================`);
+    console.log(`📊 Chats processados: ${sortedChats.length}`);
     console.log(`📊 Contatos: ${stats.contactsCreated} criados, ${stats.contactsUpdated + namesUpdated} atualizados`);
     console.log(`📊 Grupos: ${stats.groupsCreated} criados`);
-    console.log(`📊 Conversas: ${stats.conversationsCreated} criadas, ${stats.conversationsUpdated} atualizadas`);
+    console.log(`📊 Conversas: ${stats.conversationsCreated} criadas, ${stats.conversationsReused} reusadas, ${stats.conversationsUpdated} atualizadas`);
     console.log(`📊 Mensagens: ${stats.messagesImported} importadas`);
-    console.log(`📊 Ignorados: ${stats.skipped}`);
+    console.log(`📊 Ignorados: ${stats.skipped} (telefone inválido: ${stats.invalidPhone})`);
     console.log(`========================================\n`);
 
     return new Response(JSON.stringify({ 
       success: true,
       totalChats: allChats.length,
       totalContacts: allContacts.length,
-      importedContacts: stats.contactsCreated + stats.contactsUpdated + namesUpdated,
-      importedGroups: stats.groupsCreated,
-      importedConversations: stats.conversationsCreated + stats.conversationsUpdated,
-      totalMessagesImported: stats.messagesImported,
-      skipped: stats.skipped,
-      message: `${stats.contactsCreated} contato(s), ${stats.groupsCreated} grupo(s), ${stats.conversationsCreated} conversa(s), ${stats.messagesImported} mensagem(ns)`
+      stats: {
+        contactsCreated: stats.contactsCreated,
+        contactsUpdated: stats.contactsUpdated + namesUpdated,
+        groupsCreated: stats.groupsCreated,
+        conversationsCreated: stats.conversationsCreated,
+        conversationsReused: stats.conversationsReused,
+        conversationsUpdated: stats.conversationsUpdated,
+        messagesImported: stats.messagesImported,
+        skipped: stats.skipped,
+        invalidPhone: stats.invalidPhone
+      },
+      message: `${stats.contactsCreated} contato(s), ${stats.groupsCreated} grupo(s), ${stats.conversationsCreated + stats.conversationsReused} conversa(s), ${stats.messagesImported} mensagem(ns)`
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -1048,7 +1109,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 }
 
 // ============================================================
-// SYNC MESSAGES FOR A CONVERSATION
+// SYNC MESSAGES FOR A CONVERSATION v2
 // ============================================================
 async function syncMessagesForConversation(
   supabase: any, 
@@ -1060,6 +1121,8 @@ async function syncMessagesForConversation(
   extractMessageContent: (msg: any) => { content: string; type: string }
 ): Promise<number> {
   try {
+    console.log(`  📨 Buscando mensagens para: ${remoteJid}`);
+    
     // Get existing message IDs to avoid duplicates
     const { data: existingMessages } = await supabase
       .from('messages')
@@ -1074,6 +1137,7 @@ async function syncMessagesForConversation(
         }
       }
     }
+    console.log(`  📊 Mensagens existentes: ${existingMessageIds.size}`);
 
     // Build JID variants for searching
     const isGroup = remoteJid.includes('@g.us');
@@ -1082,11 +1146,13 @@ async function syncMessagesForConversation(
     const jidVariants = isGroup ? [remoteJid] : [
       remoteJid,
       `${phoneOnly}@s.whatsapp.net`,
+      `${phoneOnly}@c.us`,
       phoneOnly.startsWith('55') ? `${phoneOnly.substring(2)}@s.whatsapp.net` : null,
       !phoneOnly.startsWith('55') && phoneOnly.length >= 10 ? `55${phoneOnly}@s.whatsapp.net` : null,
     ].filter(Boolean) as string[];
 
     let messages: any[] = [];
+    let successJid: string | null = null;
 
     // Try each JID variant
     for (const jidToTry of jidVariants) {
@@ -1107,6 +1173,8 @@ async function syncMessagesForConversation(
           
           if (fetchedMsgs.length > 0) {
             messages = fetchedMsgs;
+            successJid = jidToTry;
+            console.log(`  ✅ ${fetchedMsgs.length} msgs encontradas com JID: ${jidToTry}`);
             break;
           }
         }
@@ -1116,6 +1184,7 @@ async function syncMessagesForConversation(
     }
 
     if (messages.length === 0) {
+      console.log(`  ⚠️ Nenhuma mensagem encontrada para: ${remoteJid}`);
       return 0;
     }
 
@@ -1127,6 +1196,7 @@ async function syncMessagesForConversation(
     });
 
     let importedCount = 0;
+    let skippedDuplicates = 0;
     let lastMsgTimestamp: Date | null = null;
 
     for (const msg of messages) {
@@ -1135,6 +1205,16 @@ async function syncMessagesForConversation(
         
         // Skip duplicates
         if (messageId && existingMessageIds.has(messageId)) {
+          skippedDuplicates++;
+          // Still track timestamp even for existing messages
+          const timestamp = msg.messageTimestamp || msg.key?.messageTimestamp;
+          if (timestamp) {
+            const msgDate = new Date(typeof timestamp === 'number' ? 
+              (timestamp > 9999999999 ? timestamp : timestamp * 1000) : timestamp);
+            if (!lastMsgTimestamp || msgDate > lastMsgTimestamp) {
+              lastMsgTimestamp = msgDate;
+            }
+          }
           continue;
         }
 
@@ -1184,8 +1264,10 @@ async function syncMessagesForConversation(
         .from('conversations')
         .update({ updated_at: lastMsgTimestamp.toISOString() })
         .eq('id', conversationId);
+      console.log(`  ⏰ Timestamp atualizado: ${lastMsgTimestamp.toISOString()}`);
     }
 
+    console.log(`  📥 Importadas: ${importedCount}, Duplicatas: ${skippedDuplicates}`);
     return importedCount;
   } catch (error) {
     console.error('Erro ao sincronizar mensagens:', error);
