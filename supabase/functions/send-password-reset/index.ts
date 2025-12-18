@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
-import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
+import nodemailer from "npm:nodemailer@6.9.8";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -42,7 +42,6 @@ serve(async (req) => {
     
     if (listError) {
       console.error('Error listing users:', listError);
-      // Don't reveal if user exists or not
       return new Response(
         JSON.stringify({ 
           success: true, 
@@ -56,7 +55,6 @@ serve(async (req) => {
 
     if (!user) {
       console.log(`User not found: ${email}`);
-      // Don't reveal if user exists - security best practice
       return new Response(
         JSON.stringify({ 
           success: true, 
@@ -104,7 +102,7 @@ serve(async (req) => {
 
     // Generate reset token (6 digit code)
     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const resetExpiry = new Date(Date.now() + 30 * 60 * 1000).toISOString(); // 30 minutes
+    const resetExpiry = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
     // Store reset code in user metadata
     const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(user.id, {
@@ -121,8 +119,6 @@ serve(async (req) => {
     }
 
     // Build reset email HTML
-    const resetUrl = `${req.headers.get('origin') || 'https://chatvia.viainfra.com.br'}/auth?reset=true&email=${encodeURIComponent(email)}`;
-    
     const html = `
       <!DOCTYPE html>
       <html>
@@ -134,7 +130,6 @@ serve(async (req) => {
           .header { text-align: center; padding: 20px 0; }
           .code { background: #f4f4f4; padding: 20px; text-align: center; font-size: 32px; letter-spacing: 8px; font-weight: bold; border-radius: 8px; margin: 20px 0; }
           .footer { text-align: center; color: #666; font-size: 12px; margin-top: 30px; }
-          .button { display: inline-block; background: #10b981; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; margin: 20px 0; }
         </style>
       </head>
       <body>
@@ -143,13 +138,12 @@ serve(async (req) => {
             <h1>Redefinição de Senha</h1>
           </div>
           <p>Olá,</p>
-          <p>Recebemos uma solicitação para redefinir a senha da sua conta associada a este e-mail.</p>
+          <p>Recebemos uma solicitação para redefinir a senha da sua conta.</p>
           <p>Seu código de verificação é:</p>
           <div class="code">${resetCode}</div>
           <p>Este código expira em <strong>30 minutos</strong>.</p>
           <p>Se você não solicitou esta redefinição, ignore este e-mail.</p>
           <div class="footer">
-            <p>Este é um e-mail automático, por favor não responda.</p>
             <p>© ${new Date().getFullYear()} ViaInfra - Todos os direitos reservados</p>
           </div>
         </div>
@@ -157,32 +151,27 @@ serve(async (req) => {
       </html>
     `;
 
-    // Send email via SMTP
-    console.log(`📧 Sending reset email via ${smtpSettings.smtp_host}`);
+    // Configure nodemailer transporter
+    console.log(`📧 Sending reset email via ${smtpSettings.smtp_host}:${smtpSettings.smtp_port}`);
     
-    const client = new SMTPClient({
-      connection: {
-        hostname: smtpSettings.smtp_host,
-        port: smtpSettings.smtp_port,
-        tls: smtpSettings.smtp_security === 'TLS' || smtpSettings.smtp_security === 'SSL',
-        auth: {
-          username: smtpSettings.smtp_user,
-          password: smtpSettings.smtp_password,
-        },
+    const transporter = nodemailer.createTransport({
+      host: smtpSettings.smtp_host,
+      port: smtpSettings.smtp_port,
+      secure: smtpSettings.smtp_port === 465, // true for 465, false for other ports
+      auth: {
+        user: smtpSettings.smtp_user,
+        pass: smtpSettings.smtp_password,
       },
     });
 
-    await client.send({
+    await transporter.sendMail({
       from: smtpSettings.from_name 
-        ? `${smtpSettings.from_name} <${smtpSettings.from_email}>` 
+        ? `"${smtpSettings.from_name}" <${smtpSettings.from_email}>` 
         : smtpSettings.from_email,
       to: email,
       subject: 'Redefinição de Senha - ChatVia',
-      content: "auto",
       html: html,
     });
-
-    await client.close();
 
     console.log(`✅ Reset email sent to: ${email}`);
 
