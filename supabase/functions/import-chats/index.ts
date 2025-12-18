@@ -82,7 +82,7 @@ serve(async (req) => {
     }
 
     // Stats
-    const stats = { contacts: 0, conversations: 0, messages: 0, groups: 0 };
+    const stats = { contacts: 0, conversations: 0, messages: 0, groups: 0, skipped: 0 };
 
     // 1. BUSCAR CHATS
     console.log(`📥 Buscando chats...`);
@@ -101,7 +101,7 @@ serve(async (req) => {
     const allChats = Array.isArray(chatsData) ? chatsData : (chatsData?.chats || []);
     console.log(`✅ ${allChats.length} chats encontrados`);
 
-    // 2. BUSCAR CONTATOS PARA NOMES (E PARA PROCESSAR ADICIONAL)
+    // 2. BUSCAR CONTATOS PARA NOMES
     let contactsData: any[] = [];
     try {
       const contactsResponse = await fetch(`${evolutionApiUrl}/chat/findContacts/${instanceName}`, {
@@ -116,37 +116,64 @@ serve(async (req) => {
       }
     } catch (e) { /* ignore */ }
 
-    // Mapa JID -> nome E track dos JIDs processados
+    // Mapa JID -> nome
     const nameMap = new Map<string, string>();
-    const processedJids = new Set<string>();
-    
     for (const c of contactsData) {
       const jid = c.remoteJid || c.jid || c.id;
       const name = c.pushName || c.name || c.notify || c.verifiedName;
       if (jid && name) nameMap.set(jid, name);
     }
 
-    // 3. PROCESSAR TODOS OS CHATS DA API
-    const chatsToProcess = allChats;
-    console.log(`🔄 Processando ${chatsToProcess.length} chats...\n`);
+    // 3. PROCESSAR CHATS - IMPORTANTE: só criar conversa se tiver mensagens
+    console.log(`🔄 Processando ${allChats.length} chats...\n`);
 
-    for (const chat of chatsToProcess) {
+    for (const chat of allChats) {
       const jid = chat.remoteJid || chat.id || chat.jid || '';
       if (!jid || jid.includes('@broadcast') || jid.startsWith('status@')) continue;
       
       const isGroup = jid.includes('@g.us');
       const chatName = chat.name || chat.pushName || chat.subject || nameMap.get(jid) || '';
-      const profilePic = chat.profilePictureUrl || chat.imgUrl || null;
 
       try {
+        // SKIP @lid - não processar mensagens de @lid
+        if (jid.includes('@lid')) {
+          console.log(`  ⏭️ Ignorando @lid: ${jid}`);
+          stats.skipped++;
+          continue;
+        }
+
+        // Extrair telefone
+        const phoneMatch = jid.match(/^(\d+)@/);
+        if (!phoneMatch && !isGroup) continue;
+        
+        let phone = phoneMatch ? phoneMatch[1] : '';
+        if (!isGroup) {
+          if (phone.length > 15) continue;
+          if (phone.length === 10 || phone.length === 11) {
+            phone = '55' + phone;
+          }
+          if (phone.length < 8) continue;
+        }
+
+        // **NOVA LÓGICA**: Buscar mensagens PRIMEIRO
+        const messages = await fetchMessagesFromApi(evolutionApiUrl, evolutionApiKey, instanceName, jid);
+        
+        if (messages.length === 0) {
+          console.log(`  ⏭️ Sem mensagens: ${chatName || jid}`);
+          stats.skipped++;
+          continue;
+        }
+
+        console.log(`  📨 ${messages.length} mensagens para: ${chatName || phone || jid}`);
+
+        // Agora sim criar contato e conversa (pois temos mensagens)
         let contactId: string | null = null;
-        let convId: string | null = null;
-        let contactPhone: string | null = null; // Telefone do contato para sync de mensagens
+        const profilePic = chat.profilePictureUrl || chat.imgUrl || null;
+
         if (isGroup) {
           stats.groups++;
-          let groupName = chatName || `Grupo ${jid.slice(-8)}`;
+          const groupName = chatName || `Grupo ${jid.slice(-8)}`;
 
-          // Criar/encontrar contato do grupo
           let { data: existingContact } = await supabase
             .from('contacts')
             .select('id')
@@ -170,237 +197,41 @@ serve(async (req) => {
           } else {
             contactId = existingContact.id;
           }
-
-          if (!contactId) continue;
-
-          // Criar/encontrar conversa
-          let { data: existingConv } = await supabase
-            .from('conversations')
-            .select('id')
-            .eq('company_id', companyId)
-            .eq('contact_id', contactId)
-            .eq('channel', 'whatsapp')
-            .maybeSingle();
-
-          if (!existingConv) {
-            const { data: newConv } = await supabase
-              .from('conversations')
-              .insert({
-                company_id: companyId,
-                contact_id: contactId,
-                channel: 'whatsapp',
-                status: 'open',
-                metadata: { isGroup: true, remoteJid: jid, instanceName }
-              })
-              .select('id')
-              .single();
-            convId = newConv?.id;
-            if (convId) stats.conversations++;
-          } else {
-            convId = existingConv.id;
-          }
         } else {
-          // CONTATO INDIVIDUAL
-          const isLid = jid.includes('@lid');
-          const phoneMatch = jid.match(/^(\d+)@/);
-          if (!phoneMatch) continue;
-          
-          const rawNumber = phoneMatch[1];
-          if (rawNumber.length > 15) continue; // ID inválido
-          
-          let phone = rawNumber;
-          let syncJid = jid; // JID usado para sincronizar mensagens
-          const name = chatName || nameMap.get(jid) || '';
-
-          if (isLid) {
-            // Para @lid, APENAS processar se encontrarmos um contato existente
-            if (!name || name === rawNumber) {
-              console.log(`  ⏭️ Ignorando @lid sem nome: ${jid}`);
-              continue;
-            }
-            
-            // Match por nome - procurar contato existente
-            const normalizeStr = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-            const normalizedName = normalizeStr(name);
-            
-            const { data: allContacts } = await supabase
-              .from('contacts')
-              .select('id, name, phone')
-              .eq('company_id', companyId)
-              .not('phone', 'is', null);
-            
-            let existingContact = null;
-            if (allContacts) {
-              existingContact = allContacts.find(c => {
-                if (!c.name) return false;
-                const normalizedContactName = normalizeStr(c.name);
-                return normalizedContactName === normalizedName || 
-                       normalizedContactName.includes(normalizedName) ||
-                       normalizedName.includes(normalizedContactName);
-              });
-            }
-            
-            if (!existingContact) {
-              console.log(`  ⏭️ @lid sem contato correspondente: ${jid} (${name})`);
-              continue;
-            }
-            
-            contactId = existingContact.id;
-            phone = existingContact.phone;
-            // IMPORTANTE: usar o JID baseado em telefone para sincronizar mensagens
-            syncJid = `${phone}@s.whatsapp.net`;
-            console.log(`  ✅ @lid mapeado: ${jid} -> ${syncJid}`);
-          } else {
-            // Normalizar telefone
-            if (phone.length === 10 || phone.length === 11) {
-              phone = '55' + phone;
-            }
-            if (phone.length < 8 || phone.length > 15) continue;
-
-            // Criar/encontrar contato
-            let { data: existingContact } = await supabase
-              .from('contacts')
-              .select('id, name, avatar_url')
-              .eq('company_id', companyId)
-              .eq('phone', phone)
-              .maybeSingle();
-
-            if (!existingContact) {
-              const { data: newContact } = await supabase
-                .from('contacts')
-                .insert({
-                  company_id: companyId,
-                  name: name || phone,
-                  phone: phone,
-                  avatar_url: profilePic,
-                  metadata: { remoteJid: jid }
-                })
-                .select('id')
-                .single();
-              contactId = newContact?.id;
-              if (contactId) stats.contacts++;
-            } else {
-              contactId = existingContact.id;
-              // Atualizar nome se estava vazio
-              if (name && existingContact.name === phone) {
-                await supabase.from('contacts').update({ name }).eq('id', contactId);
-              }
-            }
-          }
-          
-          // Guardar o telefone para usar no sync de mensagens
-          contactPhone = phone;
-
-          if (!contactId) continue;
-
-          // Criar/encontrar conversa
-          let { data: existingConv } = await supabase
-            .from('conversations')
-            .select('id, metadata')
+          // Contato individual
+          let { data: existingContact } = await supabase
+            .from('contacts')
+            .select('id, name')
             .eq('company_id', companyId)
-            .eq('contact_id', contactId)
-            .eq('channel', 'whatsapp')
+            .eq('phone', phone)
             .maybeSingle();
 
-          if (!existingConv) {
-            const { data: newConv } = await supabase
-              .from('conversations')
+          if (!existingContact) {
+            const contactName = chatName || nameMap.get(jid) || phone;
+            const { data: newContact } = await supabase
+              .from('contacts')
               .insert({
                 company_id: companyId,
-                contact_id: contactId,
-                channel: 'whatsapp',
-                status: 'open',
-                metadata: isLid 
-                  ? { originalJid: jid, remoteJid: syncJid, instanceName }
-                  : { remoteJid: jid, instanceName }
+                name: contactName,
+                phone: phone,
+                avatar_url: profilePic,
+                metadata: { remoteJid: jid }
               })
               .select('id')
               .single();
-            convId = newConv?.id;
-            if (convId) stats.conversations++;
+            contactId = newContact?.id;
+            if (contactId) stats.contacts++;
           } else {
-            convId = existingConv.id;
-            // Atualizar metadata se necessário
-            if (!existingConv.metadata?.remoteJid && syncJid) {
-              await supabase.from('conversations')
-                .update({ metadata: { ...existingConv.metadata, remoteJid: syncJid, instanceName } })
-                .eq('id', convId);
+            contactId = existingContact.id;
+            // Atualizar nome se estava usando telefone
+            if (chatName && existingContact.name === phone) {
+              await supabase.from('contacts').update({ name: chatName }).eq('id', contactId);
             }
           }
         }
 
-        // IMPORTAR MENSAGENS usando o JID correto
-        if (convId) {
-          // Para grupos usar JID do grupo; para contatos usar JID baseado em telefone
-          const messageJid = isGroup ? jid : (contactPhone ? `${contactPhone}@s.whatsapp.net` : jid);
-          
-          const msgCount = await syncMessagesSimple(supabase, evolutionApiUrl, evolutionApiKey, instanceName, convId, messageJid);
-          stats.messages += msgCount;
-        }
-        
-        // Marcar JID como processado
-        processedJids.add(jid);
-      } catch (err) {
-        console.error(`Erro processando ${jid}:`, err);
-      }
-    }
-    
-    // 4. PROCESSAR CONTATOS ADICIONAIS (que não vieram no findChats)
-    console.log(`\n📥 Processando contatos adicionais...`);
-    const additionalContacts = contactsData
-      .filter(c => {
-        const jid = c.remoteJid || c.jid || c.id;
-        if (!jid || processedJids.has(jid)) return false;
-        if (jid.includes('@broadcast') || jid.startsWith('status@') || jid.includes('@g.us') || jid.includes('@lid')) return false;
-        // Apenas contatos com número de telefone válido
-        const phoneMatch = jid.match(/^(\d+)@/);
-        return phoneMatch && phoneMatch[1].length >= 8 && phoneMatch[1].length <= 15;
-      }); // Sem limite - processar todos
-    
-    console.log(`🔄 ${additionalContacts.length} contatos adicionais para processar`);
-    
-    for (const apiContact of additionalContacts) {
-      const jid = apiContact.remoteJid || apiContact.jid || apiContact.id;
-      const phoneMatch = jid.match(/^(\d+)@/);
-      if (!phoneMatch) continue;
-      
-      let phone = phoneMatch[1];
-      if (phone.length === 10 || phone.length === 11) {
-        phone = '55' + phone;
-      }
-      
-      const name = apiContact.pushName || apiContact.name || apiContact.notify || apiContact.verifiedName || phone;
-      const profilePic = apiContact.profilePictureUrl || apiContact.imgUrl || null;
-      
-      try {
-        // Criar/encontrar contato
-        let { data: existingContact } = await supabase
-          .from('contacts')
-          .select('id')
-          .eq('company_id', companyId)
-          .eq('phone', phone)
-          .maybeSingle();
-        
-        let contactId = existingContact?.id;
-        
-        if (!existingContact) {
-          const { data: newContact } = await supabase
-            .from('contacts')
-            .insert({
-              company_id: companyId,
-              name,
-              phone,
-              avatar_url: profilePic,
-              metadata: { remoteJid: jid, source: 'whatsapp_import_contacts' }
-            })
-            .select('id')
-            .single();
-          contactId = newContact?.id;
-          if (contactId) stats.contacts++;
-        }
-        
         if (!contactId) continue;
-        
+
         // Criar/encontrar conversa
         let { data: existingConv } = await supabase
           .from('conversations')
@@ -409,9 +240,9 @@ serve(async (req) => {
           .eq('contact_id', contactId)
           .eq('channel', 'whatsapp')
           .maybeSingle();
-        
+
         let convId = existingConv?.id;
-        
+
         if (!existingConv) {
           const { data: newConv } = await supabase
             .from('conversations')
@@ -420,56 +251,40 @@ serve(async (req) => {
               contact_id: contactId,
               channel: 'whatsapp',
               status: 'open',
-              metadata: { remoteJid: jid, instanceName }
+              metadata: isGroup 
+                ? { isGroup: true, remoteJid: jid, instanceName }
+                : { remoteJid: jid, instanceName }
             })
             .select('id')
             .single();
           convId = newConv?.id;
           if (convId) stats.conversations++;
         }
-        
-        // Importar mensagens
-        if (convId) {
-          const msgCount = await syncMessagesSimple(supabase, evolutionApiUrl, evolutionApiKey, instanceName, convId, jid);
-          stats.messages += msgCount;
-        }
-        
-        processedJids.add(jid);
+
+        if (!convId) continue;
+
+        // Importar mensagens (já temos elas, não buscar de novo)
+        const imported = await importMessagesToDb(supabase, convId, messages, jid);
+        stats.messages += imported;
+
       } catch (err) {
-        console.error(`Erro processando contato adicional ${jid}:`, err);
+        console.error(`Erro processando ${jid}:`, err);
       }
     }
 
-    // Sync profile pictures
-    console.log(`📷 Sincronizando fotos de perfil...`);
-    const { data: contactsWithoutPic } = await supabase
-      .from('contacts')
-      .select('id, phone, metadata')
-      .eq('company_id', companyId)
-      .is('avatar_url', null)
-      .not('phone', 'is', null)
-      .limit(50);
-
-    console.log(`📷 ${contactsWithoutPic?.length || 0} contatos sem foto`);
-
-    for (const contact of contactsWithoutPic || []) {
-      try {
-        const jid = contact.metadata?.remoteJid || `${contact.phone}@s.whatsapp.net`;
-        const picResponse = await fetch(`${evolutionApiUrl}/chat/fetchProfilePictureUrl/${instanceName}`, {
-          method: 'POST',
-          headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ number: jid })
-        });
-        
-        if (picResponse.ok) {
-          const picData = await picResponse.json();
-          const picUrl = picData?.profilePictureUrl || picData?.profilePicUrl || picData?.url;
-          if (picUrl) {
-            await supabase.from('contacts').update({ avatar_url: picUrl }).eq('id', contact.id);
-            console.log(`  ✅ Foto atualizada: ${contact.phone}`);
-          }
-        }
-      } catch (e) { /* ignore */ }
+    // Sync profile pictures para contatos sem foto
+    console.log(`\n📷 Sincronizando fotos de perfil...`);
+    try {
+      await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/sync-profile-pictures`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ instanceName, companyId })
+      });
+    } catch (e) {
+      console.log(`  ⚠️ Não foi possível sincronizar fotos`);
     }
 
     console.log(`\n========================================`);
@@ -479,13 +294,13 @@ serve(async (req) => {
     console.log(`📊 Conversas: ${stats.conversations} criadas`);
     console.log(`📊 Mensagens: ${stats.messages} importadas`);
     console.log(`📊 Grupos: ${stats.groups}`);
+    console.log(`📊 Ignorados: ${stats.skipped}`);
     console.log(`========================================\n`);
 
     return new Response(JSON.stringify({ 
       success: true,
       stats,
-      totalChats: allChats.length,
-      processedChats: chatsToProcess.length
+      totalChats: allChats.length
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -503,36 +318,26 @@ serve(async (req) => {
   }
 });
 
-// Simplified message sync
-async function syncMessagesSimple(
-  supabase: any,
+// Buscar mensagens da API Evolution (retorna array de mensagens)
+async function fetchMessagesFromApi(
   evolutionApiUrl: string,
   evolutionApiKey: string,
   instanceName: string,
-  conversationId: string,
   jid: string
-): Promise<number> {
+): Promise<any[]> {
   try {
-    console.log(`  🔍 Buscando mensagens para jid: ${jid}`);
-    console.log(`  📡 URL: ${evolutionApiUrl}/chat/findMessages/${instanceName}`);
-    
     const response = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
       method: 'POST',
       headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ where: { key: { remoteJid: jid } }, limit: 1000 })
+      body: JSON.stringify({ where: { key: { remoteJid: jid } }, limit: 500 })
     });
     
-    console.log(`  📥 Status: ${response.status}`);
-    
-    if (!response.ok) return 0;
+    if (!response.ok) return [];
 
     const data = await response.json();
     const rawMessages = data?.messages;
-    console.log(`  📦 data type: ${typeof data}, keys: ${Object.keys(data || {}).join(', ')}`);
-    console.log(`  📦 rawMessages type: ${typeof rawMessages}, isArray: ${Array.isArray(rawMessages)}`);
     
-    // Handle multiple possible response structures:
-    // { messages: [...] } or { messages: { records: [...] } } or { records: [...] }
+    // Handle multiple possible response structures
     let messages: any[] = [];
     if (Array.isArray(rawMessages)) {
       messages = rawMessages;
@@ -544,11 +349,22 @@ async function syncMessagesSimple(
       messages = data;
     }
     
-    console.log(`  📨 ${messages.length} mensagens encontradas`);
-    
-    if (!messages.length) return 0;
+    return messages;
+  } catch (err) {
+    console.error(`Erro buscando mensagens para ${jid}:`, err);
+    return [];
+  }
+}
 
-    // Get existing messageIds for this conversation to avoid duplicates
+// Importar mensagens para o banco de dados
+async function importMessagesToDb(
+  supabase: any,
+  conversationId: string,
+  messages: any[],
+  jid: string
+): Promise<number> {
+  try {
+    // Get existing messageIds to avoid duplicates
     const { data: existingMsgs } = await supabase
       .from('messages')
       .select('metadata')
@@ -556,18 +372,15 @@ async function syncMessagesSimple(
     
     const existingMessageIds = new Set(
       (existingMsgs || [])
-        .map(m => m.metadata?.messageId || m.metadata?.external_id)
+        .map((m: any) => m.metadata?.messageId || m.metadata?.external_id)
         .filter(Boolean)
     );
-    
-    console.log(`  📦 ${existingMessageIds.size} mensagens já existentes`);
 
     let imported = 0;
     for (const msg of messages) {
       const messageId = msg.key?.id || msg.id;
       if (!messageId) continue;
       
-      // Skip if message already exists
       if (existingMessageIds.has(messageId)) continue;
 
       const content = extractContent(msg);
@@ -586,12 +399,11 @@ async function syncMessagesSimple(
         metadata: { messageId, fromMe, remoteJid: jid }
       });
 
-      // Add to set to prevent duplicates within same import batch
       existingMessageIds.add(messageId);
       imported++;
     }
 
-    // Update conversation timestamp
+    // Update conversation timestamp with last message
     if (imported > 0) {
       const { data: lastMsg } = await supabase
         .from('messages')
@@ -610,7 +422,7 @@ async function syncMessagesSimple(
 
     return imported;
   } catch (err) {
-    console.error(`Erro sync messages:`, err);
+    console.error(`Erro importando mensagens:`, err);
     return 0;
   }
 }
