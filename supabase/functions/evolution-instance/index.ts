@@ -950,7 +950,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
                 headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
                 body: JSON.stringify({
                   where: { key: { remoteJid: jid } },
-                  limit: 10
+                  limit: 20
                 })
               });
               
@@ -958,6 +958,15 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
                 const messagesData = await messagesResponse.json();
                 const messages = messagesData?.messages?.records || messagesData?.records || 
                                  (Array.isArray(messagesData) ? messagesData : []);
+                
+                // Log first message structure for debugging
+                if (messages.length > 0) {
+                  const firstMsg = messages[0];
+                  console.log(`  🔎 Primeira msg keys: ${Object.keys(firstMsg).join(', ')}`);
+                  if (firstMsg.key) console.log(`  🔎 key: ${JSON.stringify(firstMsg.key)}`);
+                  if (firstMsg.pushName) console.log(`  🔎 pushName: ${firstMsg.pushName}`);
+                  if (firstMsg.participant) console.log(`  🔎 participant: ${firstMsg.participant}`);
+                }
                 
                 // Look for a message with a real phone JID
                 for (const msg of messages) {
@@ -985,14 +994,59 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
                     }
                   }
                   
-                  // Check message sender info
-                  const msgPhone = msg.phone || msg.number || msg.from;
+                  // Check message sender info direct fields
+                  const msgPhone = msg.phone || msg.number || msg.from || msg.sender;
                   if (msgPhone) {
-                    const cleaned = msgPhone.replace(/\D/g, '');
+                    const cleaned = String(msgPhone).replace(/\D/g, '');
                     if (isValidBrazilianPhone(cleaned)) {
                       phone = cleaned;
                       resolvedFromLid = true;
                       console.log(`🔗 @lid resolved via message phone field: ${jid} -> ${phone}`);
+                      break;
+                    }
+                  }
+                  
+                  // Check pushName and try to resolve via nameToPhoneMap
+                  const msgPushName = msg.pushName;
+                  if (msgPushName && !msg.key?.fromMe) {
+                    const nameLower = msgPushName.toLowerCase().trim();
+                    const phoneFromName = nameToPhoneMap.get(nameLower);
+                    if (phoneFromName) {
+                      phone = phoneFromName;
+                      resolvedFromLid = true;
+                      console.log(`🔗 @lid resolved via message pushName->map: ${msgPushName} -> ${phone}`);
+                      break;
+                    }
+                    
+                    // Also try DB lookup by pushName from message
+                    const { data: contactByMsgName } = await supabase
+                      .from('contacts')
+                      .select('phone, name')
+                      .eq('company_id', companyId)
+                      .ilike('name', msgPushName)
+                      .not('phone', 'is', null)
+                      .limit(1)
+                      .maybeSingle();
+                    
+                    if (contactByMsgName?.phone && isValidBrazilianPhone(contactByMsgName.phone)) {
+                      phone = contactByMsgName.phone;
+                      resolvedFromLid = true;
+                      console.log(`🔗 @lid resolved via message pushName->DB: ${msgPushName} -> ${phone}`);
+                      break;
+                    }
+                  }
+                  
+                  // Check nested contextInfo
+                  const contextInfo = msg.message?.extendedTextMessage?.contextInfo || 
+                                      msg.message?.imageMessage?.contextInfo ||
+                                      msg.message?.videoMessage?.contextInfo ||
+                                      msg.contextInfo;
+                  if (contextInfo?.participant && contextInfo.participant.includes('@s.whatsapp.net')) {
+                    const extractedPhone = extractPhoneFromJid(contextInfo.participant);
+                    if (extractedPhone && isValidBrazilianPhone(extractedPhone)) {
+                      phone = extractedPhone;
+                      resolvedFromLid = true;
+                      console.log(`🔗 @lid resolved via contextInfo.participant: ${jid} -> ${phone}`);
                       break;
                     }
                   }
