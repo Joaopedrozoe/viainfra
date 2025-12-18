@@ -1699,46 +1699,9 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       return { content: '[Mensagem]', type: 'other' };
     }
 
-    // STEP 1: Criar conversas para contatos sem conversa
-    const { data: contactsWithoutConv } = await supabase
-      .from('contacts')
-      .select('id, phone, name')
-      .eq('company_id', companyId)
-      .not('phone', 'is', null);
-    
-    let conversationsCreated = 0;
-    for (const contact of contactsWithoutConv || []) {
-      if (!contact.phone || convsByPhone.has(contact.phone)) continue;
-      
-      const { data: existingConv } = await supabase
-        .from('conversations')
-        .select('id')
-        .eq('contact_id', contact.id)
-        .eq('channel', 'whatsapp')
-        .maybeSingle();
-      
-      if (!existingConv) {
-        const { data: newConv, error } = await supabase
-          .from('conversations')
-          .insert({
-            company_id: companyId,
-            contact_id: contact.id,
-            channel: 'whatsapp',
-            status: 'open',
-            metadata: { instanceName }
-          })
-          .select()
-          .single();
-        
-        if (!error && newConv) {
-          convsByPhone.set(contact.phone, newConv);
-          conversationsCreated++;
-          console.log(`✅ Conversa criada: ${contact.name} (${contact.phone})`);
-        }
-      }
-    }
-    
-    console.log(`📊 ${conversationsCreated} conversas criadas para contatos existentes`);
+    // STEP 1: Apenas sincronizar mensagens de conversas EXISTENTES
+    // NÃO criar conversas novas automaticamente (evita conversas vazias)
+    console.log(`🔄 Sincronizando apenas conversas existentes (sem criar novas)`);
 
     let syncedMessages = 0;
     let updatedTimestamps = 0;
