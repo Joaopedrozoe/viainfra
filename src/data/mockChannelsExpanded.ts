@@ -253,9 +253,29 @@ export const mockChannelsExpanded: Channel[] = [
 ];
 
 // Funções para gerenciar os canais expandidos - ISOLAMENTO POR EMPRESA
+const VIAINFRA_COMPANY_ID = '52052566-faa3-4535-b764-7fcc6a4c2ea8';
+const OLD_SHARED_KEY = 'demo-channels-expanded';
+
 const getStorageKey = (companyId?: string): string => {
   return companyId ? `demo-channels-${companyId}` : 'demo-channels-default';
 };
+
+// Migra dados antigos da chave compartilhada para VIAINFRA
+const migrateOldData = (): void => {
+  const oldData = localStorage.getItem(OLD_SHARED_KEY);
+  if (oldData) {
+    const viainfraKey = getStorageKey(VIAINFRA_COMPANY_ID);
+    // Só migra se a chave da VIAINFRA não existir
+    if (!localStorage.getItem(viainfraKey)) {
+      localStorage.setItem(viainfraKey, oldData);
+    }
+    // Remove a chave antiga para evitar confusão
+    localStorage.removeItem(OLD_SHARED_KEY);
+  }
+};
+
+// Executa migração automaticamente
+migrateOldData();
 
 export const getDemoChannelsExpanded = (companyId?: string): Channel[] => {
   const key = getStorageKey(companyId);
@@ -263,8 +283,11 @@ export const getDemoChannelsExpanded = (companyId?: string): Channel[] => {
   if (saved) {
     return JSON.parse(saved);
   }
-  // Retorna array vazio para empresas sem canais configurados
-  // Não usar mockChannelsExpanded para evitar dados compartilhados
+  // Retorna canais padrão apenas para VIAINFRA se não houver dados salvos
+  if (companyId === VIAINFRA_COMPANY_ID) {
+    return mockChannelsExpanded;
+  }
+  // VIALOGISTIC e outras empresas começam vazias
   return [];
 };
 
