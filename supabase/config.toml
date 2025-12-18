@@ -50,3 +50,9 @@ verify_jwt = false
 
 [functions.fix-conversations]
 verify_jwt = false
+
+[functions.force-sync-inbox]
+verify_jwt = false
+
+[functions.cleanup-duplicates]
+verify_jwt = false
