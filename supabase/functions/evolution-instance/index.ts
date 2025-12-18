@@ -854,13 +854,20 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           // CONTATOS INDIVIDUAIS (não grupos)
           // ============================================================
           
-          // Detectar se é @lid (ID interno) ou @s.whatsapp.net (telefone real)
+        // Detectar se é @lid (ID interno) ou @s.whatsapp.net (telefone real)
           const isLid = jid.includes('@lid');
           const phoneMatch = jid.match(/^(\d+)@/);
           if (!phoneMatch) continue;
           
           const rawNumber = phoneMatch[1];
           let phone = rawNumber;
+          
+          // VALIDAÇÃO: Se rawNumber parece ser @lid ID (> 15 dígitos ou não parece telefone brasileiro)
+          // Isso evita salvar IDs internos como phone
+          if (rawNumber.length > 15) {
+            console.log(`⏭️ Pulando ID inválido (muito longo): ${rawNumber}`);
+            continue;
+          }
         
         // Obter nome
         const name = chatName || nameMap.get(jid) || '';
@@ -1043,7 +1050,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
             body: JSON.stringify({
               where: { key: { remoteJid: jid } },
-              limit: 500
+              limit: 1000 // Aumentado para buscar mais mensagens
             })
           });
           
@@ -1190,11 +1197,65 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     console.log(`📊 Mensagens: ${stats.messages} importadas`);
     console.log(`========================================\n`);
 
+    // ============================================================
+    // SINCRONIZAR FOTOS DE PERFIL
+    // ============================================================
+    console.log(`📷 Sincronizando fotos de perfil...`);
+    let photosUpdated = 0;
+    try {
+      // Buscar contatos sem foto que foram importados/atualizados
+      const { data: contactsNeedingPhotos } = await supabase
+        .from('contacts')
+        .select('id, name, phone')
+        .eq('company_id', companyId)
+        .is('avatar_url', null)
+        .not('phone', 'is', null)
+        .limit(50);
+      
+      if (contactsNeedingPhotos && contactsNeedingPhotos.length > 0) {
+        console.log(`📷 ${contactsNeedingPhotos.length} contatos sem foto`);
+        
+        for (const contact of contactsNeedingPhotos) {
+          try {
+            const picResponse = await fetch(
+              `${evolutionApiUrl}/chat/fetchProfilePictureUrl/${instanceName}`,
+              {
+                method: 'POST',
+                headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ number: contact.phone })
+              }
+            );
+            
+            if (picResponse.ok) {
+              const picData = await picResponse.json();
+              const picUrl = picData.profilePictureUrl || picData.picture?.url || picData.imgUrl;
+              
+              if (picUrl) {
+                await supabase
+                  .from('contacts')
+                  .update({ avatar_url: picUrl, updated_at: new Date().toISOString() })
+                  .eq('id', contact.id);
+                photosUpdated++;
+                console.log(`  ✅ Foto atualizada: ${contact.name}`);
+              }
+            }
+          } catch (e) {
+            // Ignorar erros de foto individual
+          }
+        }
+      }
+    } catch (e) {
+      console.log(`⚠️ Erro ao sincronizar fotos: ${e}`);
+    }
+
+    console.log(`📷 ${photosUpdated} fotos atualizadas`);
+
     return new Response(JSON.stringify({ 
       success: true,
       importedContacts: stats.contacts,
       importedConversations: stats.conversations,
       importedMessages: stats.messages,
+      photosUpdated,
       totalChats: allChats.length,
       stats
     }), {
