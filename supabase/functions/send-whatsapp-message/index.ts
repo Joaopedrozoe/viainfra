@@ -75,21 +75,59 @@ serve(async (req) => {
     // Determinar o destinatário: usar telefone se disponível, senão usar remoteJid
     let recipientJid: string;
     
-    if (conversation.contacts?.phone) {
-      // Se temos o telefone, usar formato WhatsApp tradicional
-      recipientJid = `${conversation.contacts.phone}@s.whatsapp.net`;
-      console.log(`Using contact phone: ${conversation.contacts.phone} -> ${recipientJid}`);
-    } else {
-      // Caso contrário, usar remoteJid do metadata (para canais @lid, etc)
-      recipientJid = conversation.metadata?.remoteJid;
-      if (!recipientJid) {
-        console.error('No phone or remoteJid found for this conversation');
-        return new Response(
-          JSON.stringify({ error: 'No WhatsApp identifier found' }), 
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+    // Helper para verificar se é um ID @lid (não numérico)
+    const isLidFormat = (value: string) => {
+      if (!value) return false;
+      // @lid IDs são alfanuméricos, não apenas números
+      return !/^\d+$/.test(value) && !value.includes('@');
+    };
+    
+    // Helper para verificar se é número de telefone válido
+    const isValidPhone = (value: string) => {
+      if (!value) return false;
+      // Telefone válido: apenas dígitos, 10-15 caracteres
+      return /^\d{10,15}$/.test(value);
+    };
+    
+    const contactPhone = conversation.contacts?.phone;
+    const remoteJid = conversation.metadata?.remoteJid;
+    const lidJid = conversation.metadata?.lidJid;
+    
+    // Prioridade: 
+    // 1. lidJid do metadata (formato @lid para responder)
+    // 2. Telefone válido do contato
+    // 3. remoteJid do metadata
+    
+    if (lidJid) {
+      // Se temos lidJid salvo, usar formato @lid
+      recipientJid = lidJid.includes('@lid') ? lidJid : `${lidJid}@lid`;
+      console.log(`Using lidJid from metadata: ${recipientJid}`);
+    } else if (contactPhone && isValidPhone(contactPhone)) {
+      // Se temos telefone numérico válido, usar formato tradicional
+      recipientJid = `${contactPhone}@s.whatsapp.net`;
+      console.log(`Using contact phone: ${contactPhone} -> ${recipientJid}`);
+    } else if (remoteJid) {
+      // Usar remoteJid diretamente (pode ser @lid, @s.whatsapp.net, etc)
+      if (remoteJid.includes('@')) {
+        recipientJid = remoteJid;
+      } else if (isLidFormat(remoteJid)) {
+        // ID @lid sem sufixo - adicionar @lid
+        recipientJid = `${remoteJid}@lid`;
+      } else {
+        // Número sem sufixo - adicionar @s.whatsapp.net
+        recipientJid = `${remoteJid}@s.whatsapp.net`;
       }
       console.log(`Using remoteJid from metadata: ${recipientJid}`);
+    } else if (contactPhone && isLidFormat(contactPhone)) {
+      // Phone é um ID @lid - usar formato @lid
+      recipientJid = `${contactPhone}@lid`;
+      console.log(`Using LID from contact phone: ${contactPhone} -> ${recipientJid}`);
+    } else {
+      console.error('No valid phone or remoteJid found for this conversation');
+      return new Response(
+        JSON.stringify({ error: 'No valid WhatsApp identifier found' }), 
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     // Buscar instância WhatsApp conectada (status 'open' = conectada)
