@@ -252,47 +252,59 @@ export const mockChannelsExpanded: Channel[] = [
   }
 ];
 
-// Funções para gerenciar os canais expandidos
-export const getDemoChannelsExpanded = (): Channel[] => {
-  const saved = localStorage.getItem('demo-channels-expanded');
-  return saved ? JSON.parse(saved) : mockChannelsExpanded;
+// Funções para gerenciar os canais expandidos - ISOLAMENTO POR EMPRESA
+const getStorageKey = (companyId?: string): string => {
+  return companyId ? `demo-channels-${companyId}` : 'demo-channels-default';
 };
 
-export const saveDemoChannelsExpanded = (channels: Channel[]): void => {
-  localStorage.setItem('demo-channels-expanded', JSON.stringify(channels));
+export const getDemoChannelsExpanded = (companyId?: string): Channel[] => {
+  const key = getStorageKey(companyId);
+  const saved = localStorage.getItem(key);
+  if (saved) {
+    return JSON.parse(saved);
+  }
+  // Retorna array vazio para empresas sem canais configurados
+  // Não usar mockChannelsExpanded para evitar dados compartilhados
+  return [];
 };
 
-export const addDemoChannelExpanded = (channel: Omit<Channel, 'id' | 'createdAt' | 'updatedAt'>): Channel => {
-  const channels = getDemoChannelsExpanded();
+export const saveDemoChannelsExpanded = (channels: Channel[], companyId?: string): void => {
+  const key = getStorageKey(companyId);
+  localStorage.setItem(key, JSON.stringify(channels));
+};
+
+export const addDemoChannelExpanded = (channel: Omit<Channel, 'id' | 'createdAt' | 'updatedAt'>, companyId?: string): Channel => {
+  const channels = getDemoChannelsExpanded(companyId);
   const newChannel: Channel = {
     ...channel,
     id: Date.now().toString(),
+    companyId: companyId || channel.companyId,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
   const updatedChannels = [...channels, newChannel];
-  saveDemoChannelsExpanded(updatedChannels);
+  saveDemoChannelsExpanded(updatedChannels, companyId);
   return newChannel;
 };
 
-export const updateDemoChannelExpanded = (channelId: string, updates: Partial<Channel>): void => {
-  const channels = getDemoChannelsExpanded();
+export const updateDemoChannelExpanded = (channelId: string, updates: Partial<Channel>, companyId?: string): void => {
+  const channels = getDemoChannelsExpanded(companyId);
   const updatedChannels = channels.map(channel =>
     channel.id === channelId 
       ? { ...channel, ...updates, updatedAt: new Date().toISOString() } 
       : channel
   );
-  saveDemoChannelsExpanded(updatedChannels);
+  saveDemoChannelsExpanded(updatedChannels, companyId);
 };
 
-export const deleteDemoChannelExpanded = (channelId: string): void => {
-  const channels = getDemoChannelsExpanded();
+export const deleteDemoChannelExpanded = (channelId: string, companyId?: string): void => {
+  const channels = getDemoChannelsExpanded(companyId);
   const updatedChannels = channels.filter(channel => channel.id !== channelId);
-  saveDemoChannelsExpanded(updatedChannels);
+  saveDemoChannelsExpanded(updatedChannels, companyId);
 };
 
-export const toggleDemoChannelExpandedStatus = (channelId: string): void => {
-  const channels = getDemoChannelsExpanded();
+export const toggleDemoChannelExpandedStatus = (channelId: string, companyId?: string): void => {
+  const channels = getDemoChannelsExpanded(companyId);
   const updatedChannels = channels.map(channel =>
     channel.id === channelId 
       ? { 
@@ -302,5 +314,5 @@ export const toggleDemoChannelExpandedStatus = (channelId: string): void => {
         } 
       : channel
   );
-  saveDemoChannelsExpanded(updatedChannels);
+  saveDemoChannelsExpanded(updatedChannels, companyId);
 };
