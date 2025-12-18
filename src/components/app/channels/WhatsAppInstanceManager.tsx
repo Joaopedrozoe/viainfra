@@ -10,6 +10,18 @@ import { Switch } from '@/components/ui/switch';
 import { useWhatsAppInstances } from '@/hooks/useWhatsAppInstances';
 import { Loader2, QrCode, Trash2, RefreshCw, CheckCircle2, XCircle, AlertCircle, Plus, Smartphone, Bot, Download } from 'lucide-react';
 import { toast } from 'sonner';
+import { ImportProgressModal, ImportProgress } from './ImportProgressModal';
+
+const initialProgress: ImportProgress = {
+  status: 'idle',
+  totalChats: 0,
+  processedChats: 0,
+  importedConversations: 0,
+  importedContacts: 0,
+  importedMessages: 0,
+  archivedCount: 0,
+  skippedCount: 0,
+};
 
 export const WhatsAppInstanceManager = () => {
   const { instances, loading, createInstance, getInstanceQR, deleteInstance, syncInstances, toggleBot, fetchChats, refresh } = useWhatsAppInstances();
@@ -24,6 +36,8 @@ export const WhatsAppInstanceManager = () => {
   const [botStatus, setBotStatus] = useState<Record<string, boolean>>({});
   const [togglingBot, setTogglingBot] = useState<string | null>(null);
   const [importingChats, setImportingChats] = useState<string | null>(null);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importProgress, setImportProgress] = useState<ImportProgress>(initialProgress);
 
   // Carregar status do bot do banco de dados (através das instâncias)
   useEffect(() => {
@@ -367,10 +381,33 @@ export const WhatsAppInstanceManager = () => {
 
                 const handleImportChats = async () => {
                   setImportingChats(instance.instance_name);
+                  setImportProgress({
+                    ...initialProgress,
+                    status: 'fetching',
+                  });
+                  setShowImportModal(true);
+                  
                   try {
-                    await fetchChats(instance.instance_name);
-                  } catch (error) {
+                    const result = await fetchChats(instance.instance_name);
+                    
+                    // Update progress with results
+                    setImportProgress({
+                      status: 'complete',
+                      totalChats: result.totalChats || result.importedConversations || 0,
+                      processedChats: result.totalChats || result.importedConversations || 0,
+                      importedConversations: result.importedConversations || 0,
+                      importedContacts: result.importedContacts || 0,
+                      importedMessages: result.importedMessages || 0,
+                      archivedCount: result.archivedCount || 0,
+                      skippedCount: result.skippedCount || 0,
+                    });
+                  } catch (error: any) {
                     console.error('Error importing chats:', error);
+                    setImportProgress(prev => ({
+                      ...prev,
+                      status: 'error',
+                      errorMessage: error.message || 'Erro desconhecido na importação',
+                    }));
                   } finally {
                     setImportingChats(null);
                   }
@@ -456,6 +493,14 @@ export const WhatsAppInstanceManager = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Import Progress Modal */}
+      <ImportProgressModal
+        open={showImportModal}
+        onOpenChange={setShowImportModal}
+        progress={importProgress}
+        instanceName={importingChats || selectedInstance || ''}
+      />
     </div>
   );
 };
