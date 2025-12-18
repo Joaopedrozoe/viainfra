@@ -115,7 +115,10 @@ async function createInstance(req: Request, supabase: any, evolutionApiUrl: stri
       by_events: false,
       base64: true,
       headers: {},
-      events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE', 'QRCODE_UPDATED'],
+      events: [
+        'MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE', 'QRCODE_UPDATED',
+        'CHATS_SET', 'CHATS_UPSERT', 'CONTACTS_SET', 'CONTACTS_UPSERT', 'PRESENCE_UPDATE'
+      ],
     },
   };
 
@@ -714,41 +717,70 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     const processedGroups = new Set<string>();
     const processedJids = new Set<string>();
 
-    // Fetch chats from Evolution API - ONLY these, no extras
+    // Fetch ALL chats from Evolution API using GET endpoint (returns all, no pagination)
     allChats = [];
-    console.log(`\n📥 Buscando chats...`);
+    console.log(`\n📥 Buscando TODOS os chats (endpoint GET)...`);
     
+    // Method 1: GET endpoint returns ALL chats without pagination limit
     try {
       const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-        body: JSON.stringify({})
+        method: 'GET',
+        headers: { 'apikey': evolutionApiKey }
       });
       if (chatsResponse.ok) {
-        allChats = await chatsResponse.json() || [];
-        console.log(`✅ findChats: ${allChats.length} chats`);
+        const data = await chatsResponse.json();
+        allChats = Array.isArray(data) ? data : (data?.chats || data?.data || []);
+        console.log(`✅ GET findChats: ${allChats.length} chats`);
       }
     } catch (e) {
-      console.log(`⚠️ Erro findChats:`, e);
+      console.log(`⚠️ Erro GET findChats:`, e);
     }
 
-    // Get archived
+    // Method 2: Fallback to POST with high limit if GET returned few results
+    if (allChats.length < 50) {
+      console.log(`⚠️ GET retornou poucos chats (${allChats.length}), tentando POST com limit alto...`);
+      try {
+        const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
+          body: JSON.stringify({ limit: 10000 })
+        });
+        if (chatsResponse.ok) {
+          const data = await chatsResponse.json();
+          const postChats = Array.isArray(data) ? data : (data?.chats || data?.data || []);
+          if (postChats.length > allChats.length) {
+            allChats = postChats;
+            console.log(`✅ POST findChats (limit): ${allChats.length} chats`);
+          }
+        }
+      } catch (e) {
+        console.log(`⚠️ Erro POST findChats:`, e);
+      }
+    }
+
+    // Method 3: Get archived chats separately
+    const existingJids = new Set(allChats.map((c: any) => c.remoteJid || c.id || c.jid || ''));
     try {
       const archivedResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-        body: JSON.stringify({ where: { archived: true } })
+        body: JSON.stringify({ where: { archived: true }, limit: 10000 })
       });
       if (archivedResponse.ok) {
-        const archived = await archivedResponse.json() || [];
-        console.log(`✅ Arquivados: ${archived.length}`);
+        const data = await archivedResponse.json();
+        const archived = Array.isArray(data) ? data : (data?.chats || data?.data || []);
+        console.log(`✅ Arquivados encontrados: ${archived.length}`);
+        let addedArchived = 0;
         archived.forEach((c: any) => {
           c.archived = true;
           const jid = c.remoteJid || c.id || c.jid || '';
-          if (jid && !allChats.some((e: any) => (e.remoteJid || e.id || e.jid) === jid)) {
+          if (jid && !existingJids.has(jid)) {
             allChats.push(c);
+            existingJids.add(jid);
+            addedArchived++;
           }
         });
+        if (addedArchived > 0) console.log(`  ➕ Adicionados ${addedArchived} arquivados novos`);
       }
     } catch (e) { /* ignore */ }
 
