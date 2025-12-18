@@ -734,6 +734,7 @@ export type Database = {
           sender_type: string
         }[]
       }
+      is_admin: { Args: { _user_id: string }; Returns: boolean }
       send_web_conversation_message: {
         Args: {
           p_access_token: string
