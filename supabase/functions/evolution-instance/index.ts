@@ -717,7 +717,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     const processedJids = new Set<string>();
 
     // First, get ALL chats to know which contacts have conversations
-    let allChats: any[] = [];
+    allChats = [];
     try {
       const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
         method: 'POST',
