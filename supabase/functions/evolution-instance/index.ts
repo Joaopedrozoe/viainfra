@@ -1510,25 +1510,48 @@ async function syncMessagesForConversation(
   try {
     console.log(`  🔍 Buscando mensagens: ${remoteJid}`);
     
-    // Usar findMessages (mesmo endpoint que funciona na importação)
-    const response = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
-      method: 'POST',
-      headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        where: { key: { remoteJid: remoteJid } },
-        limit: 500
-      })
-    });
+    // Tentar múltiplos métodos para buscar mensagens (Evolution API é inconsistente)
+    let messages: any[] = [];
     
-    if (!response.ok) {
-      console.log(`  ❌ findMessages falhou: ${response.status}`);
-      return 0;
+    // Método 1: findMessages com where.key.remoteJid
+    try {
+      const response1 = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+        method: 'POST',
+        headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          where: { key: { remoteJid: remoteJid } },
+          limit: 1000
+        })
+      });
+      
+      if (response1.ok) {
+        const data = await response1.json();
+        const raw = data?.messages;
+        messages = Array.isArray(raw) ? raw : 
+                   (raw?.records || data?.records || raw?.data || []);
+      }
+    } catch (e) { /* continue */ }
+    
+    // Método 2: Se método 1 falhou, tentar findMessages com where.remoteJid diretamente
+    if (messages.length === 0) {
+      try {
+        const response2 = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+          method: 'POST',
+          headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            where: { remoteJid: remoteJid },
+            limit: 1000
+          })
+        });
+        
+        if (response2.ok) {
+          const data = await response2.json();
+          const raw = data?.messages;
+          messages = Array.isArray(raw) ? raw : 
+                     (raw?.records || data?.records || raw?.data || []);
+        }
+      } catch (e) { /* continue */ }
     }
-    
-    const data = await response.json();
-    const rawMessages = data?.messages;
-    const messages = Array.isArray(rawMessages) ? rawMessages : 
-                    (rawMessages?.records || rawMessages?.data || []);
     
     console.log(`  📨 ${messages.length} mensagens da API`);
     
@@ -1737,17 +1760,32 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       return { content: '[Mensagem]', type: 'other' };
     }
 
-    // STEP 1: Apenas sincronizar mensagens de conversas EXISTENTES
-    // NÃO criar conversas novas automaticamente (evita conversas vazias)
-    console.log(`🔄 Sincronizando apenas conversas existentes (sem criar novas)`);
-
+    // STEP 1: Criar mapa de telefone -> JID real do findChats
+    const phoneToJid = new Map<string, string>();
+    for (const chat of whatsappChats) {
+      const jid = chat.remoteJid || chat.id || chat.jid || '';
+      if (!jid || jid.includes('@g.us') || jid.includes('@broadcast') || jid.includes('@lid')) continue;
+      
+      const phoneMatch = jid.match(/^(\d+)@/);
+      if (phoneMatch) {
+        let phone = phoneMatch[1];
+        // Normalizar telefone brasileiro
+        if (phone.length === 10 || phone.length === 11) {
+          phone = '55' + phone;
+        }
+        phoneToJid.set(phone, jid);
+      }
+    }
+    
+    console.log(`🗺️ ${phoneToJid.size} JIDs mapeados de ${whatsappChats.length} chats`);
+    
+    // STEP 2: Sincronizar apenas conversas existentes com JID válido
     let syncedMessages = 0;
     let updatedTimestamps = 0;
 
-    // STEP 2: Sync messages for ALL conversations (not just from findChats)
     const { data: allConversations } = await supabase
       .from('conversations')
-      .select('id, contact_id, contacts(phone, name)')
+      .select('id, contact_id, metadata, contacts(phone, name, metadata)')
       .eq('company_id', companyId)
       .eq('channel', 'whatsapp')
       .limit(500);
@@ -1756,9 +1794,15 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
     
     for (const conv of allConversations || []) {
       const phone = conv.contacts?.phone;
-      if (!phone || phone.length < 10) continue;
+      if (!phone || phone.length < 8) continue;
       
-      const whatsappJid = `${phone}@s.whatsapp.net`;
+      // Usar JID do metadata do contato se disponível, senão do mapa findChats
+      let whatsappJid = conv.contacts?.metadata?.remoteJid || phoneToJid.get(phone);
+      
+      // Fallback: construir JID se não encontrou
+      if (!whatsappJid) {
+        whatsappJid = `${phone}@s.whatsapp.net`;
+      }
       
       const msgCount = await syncMessagesForConversation(
         supabase, evolutionApiUrl, evolutionApiKey, instanceName,
