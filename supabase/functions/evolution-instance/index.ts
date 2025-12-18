@@ -761,55 +761,96 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     } catch (e) { /* ignore */ }
 
     // ============================================================
-    // BUSCAR TODAS AS MENSAGENS DE UMA VEZ (WORKAROUND PARA BUG #1632)
-    // findMessages com filtro remoteJid NÃO FUNCIONA na Evolution API v2
-    // Solução: usar /messages/fetch para buscar TODAS e agrupar client-side
+    // BUSCAR TODAS AS MENSAGENS COM PAGINAÇÃO (uma única vez)
+    // Bug Evolution API #1632: filtro remoteJid não funciona
+    // Solução: buscar TODAS com paginação e agrupar por JID
     // ============================================================
-    console.log(`\n📨 Buscando TODAS as mensagens (workaround bug #1632)...`);
+    console.log(`\n📨 Buscando TODAS mensagens (paginado)...`);
     
-    const allMessages: any[] = [];
+    const allMessagesCache: any[] = [];
     const messagesByJid = new Map<string, any[]>();
+    let offset = 0;
+    const pageSize = 500;
+    let hasMore = true;
     
-    try {
-      const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-        body: JSON.stringify({ where: {}, limit: 999999 }) // No filter = all messages
-      });
-      
-      if (messagesResponse.ok) {
-        const data = await messagesResponse.json();
-        const msgs = Array.isArray(data) ? data : (data?.messages?.records || data?.messages || data?.records || []);
-        allMessages.push(...msgs);
-        console.log(`✅ ${allMessages.length} mensagens totais recuperadas`);
-        
-        // Group by remoteJid
-        for (const msg of allMessages) {
-          const jid = msg.key?.remoteJid || msg.remoteJid || '';
-          if (jid && !jid.includes('@broadcast') && !jid.startsWith('status@')) {
-            if (!messagesByJid.has(jid)) {
-              messagesByJid.set(jid, []);
-            }
-            messagesByJid.get(jid)!.push(msg);
-          }
-        }
-        console.log(`✅ ${messagesByJid.size} conversas com mensagens identificadas`);
-      }
-    } catch (e) {
-      console.log(`⚠️ Erro ao buscar mensagens:`, e);
-    }
-
-    // ============================================================
-    // PROCESSAR CONVERSAS QUE TÊM MENSAGENS
-    // ============================================================
-    console.log(`\n🔄 Processando ${messagesByJid.size} conversas com mensagens...`);
-
-    // Processar CADA JID que tem mensagens (não contatos!)
-    for (const [jid, messages] of messagesByJid.entries()) {
+    while (hasMore && offset < 100000) { // max 100k mensagens
       try {
+        const resp = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+          method: 'POST',
+          headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ where: {}, limit: pageSize, offset })
+        });
+
+        if (resp.ok) {
+          const data = await resp.json();
+          const msgs = Array.isArray(data) ? data : 
+                      (data?.messages?.records || data?.messages || data?.records || []);
+          
+          if (msgs.length > 0) {
+            allMessagesCache.push(...msgs);
+            offset += msgs.length;
+            hasMore = msgs.length === pageSize;
+            console.log(`  📥 ${offset} mensagens carregadas...`);
+          } else {
+            hasMore = false;
+          }
+        } else {
+          hasMore = false;
+        }
+      } catch (e) { 
+        hasMore = false;
+      }
+    }
+    
+    console.log(`✅ ${allMessagesCache.length} mensagens totais carregadas`);
+    
+    // Group messages by remoteJid
+    for (const msg of allMessagesCache) {
+      const msgJid = msg.key?.remoteJid || msg.remoteJid || '';
+      if (msgJid && !msgJid.includes('@broadcast') && !msgJid.startsWith('status@')) {
+        if (!messagesByJid.has(msgJid)) {
+          messagesByJid.set(msgJid, []);
+        }
+        messagesByJid.get(msgJid)!.push(msg);
+      }
+    }
+    console.log(`✅ ${messagesByJid.size} conversas com mensagens`);
+
+    // ============================================================
+    // PROCESSAR TODOS OS JIDS QUE TÊM MENSAGENS
+    // Usar messagesByJid como base (não chatLookup que pode ter chats vazios)
+    // ============================================================
+    
+    // Collect all JIDs to process (union of chatLookup + messagesByJid)
+    const allJidsToProcess = new Set<string>();
+    for (const jid of chatLookup.keys()) {
+      if (!jid.includes('@broadcast') && !jid.startsWith('status@')) {
+        allJidsToProcess.add(jid);
+      }
+    }
+    for (const jid of messagesByJid.keys()) {
+      allJidsToProcess.add(jid);
+    }
+    
+    console.log(`\n🔄 Processando ${allJidsToProcess.size} JIDs...`);
+
+    // Processar CADA JID
+    for (const jid of allJidsToProcess) {
+      try {
+        if (!jid) continue;
+        
         // Skip if already processed
         if (processedJids.has(jid)) continue;
         processedJids.add(jid);
+        
+        // Get messages for this JID from cache
+        const cachedMessages = messagesByJid.get(jid) || [];
+        
+        // Skip if no messages (don't create empty conversations)
+        if (cachedMessages.length === 0) {
+          stats.skipped++;
+          continue;
+        }
         
         // Find contact info from allContacts
         const contact = allContacts.find((c: any) => 
@@ -825,7 +866,8 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         
         // Get contact info (contact may be undefined for @lid or unknown JIDs)
         const contactName = contact?.pushName || contact?.name || contact?.notify || 
-                           contact?.verifiedName || chatMeta?.name || chatMeta?.pushName || '';
+                           contact?.verifiedName || chatMeta?.name || chatMeta?.pushName || 
+                           chatMeta?.subject || '';
         const profilePicUrl = contact?.profilePictureUrl || contact?.profilePicUrl || 
                              contact?.imgUrl || chatMeta?.profilePictureUrl || null;
 
@@ -911,12 +953,12 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             stats.conversationsReused++;
           }
 
-          if (conversationId) {
-            const msgCount = await syncMessagesForConversation(
-              supabase, evolutionApiUrl, evolutionApiKey, instanceName,
-              conversationId, jid, extractMessageContent
+          if (conversationId && cachedMessages.length > 0) {
+            const msgCount = await importCachedMessages(
+              supabase, conversationId, cachedMessages, extractMessageContent, isGroup
             );
             stats.messagesImported += msgCount;
+            console.log(`  ✅ ${msgCount} msgs importadas (grupo)`);
           }
           continue;
         }
@@ -1060,11 +1102,10 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         }
 
         // ============================================================
-        // USAR MENSAGENS JÁ CARREGADAS (do messagesByJid)
-        // Não precisamos buscar novamente - já temos!
+        // BUSCAR MENSAGENS PARA ESTE CHAT
         // ============================================================
         
-        console.log(`📱 ${finalName || phone} (${phone}) - ${messages.length} msgs`);
+        console.log(`📱 ${finalName || phone} (${phone})`);
         
         // Find or check existing conversation
         let { data: existingConv } = await supabase
@@ -1128,85 +1169,16 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
         if (!conversationId) continue;
 
-        // STEP 4: Import messages (we already have them)
-        if (messages.length > 0) {
-          // Get existing message IDs to avoid duplicates
-          const { data: existingMessages } = await supabase
-            .from('messages')
-            .select('metadata')
-            .eq('conversation_id', conversationId);
-
-          const existingMessageIds = new Set<string>();
-          if (existingMessages) {
-            for (const msg of existingMessages) {
-              if (msg.metadata?.messageId) {
-                existingMessageIds.add(msg.metadata.messageId);
-              }
-            }
+        // STEP 4: Import messages from cache
+        if (cachedMessages.length > 0) {
+          const msgCount = await importCachedMessages(
+            supabase, conversationId, cachedMessages, extractMessageContent, false
+          );
+          stats.messagesImported += msgCount;
+          
+          if (msgCount > 0) {
+            console.log(`  ✅ ${msgCount} mensagens importadas`);
           }
-
-          // Sort messages by timestamp
-          messages.sort((a: any, b: any) => {
-            const tsA = a.messageTimestamp || a.key?.messageTimestamp || 0;
-            const tsB = b.messageTimestamp || b.key?.messageTimestamp || 0;
-            return (typeof tsA === 'number' ? tsA : 0) - (typeof tsB === 'number' ? tsB : 0);
-          });
-
-          let importedCount = 0;
-          let lastMsgTimestamp: Date | null = null;
-
-          for (const msg of messages) {
-            try {
-              const messageId = msg.key?.id;
-              
-              // Track timestamp even for existing messages
-              const timestamp = msg.messageTimestamp || msg.key?.messageTimestamp;
-              if (timestamp) {
-                const msgDate = new Date(typeof timestamp === 'number' ? 
-                  (timestamp > 9999999999 ? timestamp : timestamp * 1000) : timestamp);
-                if (!lastMsgTimestamp || msgDate > lastMsgTimestamp) {
-                  lastMsgTimestamp = msgDate;
-                }
-              }
-              
-              // Skip duplicates
-              if (messageId && existingMessageIds.has(messageId)) continue;
-
-              const { content, type } = extractMessageContent(msg);
-              if (type === 'unknown' || !content) continue;
-              if (!timestamp) continue;
-
-              const msgDate = new Date(typeof timestamp === 'number' ? 
-                (timestamp > 9999999999 ? timestamp : timestamp * 1000) : timestamp);
-
-              const isFromMe = msg.key?.fromMe === true;
-
-              const { error: msgError } = await supabase
-                .from('messages')
-                .insert({
-                  conversation_id: conversationId,
-                  content: content,
-                  sender_type: isFromMe ? 'agent' : 'user',
-                  created_at: msgDate.toISOString(),
-                  metadata: { messageId, type }
-                });
-
-              if (!msgError) {
-                importedCount++;
-                if (messageId) existingMessageIds.add(messageId);
-              }
-            } catch (e) { /* continue */ }
-          }
-
-          // Update conversation timestamp to last message
-          if (lastMsgTimestamp) {
-            await supabase
-              .from('conversations')
-              .update({ updated_at: lastMsgTimestamp.toISOString() })
-              .eq('id', conversationId);
-          }
-
-          stats.messagesImported += importedCount;
         }
 
       } catch (chatError) {
@@ -1296,17 +1268,17 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 // ============================================================
 // SYNC MESSAGES FOR A CONVERSATION v2
 // ============================================================
-async function syncMessagesForConversation(
+// IMPORT CACHED MESSAGES - usa mensagens já carregadas em memória
+// ============================================================
+async function importCachedMessages(
   supabase: any, 
-  evolutionApiUrl: string, 
-  evolutionApiKey: string, 
-  instanceName: string,
   conversationId: string, 
-  remoteJid: string,
-  extractMessageContent: (msg: any) => { content: string; type: string }
+  messages: any[],
+  extractMessageContent: (msg: any) => { content: string; type: string },
+  isGroup: boolean
 ): Promise<number> {
   try {
-    console.log(`  📨 Buscando mensagens para: ${remoteJid}`);
+    if (!messages || messages.length === 0) return 0;
     
     // Get existing message IDs to avoid duplicates
     const { data: existingMessages } = await supabase
@@ -1322,51 +1294,6 @@ async function syncMessagesForConversation(
         }
       }
     }
-    console.log(`  📊 Mensagens existentes: ${existingMessageIds.size}`);
-
-    // Build JID variants for searching
-    const isGroup = remoteJid.includes('@g.us');
-    const phoneOnly = remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '').replace('@g.us', '').replace(/\D/g, '');
-    
-    const jidVariants = isGroup ? [remoteJid] : [
-      remoteJid,
-      `${phoneOnly}@s.whatsapp.net`,
-      `${phoneOnly}@c.us`,
-      phoneOnly.startsWith('55') ? `${phoneOnly.substring(2)}@s.whatsapp.net` : null,
-      !phoneOnly.startsWith('55') && phoneOnly.length >= 10 ? `55${phoneOnly}@s.whatsapp.net` : null,
-    ].filter(Boolean) as string[];
-
-    let messages: any[] = [];
-
-    // ONLY use format1 with proper JID filter - format2 returns wrong data
-    for (const jidToTry of jidVariants) {
-      try {
-        const resp = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
-          method: 'POST',
-          headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            where: { key: { remoteJid: jidToTry } },
-            limit: 99999
-          })
-        });
-
-        if (resp.ok) {
-          const data = await resp.json();
-          const msgs = Array.isArray(data) ? data : 
-                      (data?.messages?.records || data?.messages || data?.records || []);
-          if (msgs.length > 0) {
-            messages = msgs;
-            console.log(`  ✅ ${msgs.length} msgs: ${jidToTry}`);
-            break;
-          }
-        }
-      } catch (e) { /* continue */ }
-    }
-
-    if (messages.length === 0) {
-      console.log(`  ⚠️ Nenhuma mensagem encontrada para: ${remoteJid}`);
-      return 0;
-    }
 
     // Sort messages by timestamp
     messages.sort((a, b) => {
@@ -1376,47 +1303,43 @@ async function syncMessagesForConversation(
     });
 
     let importedCount = 0;
-    let skippedDuplicates = 0;
     let lastMsgTimestamp: Date | null = null;
 
     for (const msg of messages) {
       try {
         const messageId = msg.key?.id;
         
+        // Track timestamp even for existing messages
+        const timestamp = msg.messageTimestamp || msg.key?.messageTimestamp;
+        if (timestamp) {
+          const msgDate = new Date(typeof timestamp === 'number' ? 
+            (timestamp > 9999999999 ? timestamp : timestamp * 1000) : timestamp);
+          if (!lastMsgTimestamp || msgDate > lastMsgTimestamp) {
+            lastMsgTimestamp = msgDate;
+          }
+        }
+        
         // Skip duplicates
         if (messageId && existingMessageIds.has(messageId)) {
-          skippedDuplicates++;
-          // Still track timestamp even for existing messages
-          const timestamp = msg.messageTimestamp || msg.key?.messageTimestamp;
-          if (timestamp) {
-            const msgDate = new Date(typeof timestamp === 'number' ? 
-              (timestamp > 9999999999 ? timestamp : timestamp * 1000) : timestamp);
-            if (!lastMsgTimestamp || msgDate > lastMsgTimestamp) {
-              lastMsgTimestamp = msgDate;
-            }
-          }
           continue;
         }
 
         const { content, type } = extractMessageContent(msg);
         if (type === 'unknown' || !content) continue;
-
-        const timestamp = msg.messageTimestamp || msg.key?.messageTimestamp;
         if (!timestamp) continue;
 
         const msgDate = new Date(typeof timestamp === 'number' ? 
           (timestamp > 9999999999 ? timestamp : timestamp * 1000) : timestamp);
 
-        if (!lastMsgTimestamp || msgDate > lastMsgTimestamp) {
-          lastMsgTimestamp = msgDate;
-        }
-
         const isFromMe = msg.key?.fromMe === true;
         
-        // For groups, include participant name
+        // For groups, prefix with sender name
         let finalContent = content;
-        if (isGroup && !isFromMe && msg.pushName) {
-          finalContent = `${msg.pushName}: ${content}`;
+        if (isGroup && !isFromMe) {
+          const senderName = msg.pushName || msg.key?.participant?.split('@')[0] || '';
+          if (senderName) {
+            finalContent = `*${senderName}*\n${content}`;
+          }
         }
 
         const { error: msgError } = await supabase
@@ -1433,9 +1356,7 @@ async function syncMessagesForConversation(
           importedCount++;
           if (messageId) existingMessageIds.add(messageId);
         }
-      } catch (e) {
-        // Continue
-      }
+      } catch (e) { /* continue */ }
     }
 
     // Update conversation timestamp to last message
@@ -1444,15 +1365,30 @@ async function syncMessagesForConversation(
         .from('conversations')
         .update({ updated_at: lastMsgTimestamp.toISOString() })
         .eq('id', conversationId);
-      console.log(`  ⏰ Timestamp atualizado: ${lastMsgTimestamp.toISOString()}`);
     }
 
-    console.log(`  📥 Importadas: ${importedCount}, Duplicatas: ${skippedDuplicates}`);
     return importedCount;
   } catch (error) {
-    console.error('Erro ao sincronizar mensagens:', error);
+    console.error('Error importing cached messages:', error);
     return 0;
   }
+}
+
+// ============================================================
+// SYNC MESSAGES FOR CONVERSATION (mantido para compatibilidade)
+// ============================================================
+async function syncMessagesForConversation(
+  supabase: any, 
+  evolutionApiUrl: string, 
+  evolutionApiKey: string, 
+  instanceName: string,
+  conversationId: string, 
+  remoteJid: string,
+  extractMessageContent: (msg: any) => { content: string; type: string }
+): Promise<number> {
+  // Esta função não é mais usada no fetchChats principal
+  // Mantida para compatibilidade com outros usos
+  return 0;
 }
 
 // ============================================================
