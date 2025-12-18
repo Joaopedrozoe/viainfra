@@ -580,12 +580,20 @@ async function syncInstances(req: Request, supabase: any, evolutionApiUrl: strin
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
           body: JSON.stringify({
+            enabled: true,
             url: webhookUrl,
-            webhook_by_events: false,
-            webhook_base64: false,
-            events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE']
+            webhookByEvents: false,
+            webhookBase64: true,
+            events: [
+              'MESSAGES_UPSERT',
+              'MESSAGES_UPDATE',
+              'CONNECTION_UPDATE',
+              'PRESENCE_UPDATE',
+              'QRCODE_UPDATED'
+            ]
           }),
         });
+        console.log(`📡 Webhook configurado para ${instanceName}`);
       } catch (webhookError) {
         console.error(`Error configuring webhook for ${instanceName}:`, webhookError);
       }
@@ -632,16 +640,28 @@ async function configureWebhook(req: Request, supabase: any, evolutionApiUrl: st
 
     const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/evolution-webhook`;
     
+    // Formato correto para Evolution API - estrutura aninhada
     const response = await fetch(`${evolutionApiUrl}/webhook/set/${instanceName}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
       body: JSON.stringify({
-        url: webhookUrl,
-        webhook_by_events: false,
-        webhook_base64: false,
-        events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE']
+        webhook: {
+          enabled: true,
+          url: webhookUrl,
+          webhookByEvents: false,
+          webhookBase64: true,
+          events: [
+            'MESSAGES_UPSERT',
+            'MESSAGES_UPDATE', 
+            'CONNECTION_UPDATE',
+            'PRESENCE_UPDATE',
+            'QRCODE_UPDATED'
+          ]
+        }
       }),
     });
+    
+    console.log(`📡 Webhook configurado para ${instanceName}: ${response.status}`);
 
     const data = await response.json();
 
