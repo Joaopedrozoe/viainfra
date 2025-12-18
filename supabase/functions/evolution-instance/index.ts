@@ -731,6 +731,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           
           console.log(`  ✅ Match: "${name}" → ${existingContact.name} (${existingContact.phone})`);
           contactId = existingContact.id;
+          phone = existingContact.phone; // Guardar phone para buscar mensagens
           
           // Verificar/criar conversa
           const { data: existingConv } = await supabase
@@ -760,6 +761,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             }
           } else {
             convId = existingConv.id;
+            console.log(`  🔄 Conversa @lid existente, sincronizando mensagens...`);
           }
         } 
         // ============================================================
@@ -845,6 +847,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             }
           } else {
             convId = existingConv.id;
+            console.log(`  🔄 Conversa existente, sincronizando mensagens...`);
           }
         }
 
@@ -854,15 +857,26 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         // BUSCAR E IMPORTAR MENSAGENS
         // ============================================================
         try {
+          // Para @lid, precisamos buscar pelo número real do contato
+          let queryNumber = jid;
+          if (jid.includes('@lid') && phone) {
+            queryNumber = `${phone}@s.whatsapp.net`;
+          }
+          
+          console.log(`  📨 Buscando mensagens via: ${queryNumber}`);
+          
           const msgResponse = await fetch(`${evolutionApiUrl}/chat/fetchMessages/${instanceName}`, {
             method: 'POST',
             headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ number: jid, count: 50 })
+            body: JSON.stringify({ number: queryNumber, count: 50 })
           });
 
+          console.log(`  📨 fetchMessages status: ${msgResponse.status}`);
+          
           if (msgResponse.ok) {
             const msgData = await msgResponse.json();
             const messages = Array.isArray(msgData) ? msgData : (msgData?.messages || []);
+            console.log(`  📨 Mensagens recebidas: ${messages.length}`);
 
             if (messages.length > 0) {
               // Obter IDs existentes
