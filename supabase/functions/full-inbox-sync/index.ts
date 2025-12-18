@@ -23,17 +23,18 @@ serve(async (req) => {
     const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY') ?? '';
 
     const stats = {
-      step1_remoteJidFixed: 0,
-      step2_contaminatedDeleted: 0,
-      step3_conversationsProcessed: 0,
-      step4_messagesImported: 0,
-      step5_conversationsUpdated: 0,
+      apiChatsFound: 0,
+      conversationsCreated: 0,
+      contactsCreated: 0,
+      messagesImported: 0,
+      conversationsUpdated: 0,
       errors: [] as string[]
     };
 
-    console.log('🚀 FULL INBOX SYNC - Starting complete synchronization');
+    console.log('🚀 FULL INBOX SYNC - PROFESSIONAL SYNC STARTING');
+    console.log('================================================');
 
-    // Get company_id
+    // Get company_id from instance
     const { data: instance } = await supabase
       .from('whatsapp_instances')
       .select('company_id')
@@ -48,129 +49,31 @@ serve(async (req) => {
     console.log(`📌 Company ID: ${companyId}`);
 
     // ============================================
-    // STEP 1: Fix remoteJid for all conversations
+    // STEP 1: Fetch ALL chats from Evolution API
     // ============================================
-    console.log('\n📍 STEP 1: Fixing remoteJid for conversations missing it...');
+    console.log('\n📍 STEP 1: Fetching ALL chats from Evolution API...');
     
-    const { data: conversationsToFix } = await supabase
-      .from('conversations')
-      .select('id, metadata, contact_id')
-      .eq('company_id', companyId)
-      .eq('channel', 'whatsapp');
+    const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${INSTANCE_NAME}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': evolutionApiKey
+      },
+      body: JSON.stringify({})
+    });
 
-    for (const conv of conversationsToFix || []) {
-      const metadata = conv.metadata || {};
-      
-      // If missing remoteJid but has contact, get phone from contact
-      if (!metadata.remoteJid && conv.contact_id) {
-        const { data: contact } = await supabase
-          .from('contacts')
-          .select('phone, metadata')
-          .eq('id', conv.contact_id)
-          .single();
-
-        if (contact) {
-          // Try to get remoteJid from contact metadata first
-          const contactRemoteJid = contact.metadata?.remoteJid;
-          let remoteJid = contactRemoteJid;
-          
-          // If not in contact metadata, construct from phone
-          if (!remoteJid && contact.phone) {
-            const cleanPhone = contact.phone.replace(/\D/g, '');
-            if (cleanPhone.length >= 10) {
-              remoteJid = `${cleanPhone}@s.whatsapp.net`;
-            }
-          }
-
-          if (remoteJid) {
-            const { error } = await supabase
-              .from('conversations')
-              .update({
-                metadata: {
-                  ...metadata,
-                  remoteJid,
-                  instanceName: INSTANCE_NAME
-                }
-              })
-              .eq('id', conv.id);
-
-            if (!error) {
-              stats.step1_remoteJidFixed++;
-              console.log(`  ✅ Fixed conversation ${conv.id} with remoteJid: ${remoteJid}`);
-            }
-          }
-        }
-      }
-      
-      // Also ensure instanceName is set
-      if (!metadata.instanceName && metadata.remoteJid) {
-        await supabase
-          .from('conversations')
-          .update({
-            metadata: {
-              ...metadata,
-              instanceName: INSTANCE_NAME
-            }
-          })
-          .eq('id', conv.id);
-      }
+    if (!chatsResponse.ok) {
+      throw new Error(`Failed to fetch chats: ${chatsResponse.status}`);
     }
 
-    console.log(`  📊 Step 1 complete: ${stats.step1_remoteJidFixed} conversations fixed`);
+    const apiChats = await chatsResponse.json();
+    console.log(`📱 API returned ${apiChats.length} chats`);
+    stats.apiChatsFound = apiChats.length;
 
     // ============================================
-    // STEP 2: Clean contaminated messages
+    // STEP 2: Build map of existing conversations by remoteJid
     // ============================================
-    console.log('\n🧹 STEP 2: Cleaning contaminated messages...');
-
-    // Find conversations where messages don't match the conversation's remoteJid
-    const { data: allConversations } = await supabase
-      .from('conversations')
-      .select('id, metadata, contact_id')
-      .eq('company_id', companyId)
-      .eq('channel', 'whatsapp');
-
-    for (const conv of allConversations || []) {
-      const convRemoteJid = conv.metadata?.remoteJid;
-      if (!convRemoteJid) continue;
-      
-      // Extract phone from conversation's remoteJid
-      const convPhone = convRemoteJid.split('@')[0];
-
-      // Get all messages with external_id (imported messages)
-      const { data: messages } = await supabase
-        .from('messages')
-        .select('id, metadata')
-        .eq('conversation_id', conv.id)
-        .not('metadata->external_id', 'is', null);
-
-      for (const msg of messages || []) {
-        const msgRemoteJid = msg.metadata?.remoteJid || msg.metadata?.from || msg.metadata?.to;
-        if (!msgRemoteJid) continue;
-        
-        const msgPhone = msgRemoteJid.split('@')[0];
-        
-        // If message phone doesn't match conversation phone - it's contaminated
-        if (msgPhone !== convPhone && !msgRemoteJid.includes(convPhone)) {
-          const { error } = await supabase
-            .from('messages')
-            .delete()
-            .eq('id', msg.id);
-
-          if (!error) {
-            stats.step2_contaminatedDeleted++;
-            console.log(`  🗑️ Deleted contaminated message ${msg.id} (msg: ${msgPhone}, conv: ${convPhone})`);
-          }
-        }
-      }
-    }
-
-    console.log(`  📊 Step 2 complete: ${stats.step2_contaminatedDeleted} contaminated messages deleted`);
-
-    // ============================================
-    // STEP 3: Build map of DB conversations by remoteJid
-    // ============================================
-    console.log('\n📍 STEP 3: Building conversation map...');
+    console.log('\n📍 STEP 2: Building existing conversations map...');
     
     const { data: existingConvs } = await supabase
       .from('conversations')
@@ -178,7 +81,6 @@ serve(async (req) => {
       .eq('company_id', companyId)
       .eq('channel', 'whatsapp');
 
-    // Map by remoteJid and by phone number
     const convByJid = new Map<string, any>();
     const convByPhone = new Map<string, any>();
     
@@ -186,31 +88,174 @@ serve(async (req) => {
       if (conv.metadata?.remoteJid) {
         const jid = conv.metadata.remoteJid;
         convByJid.set(jid, conv);
-        
-        // Also map by phone for flexibility
         const phone = jid.split('@')[0];
-        if (phone) {
-          convByPhone.set(phone, conv);
-        }
+        if (phone) convByPhone.set(phone, conv);
       }
     }
     
-    console.log(`  📊 Mapped ${convByJid.size} conversations by remoteJid`);
+    console.log(`📊 Existing conversations: ${convByJid.size}`);
 
     // ============================================
-    // STEP 4: Fetch messages directly from Evolution API for each DB conversation
+    // STEP 3: Process each chat - Create missing contacts/conversations
     // ============================================
-    console.log('\n🔄 STEP 4: Syncing messages for each conversation...');
+    console.log('\n📍 STEP 3: Processing each chat - creating missing conversations...');
 
+    for (const chat of apiChats) {
+      const remoteJid = chat.id || chat.remoteJid || chat.jid;
+      if (!remoteJid) continue;
+      
+      // Skip groups
+      if (remoteJid.includes('@g.us')) continue;
+      
+      // Skip @lid chats (internal format)
+      if (remoteJid.includes('@lid')) continue;
+      
+      // Check if conversation already exists
+      const phone = remoteJid.split('@')[0];
+      let existingConv = convByJid.get(remoteJid) || convByPhone.get(phone);
+      
+      if (existingConv) {
+        // Update remoteJid in metadata if missing
+        if (!existingConv.metadata?.remoteJid) {
+          await supabase
+            .from('conversations')
+            .update({
+              metadata: {
+                ...(existingConv.metadata || {}),
+                remoteJid,
+                instanceName: INSTANCE_NAME
+              }
+            })
+            .eq('id', existingConv.id);
+        }
+        continue;
+      }
+
+      // === CREATE NEW CONVERSATION ===
+      console.log(`\n➕ Creating conversation for: ${remoteJid}`);
+      
+      const contactName = chat.name || chat.pushName || chat.notify || phone;
+      
+      // Check if contact exists by phone
+      let contact = null;
+      const { data: existingContact } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('company_id', companyId)
+        .eq('phone', phone)
+        .maybeSingle();
+
+      if (existingContact) {
+        contact = existingContact;
+        console.log(`  ✅ Found existing contact: ${contact.name}`);
+        
+        // Update remoteJid if missing
+        if (!contact.metadata?.remoteJid) {
+          await supabase
+            .from('contacts')
+            .update({
+              metadata: { ...(contact.metadata || {}), remoteJid },
+              name: contactName || contact.name,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', contact.id);
+        }
+      } else {
+        // Create new contact
+        console.log(`  ➕ Creating new contact: ${contactName} (${phone})`);
+        
+        // Try to fetch profile picture
+        let avatarUrl = null;
+        try {
+          const ppResponse = await fetch(`${evolutionApiUrl}/chat/fetchProfilePictureUrl/${INSTANCE_NAME}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': evolutionApiKey
+            },
+            body: JSON.stringify({ number: phone })
+          });
+          if (ppResponse.ok) {
+            const ppData = await ppResponse.json();
+            avatarUrl = ppData.profilePictureUrl || ppData.pictureUrl || ppData.url || null;
+          }
+        } catch (e) {
+          console.log(`  ⚠️ Could not fetch profile picture`);
+        }
+
+        const { data: newContact, error: contactError } = await supabase
+          .from('contacts')
+          .insert({
+            name: contactName,
+            phone: phone,
+            avatar_url: avatarUrl,
+            company_id: companyId,
+            metadata: { remoteJid },
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+
+        if (contactError) {
+          console.log(`  ❌ Error creating contact: ${contactError.message}`);
+          stats.errors.push(`Contact error for ${phone}: ${contactError.message}`);
+          continue;
+        }
+
+        contact = newContact;
+        stats.contactsCreated++;
+        console.log(`  ✅ Contact created: ${contact.id}`);
+      }
+
+      // Create conversation
+      const { data: newConv, error: convError } = await supabase
+        .from('conversations')
+        .insert({
+          contact_id: contact.id,
+          company_id: companyId,
+          channel: 'whatsapp',
+          status: 'open',
+          bot_active: true,
+          metadata: {
+            remoteJid,
+            instanceName: INSTANCE_NAME
+          },
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (convError) {
+        console.log(`  ❌ Error creating conversation: ${convError.message}`);
+        stats.errors.push(`Conversation error for ${phone}: ${convError.message}`);
+        continue;
+      }
+
+      stats.conversationsCreated++;
+      console.log(`  ✅ Conversation created: ${newConv.id}`);
+
+      // Add to maps for message sync
+      convByJid.set(remoteJid, newConv);
+      convByPhone.set(phone, newConv);
+    }
+
+    console.log(`\n📊 Step 3 complete: ${stats.conversationsCreated} conversations created, ${stats.contactsCreated} contacts created`);
+
+    // ============================================
+    // STEP 4: Sync messages for ALL conversations
+    // ============================================
+    console.log('\n📍 STEP 4: Syncing messages for all conversations...');
+
+    let processedCount = 0;
     for (const [jid, conv] of convByJid.entries()) {
-      // Skip groups for now
+      // Skip groups
       if (jid.includes('@g.us')) continue;
       
-      stats.step3_conversationsProcessed++;
-
+      processedCount++;
+      
       try {
-        console.log(`  📱 Processing ${jid}...`);
-        
         // Fetch messages from Evolution API
         const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${INSTANCE_NAME}`, {
           method: 'POST',
@@ -225,7 +270,7 @@ serve(async (req) => {
         });
 
         if (!messagesResponse.ok) {
-          console.log(`  ⚠️ Failed to fetch messages for ${jid}: ${messagesResponse.status}`);
+          console.log(`  ⚠️ Failed to fetch messages for ${jid.substring(0, 15)}...`);
           continue;
         }
 
@@ -241,14 +286,9 @@ serve(async (req) => {
           messageList = apiData.messages;
         }
 
-        if (messageList.length === 0) {
-          console.log(`  ⏭️ No messages from API for ${jid}`);
-          continue;
-        }
+        if (messageList.length === 0) continue;
 
-        console.log(`  📩 Got ${messageList.length} messages from API`);
-
-        // Get existing message external_ids
+        // Get existing message IDs
         const { data: existingMessages } = await supabase
           .from('messages')
           .select('metadata')
@@ -275,9 +315,8 @@ serve(async (req) => {
 
           // Parse timestamp
           let timestamp: string;
-          if (apiMsg.messageTimestamp) {
-            const ts = Number(apiMsg.messageTimestamp);
-            // If timestamp is in seconds, convert to milliseconds
+          const ts = Number(apiMsg.messageTimestamp || 0);
+          if (ts > 0) {
             const timestampMs = ts > 1e12 ? ts : ts * 1000;
             timestamp = new Date(timestampMs).toISOString();
             if (ts > latestTimestamp) latestTimestamp = ts;
@@ -303,15 +342,12 @@ serve(async (req) => {
         }
 
         if (newMessages.length > 0) {
-          console.log(`  📤 Inserting ${newMessages.length} new messages...`);
-          
           const { error } = await supabase
             .from('messages')
             .insert(newMessages);
 
           if (!error) {
-            stats.step4_messagesImported += newMessages.length;
-            console.log(`  ✅ Imported ${newMessages.length} messages for ${jid}`);
+            stats.messagesImported += newMessages.length;
 
             // Update conversation timestamp
             if (latestTimestamp > 0) {
@@ -320,37 +356,37 @@ serve(async (req) => {
                 .from('conversations')
                 .update({ updated_at: new Date(timestampMs).toISOString() })
                 .eq('id', conv.id);
-              stats.step5_conversationsUpdated++;
+              stats.conversationsUpdated++;
             }
-          } else {
-            stats.errors.push(`Insert error for ${jid}: ${error.message}`);
-            console.log(`  ❌ Error: ${error.message}`);
           }
-        } else {
-          console.log(`  ⏭️ No new messages for ${jid}`);
         }
 
       } catch (err: any) {
-        stats.errors.push(`Error processing ${jid}: ${err.message}`);
-        console.log(`  ❌ Error: ${err.message}`);
+        stats.errors.push(`Error syncing ${jid}: ${err.message}`);
       }
     }
 
-    console.log(`\n📊 STEP 4 complete: ${stats.step4_messagesImported} messages imported`);
+    console.log(`📊 Step 4 complete: ${stats.messagesImported} messages imported from ${processedCount} conversations`);
 
     // ============================================
-    // STEP 5: Update all conversation timestamps
+    // STEP 5: Update ALL conversation timestamps based on latest message
     // ============================================
-    console.log('\n⏰ STEP 5: Updating conversation timestamps...');
+    console.log('\n📍 STEP 5: Fixing all conversation timestamps...');
 
-    for (const [_, conv] of convByJid.entries()) {
+    const { data: allConvs } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('channel', 'whatsapp');
+
+    for (const conv of allConvs || []) {
       const { data: latestMsg } = await supabase
         .from('messages')
         .select('created_at')
         .eq('conversation_id', conv.id)
         .order('created_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (latestMsg) {
         await supabase
@@ -360,19 +396,19 @@ serve(async (req) => {
       }
     }
 
-    console.log(`  📊 Step 5 complete`);
+    console.log(`📊 Step 5 complete: timestamps updated`);
 
     // Final summary
     console.log('\n🎉 FULL INBOX SYNC COMPLETE');
     console.log('============================');
-    console.log(`Step 1 - remoteJid fixed: ${stats.step1_remoteJidFixed}`);
-    console.log(`Step 2 - Contaminated deleted: ${stats.step2_contaminatedDeleted}`);
-    console.log(`Step 3 - Conversations processed: ${stats.step3_conversationsProcessed}`);
-    console.log(`Step 4 - Messages imported: ${stats.step4_messagesImported}`);
-    console.log(`Step 5 - Timestamps updated: ${stats.step5_conversationsUpdated}`);
+    console.log(`API Chats Found: ${stats.apiChatsFound}`);
+    console.log(`Conversations Created: ${stats.conversationsCreated}`);
+    console.log(`Contacts Created: ${stats.contactsCreated}`);
+    console.log(`Messages Imported: ${stats.messagesImported}`);
+    console.log(`Conversations Updated: ${stats.conversationsUpdated}`);
     console.log(`Errors: ${stats.errors.length}`);
     if (stats.errors.length > 0) {
-      console.log(`Error details: ${JSON.stringify(stats.errors)}`);
+      console.log(`Error details: ${JSON.stringify(stats.errors.slice(0, 10))}`);
     }
 
     return new Response(JSON.stringify({
@@ -412,7 +448,6 @@ function extractContent(msg: any): string {
   if (message.reactionMessage) return '';
   if (message.protocolMessage) return '';
   
-  // Try to get any text content
   const text = msg.body || msg.text || msg.caption;
   if (text) return text;
   
