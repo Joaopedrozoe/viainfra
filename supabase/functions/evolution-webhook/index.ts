@@ -342,7 +342,76 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       }
       
       if (!existingContacts || existingContacts.length === 0) {
-        console.log(`⛔ @lid sem contato existente encontrado para "${contactName}" - ignorando`);
+        console.log(`📱 @lid sem contato encontrado para "${contactName}" - criando novo contato com LID`);
+        
+        // Create new contact with LID as identifier
+        const { data: contact } = await supabase
+          .from('contacts')
+          .select('company_id')
+          .limit(1)
+          .single();
+        
+        // Get company_id from existing data
+        const { data: companyData } = await supabase
+          .from('whatsapp_instances')
+          .select('company_id')
+          .eq('instance_name', webhook.instance)
+          .single();
+        
+        const companyId = companyData?.company_id;
+        
+        if (!companyId) {
+          console.error('❌ Não foi possível determinar company_id para criar contato @lid');
+          continue;
+        }
+        
+        // Create contact with LID as phone (temporary)
+        const lidId = remoteJid.replace('@lid', '');
+        const { data: newContact, error: createError } = await supabase
+          .from('contacts')
+          .insert({
+            name: contactName || 'Contato LID',
+            phone: lidId,
+            company_id: companyId,
+            metadata: { remoteJid: remoteJid, isLidContact: true }
+          })
+          .select()
+          .single();
+        
+        if (createError) {
+          console.error('❌ Erro ao criar contato @lid:', createError);
+          continue;
+        }
+        
+        console.log(`✅ Novo contato @lid criado: ${newContact.id} - ${contactName}`);
+        
+        // Create conversation with lidJid in metadata
+        const { data: newConv, error: convError } = await supabase
+          .from('conversations')
+          .insert({
+            contact_id: newContact.id,
+            channel: 'whatsapp',
+            status: 'open',
+            company_id: companyId,
+            metadata: { 
+              remoteJid: remoteJid,
+              lidJid: remoteJid,
+              instanceName: webhook.instance
+            }
+          })
+          .select()
+          .single();
+        
+        if (convError) {
+          console.error('❌ Erro ao criar conversa @lid:', convError);
+          continue;
+        }
+        
+        // Save message
+        await saveMessage(supabase, newConv.id, message, messageContent, lidId, webhook.instance);
+        
+        // Don't trigger bot for LID contacts (can't respond reliably yet)
+        console.log(`✅ Mensagem @lid salva. Resposta automática desabilitada para contatos LID.`);
         continue;
       }
       
@@ -350,11 +419,8 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       const matchedContact = existingContacts[0];
       console.log(`✅ @lid matched to existing contact: ${matchedContact.name} (${matchedContact.phone})`);
       
-      // Build sendToRemoteJid from the contact's phone
-      const sendToRemoteJid = `${matchedContact.phone}@s.whatsapp.net`;
-      
-      // Get or create conversation for this contact
-      const conversation = await getOrCreateConversation(supabase, matchedContact.id, matchedContact.phone, matchedContact.name, sendToRemoteJid, webhook.instance);
+      // Get or create conversation - IMPORTANT: Save lidJid for responding
+      const conversation = await getOrCreateConversationWithLid(supabase, matchedContact.id, matchedContact.phone, matchedContact.name, remoteJid, webhook.instance);
       
       // Save message
       const savedMessage = await saveMessage(supabase, conversation.id, message, messageContent, matchedContact.phone, webhook.instance);
@@ -364,8 +430,11 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         continue;
       }
       
-      // Trigger bot response
-      console.log(`✅ Triggering bot for @lid contact ${matchedContact.id} (${matchedContact.name}). Phone: ${matchedContact.phone}, Send to: ${sendToRemoteJid}`);
+      // Build sendToRemoteJid - use lidJid for responding to LID contacts
+      const sendToRemoteJid = remoteJid;
+      
+      // Trigger bot response using the LID address
+      console.log(`✅ Triggering bot for @lid contact ${matchedContact.id} (${matchedContact.name}). LID: ${remoteJid}`);
       await triggerBotResponse(supabase, conversation.id, messageContent, sendToRemoteJid, webhook.instance);
       continue;
     }
@@ -1120,6 +1189,122 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
   }
 
   console.log(`✅ Created new conversation: ${newConversation.id} with instanceName: ${instanceName || 'NULL'}`);
+  return newConversation;
+}
+
+// Versão especial para mensagens @lid - salva o lidJid no metadata
+async function getOrCreateConversationWithLid(supabase: any, contactId: string, phoneNumber: string, contactName: string, lidJid: string, instanceName?: string) {
+  // Get contact to find company_id
+  const { data: contact } = await supabase
+    .from('contacts')
+    .select('company_id')
+    .eq('id', contactId)
+    .single();
+
+  console.log(`🔍 [getOrCreateConversationWithLid] ContactId: ${contactId}, Phone: ${phoneNumber}, LidJid: ${lidJid}, Instance: ${instanceName || 'NOT PROVIDED'}`);
+
+  // Buscar conversa existente para este contato
+  const { data: existingConversation } = await supabase
+    .from('conversations')
+    .select('*')
+    .eq('contact_id', contactId)
+    .eq('channel', 'whatsapp')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingConversation) {
+    console.log(`✅ Found existing conversation: ${existingConversation.id} - adding lidJid`);
+    
+    // CRITICAL: Always update with lidJid for @lid messages
+    const currentLidJid = existingConversation.metadata?.lidJid;
+    const needsLidUpdate = lidJid && (!currentLidJid || currentLidJid !== lidJid);
+    
+    const needsReopen = existingConversation.status === 'resolved' || existingConversation.status === 'closed';
+    
+    if (needsReopen || needsLidUpdate) {
+      console.log(`🔧 Updating conversation with lidJid: ${lidJid}`);
+      
+      const newMetadata = {
+        ...(existingConversation.metadata || {}),
+        remoteJid: lidJid,
+        lidJid: lidJid,
+        instanceName: instanceName || existingConversation.metadata?.instanceName,
+        ...(needsReopen ? { bot_state: null, bot_triggered: false } : {})
+      };
+      
+      const updateData: any = { 
+        updated_at: new Date().toISOString(),
+        metadata: newMetadata
+      };
+      
+      if (needsReopen) {
+        updateData.status = 'open';
+        updateData.archived = false;
+      }
+      
+      await supabase
+        .from('conversations')
+        .update(updateData)
+        .eq('id', existingConversation.id);
+      
+      existingConversation.metadata = newMetadata;
+    }
+    
+    return existingConversation;
+  }
+
+  // Create new conversation with lidJid
+  console.log(`➕ Creating new conversation with lidJid for contact: ${contactId}`);
+  
+  const conversationMetadata = { 
+    remoteJid: lidJid,
+    lidJid: lidJid,
+    instanceName: instanceName || null
+  };
+  
+  const { data: newConversation, error: insertError } = await supabase
+    .from('conversations')
+    .insert({
+      contact_id: contactId,
+      channel: 'whatsapp',
+      status: 'open',
+      company_id: contact?.company_id,
+      metadata: conversationMetadata,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    })
+    .select()
+    .single();
+
+  if (insertError) {
+    if (insertError.code === '23505') {
+      // Race condition - fetch and update
+      const { data: fallbackConversation } = await supabase
+        .from('conversations')
+        .select('*')
+        .eq('contact_id', contactId)
+        .eq('channel', 'whatsapp')
+        .limit(1)
+        .maybeSingle();
+      
+      if (fallbackConversation) {
+        // Update with lidJid
+        await supabase
+          .from('conversations')
+          .update({ 
+            metadata: { ...fallbackConversation.metadata, lidJid: lidJid, remoteJid: lidJid, instanceName: instanceName },
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', fallbackConversation.id);
+        
+        return fallbackConversation;
+      }
+    }
+    throw insertError;
+  }
+
+  console.log(`✅ Created new conversation with lidJid: ${newConversation.id}`);
   return newConversation;
 }
 
