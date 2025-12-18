@@ -19,6 +19,26 @@ export interface WhatsAppInstance {
   updated_at: string;
 }
 
+export interface DiagnosticSummary {
+  totalEvolution: number;
+  totalDatabase: number;
+  missingInDb: number;
+  missingMessages: number;
+  outdated: number;
+  ok: number;
+  groups: number;
+  contacts: number;
+}
+
+export interface DiagnosticProblem {
+  jid: string;
+  name: string;
+  isGroup: boolean;
+  inEvolution: boolean;
+  inDatabase: boolean;
+  status: 'ok' | 'missing_in_db' | 'missing_messages' | 'outdated';
+}
+
 export const useWhatsAppInstances = () => {
   const [instances, setInstances] = useState<WhatsAppInstance[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,7 +63,6 @@ export const useWhatsAppInstances = () => {
   useEffect(() => {
     loadInstances();
 
-    // Subscribe to real-time changes
     const channel = supabase
       .channel('whatsapp-instances-changes')
       .on(
@@ -232,11 +251,52 @@ export const useWhatsAppInstances = () => {
     }
   };
 
-  const fetchChats = async (instanceName: string) => {
+  const fetchChats = async (instanceName: string, forceFullSync: boolean = false) => {
     try {
-      // Use the new lightweight import-chats function to avoid resource limits
       const response = await fetch(
         `${SUPABASE_URL}/functions/v1/import-chats`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          },
+          body: JSON.stringify({ instanceName, forceFullSync })
+        }
+      );
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Falha ao importar conversas');
+      }
+      
+      return {
+        totalChats: data.stats?.totalConversations || 0,
+        processedChats: (data.stats?.newConversations || 0) + (data.stats?.updatedConversations || 0),
+        importedContacts: data.stats?.newContacts || 0,
+        importedConversations: data.stats?.newConversations || 0,
+        updatedConversations: data.stats?.updatedConversations || 0,
+        importedMessages: data.stats?.newMessages || 0,
+        groupsCount: data.stats?.groups || 0,
+        stats: data.stats,
+        message: data.message
+      };
+    } catch (error: any) {
+      console.error('Error fetching chats:', error);
+      throw error;
+    }
+  };
+
+  const diagnoseInstance = async (instanceName: string): Promise<{
+    success: boolean;
+    instanceName: string;
+    connectionState: string;
+    summary: DiagnosticSummary;
+    problems: DiagnosticProblem[];
+  }> => {
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/diagnose-instance`,
         {
           method: 'POST',
           headers: {
@@ -249,70 +309,88 @@ export const useWhatsAppInstances = () => {
 
       const data = await response.json();
       if (!response.ok) {
-        const errorMessage = data.error || 'Falha ao importar conversas';
-        throw new Error(errorMessage);
+        throw new Error(data.error || 'Falha no diagnóstico');
       }
       
-      // Return the full data for the progress modal
-      return {
-        totalChats: data.totalChats || 0,
-        processedChats: data.processedChats || 0,
-        importedContacts: data.stats?.contacts || 0,
-        importedConversations: data.stats?.conversations || 0,
-        importedMessages: data.stats?.messages || 0,
-        groupsCount: data.stats?.groups || 0,
-        stats: data.stats,
-        message: data.message
-      };
+      return data;
     } catch (error: any) {
-      console.error('Error fetching chats:', error);
+      console.error('Error diagnosing instance:', error);
       throw error;
     }
   };
 
-const reprocessMedia = async (instanceName: string) => {
-  try {
-    const response = await fetch(
-      `${SUPABASE_URL}/functions/v1/evolution-instance/reprocess-media`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
-        },
-        body: JSON.stringify({ instanceName })
+  const fixRemoteJid = async (companyId: string, instanceName?: string) => {
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/fix-remote-jid`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          },
+          body: JSON.stringify({ companyId, instanceName })
+        }
+      );
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Falha ao corrigir remoteJid');
       }
-    );
-
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || 'Falha ao reprocessar mídias');
+      
+      toast.success(`${data.stats?.fixed || 0} contatos corrigidos!`);
+      return data;
+    } catch (error: any) {
+      console.error('Error fixing remoteJid:', error);
+      throw error;
     }
-    
-    return {
-      processed: data.processed || 0,
-      updated: data.updated || 0,
-      failed: data.failed || 0,
-      message: data.message
-    };
-  } catch (error: any) {
-    console.error('Error reprocessing media:', error);
-    throw error;
-  }
-};
+  };
 
-return {
-  instances,
-  loading,
-  createInstance,
-  getInstanceStatus,
-  getInstanceQR,
-  deleteInstance,
-  sendMessage,
-  syncInstances,
-  toggleBot,
-  fetchChats,
-  reprocessMedia,
-  refresh: loadInstances
-};
+  const reprocessMedia = async (instanceName: string) => {
+    try {
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/evolution-instance/reprocess-media`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          },
+          body: JSON.stringify({ instanceName })
+        }
+      );
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Falha ao reprocessar mídias');
+      }
+      
+      return {
+        processed: data.processed || 0,
+        updated: data.updated || 0,
+        failed: data.failed || 0,
+        message: data.message
+      };
+    } catch (error: any) {
+      console.error('Error reprocessing media:', error);
+      throw error;
+    }
+  };
+
+  return {
+    instances,
+    loading,
+    createInstance,
+    getInstanceStatus,
+    getInstanceQR,
+    deleteInstance,
+    sendMessage,
+    syncInstances,
+    toggleBot,
+    fetchChats,
+    diagnoseInstance,
+    fixRemoteJid,
+    reprocessMedia,
+    refresh: loadInstances
+  };
 };

@@ -2,6 +2,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 
 const ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'viainfraoficial'];
+const BATCH_SIZE = 30; // Process chats in batches
+const MESSAGE_LIMIT = 500; // Messages per chat
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -14,7 +16,7 @@ serve(async (req) => {
   }
 
   try {
-    const { instanceName } = await req.json();
+    const { instanceName, forceFullSync = false, specificJids = [] } = await req.json();
     
     if (!instanceName) {
       return new Response(JSON.stringify({ error: 'Instance name is required' }), { 
@@ -43,7 +45,9 @@ serve(async (req) => {
     }
 
     console.log(`\n========================================`);
-    console.log(`📥 IMPORTAÇÃO COMPLETA V2: ${instanceName}`);
+    console.log(`📥 IMPORTAÇÃO V3: ${instanceName}`);
+    console.log(`   forceFullSync: ${forceFullSync}`);
+    console.log(`   specificJids: ${specificJids.length || 'all'}`);
     console.log(`========================================\n`);
 
     // Get instance record
@@ -83,12 +87,21 @@ serve(async (req) => {
     }
 
     // Stats
-    const stats = { contacts: 0, conversations: 0, messages: 0, groups: 0, skipped: 0, updated: 0, synced: 0, namesFixed: 0, recovered: 0 };
+    const stats = { 
+      newContacts: 0, 
+      newConversations: 0, 
+      updatedConversations: 0,
+      newMessages: 0, 
+      groups: 0, 
+      skipped: 0, 
+      errors: 0,
+      namesFixed: 0
+    };
 
     // ==========================================
-    // PASSO 1: BUSCAR CONTATOS DA API (para nomes)
+    // PASSO 1: BUSCAR CONTATOS (para nomes)
     // ==========================================
-    console.log(`📥 Buscando contatos para nomes...`);
+    console.log(`\n📥 PASSO 1: Buscando nomes de contatos...`);
     const contactsNameMap = new Map<string, string>();
     
     try {
@@ -111,405 +124,340 @@ serve(async (req) => {
             if (phoneMatch) {
               const phone = phoneMatch[1];
               contactsNameMap.set(phone, name);
+              // Add variants
               if (phone.startsWith('55') && phone.length >= 12) {
                 contactsNameMap.set(phone.slice(2), name);
-              } else if (phone.length >= 10) {
+              } else if (phone.length >= 10 && phone.length <= 11) {
                 contactsNameMap.set('55' + phone, name);
               }
             }
           }
         }
-        console.log(`✅ ${contactsNameMap.size} nomes de contatos mapeados`);
+        console.log(`   ✅ ${contactsNameMap.size} nomes mapeados`);
       }
     } catch (e) {
-      console.log(`⚠️ Erro buscando contatos: ${e}`);
+      console.log(`   ⚠️ Erro: ${e}`);
     }
 
     // ==========================================
-    // PASSO 2: BUSCAR CHATS ATIVOS (findChats)
+    // PASSO 2: BUSCAR TODOS OS CHATS
     // ==========================================
-    console.log(`📥 Buscando chats ativos...`);
-    let activeChats: any[] = [];
+    console.log(`\n📥 PASSO 2: Buscando chats da Evolution API...`);
+    let allChats: any[] = [];
     
-    // Tentar múltiplos métodos para obter mais chats
-    try {
-      // Método 1: findChats padrão
-      const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
-        method: 'POST',
-        headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({})
-      });
-      if (chatsResponse.ok) {
-        const chatsData = await chatsResponse.json();
-        activeChats = Array.isArray(chatsData) ? chatsData : (chatsData?.chats || []);
-        console.log(`✅ findChats retornou ${activeChats.length} chats`);
-      }
-    } catch (e) {
-      console.log(`⚠️ Erro findChats: ${e}`);
-    }
+    // Try multiple methods to get all chats
+    const chatMethods = [
+      { body: {}, name: 'default' },
+      { body: { limit: 1000 }, name: 'limit:1000' },
+      { body: { limit: 500 }, name: 'limit:500' }
+    ];
 
-    // Método 2: Tentar com limit/offset maior
-    if (activeChats.length < 50) {
+    for (const method of chatMethods) {
       try {
-        const chatsResponse2 = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
+        const response = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
           method: 'POST',
           headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ limit: 500 })
+          body: JSON.stringify(method.body)
         });
-        if (chatsResponse2.ok) {
-          const chatsData2 = await chatsResponse2.json();
-          const chats2 = Array.isArray(chatsData2) ? chatsData2 : (chatsData2?.chats || []);
-          if (chats2.length > activeChats.length) {
-            activeChats = chats2;
-            console.log(`✅ findChats com limit:500 retornou ${activeChats.length} chats`);
+        
+        if (response.ok) {
+          const data = await response.json();
+          const chats = Array.isArray(data) ? data : (data?.chats || []);
+          if (chats.length > allChats.length) {
+            allChats = chats;
+            console.log(`   ✅ ${method.name}: ${chats.length} chats`);
           }
         }
-      } catch (e) { /* continue */ }
+      } catch (e) {
+        console.log(`   ⚠️ ${method.name} falhou`);
+      }
     }
 
+    console.log(`   📊 Total: ${allChats.length} chats encontrados`);
+
     // ==========================================
-    // PASSO 3: BUSCAR GRUPOS (para metadados)
+    // PASSO 3: BUSCAR GRUPOS
     // ==========================================
-    console.log(`📥 Buscando grupos...`);
+    console.log(`\n📥 PASSO 3: Buscando metadados de grupos...`);
     const groupsMap = new Map<string, any>();
+    
     try {
-      const groupsResponse = await fetch(`${evolutionApiUrl}/group/fetchAllGroups/${instanceName}?getParticipants=false`, {
+      const response = await fetch(`${evolutionApiUrl}/group/fetchAllGroups/${instanceName}?getParticipants=false`, {
         headers: { 'apikey': evolutionApiKey }
       });
-      if (groupsResponse.ok) {
-        const groupsData = await groupsResponse.json();
-        const allGroups = Array.isArray(groupsData) ? groupsData : [];
-        for (const group of allGroups) {
+      if (response.ok) {
+        const groups = await response.json();
+        for (const group of (Array.isArray(groups) ? groups : [])) {
           const jid = group.id || group.jid;
-          if (jid) {
-            groupsMap.set(jid, group);
-          }
+          if (jid) groupsMap.set(jid, group);
         }
-        console.log(`✅ ${groupsMap.size} grupos mapeados`);
+        console.log(`   ✅ ${groupsMap.size} grupos mapeados`);
       }
     } catch (e) {
-      console.log(`⚠️ Erro buscando grupos: ${e}`);
+      console.log(`   ⚠️ Erro: ${e}`);
     }
 
     // ==========================================
-    // PASSO 4: CORRIGIR NOMES ESPECÍFICOS
+    // PASSO 4: CARREGAR CONVERSAS EXISTENTES DO DB
     // ==========================================
-    console.log(`\n🔧 Corrigindo nomes específicos...`);
+    console.log(`\n📥 PASSO 4: Carregando conversas existentes...`);
     
-    // Fix T Informatica -> Anthony Informatica
-    const { data: tInfoContact } = await supabase
-      .from('contacts')
-      .select('id, name')
-      .eq('company_id', companyId)
-      .eq('phone', '5511950025503')
-      .maybeSingle();
-    
-    if (tInfoContact && tInfoContact.name !== 'Anthony Informatica') {
-      await supabase.from('contacts').update({ 
-        name: 'Anthony Informatica', 
-        updated_at: new Date().toISOString() 
-      }).eq('id', tInfoContact.id);
-      console.log(`   📝 Corrigido: "T Informatica" -> "Anthony Informatica"`);
-      stats.namesFixed++;
-    }
-
-    // Corrigir nomes numéricos
-    const { data: numericContacts } = await supabase
-      .from('contacts')
-      .select('id, name, phone')
-      .eq('company_id', companyId)
-      .not('phone', 'is', null);
-    
-    if (numericContacts) {
-      for (const contact of numericContacts) {
-        const isNumericName = /^\d+$/.test(contact.name || '');
-        if (isNumericName && contact.phone) {
-          const realName = contactsNameMap.get(contact.phone) || 
-                          contactsNameMap.get(contact.phone.replace(/^55/, '')) ||
-                          (contact.phone.length <= 11 ? contactsNameMap.get('55' + contact.phone) : null);
-          
-          if (realName && realName !== contact.name) {
-            console.log(`   📝 Corrigindo: "${contact.name}" -> "${realName}"`);
-            await supabase.from('contacts').update({ 
-              name: realName, 
-              updated_at: new Date().toISOString() 
-            }).eq('id', contact.id);
-            stats.namesFixed++;
-          }
-        }
-      }
-    }
-    console.log(`✅ ${stats.namesFixed} nomes corrigidos`);
-
-    // ==========================================
-    // PASSO 5: PROCESSAR CHATS ATIVOS
-    // ==========================================
-    console.log(`\n📊 Processando ${activeChats.length} chats ativos...\n`);
-    const processedPhones = new Set<string>();
-
-    for (let i = 0; i < activeChats.length; i++) {
-      const chat = activeChats[i];
-      const jid = chat.remoteJid || chat.id || chat.jid;
-      
-      if (!jid) { stats.skipped++; continue; }
-      if (jid.includes('@lid') || jid.includes('@broadcast') || jid.startsWith('status@')) { stats.skipped++; continue; }
-
-      const isGroup = jid.includes('@g.us');
-      const groupData = isGroup ? groupsMap.get(jid) : null;
-      let chatName = groupData?.subject || chat.name || chat.pushName || chat.notify || chat.verifiedName || '';
-
-      try {
-        let phone = '';
-        let phoneVariants: string[] = [];
-        
-        if (!isGroup) {
-          const phoneMatch = jid.match(/^(\d+)@/);
-          if (!phoneMatch) { stats.skipped++; continue; }
-          const rawPhone = phoneMatch[1];
-          
-          if (rawPhone.startsWith('55') && rawPhone.length >= 12) {
-            phoneVariants = [rawPhone, rawPhone.slice(2)];
-            phone = rawPhone;
-          } else if (rawPhone.length >= 10 && rawPhone.length <= 11) {
-            phoneVariants = [rawPhone, '55' + rawPhone];
-            phone = '55' + rawPhone;
-          } else {
-            phoneVariants = [rawPhone];
-            phone = rawPhone;
-          }
-          
-          if (phone.length < 10 || phone.length > 15) { stats.skipped++; continue; }
-          
-          processedPhones.add(phone);
-          for (const pv of phoneVariants) processedPhones.add(pv);
-
-          if (!chatName || /^\d+$/.test(chatName)) {
-            for (const pv of phoneVariants) {
-              const mappedName = contactsNameMap.get(pv);
-              if (mappedName) { chatName = mappedName; break; }
-            }
-          }
-        }
-
-        // Criar/atualizar contato
-        let contactId: string | null = null;
-        const profilePic = chat.profilePictureUrl || chat.imgUrl || null;
-
-        if (isGroup) {
-          stats.groups++;
-          const groupName = chatName || `Grupo ${jid.slice(-8)}`;
-
-          let { data: existingContact } = await supabase
-            .from('contacts')
-            .select('id, name')
-            .eq('company_id', companyId)
-            .eq('metadata->>remoteJid', jid)
-            .maybeSingle();
-
-          if (!existingContact) {
-            const { data: newContact } = await supabase.from('contacts').insert({
-              company_id: companyId,
-              name: groupName,
-              avatar_url: profilePic,
-              metadata: { remoteJid: jid, isGroup: true }
-            }).select('id').single();
-            contactId = newContact?.id;
-            if (contactId) stats.contacts++;
-          } else {
-            contactId = existingContact.id;
-            if (groupName && existingContact.name !== groupName) {
-              await supabase.from('contacts').update({ name: groupName, updated_at: new Date().toISOString() }).eq('id', contactId);
-              stats.updated++;
-            }
-          }
-        } else {
-          let existingContact = null;
-          for (const phoneVar of phoneVariants) {
-            const { data: found } = await supabase.from('contacts').select('id, name, phone')
-              .eq('company_id', companyId).eq('phone', phoneVar).maybeSingle();
-            if (found) { existingContact = found; break; }
-          }
-
-          if (!existingContact) {
-            const contactName = chatName || phone;
-            const { data: newContact } = await supabase.from('contacts').insert({
-              company_id: companyId, name: contactName, phone: phone,
-              avatar_url: profilePic, metadata: { remoteJid: jid }
-            }).select('id').single();
-            contactId = newContact?.id;
-            if (contactId) stats.contacts++;
-          } else {
-            contactId = existingContact.id;
-            const currentName = existingContact.name || '';
-            const isNameJustNumbers = /^\d+$/.test(currentName);
-            const hasGoodName = chatName && chatName.length >= 2 && !/^\d+$/.test(chatName);
-            
-            if (hasGoodName && isNameJustNumbers) {
-              await supabase.from('contacts').update({ name: chatName, updated_at: new Date().toISOString() }).eq('id', contactId);
-              stats.updated++;
-            }
-          }
-        }
-
-        if (!contactId) continue;
-
-        // Criar/encontrar conversa
-        let { data: existingConv } = await supabase.from('conversations')
-          .select('id').eq('company_id', companyId).eq('contact_id', contactId).eq('channel', 'whatsapp').maybeSingle();
-
-        let convId = existingConv?.id;
-        const isNewConversation = !existingConv;
-
-        if (!existingConv) {
-          const { data: newConv } = await supabase.from('conversations').insert({
-            company_id: companyId, contact_id: contactId, channel: 'whatsapp', status: 'open',
-            metadata: isGroup ? { isGroup: true, remoteJid: jid, instanceName } : { remoteJid: jid, instanceName }
-          }).select('id').single();
-          convId = newConv?.id;
-        }
-
-        if (!convId) continue;
-
-        // SEMPRE buscar e importar mensagens (mesmo para conversas existentes)
-        // Usar limit maior para pegar histórico completo
-        const messages = await fetchMessagesFromApi(evolutionApiUrl, evolutionApiKey, instanceName, jid, 2000);
-        
-        if (messages.length > 0) {
-          const imported = await importMessagesToDb(supabase, convId, messages, jid, true);
-          stats.messages += imported;
-          if (isNewConversation && imported > 0) stats.conversations++;
-          else if (!isNewConversation && imported > 0) {
-            stats.synced++;
-            console.log(`🔄 ${i+1}/${activeChats.length} ${isGroup ? '👥' : '👤'} ${chatName || phone}: +${imported} msgs (atualizado)`);
-          } else {
-            console.log(`✅ ${i+1}/${activeChats.length} ${isGroup ? '👥' : '👤'} ${chatName || phone}: ${imported === 0 ? 'já atualizado' : `+${imported} msgs`}`);
-          }
-        } else if (isNewConversation) {
-          await supabase.from('conversations').delete().eq('id', convId);
-          stats.skipped++;
-        }
-
-      } catch (err) {
-        console.error(`❌ Erro processando ${jid}:`, err);
-        stats.skipped++;
-      }
-    }
-
-    // ==========================================
-    // PASSO 6: RECUPERAR CONVERSAS FALTANDO
-    // (Contatos existentes SEM conversa)
-    // ==========================================
-    console.log(`\n🔄 RECUPERANDO CONVERSAS FALTANDO...`);
-    
-    const { data: contactsWithoutConv } = await supabase
-      .from('contacts')
-      .select('id, name, phone, metadata')
-      .eq('company_id', companyId)
-      .not('phone', 'is', null);
-
-    if (contactsWithoutConv) {
-      for (const contact of contactsWithoutConv) {
-        // Skip se já processou este telefone
-        if (processedPhones.has(contact.phone)) continue;
-        
-        // Verificar se tem conversa
-        const { count } = await supabase.from('conversations')
-          .select('id', { count: 'exact', head: true })
-          .eq('company_id', companyId)
-          .eq('contact_id', contact.id)
-          .eq('channel', 'whatsapp');
-        
-        if (count && count > 0) continue;
-
-        // Não tem conversa - tentar buscar mensagens diretamente
-        const phone = contact.phone;
-        const remoteJid = `${phone}@s.whatsapp.net`;
-        
-        console.log(`   📞 Tentando recuperar: ${contact.name} (${phone})...`);
-        
-        const messages = await fetchMessagesFromApi(evolutionApiUrl, evolutionApiKey, instanceName, remoteJid, 2000);
-        
-        if (messages.length > 0) {
-          // Criar conversa
-          const { data: newConv } = await supabase.from('conversations').insert({
-            company_id: companyId, contact_id: contact.id, channel: 'whatsapp', status: 'open',
-            metadata: { remoteJid, instanceName }
-          }).select('id').single();
-          
-          if (newConv?.id) {
-            const imported = await importMessagesToDb(supabase, newConv.id, messages, remoteJid, true);
-            if (imported > 0) {
-              stats.recovered++;
-              stats.messages += imported;
-              console.log(`   ✅ RECUPERADO: ${contact.name} com ${imported} mensagens`);
-            } else {
-              // Sem mensagens importadas, remover conversa
-              await supabase.from('conversations').delete().eq('id', newConv.id);
-            }
-          }
-        } else {
-          console.log(`   ⚠️ Sem mensagens para ${contact.name}`);
-        }
-        
-        // Pequena pausa para não sobrecarregar a API
-        await new Promise(r => setTimeout(r, 100));
-      }
-    }
-
-    // ==========================================
-    // PASSO 7: LIMPAR CONVERSAS VAZIAS
-    // ==========================================
-    console.log(`\n🧹 Limpando conversas vazias...`);
-    
-    const { data: allConversations } = await supabase.from('conversations')
-      .select('id, contact_id')
+    const { data: existingConversations } = await supabase
+      .from('conversations')
+      .select(`
+        id, 
+        contact_id,
+        metadata,
+        contacts!conversations_contact_id_fkey(id, name, phone, metadata)
+      `)
       .eq('company_id', companyId)
       .eq('channel', 'whatsapp');
 
-    if (allConversations) {
-      for (const conv of allConversations) {
-        const { count } = await supabase.from('messages')
-          .select('id', { count: 'exact', head: true })
-          .eq('conversation_id', conv.id);
-        
-        if (!count || count === 0) {
-          await supabase.from('conversations').delete().eq('id', conv.id);
-          console.log(`   🗑️ Removida conversa vazia`);
+    // Build lookup maps
+    const convByJid = new Map<string, any>();
+    const convByPhone = new Map<string, any>();
+    const contactByPhone = new Map<string, any>();
+    
+    for (const conv of existingConversations || []) {
+      const jid = conv.metadata?.remoteJid;
+      if (jid) convByJid.set(jid, conv);
+      
+      const phone = conv.contacts?.phone;
+      if (phone) {
+        convByPhone.set(phone, conv);
+        contactByPhone.set(phone, conv.contacts);
+        // Add variants
+        if (phone.startsWith('55')) {
+          convByPhone.set(phone.slice(2), conv);
+          contactByPhone.set(phone.slice(2), conv.contacts);
+        } else if (phone.length >= 10) {
+          convByPhone.set('55' + phone, conv);
+          contactByPhone.set('55' + phone, conv.contacts);
         }
       }
     }
 
+    console.log(`   📊 ${existingConversations?.length || 0} conversas existentes`);
+
     // ==========================================
-    // PASSO 8: ATUALIZAR TIMESTAMPS
+    // PASSO 5: PROCESSAR CHATS EM BATCHES
     // ==========================================
-    console.log(`\n⏰ Atualizando timestamps...`);
+    console.log(`\n📥 PASSO 5: Processando ${allChats.length} chats...\n`);
+    
+    // Filter chats to process
+    let chatsToProcess = allChats.filter(chat => {
+      const jid = chat.remoteJid || chat.id || chat.jid;
+      if (!jid) return false;
+      if (jid.includes('@lid') || jid.includes('@broadcast') || jid.startsWith('status@')) return false;
+      if (specificJids.length > 0 && !specificJids.includes(jid)) return false;
+      return true;
+    });
+
+    console.log(`   📊 ${chatsToProcess.length} chats válidos para processar`);
+
+    // Process in batches
+    for (let batchStart = 0; batchStart < chatsToProcess.length; batchStart += BATCH_SIZE) {
+      const batch = chatsToProcess.slice(batchStart, batchStart + BATCH_SIZE);
+      const batchNum = Math.floor(batchStart / BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(chatsToProcess.length / BATCH_SIZE);
+      
+      console.log(`\n   📦 Batch ${batchNum}/${totalBatches} (${batch.length} chats)`);
+      
+      for (const chat of batch) {
+        const jid = chat.remoteJid || chat.id || chat.jid;
+        const isGroup = jid.includes('@g.us');
+        
+        try {
+          // Extract info
+          const groupData = isGroup ? groupsMap.get(jid) : null;
+          let chatName = groupData?.subject || chat.name || chat.pushName || chat.notify || '';
+          const profilePic = chat.profilePictureUrl || chat.imgUrl || null;
+          
+          // For contacts, extract phone and get name from map
+          let phone = '';
+          if (!isGroup) {
+            const phoneMatch = jid.match(/^(\d+)@/);
+            if (!phoneMatch) { stats.skipped++; continue; }
+            phone = phoneMatch[1];
+            
+            // Normalize phone
+            if (!phone.startsWith('55') && phone.length <= 11) {
+              phone = '55' + phone;
+            }
+            
+            // Get name from contacts map if needed
+            if (!chatName || /^\d+$/.test(chatName)) {
+              chatName = contactsNameMap.get(phone) || 
+                        contactsNameMap.get(phone.slice(2)) || 
+                        phone;
+            }
+          }
+
+          // Check if conversation exists
+          let existingConv = convByJid.get(jid) || (phone ? convByPhone.get(phone) : null);
+          let contactId = existingConv?.contact_id;
+          let conversationId = existingConv?.id;
+          let isNewConversation = !existingConv;
+
+          // Create contact if needed
+          if (!contactId) {
+            if (isGroup) {
+              stats.groups++;
+              const groupName = chatName || `Grupo ${jid.slice(-8)}`;
+              
+              const { data: newContact } = await supabase.from('contacts').insert({
+                company_id: companyId,
+                name: groupName,
+                avatar_url: profilePic,
+                metadata: { remoteJid: jid, isGroup: true }
+              }).select('id').single();
+              
+              contactId = newContact?.id;
+              if (contactId) stats.newContacts++;
+            } else {
+              const contactName = chatName || phone;
+              
+              const { data: newContact } = await supabase.from('contacts').insert({
+                company_id: companyId,
+                name: contactName,
+                phone: phone,
+                avatar_url: profilePic,
+                metadata: { remoteJid: jid }
+              }).select('id').single();
+              
+              contactId = newContact?.id;
+              if (contactId) stats.newContacts++;
+            }
+          } else {
+            // Update contact name if it's just numbers
+            const existingName = existingConv?.contacts?.name || '';
+            if (/^\d+$/.test(existingName) && chatName && !/^\d+$/.test(chatName)) {
+              await supabase.from('contacts').update({ 
+                name: chatName,
+                metadata: { ...existingConv?.contacts?.metadata, remoteJid: jid },
+                updated_at: new Date().toISOString()
+              }).eq('id', contactId);
+              stats.namesFixed++;
+            }
+            
+            // Ensure remoteJid is in metadata
+            if (!existingConv?.contacts?.metadata?.remoteJid) {
+              await supabase.from('contacts').update({ 
+                metadata: { ...existingConv?.contacts?.metadata, remoteJid: jid },
+                updated_at: new Date().toISOString()
+              }).eq('id', contactId);
+            }
+          }
+
+          if (!contactId) { stats.skipped++; continue; }
+
+          // Create conversation if needed
+          if (!conversationId) {
+            const { data: newConv } = await supabase.from('conversations').insert({
+              company_id: companyId,
+              contact_id: contactId,
+              channel: 'whatsapp',
+              status: 'open',
+              metadata: isGroup 
+                ? { isGroup: true, remoteJid: jid, instanceName } 
+                : { remoteJid: jid, instanceName }
+            }).select('id').single();
+            
+            conversationId = newConv?.id;
+            isNewConversation = true;
+          } else {
+            // Ensure metadata has remoteJid
+            if (!existingConv?.metadata?.remoteJid) {
+              await supabase.from('conversations').update({
+                metadata: { ...existingConv?.metadata, remoteJid: jid, instanceName }
+              }).eq('id', conversationId);
+            }
+          }
+
+          if (!conversationId) { stats.skipped++; continue; }
+
+          // Fetch and import messages
+          const messages = await fetchMessagesFromEvolution(evolutionApiUrl, evolutionApiKey, instanceName, jid, MESSAGE_LIMIT);
+          
+          if (messages.length > 0) {
+            const imported = await importMessages(supabase, conversationId, messages, jid, forceFullSync);
+            stats.newMessages += imported;
+            
+            if (isNewConversation && imported > 0) {
+              stats.newConversations++;
+              console.log(`      ✅ NOVO: ${chatName || phone} (+${imported} msgs)`);
+            } else if (!isNewConversation && imported > 0) {
+              stats.updatedConversations++;
+              console.log(`      🔄 ATUALIZADO: ${chatName || phone} (+${imported} msgs)`);
+            }
+          } else if (isNewConversation) {
+            // Remove empty conversation
+            await supabase.from('conversations').delete().eq('id', conversationId);
+            stats.skipped++;
+          }
+
+        } catch (err) {
+          console.error(`      ❌ Erro: ${jid}`, err);
+          stats.errors++;
+        }
+      }
+      
+      // Small delay between batches
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    // ==========================================
+    // PASSO 6: LIMPEZA
+    // ==========================================
+    console.log(`\n📥 PASSO 6: Limpando conversas vazias...`);
+    
+    const { data: allConvs } = await supabase.from('conversations')
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('channel', 'whatsapp');
+
+    let cleaned = 0;
+    for (const conv of allConvs || []) {
+      const { count } = await supabase.from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conv.id);
+      
+      if (!count || count === 0) {
+        await supabase.from('conversations').delete().eq('id', conv.id);
+        cleaned++;
+      }
+    }
+    console.log(`   🗑️ ${cleaned} conversas vazias removidas`);
+
+    // ==========================================
+    // PASSO 7: ATUALIZAR TIMESTAMPS
+    // ==========================================
+    console.log(`\n📥 PASSO 7: Atualizando timestamps...`);
     
     const { data: convsToUpdate } = await supabase.from('conversations')
       .select('id')
       .eq('company_id', companyId)
       .eq('channel', 'whatsapp');
 
-    if (convsToUpdate) {
-      for (const conv of convsToUpdate) {
-        const { data: lastMsg } = await supabase.from('messages')
-          .select('created_at')
-          .eq('conversation_id', conv.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        
-        if (lastMsg) {
-          await supabase.from('conversations')
-            .update({ updated_at: lastMsg.created_at })
-            .eq('id', conv.id);
-        }
+    for (const conv of convsToUpdate || []) {
+      const { data: lastMsg } = await supabase.from('messages')
+        .select('created_at')
+        .eq('conversation_id', conv.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      if (lastMsg) {
+        await supabase.from('conversations')
+          .update({ updated_at: lastMsg.created_at })
+          .eq('id', conv.id);
       }
     }
 
     // ==========================================
-    // PASSO 9: SINCRONIZAR FOTOS (forceUpdate)
+    // PASSO 8: SYNC FOTOS
     // ==========================================
-    console.log(`\n📸 Sincronizando fotos de perfil...`);
+    console.log(`\n📥 PASSO 8: Sincronizando fotos de perfil...`);
     try {
       await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/sync-profile-pictures`, {
         method: 'POST',
@@ -517,44 +465,44 @@ serve(async (req) => {
           'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ companyId, forceUpdate: true })
+        body: JSON.stringify({ companyId, forceUpdate: forceFullSync })
       });
-      console.log(`   ✅ Sync de fotos iniciado (forceUpdate)`);
+      console.log(`   ✅ Sync de fotos iniciado`);
     } catch (e) {
       console.log(`   ⚠️ Erro sync fotos: ${e}`);
     }
 
-    // Contar resultado final
+    // Final count
     const { count: finalConvCount } = await supabase.from('conversations')
       .select('id', { count: 'exact', head: true })
       .eq('company_id', companyId)
       .eq('channel', 'whatsapp');
 
     console.log(`\n========================================`);
-    console.log(`✅ IMPORTAÇÃO V2 CONCLUÍDA`);
+    console.log(`✅ IMPORTAÇÃO V3 CONCLUÍDA`);
     console.log(`   Conversas totais: ${finalConvCount}`);
-    console.log(`   Contatos novos: ${stats.contacts}`);
-    console.log(`   Conversas novas: ${stats.conversations}`);
-    console.log(`   Conversas recuperadas: ${stats.recovered}`);
-    console.log(`   Sincronizadas: ${stats.synced}`);
-    console.log(`   Mensagens: ${stats.messages}`);
+    console.log(`   Novas conversas: ${stats.newConversations}`);
+    console.log(`   Atualizadas: ${stats.updatedConversations}`);
+    console.log(`   Novos contatos: ${stats.newContacts}`);
+    console.log(`   Novas mensagens: ${stats.newMessages}`);
     console.log(`   Nomes corrigidos: ${stats.namesFixed}`);
     console.log(`   Grupos: ${stats.groups}`);
     console.log(`   Pulados: ${stats.skipped}`);
+    console.log(`   Erros: ${stats.errors}`);
     console.log(`========================================\n`);
 
     return new Response(JSON.stringify({
       success: true,
-      stats: { ...stats, totalConversations: finalConvCount },
-      message: `Importação V2: ${finalConvCount} conversas totais, ${stats.recovered} recuperadas, ${stats.messages} mensagens`
+      stats: { ...stats, totalConversations: finalConvCount, cleaned },
+      message: `V3: ${finalConvCount} conversas, ${stats.newConversations} novas, ${stats.updatedConversations} atualizadas, ${stats.newMessages} mensagens`
     }), { 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
     });
 
   } catch (error) {
-    console.error('❌ Erro fatal na importação:', error);
+    console.error('❌ Erro fatal:', error);
     return new Response(JSON.stringify({ 
-      error: error.message || 'Erro interno durante importação',
+      error: error.message || 'Erro interno',
       details: String(error)
     }), { 
       status: 500, 
@@ -567,14 +515,13 @@ serve(async (req) => {
 // FUNÇÕES AUXILIARES
 // ==========================================
 
-async function fetchMessagesFromApi(
-  evolutionApiUrl: string,
-  evolutionApiKey: string,
+async function fetchMessagesFromEvolution(
+  apiUrl: string,
+  apiKey: string,
   instanceName: string,
   jid: string,
-  limit: number = 1000
+  limit: number
 ): Promise<any[]> {
-  // Tentar múltiplos formatos de requisição
   const attempts = [
     { where: { key: { remoteJid: jid } }, limit },
     { where: { remoteJid: jid }, limit },
@@ -583,9 +530,9 @@ async function fetchMessagesFromApi(
 
   for (const body of attempts) {
     try {
-      const response = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+      const response = await fetch(`${apiUrl}/chat/findMessages/${instanceName}`, {
         method: 'POST',
-        headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
+        headers: { 'apikey': apiKey, 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
       
@@ -594,15 +541,10 @@ async function fetchMessagesFromApi(
       const data = await response.json();
       let messages: any[] = [];
       
-      if (Array.isArray(data?.messages)) {
-        messages = data.messages;
-      } else if (Array.isArray(data?.messages?.records)) {
-        messages = data.messages.records;
-      } else if (Array.isArray(data?.records)) {
-        messages = data.records;
-      } else if (Array.isArray(data)) {
-        messages = data;
-      }
+      if (Array.isArray(data?.messages)) messages = data.messages;
+      else if (Array.isArray(data?.messages?.records)) messages = data.messages.records;
+      else if (Array.isArray(data?.records)) messages = data.records;
+      else if (Array.isArray(data)) messages = data;
       
       if (messages.length > 0) return messages;
     } catch (err) { /* continue */ }
@@ -611,63 +553,33 @@ async function fetchMessagesFromApi(
   return [];
 }
 
-async function importMessagesToDb(
+async function importMessages(
   supabase: any,
   conversationId: string,
   messages: any[],
   jid: string,
-  forceSync: boolean = false
+  forceSync: boolean
 ): Promise<number> {
   try {
-    // Buscar todas mensagens existentes para esta conversa
+    // Get existing message IDs
     const { data: existingMsgs } = await supabase.from('messages')
-      .select('id, metadata, created_at')
+      .select('metadata')
       .eq('conversation_id', conversationId);
     
-    const existingMessageIds = new Set(
+    const existingIds = new Set(
       (existingMsgs || []).map((m: any) => m.metadata?.messageId).filter(Boolean)
     );
-    
-    // Se forceSync, também verificar duplicatas globais por messageId
-    const messageIdsToCheck = messages.map(msg => msg.key?.id || msg.id).filter(Boolean);
-    
-    // Verificar duplicatas globais em batches
-    if (messageIdsToCheck.length > 0) {
-      for (let i = 0; i < messageIdsToCheck.length; i += 50) {
-        const batch = messageIdsToCheck.slice(i, i + 50);
-        try {
-          const { data: globalExisting } = await supabase
-            .from('messages')
-            .select('metadata')
-            .or(batch.map(id => `metadata->>messageId.eq.${id}`).join(','));
-          
-          if (globalExisting) {
-            for (const msg of globalExisting) {
-              if (msg.metadata?.messageId) existingMessageIds.add(msg.metadata.messageId);
-            }
-          }
-        } catch (e) {
-          // Fallback: se query falhar, continuar
-        }
-      }
-    }
 
-    let imported = 0;
-    const messagesToInsert: any[] = [];
-
-    // Ordenar mensagens por timestamp para inserir na ordem correta
-    const sortedMessages = [...messages].sort((a, b) => {
-      const tsA = Number(a.messageTimestamp || 0);
-      const tsB = Number(b.messageTimestamp || 0);
-      return tsA - tsB;
+    // Sort messages chronologically
+    const sorted = [...messages].sort((a, b) => {
+      return Number(a.messageTimestamp || 0) - Number(b.messageTimestamp || 0);
     });
 
-    for (const msg of sortedMessages) {
+    const toInsert: any[] = [];
+
+    for (const msg of sorted) {
       const messageId = msg.key?.id || msg.id;
-      if (!messageId) continue;
-      
-      // Pular mensagens já existentes
-      if (existingMessageIds.has(messageId)) continue;
+      if (!messageId || existingIds.has(messageId)) continue;
 
       const content = extractContent(msg);
       if (!content) continue;
@@ -677,9 +589,7 @@ async function importMessagesToDb(
         ? new Date(Number(msg.messageTimestamp) * 1000).toISOString()
         : new Date().toISOString();
 
-      const attachment = extractAttachment(msg);
-
-      messagesToInsert.push({
+      toInsert.push({
         conversation_id: conversationId,
         sender_type: fromMe ? 'agent' : 'user',
         content,
@@ -689,29 +599,28 @@ async function importMessagesToDb(
           fromMe, 
           remoteJid: jid,
           syncedAt: new Date().toISOString(),
-          ...(attachment && { attachment }) 
+          ...extractAttachment(msg)
         }
       });
 
-      existingMessageIds.add(messageId);
-      imported++;
+      existingIds.add(messageId);
     }
 
-    // Inserir mensagens em batches
-    if (messagesToInsert.length > 0) {
-      for (let i = 0; i < messagesToInsert.length; i += 50) {
-        const chunk = messagesToInsert.slice(i, i + 50);
+    // Insert in batches
+    if (toInsert.length > 0) {
+      for (let i = 0; i < toInsert.length; i += 50) {
+        const chunk = toInsert.slice(i, i + 50);
         try {
-          const { error: insertError } = await supabase.from('messages').insert(chunk);
-          if (insertError && insertError.code !== '23505') {
-            console.error(`Erro inserindo batch ${i}:`, insertError);
+          const { error } = await supabase.from('messages').insert(chunk);
+          if (error && error.code !== '23505') {
+            console.error(`   Insert error:`, error);
           }
-        } catch (insertErr: any) {
-          if (insertErr.code !== '23505') console.error(`Erro inserindo batch:`, insertErr);
+        } catch (e: any) {
+          if (e.code !== '23505') console.error(`   Insert exception:`, e);
         }
       }
 
-      // Atualizar timestamp da conversa com a mensagem mais recente
+      // Update conversation timestamp
       const { data: lastMsg } = await supabase.from('messages')
         .select('created_at')
         .eq('conversation_id', conversationId)
@@ -726,9 +635,9 @@ async function importMessagesToDb(
       }
     }
 
-    return imported;
+    return toInsert.length;
   } catch (err) {
-    console.error(`Erro importando mensagens:`, err);
+    console.error(`   Import error:`, err);
     return 0;
   }
 }
@@ -747,14 +656,16 @@ function extractContent(msg: any): string {
   if (m.stickerMessage) return '🎨 Sticker';
   if (m.locationMessage) return '📍 Localização';
   if (m.contactMessage) return '👤 Contato';
+  if (m.reactionMessage) return `${m.reactionMessage.text || '👍'}`;
+  if (m.pollCreationMessage) return `📊 ${m.pollCreationMessage.name || 'Enquete'}`;
   return '';
 }
 
 function extractAttachment(msg: any): any {
   const m = msg.message || msg;
-  if (m.imageMessage) return { type: 'image', mimetype: m.imageMessage.mimetype, caption: m.imageMessage.caption, hasMedia: true };
-  if (m.videoMessage) return { type: 'video', mimetype: m.videoMessage.mimetype, caption: m.videoMessage.caption, hasMedia: true };
-  if (m.audioMessage) return { type: 'audio', mimetype: m.audioMessage.mimetype, ptt: m.audioMessage.ptt, hasMedia: true };
-  if (m.documentMessage) return { type: 'document', mimetype: m.documentMessage.mimetype, fileName: m.documentMessage.fileName, hasMedia: true };
-  return null;
+  if (m.imageMessage) return { attachment: { type: 'image', mimetype: m.imageMessage.mimetype, hasMedia: true } };
+  if (m.videoMessage) return { attachment: { type: 'video', mimetype: m.videoMessage.mimetype, hasMedia: true } };
+  if (m.audioMessage) return { attachment: { type: 'audio', mimetype: m.audioMessage.mimetype, ptt: m.audioMessage.ptt, hasMedia: true } };
+  if (m.documentMessage) return { attachment: { type: 'document', mimetype: m.documentMessage.mimetype, fileName: m.documentMessage.fileName, hasMedia: true } };
+  return {};
 }
