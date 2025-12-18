@@ -854,95 +854,50 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         if (!convId) continue;
 
         // ============================================================
-        // BUSCAR E IMPORTAR MENSAGENS
+        // USAR ÚLTIMA MENSAGEM DO CHAT (sem chamar fetchMessages)
+        // A Evolution API retorna 404 no fetchMessages, então usamos
+        // apenas os dados que já vem do findChats
         // ============================================================
-        try {
-          // Para @lid, precisamos buscar pelo número real do contato
-          let queryNumber = jid;
-          if (jid.includes('@lid') && phone) {
-            queryNumber = `${phone}@s.whatsapp.net`;
-          }
+        const lastMessage = chat.lastMessage || chat.message;
+        if (lastMessage) {
+          const msgContent = lastMessage.message || lastMessage;
+          let content = '';
+          if (msgContent.conversation) content = msgContent.conversation;
+          else if (msgContent.extendedTextMessage?.text) content = msgContent.extendedTextMessage.text;
+          else if (msgContent.imageMessage) content = msgContent.imageMessage.caption || '📷 Imagem';
+          else if (msgContent.videoMessage) content = msgContent.videoMessage.caption || '🎬 Vídeo';
+          else if (msgContent.audioMessage) content = '🎵 Áudio';
+          else if (msgContent.documentMessage) content = `📄 ${msgContent.documentMessage.fileName || 'Documento'}`;
           
-          console.log(`  📨 Buscando mensagens via: ${queryNumber}`);
-          
-          const msgResponse = await fetch(`${evolutionApiUrl}/chat/fetchMessages/${instanceName}`, {
-            method: 'POST',
-            headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ number: queryNumber, count: 50 })
-          });
-
-          console.log(`  📨 fetchMessages status: ${msgResponse.status}`);
-          
-          if (msgResponse.ok) {
-            const msgData = await msgResponse.json();
-            const messages = Array.isArray(msgData) ? msgData : (msgData?.messages || []);
-            console.log(`  📨 Mensagens recebidas: ${messages.length}`);
-
-            if (messages.length > 0) {
-              // Obter IDs existentes
-              const { data: existingMsgs } = await supabase
-                .from('messages')
-                .select('metadata')
-                .eq('conversation_id', convId);
-
-              const existingIds = new Set<string>();
-              for (const m of existingMsgs || []) {
-                if (m.metadata?.messageId) existingIds.add(m.metadata.messageId);
-              }
-
-              let imported = 0;
-              let lastTimestamp: Date | null = null;
-
-              for (const msg of messages) {
-                const msgId = msg.key?.id;
-                if (msgId && existingIds.has(msgId)) continue;
-
-                const timestamp = msg.messageTimestamp || msg.key?.messageTimestamp;
-                if (!timestamp) continue;
-
-                // Extrair conteúdo
-                const m = msg.message || msg;
-                let content = '';
-                if (m.conversation) content = m.conversation;
-                else if (m.extendedTextMessage?.text) content = m.extendedTextMessage.text;
-                else if (m.imageMessage) content = m.imageMessage.caption || '📷 Imagem';
-                else if (m.videoMessage) content = m.videoMessage.caption || '🎬 Vídeo';
-                else if (m.audioMessage) content = '🎵 Áudio';
-                else if (m.documentMessage) content = `📄 ${m.documentMessage.fileName || 'Documento'}`;
-                else continue;
-
-                const msgDate = new Date(timestamp > 9999999999 ? timestamp : timestamp * 1000);
-                if (!lastTimestamp || msgDate > lastTimestamp) lastTimestamp = msgDate;
-
-                const { error } = await supabase.from('messages').insert({
-                  conversation_id: convId,
-                  content,
-                  sender_type: msg.key?.fromMe ? 'agent' : 'user',
-                  created_at: msgDate.toISOString(),
-                  metadata: { messageId: msgId }
-                });
-
-                if (!error) {
-                  imported++;
-                  if (msgId) existingIds.add(msgId);
-                }
-              }
-
-              if (imported > 0) {
-                stats.messages += imported;
-                console.log(`  📨 ${imported} mensagens importadas`);
-              }
-
-              // Atualizar timestamp da conversa
-              if (lastTimestamp) {
-                await supabase.from('conversations')
-                  .update({ updated_at: lastTimestamp.toISOString() })
-                  .eq('id', convId);
-              }
+          if (content) {
+            const timestamp = lastMessage.messageTimestamp || chat.lastMessageTimestamp;
+            const msgDate = timestamp ? new Date(timestamp > 9999999999 ? timestamp : timestamp * 1000) : new Date();
+            const msgId = lastMessage.key?.id;
+            
+            // Verificar se já existe
+            const { data: existingMsg } = await supabase
+              .from('messages')
+              .select('id')
+              .eq('conversation_id', convId)
+              .eq('metadata->>messageId', msgId)
+              .maybeSingle();
+            
+            if (!existingMsg && msgId) {
+              await supabase.from('messages').insert({
+                conversation_id: convId,
+                content,
+                sender_type: lastMessage.key?.fromMe ? 'agent' : 'user',
+                created_at: msgDate.toISOString(),
+                metadata: { messageId: msgId }
+              });
+              stats.messages++;
             }
+            
+            // Atualizar timestamp da conversa
+            await supabase.from('conversations')
+              .update({ updated_at: msgDate.toISOString() })
+              .eq('id', convId);
           }
-        } catch (e) {
-          // Silently continue
         }
 
       } catch (chatError) {
