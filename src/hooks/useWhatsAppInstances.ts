@@ -234,8 +234,9 @@ export const useWhatsAppInstances = () => {
 
   const fetchChats = async (instanceName: string) => {
     try {
+      // Use the new lightweight import-chats function to avoid resource limits
       const response = await fetch(
-        `${SUPABASE_URL}/functions/v1/evolution-instance/fetch-chats`,
+        `${SUPABASE_URL}/functions/v1/import-chats`,
         {
           method: 'POST',
           headers: {
@@ -255,20 +256,19 @@ export const useWhatsAppInstances = () => {
       // Return the full data for the progress modal
       return {
         totalChats: data.totalChats || 0,
-        totalContacts: data.totalContacts || 0,
-        importedContacts: data.importedContacts || data.stats?.contactsCreated || 0,
-        importedConversations: data.importedConversations || (data.stats?.conversationsCreated + data.stats?.conversationsReused) || 0,
-        importedMessages: data.importedMessages || data.stats?.messagesImported || 0,
-        archivedCount: data.archivedCount || 0,
-        skippedCount: data.skippedCount || data.stats?.skipped || 0,
-      stats: data.stats,
-      message: data.message
-    };
-  } catch (error: any) {
-    console.error('Error fetching chats:', error);
-    throw error;
-  }
-};
+        processedChats: data.processedChats || 0,
+        importedContacts: data.stats?.contacts || 0,
+        importedConversations: data.stats?.conversations || 0,
+        importedMessages: data.stats?.messages || 0,
+        groupsCount: data.stats?.groups || 0,
+        stats: data.stats,
+        message: data.message
+      };
+    } catch (error: any) {
+      console.error('Error fetching chats:', error);
+      throw error;
+    }
+  };
 
 const reprocessMedia = async (instanceName: string) => {
   try {
