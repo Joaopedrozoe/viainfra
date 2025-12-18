@@ -38,3 +38,6 @@ verify_jwt = false
 
 [functions.import-chats]
 verify_jwt = false
+
+[functions.fix-contact-names]
+verify_jwt = false
