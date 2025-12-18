@@ -370,15 +370,20 @@ serve(async (req) => {
 
         if (!convId) continue;
 
-        // Buscar e importar mensagens
-        const messages = await fetchMessagesFromApi(evolutionApiUrl, evolutionApiKey, instanceName, jid, 1000);
+        // SEMPRE buscar e importar mensagens (mesmo para conversas existentes)
+        // Usar limit maior para pegar histórico completo
+        const messages = await fetchMessagesFromApi(evolutionApiUrl, evolutionApiKey, instanceName, jid, 2000);
         
         if (messages.length > 0) {
-          const imported = await importMessagesToDb(supabase, convId, messages, jid);
+          const imported = await importMessagesToDb(supabase, convId, messages, jid, true);
           stats.messages += imported;
           if (isNewConversation && imported > 0) stats.conversations++;
-          else if (!isNewConversation && imported > 0) stats.synced++;
-          console.log(`✅ ${i+1}/${activeChats.length} ${isGroup ? '👥' : '👤'} ${chatName || phone}: +${imported} msgs`);
+          else if (!isNewConversation && imported > 0) {
+            stats.synced++;
+            console.log(`🔄 ${i+1}/${activeChats.length} ${isGroup ? '👥' : '👤'} ${chatName || phone}: +${imported} msgs (atualizado)`);
+          } else {
+            console.log(`✅ ${i+1}/${activeChats.length} ${isGroup ? '👥' : '👤'} ${chatName || phone}: ${imported === 0 ? 'já atualizado' : `+${imported} msgs`}`);
+          }
         } else if (isNewConversation) {
           await supabase.from('conversations').delete().eq('id', convId);
           stats.skipped++;
@@ -422,7 +427,7 @@ serve(async (req) => {
         
         console.log(`   📞 Tentando recuperar: ${contact.name} (${phone})...`);
         
-        const messages = await fetchMessagesFromApi(evolutionApiUrl, evolutionApiKey, instanceName, remoteJid, 1000);
+        const messages = await fetchMessagesFromApi(evolutionApiUrl, evolutionApiKey, instanceName, remoteJid, 2000);
         
         if (messages.length > 0) {
           // Criar conversa
@@ -432,7 +437,7 @@ serve(async (req) => {
           }).select('id').single();
           
           if (newConv?.id) {
-            const imported = await importMessagesToDb(supabase, newConv.id, messages, remoteJid);
+            const imported = await importMessagesToDb(supabase, newConv.id, messages, remoteJid, true);
             if (imported > 0) {
               stats.recovered++;
               stats.messages += imported;
@@ -610,25 +615,39 @@ async function importMessagesToDb(
   supabase: any,
   conversationId: string,
   messages: any[],
-  jid: string
+  jid: string,
+  forceSync: boolean = false
 ): Promise<number> {
   try {
+    // Buscar todas mensagens existentes para esta conversa
     const { data: existingMsgs } = await supabase.from('messages')
-      .select('metadata').eq('conversation_id', conversationId);
+      .select('id, metadata, created_at')
+      .eq('conversation_id', conversationId);
     
     const existingMessageIds = new Set(
       (existingMsgs || []).map((m: any) => m.metadata?.messageId).filter(Boolean)
     );
-
-    // Check global duplicates
-    const messageIdsToCheck = messages.map(msg => msg.key?.id || msg.id).filter(Boolean).slice(0, 100);
+    
+    // Se forceSync, também verificar duplicatas globais por messageId
+    const messageIdsToCheck = messages.map(msg => msg.key?.id || msg.id).filter(Boolean);
+    
+    // Verificar duplicatas globais em batches
     if (messageIdsToCheck.length > 0) {
-      const { data: globalExisting } = await supabase.from('messages')
-        .select('metadata')
-        .filter('metadata->>messageId', 'in', `(${messageIdsToCheck.map(id => `"${id}"`).join(',')})`);
-      if (globalExisting) {
-        for (const msg of globalExisting) {
-          if (msg.metadata?.messageId) existingMessageIds.add(msg.metadata.messageId);
+      for (let i = 0; i < messageIdsToCheck.length; i += 50) {
+        const batch = messageIdsToCheck.slice(i, i + 50);
+        try {
+          const { data: globalExisting } = await supabase
+            .from('messages')
+            .select('metadata')
+            .or(batch.map(id => `metadata->>messageId.eq.${id}`).join(','));
+          
+          if (globalExisting) {
+            for (const msg of globalExisting) {
+              if (msg.metadata?.messageId) existingMessageIds.add(msg.metadata.messageId);
+            }
+          }
+        } catch (e) {
+          // Fallback: se query falhar, continuar
         }
       }
     }
@@ -636,9 +655,19 @@ async function importMessagesToDb(
     let imported = 0;
     const messagesToInsert: any[] = [];
 
-    for (const msg of messages) {
+    // Ordenar mensagens por timestamp para inserir na ordem correta
+    const sortedMessages = [...messages].sort((a, b) => {
+      const tsA = Number(a.messageTimestamp || 0);
+      const tsB = Number(b.messageTimestamp || 0);
+      return tsA - tsB;
+    });
+
+    for (const msg of sortedMessages) {
       const messageId = msg.key?.id || msg.id;
-      if (!messageId || existingMessageIds.has(messageId)) continue;
+      if (!messageId) continue;
+      
+      // Pular mensagens já existentes
+      if (existingMessageIds.has(messageId)) continue;
 
       const content = extractContent(msg);
       if (!content) continue;
@@ -655,29 +684,45 @@ async function importMessagesToDb(
         sender_type: fromMe ? 'agent' : 'user',
         content,
         created_at: timestamp,
-        metadata: { messageId, fromMe, remoteJid: jid, ...(attachment && { attachment }) }
+        metadata: { 
+          messageId, 
+          fromMe, 
+          remoteJid: jid,
+          syncedAt: new Date().toISOString(),
+          ...(attachment && { attachment }) 
+        }
       });
 
       existingMessageIds.add(messageId);
       imported++;
     }
 
+    // Inserir mensagens em batches
     if (messagesToInsert.length > 0) {
-      for (let i = 0; i < messagesToInsert.length; i += 100) {
-        const chunk = messagesToInsert.slice(i, i + 100);
+      for (let i = 0; i < messagesToInsert.length; i += 50) {
+        const chunk = messagesToInsert.slice(i, i + 50);
         try {
-          await supabase.from('messages').insert(chunk);
+          const { error: insertError } = await supabase.from('messages').insert(chunk);
+          if (insertError && insertError.code !== '23505') {
+            console.error(`Erro inserindo batch ${i}:`, insertError);
+          }
         } catch (insertErr: any) {
           if (insertErr.code !== '23505') console.error(`Erro inserindo batch:`, insertErr);
         }
       }
 
+      // Atualizar timestamp da conversa com a mensagem mais recente
       const { data: lastMsg } = await supabase.from('messages')
-        .select('created_at').eq('conversation_id', conversationId)
-        .order('created_at', { ascending: false }).limit(1).maybeSingle();
+        .select('created_at')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       if (lastMsg) {
-        await supabase.from('conversations').update({ updated_at: lastMsg.created_at }).eq('id', conversationId);
+        await supabase.from('conversations')
+          .update({ updated_at: lastMsg.created_at })
+          .eq('id', conversationId);
       }
     }
 
