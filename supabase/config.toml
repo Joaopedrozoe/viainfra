@@ -41,3 +41,9 @@ verify_jwt = false
 
 [functions.fix-contact-names]
 verify_jwt = false
+
+[functions.diagnose-instance]
+verify_jwt = false
+
+[functions.fix-remote-jid]
+verify_jwt = false
