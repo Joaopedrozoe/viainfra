@@ -1369,6 +1369,65 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       }
     }
 
+    // ============================================================
+    // EXTRA: Create conversations for contacts without conversations
+    // This catches contacts that exist but weren't in findChats
+    // ============================================================
+    console.log(`\n🔍 Verificando contatos sem conversas...`);
+    
+    const { data: contactsWithoutConv } = await supabase
+      .from('contacts')
+      .select('id, name, phone')
+      .eq('company_id', companyId)
+      .not('phone', 'is', null);
+    
+    let conversationsCreatedForOrphans = 0;
+    let messagesForOrphans = 0;
+    
+    for (const contact of contactsWithoutConv || []) {
+      // Check if contact has a conversation
+      const { data: existingConv } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('contact_id', contact.id)
+        .eq('channel', 'whatsapp')
+        .maybeSingle();
+      
+      if (!existingConv && contact.phone) {
+        // Create conversation
+        const whatsappJid = `${contact.phone}@s.whatsapp.net`;
+        const { data: newConv, error } = await supabase
+          .from('conversations')
+          .insert({
+            company_id: companyId,
+            contact_id: contact.id,
+            channel: 'whatsapp',
+            status: 'open',
+            metadata: { instanceName, remoteJid: whatsappJid, source: 'orphan_contact_recovery' }
+          })
+          .select()
+          .single();
+        
+        if (newConv && !error) {
+          conversationsCreatedForOrphans++;
+          console.log(`📥 Criada conversa para contato órfão: ${contact.name} (${contact.phone})`);
+          
+          // Try to sync messages
+          const msgCount = await syncMessagesForConversation(
+            supabase, evolutionApiUrl, evolutionApiKey, instanceName,
+            newConv.id, whatsappJid, extractMessageContent
+          );
+          messagesForOrphans += msgCount;
+        }
+      }
+    }
+    
+    if (conversationsCreatedForOrphans > 0) {
+      console.log(`✅ Criadas ${conversationsCreatedForOrphans} conversas para contatos órfãos, ${messagesForOrphans} mensagens importadas`);
+      stats.conversationsCreated += conversationsCreatedForOrphans;
+      stats.messagesImported += messagesForOrphans;
+    }
+
     console.log(`\n========================================`);
     console.log(`✅ IMPORTAÇÃO CONCLUÍDA`);
     console.log(`========================================`);
