@@ -324,7 +324,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       const sendToRemoteJid = `${matchedContact.phone}@s.whatsapp.net`;
       
       // Get or create conversation for this contact
-      const conversation = await getOrCreateConversation(supabase, matchedContact.id, matchedContact.phone, matchedContact.name, sendToRemoteJid);
+      const conversation = await getOrCreateConversation(supabase, matchedContact.id, matchedContact.phone, matchedContact.name, sendToRemoteJid, webhook.instance);
       
       // Save message
       const savedMessage = await saveMessage(supabase, conversation.id, message, messageContent, matchedContact.phone, webhook.instance);
@@ -367,7 +367,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     console.log(`Contact phone: ${contactPhone || 'none'}, will send to: ${sendToRemoteJid}`);
     
     // Get or create conversation (store remoteJid in metadata for later use)
-    const conversation = await getOrCreateConversation(supabase, contact.id, contactPhone, contactName, remoteJid);
+    const conversation = await getOrCreateConversation(supabase, contact.id, contactPhone, contactName, remoteJid, webhook.instance);
     
     // Save message - returns null if duplicate
     const savedMessage = await saveMessage(supabase, conversation.id, message, messageContent, contactPhone, webhook.instance);
@@ -757,13 +757,15 @@ async function updateContactProfilePicture(supabase: any, contact: any, instance
   }
 }
 
-async function getOrCreateConversation(supabase: any, contactId: string, phoneNumber: string, contactName: string, remoteJid: string) {
+async function getOrCreateConversation(supabase: any, contactId: string, phoneNumber: string, contactName: string, remoteJid: string, instanceName?: string) {
   // Get contact to find company_id
   const { data: contact } = await supabase
     .from('contacts')
     .select('company_id')
     .eq('id', contactId)
     .single();
+
+  console.log(`🔍 [getOrCreateConversation] ContactId: ${contactId}, Phone: ${phoneNumber}, RemoteJid: ${remoteJid}, Instance: ${instanceName || 'NOT PROVIDED'}`);
 
   // CRITICAL: Buscar QUALQUER conversa existente para este contato no WhatsApp
   // O índice único impede múltiplas conversas por contato/canal
@@ -779,35 +781,51 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
   if (existingConversation) {
     console.log(`✅ Found existing conversation: ${existingConversation.id} (status: ${existingConversation.status})`);
     
+    // CRITICAL FIX: Update instanceName if missing or different
+    const currentInstanceName = existingConversation.metadata?.instanceName;
+    const needsInstanceUpdate = instanceName && (!currentInstanceName || currentInstanceName !== instanceName);
+    
+    if (needsInstanceUpdate) {
+      console.log(`🔧 Atualizando instanceName: ${currentInstanceName || 'NULL'} -> ${instanceName}`);
+    }
+    
     // Se a conversa estava resolved/closed, reabrir com nova mensagem E RESETAR BOT STATE
     const needsReopen = existingConversation.status === 'resolved' || existingConversation.status === 'closed';
     
-    if (needsReopen) {
-      console.log('🔄 Reabrindo conversa resolvida com nova mensagem - RESETANDO BOT STATE...');
+    if (needsReopen || needsInstanceUpdate) {
+      console.log(needsReopen ? '🔄 Reabrindo conversa resolvida com nova mensagem - RESETANDO BOT STATE...' : '🔧 Atualizando metadata da conversa...');
       
-      // CRITICAL: Reset bot_state para que o bot comece do início
+      // Build new metadata with instanceName
       const newMetadata = {
         ...(existingConversation.metadata || {}),
-        bot_state: null, // RESET - será inicializado como start-1 no triggerBotResponse
-        bot_triggered: false
+        remoteJid: remoteJid,
+        instanceName: instanceName || existingConversation.metadata?.instanceName,
+        ...(needsReopen ? { bot_state: null, bot_triggered: false } : {})
       };
+      
+      const updateData: any = { 
+        updated_at: new Date().toISOString(),
+        metadata: newMetadata
+      };
+      
+      if (needsReopen) {
+        updateData.status = 'open';
+        updateData.archived = false;
+      }
       
       const { error: updateError } = await supabase
         .from('conversations')
-        .update({ 
-          status: 'open',
-          updated_at: new Date().toISOString(),
-          archived: false,
-          metadata: newMetadata
-        })
+        .update(updateData)
         .eq('id', existingConversation.id);
       
       if (updateError) {
-        console.error('❌ Erro ao reabrir conversa:', updateError);
+        console.error('❌ Erro ao atualizar conversa:', updateError);
       } else {
-        console.log('✅ Conversa reaberta com sucesso - Bot state resetado');
-        existingConversation.status = 'open';
-        existingConversation.archived = false;
+        console.log(`✅ Conversa atualizada - instanceName: ${instanceName}, reaberta: ${needsReopen}`);
+        if (needsReopen) {
+          existingConversation.status = 'open';
+          existingConversation.archived = false;
+        }
         existingConversation.metadata = newMetadata;
       }
     } else {
@@ -822,7 +840,14 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
   }
 
   // No existing conversation found - create new one
-  console.log('➕ Creating new conversation for contact:', contactId);
+  console.log(`➕ Creating new conversation for contact: ${contactId}, instance: ${instanceName || 'NOT SET'}`);
+  
+  const conversationMetadata = { 
+    remoteJid: remoteJid,
+    instanceName: instanceName || null
+  };
+  
+  console.log(`📝 New conversation metadata:`, JSON.stringify(conversationMetadata));
   
   const { data: newConversation, error: insertError } = await supabase
     .from('conversations')
@@ -831,7 +856,7 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
       channel: 'whatsapp',
       status: 'open',
       company_id: contact?.company_id,
-      metadata: { remoteJid: remoteJid },
+      metadata: conversationMetadata,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     })
@@ -855,6 +880,17 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
       if (fallbackConversation) {
         console.log('✅ Conversa encontrada após constraint:', fallbackConversation.id);
         
+        // Update with instanceName if needed
+        if (instanceName && fallbackConversation.metadata?.instanceName !== instanceName) {
+          await supabase
+            .from('conversations')
+            .update({ 
+              metadata: { ...fallbackConversation.metadata, instanceName: instanceName, remoteJid: remoteJid },
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', fallbackConversation.id);
+        }
+        
         // Reabrir se necessário
         if (fallbackConversation.status === 'resolved' || fallbackConversation.status === 'closed') {
           await supabase
@@ -872,7 +908,7 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
     throw insertError;
   }
 
-  console.log('✅ Created new conversation:', newConversation.id);
+  console.log(`✅ Created new conversation: ${newConversation.id} with instanceName: ${instanceName || 'NULL'}`);
   return newConversation;
 }
 
