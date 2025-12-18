@@ -854,50 +854,102 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         if (!convId) continue;
 
         // ============================================================
-        // USAR ÚLTIMA MENSAGEM DO CHAT (sem chamar fetchMessages)
-        // A Evolution API retorna 404 no fetchMessages, então usamos
-        // apenas os dados que já vem do findChats
+        // BUSCAR MENSAGENS DO CHAT usando findMessages
         // ============================================================
-        const lastMessage = chat.lastMessage || chat.message;
-        if (lastMessage) {
-          const msgContent = lastMessage.message || lastMessage;
-          let content = '';
-          if (msgContent.conversation) content = msgContent.conversation;
-          else if (msgContent.extendedTextMessage?.text) content = msgContent.extendedTextMessage.text;
-          else if (msgContent.imageMessage) content = msgContent.imageMessage.caption || '📷 Imagem';
-          else if (msgContent.videoMessage) content = msgContent.videoMessage.caption || '🎬 Vídeo';
-          else if (msgContent.audioMessage) content = '🎵 Áudio';
-          else if (msgContent.documentMessage) content = `📄 ${msgContent.documentMessage.fileName || 'Documento'}`;
+        console.log(`  🔍 Buscando mensagens para jid: ${jid}`);
+        try {
+          const msgUrl = `${evolutionApiUrl}/chat/findMessages/${instanceName}`;
+          console.log(`  📡 URL: ${msgUrl}`);
           
-          if (content) {
-            const timestamp = lastMessage.messageTimestamp || chat.lastMessageTimestamp;
-            const msgDate = timestamp ? new Date(timestamp > 9999999999 ? timestamp : timestamp * 1000) : new Date();
-            const msgId = lastMessage.key?.id;
-            
-            // Verificar se já existe
-            const { data: existingMsg } = await supabase
-              .from('messages')
-              .select('id')
-              .eq('conversation_id', convId)
-              .eq('metadata->>messageId', msgId)
-              .maybeSingle();
-            
-            if (!existingMsg && msgId) {
-              await supabase.from('messages').insert({
-                conversation_id: convId,
-                content,
-                sender_type: lastMessage.key?.fromMe ? 'agent' : 'user',
-                created_at: msgDate.toISOString(),
-                metadata: { messageId: msgId }
-              });
-              stats.messages++;
+          const messagesResponse = await fetch(msgUrl, {
+            method: 'POST',
+            headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              where: { key: { remoteJid: jid } },
+              limit: 50
+            })
+          });
+          
+          console.log(`  📥 Status: ${messagesResponse.status}`);
+          
+          if (messagesResponse.ok) {
+            const messagesData = await messagesResponse.json();
+            const rawMessages = messagesData?.messages;
+            console.log(`  📦 messages type: ${typeof rawMessages}, isArray: ${Array.isArray(rawMessages)}`);
+            if (rawMessages && !Array.isArray(rawMessages)) {
+              console.log(`  📦 messages keys: ${Object.keys(rawMessages).join(', ')}`);
             }
             
-            // Atualizar timestamp da conversa
-            await supabase.from('conversations')
-              .update({ updated_at: msgDate.toISOString() })
-              .eq('id', convId);
+            // Tentar múltiplas estruturas possíveis
+            const messages = Array.isArray(rawMessages) ? rawMessages :
+                            (rawMessages?.records || rawMessages?.data || []);
+            
+            console.log(`  📨 ${messages.length} mensagens encontradas`);
+            
+            if (messages.length > 0) {
+              // Importar mensagens
+              for (const msg of messages) {
+                const msgId = msg.key?.id;
+                if (!msgId) continue;
+                
+                // Extrair conteúdo
+                const msgContent = msg.message || {};
+                let content = '';
+                if (msgContent.conversation) content = msgContent.conversation;
+                else if (msgContent.extendedTextMessage?.text) content = msgContent.extendedTextMessage.text;
+                else if (msgContent.imageMessage) content = msgContent.imageMessage.caption || '📷 Imagem';
+                else if (msgContent.videoMessage) content = msgContent.videoMessage.caption || '🎬 Vídeo';
+                else if (msgContent.audioMessage) content = '🎵 Áudio';
+                else if (msgContent.documentMessage) content = `📄 ${msgContent.documentMessage.fileName || 'Documento'}`;
+                else if (msgContent.stickerMessage) content = '🎨 Sticker';
+                
+                if (!content) continue;
+                
+                // Verificar duplicata
+                const { data: existingMsg } = await supabase
+                  .from('messages')
+                  .select('id')
+                  .eq('conversation_id', convId)
+                  .eq('metadata->>messageId', msgId)
+                  .maybeSingle();
+                
+                if (existingMsg) continue;
+                
+                const timestamp = msg.messageTimestamp;
+                const msgDate = timestamp ? new Date(timestamp > 9999999999 ? timestamp : timestamp * 1000) : new Date();
+                
+                // Para grupos, adicionar nome do remetente
+                let finalContent = content;
+                if (isGroup && !msg.key?.fromMe && msg.pushName) {
+                  finalContent = `*${msg.pushName}*:\n\n${content}`;
+                }
+                
+                await supabase.from('messages').insert({
+                  conversation_id: convId,
+                  content: finalContent,
+                  sender_type: msg.key?.fromMe ? 'agent' : 'user',
+                  created_at: msgDate.toISOString(),
+                  metadata: { messageId: msgId }
+                });
+                stats.messages++;
+              }
+              
+              // Atualizar timestamp da conversa com a última mensagem
+              const lastMsg = messages[messages.length - 1];
+              if (lastMsg?.messageTimestamp) {
+                const ts = lastMsg.messageTimestamp;
+                const lastMsgDate = new Date(ts > 9999999999 ? ts : ts * 1000);
+                await supabase.from('conversations')
+                  .update({ updated_at: lastMsgDate.toISOString() })
+                  .eq('id', convId);
+              }
+            }
+          } else {
+            const errText = await messagesResponse.text();
+            console.log(`  ❌ findMessages falhou: ${messagesResponse.status} - ${errText.substring(0, 200)}`);
           }
+        } catch (msgErr) {
+          console.log(`  ❌ Erro ao buscar mensagens: ${msgErr}`);
         }
 
       } catch (chatError) {
