@@ -65,13 +65,15 @@ const Contacts = () => {
         return;
       }
 
-      const { data: profile } = await supabase
+      const { data: profiles } = await supabase
         .from('profiles')
         .select('company_id')
-        .eq('user_id', user.id)
-        .single();
+        .eq('user_id', user.id);
 
-      if (!profile?.company_id) {
+      // Get all company IDs for this user
+      const companyIds = (profiles || []).map(p => p.company_id).filter(Boolean);
+
+      if (companyIds.length === 0) {
         setContacts([]);
         setIsLoading(false);
         return;
@@ -80,7 +82,7 @@ const Contacts = () => {
       const { data: contactsData, error } = await supabase
         .from('contacts')
         .select('*')
-        .eq('company_id', profile.company_id)
+        .in('company_id', companyIds)
         .order('created_at', { ascending: false });
 
       if (error) {
