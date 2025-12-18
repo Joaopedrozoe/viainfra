@@ -692,8 +692,11 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     
     console.log(`📇 Mapas criados: ${contactsNameMap.size} nomes, ${contactsPhoneMap.size} lids, ${nameToPhoneMap.size} name->phone`);
 
-    // Fetch chats
-    console.log(`💬 Buscando chats...`);
+    // Fetch ALL chats - try multiple methods to ensure complete coverage
+    console.log(`💬 Buscando TODOS os chats...`);
+    const allChatsMap = new Map<string, any>();
+    
+    // Method 1: findChats with no filters
     try {
       const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
         method: 'POST',
@@ -703,22 +706,73 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
       if (chatsResponse.ok) {
         const chatsData = await chatsResponse.json();
-        allChats = Array.isArray(chatsData) ? chatsData : [];
-        console.log(`✅ ${allChats.length} chats encontrados na API`);
-        
-        // Log ALL chats for complete debugging
-        console.log(`💬 TODOS os chats retornados pela API:`);
-        allChats.forEach((c, i) => {
+        const chats = Array.isArray(chatsData) ? chatsData : [];
+        console.log(`✅ findChats (sem filtro): ${chats.length} chats`);
+        chats.forEach((c: any) => {
           const jid = c.remoteJid || c.id || c.jid || '';
-          const name = c.pushName || c.name || c.subject || 'N/A';
-          const phone = c.phone || c.number || '';
-          const archived = c.archive || c.archived || false;
-          console.log(`  ${i+1}. ${name} | JID: ${jid.slice(0,30)}... | Phone: ${phone} | Archived: ${archived}`);
+          if (jid) allChatsMap.set(jid, c);
         });
       }
     } catch (e) {
-      console.log(`⚠️ Erro ao buscar chats:`, e);
+      console.log(`⚠️ Erro findChats:`, e);
     }
+    
+    // Method 2: findChats with where clause for archived
+    try {
+      const archivedResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
+        body: JSON.stringify({ where: { archived: true } })
+      });
+
+      if (archivedResponse.ok) {
+        const archivedData = await archivedResponse.json();
+        const archived = Array.isArray(archivedData) ? archivedData : [];
+        console.log(`✅ findChats (archived): ${archived.length} chats`);
+        archived.forEach((c: any) => {
+          const jid = c.remoteJid || c.id || c.jid || '';
+          if (jid && !allChatsMap.has(jid)) {
+            c.archived = true;
+            allChatsMap.set(jid, c);
+          }
+        });
+      }
+    } catch (e) {
+      console.log(`⚠️ Erro findChats archived:`, e);
+    }
+    
+    // Method 3: Try fetchAllChats endpoint if available
+    try {
+      const allChatsResponse = await fetch(`${evolutionApiUrl}/chat/fetchAllChats/${instanceName}`, {
+        method: 'GET',
+        headers: { 'apikey': evolutionApiKey }
+      });
+
+      if (allChatsResponse.ok) {
+        const allChatsData = await allChatsResponse.json();
+        const chats = Array.isArray(allChatsData) ? allChatsData : (allChatsData?.chats || []);
+        console.log(`✅ fetchAllChats: ${chats.length} chats`);
+        chats.forEach((c: any) => {
+          const jid = c.remoteJid || c.id || c.jid || '';
+          if (jid && !allChatsMap.has(jid)) allChatsMap.set(jid, c);
+        });
+      }
+    } catch (e) {
+      // Endpoint may not exist
+    }
+    
+    allChats = Array.from(allChatsMap.values());
+    console.log(`📊 Total de chats únicos: ${allChats.length}`);
+    
+    // Log ALL chats
+    console.log(`💬 LISTA COMPLETA DE CHATS:`);
+    allChats.forEach((c, i) => {
+      const jid = c.remoteJid || c.id || c.jid || '';
+      const name = c.pushName || c.name || c.subject || 'N/A';
+      const phone = c.phone || c.number || '';
+      const archived = c.archive || c.archived || false;
+      console.log(`  ${i+1}. ${name} | JID: ${jid.substring(0,35)} | Phone: ${phone} | Arch: ${archived}`);
+    });
 
     // ============================================================
     // PROCESS ALL CHATS
@@ -1179,15 +1233,25 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         } else {
           contactId = existingContact.id;
           
-          // Update contact if we have better data
+          // ALWAYS update contact name if we have a better name from pushName
           const updates: any = {};
-          const nameIsJustPhone = !existingContact.name || 
+          const currentNameIsPhone = !existingContact.name || 
             existingContact.name === existingContact.phone || 
-            /^\d+$/.test(existingContact.name);
+            /^\+?\d[\d\s-]+$/.test(existingContact.name.trim());
           
-          if (contactName && nameIsJustPhone && contactName !== existingContact.name) {
-            updates.name = contactName;
+          // Use pushName if it's a real name (not a phone number) and different from current
+          const pushNameIsRealName = contactName && 
+            contactName !== normalizedPhone && 
+            !/^\+?\d[\d\s-]+$/.test(contactName.trim());
+          
+          if (pushNameIsRealName && (currentNameIsPhone || contactName !== existingContact.name)) {
+            // Only update if pushName is different and better
+            if (contactName !== existingContact.name) {
+              updates.name = contactName;
+              console.log(`  📝 Nome atualizado: "${existingContact.name}" → "${contactName}"`);
+            }
           }
+          
           if (profilePicUrl && !existingContact.avatar_url) {
             updates.avatar_url = profilePicUrl;
           }
@@ -1292,14 +1356,15 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
     let namesUpdated = 0;
     for (const contact of contactsNeedingUpdate || []) {
-      const nameIsJustPhone = contact.name === contact.phone || /^\d+$/.test(contact.name);
+      const nameIsJustPhone = contact.name === contact.phone || /^\+?\d[\d\s-]+$/.test(contact.name?.trim() || '');
       if (nameIsJustPhone && contact.phone) {
         const betterName = contactsNameMap.get(contact.phone) || 
-                          contactsNameMap.get(normalizePhone(contact.phone));
-        if (betterName && betterName !== contact.phone) {
+                          contactsNameMap.get(normalizePhone(contact.phone)) ||
+                          nameToPhoneMap.get(contact.phone?.toLowerCase());
+        if (betterName && betterName !== contact.phone && !/^\+?\d[\d\s-]+$/.test(betterName.trim())) {
           await supabase.from('contacts').update({ name: betterName }).eq('id', contact.id);
           namesUpdated++;
-          console.log(`📝 ${contact.phone} → ${betterName}`);
+          console.log(`🔗 ${contact.phone} → ${betterName}`);
         }
       }
     }
