@@ -83,39 +83,109 @@ async function downloadAndUploadMediaForImport(
   try {
     console.log('📥 Downloading media from WhatsApp via Evolution API...');
     
-    // Evolution API endpoint to get base64 from media message
-    const mediaResponse = await fetch(`${evolutionApiUrl}/chat/getBase64FromMediaMessage/${instanceName}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': evolutionApiKey,
-      },
-      body: JSON.stringify({
-        message: {
-          key: message.key,
-          message: message.message,
+    // Tentar múltiplas abordagens para obter a mídia
+    let base64Data: string | null = null;
+    
+    // Abordagem 1: getBase64FromMediaMessage (preferido para mensagens recentes)
+    try {
+      const mediaResponse = await fetch(`${evolutionApiUrl}/chat/getBase64FromMediaMessage/${instanceName}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': evolutionApiKey,
         },
-        convertToMp4: false,
-      }),
-    });
+        body: JSON.stringify({
+          message: {
+            key: message.key,
+            message: message.message,
+          },
+          convertToMp4: false,
+        }),
+      });
+      
+      if (mediaResponse.ok) {
+        const mediaData = await mediaResponse.json();
+        if (mediaData.base64) {
+          base64Data = mediaData.base64;
+          console.log('✅ Mídia obtida via getBase64FromMediaMessage');
+        }
+      } else {
+        console.log(`⚠️ getBase64FromMediaMessage retornou ${mediaResponse.status}`);
+      }
+    } catch (err) {
+      console.log('⚠️ Falha em getBase64FromMediaMessage:', err);
+    }
+
+    // Abordagem 2: Tentar download direto da URL se disponível
+    if (!base64Data && attachment.url && !attachment.url.includes('enc.media') && attachment.url.startsWith('http')) {
+      try {
+        console.log('📥 Tentando download direto da URL...');
+        const directResponse = await fetch(attachment.url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          }
+        });
+        
+        if (directResponse.ok) {
+          const arrayBuffer = await directResponse.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuffer);
+          // Converter para base64
+          let binary = '';
+          for (let i = 0; i < bytes.length; i++) {
+            binary += String.fromCharCode(bytes[i]);
+          }
+          base64Data = btoa(binary);
+          console.log('✅ Mídia obtida via download direto');
+        } else {
+          console.log(`⚠️ Download direto retornou ${directResponse.status}`);
+        }
+      } catch (err) {
+        console.log('⚠️ Falha no download direto:', err);
+      }
+    }
+
+    // Abordagem 3: Tentar usando downloadMedia endpoint (para áudios e documentos)
+    if (!base64Data && message.key?.id) {
+      try {
+        console.log('📥 Tentando via downloadMediaMessage...');
+        const downloadResponse = await fetch(`${evolutionApiUrl}/chat/downloadMediaMessage/${instanceName}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': evolutionApiKey,
+          },
+          body: JSON.stringify({
+            message: {
+              key: message.key,
+              message: message.message,
+            }
+          }),
+        });
+        
+        if (downloadResponse.ok) {
+          const mediaData = await downloadResponse.json();
+          if (mediaData.base64) {
+            base64Data = mediaData.base64;
+            console.log('✅ Mídia obtida via downloadMediaMessage');
+          }
+        } else {
+          console.log(`⚠️ downloadMediaMessage retornou ${downloadResponse.status}`);
+        }
+      } catch (err) {
+        console.log('⚠️ Falha em downloadMediaMessage:', err);
+      }
+    }
     
-    if (!mediaResponse.ok) {
-      console.error('❌ Failed to download media from Evolution API:', mediaResponse.status);
+    if (!base64Data) {
+      console.error('❌ Não foi possível obter mídia por nenhum método');
       return null;
     }
     
-    const mediaData = await mediaResponse.json();
-    
-    if (!mediaData.base64) {
-      console.error('❌ No base64 data in response');
-      return null;
-    }
-    
-    console.log('✅ Media downloaded, uploading to Supabase Storage...');
+    console.log('✅ Mídia baixada, fazendo upload para Supabase Storage...');
     
     // Convert base64 to binary
-    const base64Data = mediaData.base64.replace(/^data:[^;]+;base64,/, '');
-    const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+    const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '');
+    const binaryData = Uint8Array.from(atob(cleanBase64), c => c.charCodeAt(0));
     
     // Generate unique filename
     const extension = getExtensionFromMimeType(attachment.mimeType || 'application/octet-stream');
@@ -195,6 +265,8 @@ serve(async (req) => {
         return await fetchChats(req, supabase, evolutionApiUrl, evolutionApiKey);
       case 'sync-messages':
         return await syncMessages(req, supabase, evolutionApiUrl, evolutionApiKey);
+      case 'reprocess-media':
+        return await reprocessMedia(req, supabase, evolutionApiUrl, evolutionApiKey);
       default:
         return new Response('Invalid action', { status: 400, headers: corsHeaders });
     }
@@ -1718,6 +1790,258 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       details: error instanceof Error ? error.message : 'Erro desconhecido'
     }), { 
       status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    });
+  }
+}
+
+// ============================================================
+// REPROCESS MEDIA - Reprocessar mídias de mensagens existentes
+// ============================================================
+async function reprocessMedia(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
+  try {
+    const { instanceName } = await req.json();
+    
+    if (!instanceName) {
+      return new Response(JSON.stringify({ error: 'Instance name is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Verificar autorização
+    if (!ALLOWED_INSTANCES.includes(instanceName) && !ALLOWED_INSTANCES.includes(instanceName.toLowerCase())) {
+      return new Response(JSON.stringify({ error: 'Instância não autorizada' }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    console.log(`🔄 Iniciando reprocessamento de mídias para ${instanceName}...`);
+
+    // Obter company_id da instância
+    const { data: instance } = await supabase
+      .from('whatsapp_instances')
+      .select('company_id')
+      .eq('instance_name', instanceName)
+      .single();
+
+    if (!instance?.company_id) {
+      return new Response(JSON.stringify({ error: 'Instância não encontrada' }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    const companyId = instance.company_id;
+
+    // Buscar TODAS as mensagens que podem ter mídia:
+    // 1. Mensagens com attachment mas sem URL válida
+    // 2. Mensagens com conteúdo indicando mídia (📷, 🎵, 🎬, 📄) mas sem attachment
+    const { data: allMessages, error: queryError } = await supabase
+      .from('messages')
+      .select(`
+        id, 
+        conversation_id, 
+        content, 
+        metadata,
+        conversations!inner(company_id, metadata, contact_id)
+      `)
+      .eq('conversations.company_id', companyId)
+      .order('created_at', { ascending: false })
+      .limit(1000);
+
+    if (queryError) {
+      console.error('❌ Erro ao buscar mensagens:', queryError);
+      throw queryError;
+    }
+
+    // Filtrar mensagens que precisam de reprocessamento
+    const messagesToProcess = (allMessages || []).filter((msg: any) => {
+      const attachment = msg.metadata?.attachment;
+      const content = msg.content || '';
+      const messageId = msg.metadata?.messageId;
+      
+      // Sem messageId não conseguimos buscar no WhatsApp
+      if (!messageId) return false;
+      
+      // Caso 1: Tem attachment mas sem URL válida
+      if (attachment) {
+        const hasNoUrl = !attachment.url || attachment.url === '';
+        const hasExpiredUrl = attachment.url && (
+          attachment.url.includes('mmg.whatsapp.net') || 
+          attachment.url.includes('enc.media') ||
+          !attachment.url.startsWith('https://xxojpfhnkxpbznbmhmua')
+        );
+        if (hasNoUrl || hasExpiredUrl) return true;
+      }
+      
+      // Caso 2: Conteúdo indica mídia mas não tem attachment
+      if (!attachment) {
+        const hasMediaContent = 
+          content.includes('📷') || content.includes('Imagem') ||
+          content.includes('🎵') || content.includes('Áudio') ||
+          content.includes('🎬') || content.includes('Vídeo') ||
+          content.includes('📄') || content.includes('Documento');
+        if (hasMediaContent) return true;
+      }
+      
+      return false;
+    });
+
+    console.log(`📊 ${messagesToProcess.length} mensagens com mídia para reprocessar`);
+
+    if (messagesToProcess.length === 0) {
+      return new Response(JSON.stringify({
+        success: true,
+        processed: 0,
+        updated: 0,
+        failed: 0,
+        message: 'Nenhuma mídia pendente para reprocessar'
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    let processed = 0;
+    let updated = 0;
+    let failed = 0;
+
+    for (const msg of messagesToProcess) {
+      processed++;
+      const messageId = msg.metadata?.messageId;
+      const content = msg.content || '';
+      
+      console.log(`  🔄 [${processed}/${messagesToProcess.length}] Processando ${messageId}`);
+
+      try {
+        // Buscar remoteJid da conversa
+        const convMetadata = msg.conversations?.metadata;
+        const remoteJid = convMetadata?.remoteJid || convMetadata?.lidJid;
+        
+        if (!remoteJid) {
+          console.log(`    ⏭️ Sem remoteJid, pulando`);
+          failed++;
+          continue;
+        }
+
+        // Buscar mensagem original do WhatsApp
+        const findMsgResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+          method: 'POST',
+          headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            where: { 
+              key: { 
+                remoteJid,
+                id: messageId
+              }
+            },
+            limit: 1
+          })
+        });
+
+        if (!findMsgResponse.ok) {
+          console.log(`    ❌ Falha ao buscar mensagem: ${findMsgResponse.status}`);
+          failed++;
+          continue;
+        }
+
+        const findMsgData = await findMsgResponse.json();
+        const messages = findMsgData?.messages || [];
+        const originalMsg = messages.find((m: any) => m.key?.id === messageId);
+
+        if (!originalMsg) {
+          console.log(`    ❌ Mensagem não encontrada no WhatsApp`);
+          failed++;
+          continue;
+        }
+
+        // Extrair attachment da mensagem original
+        const msgContent = originalMsg.message || {};
+        let attachment = msg.metadata?.attachment || extractAttachmentFromMessage(msgContent);
+        
+        if (!attachment) {
+          // Tentar determinar tipo pelo conteúdo
+          if (content.includes('📷') || content.includes('Imagem')) {
+            attachment = { type: 'image', url: '', mimeType: 'image/jpeg' };
+          } else if (content.includes('🎵') || content.includes('Áudio')) {
+            attachment = { type: 'audio', url: '', mimeType: 'audio/ogg' };
+          } else if (content.includes('🎬') || content.includes('Vídeo')) {
+            attachment = { type: 'video', url: '', mimeType: 'video/mp4' };
+          } else if (content.includes('📄') || content.includes('Documento')) {
+            attachment = { type: 'document', url: '', mimeType: 'application/pdf' };
+          }
+        }
+
+        if (!attachment) {
+          console.log(`    ⏭️ Não foi possível determinar tipo de attachment`);
+          failed++;
+          continue;
+        }
+
+        console.log(`    📎 Tipo: ${attachment.type}`);
+
+        // Tentar baixar a mídia
+        const storageUrl = await downloadAndUploadMediaForImport(
+          supabase,
+          attachment,
+          originalMsg,
+          msg.conversation_id,
+          instanceName,
+          evolutionApiUrl,
+          evolutionApiKey
+        );
+
+        if (storageUrl) {
+          // Atualizar mensagem com novo attachment e URL
+          await supabase.from('messages')
+            .update({ 
+              metadata: { 
+                ...msg.metadata, 
+                attachment: { 
+                  ...attachment, 
+                  url: storageUrl 
+                } 
+              } 
+            })
+            .eq('id', msg.id);
+          
+          console.log(`    ✅ Mídia atualizada: ${storageUrl.substring(0, 50)}...`);
+          updated++;
+        } else {
+          console.log(`    ⚠️ Não foi possível baixar mídia`);
+          failed++;
+        }
+      } catch (err) {
+        console.error(`    ❌ Erro:`, err);
+        failed++;
+      }
+
+      // Pequena pausa para não sobrecarregar a API
+      await new Promise(r => setTimeout(r, 150));
+    }
+
+    console.log(`✅ Reprocessamento concluído: ${updated} atualizadas, ${failed} falhas`);
+
+    return new Response(JSON.stringify({
+      success: true,
+      processed,
+      updated,
+      failed,
+      message: `${updated} mídia(s) reprocessada(s) com sucesso`
+    }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    console.error('❌ Erro em reprocessMedia:', error);
+    return new Response(JSON.stringify({ 
+      error: 'Falha ao reprocessar mídias', 
+      details: error instanceof Error ? error.message : 'Erro desconhecido'
+    }), { 
+      status: 500, 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
     });
   }
 }

@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useWhatsAppInstances } from '@/hooks/useWhatsAppInstances';
-import { Loader2, QrCode, Trash2, RefreshCw, CheckCircle2, XCircle, AlertCircle, Plus, Smartphone, Bot, Download } from 'lucide-react';
+import { Loader2, QrCode, Trash2, RefreshCw, CheckCircle2, XCircle, AlertCircle, Plus, Smartphone, Bot, Download, Image } from 'lucide-react';
 import { toast } from 'sonner';
 import { ImportProgressModal, ImportProgress } from './ImportProgressModal';
 
@@ -24,7 +24,7 @@ const initialProgress: ImportProgress = {
 };
 
 export const WhatsAppInstanceManager = () => {
-  const { instances, loading, createInstance, getInstanceQR, deleteInstance, syncInstances, toggleBot, fetchChats, refresh } = useWhatsAppInstances();
+  const { instances, loading, createInstance, getInstanceQR, deleteInstance, syncInstances, toggleBot, fetchChats, reprocessMedia, refresh } = useWhatsAppInstances();
   const [newInstanceName, setNewInstanceName] = useState('');
   const [channel, setChannel] = useState('baileys');
   const [creating, setCreating] = useState(false);
@@ -36,6 +36,7 @@ export const WhatsAppInstanceManager = () => {
   const [botStatus, setBotStatus] = useState<Record<string, boolean>>({});
   const [togglingBot, setTogglingBot] = useState<string | null>(null);
   const [importingChats, setImportingChats] = useState<string | null>(null);
+  const [reprocessingMedia, setReprocessingMedia] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportProgress>(initialProgress);
 
@@ -413,6 +414,19 @@ export const WhatsAppInstanceManager = () => {
                   }
                 };
 
+                const handleReprocessMedia = async () => {
+                  setReprocessingMedia(instance.instance_name);
+                  try {
+                    const result = await reprocessMedia(instance.instance_name);
+                    toast.success(`${result.updated} mídia(s) reprocessada(s) com sucesso!`);
+                  } catch (error: any) {
+                    console.error('Error reprocessing media:', error);
+                    toast.error(error.message || 'Erro ao reprocessar mídias');
+                  } finally {
+                    setReprocessingMedia(null);
+                  }
+                };
+
                 return (
                   <Card key={instance.id} className="bg-muted/30">
                     <CardContent className="py-4">
@@ -452,13 +466,26 @@ export const WhatsAppInstanceManager = () => {
                               variant="outline"
                               size="sm"
                               onClick={handleImportChats}
-                              disabled={importingChats === instance.instance_name}
+                              disabled={importingChats === instance.instance_name || reprocessingMedia === instance.instance_name}
                               title="Importar conversas do WhatsApp"
                             >
                               {importingChats === instance.instance_name ? (
                                 <Loader2 className="w-4 h-4 animate-spin" />
                               ) : (
                                 <Download className="w-4 h-4" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={handleReprocessMedia}
+                              disabled={reprocessingMedia === instance.instance_name || importingChats === instance.instance_name}
+                              title="Reprocessar mídias faltantes"
+                            >
+                              {reprocessingMedia === instance.instance_name ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Image className="w-4 h-4" />
                               )}
                             </Button>
                             <Button

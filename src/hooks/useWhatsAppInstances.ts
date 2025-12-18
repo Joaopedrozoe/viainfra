@@ -261,26 +261,58 @@ export const useWhatsAppInstances = () => {
         importedMessages: data.importedMessages || data.stats?.messagesImported || 0,
         archivedCount: data.archivedCount || 0,
         skippedCount: data.skippedCount || data.stats?.skipped || 0,
-        stats: data.stats,
-        message: data.message
-      };
-    } catch (error: any) {
-      console.error('Error fetching chats:', error);
-      throw error;
-    }
-  };
+      stats: data.stats,
+      message: data.message
+    };
+  } catch (error: any) {
+    console.error('Error fetching chats:', error);
+    throw error;
+  }
+};
 
-  return {
-    instances,
-    loading,
-    createInstance,
-    getInstanceStatus,
-    getInstanceQR,
-    deleteInstance,
-    sendMessage,
-    syncInstances,
-    toggleBot,
-    fetchChats,
-    refresh: loadInstances
-  };
+const reprocessMedia = async (instanceName: string) => {
+  try {
+    const response = await fetch(
+      `${SUPABASE_URL}/functions/v1/evolution-instance/reprocess-media`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        },
+        body: JSON.stringify({ instanceName })
+      }
+    );
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || 'Falha ao reprocessar mídias');
+    }
+    
+    return {
+      processed: data.processed || 0,
+      updated: data.updated || 0,
+      failed: data.failed || 0,
+      message: data.message
+    };
+  } catch (error: any) {
+    console.error('Error reprocessing media:', error);
+    throw error;
+  }
+};
+
+return {
+  instances,
+  loading,
+  createInstance,
+  getInstanceStatus,
+  getInstanceQR,
+  deleteInstance,
+  sendMessage,
+  syncInstances,
+  toggleBot,
+  fetchChats,
+  reprocessMedia,
+  refresh: loadInstances
+};
 };
