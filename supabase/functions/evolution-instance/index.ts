@@ -9,6 +9,145 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// ============================================================
+// HELPERS PARA MÍDIA
+// ============================================================
+interface Attachment {
+  type: 'image' | 'video' | 'audio' | 'document';
+  url: string;
+  filename?: string;
+  mimeType?: string;
+}
+
+function getExtensionFromMimeType(mimeType: string): string {
+  const mimeMap: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/gif': 'gif',
+    'image/webp': 'webp',
+    'video/mp4': 'mp4',
+    'video/3gpp': '3gp',
+    'audio/ogg': 'ogg',
+    'audio/mpeg': 'mp3',
+    'audio/mp4': 'm4a',
+    'audio/opus': 'opus',
+    'application/pdf': 'pdf',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  };
+  return mimeMap[mimeType] || 'bin';
+}
+
+function extractAttachmentFromMessage(msgContent: any): Attachment | null {
+  if (msgContent.imageMessage) {
+    return {
+      type: 'image',
+      url: msgContent.imageMessage.url || msgContent.imageMessage.directPath || '',
+      mimeType: msgContent.imageMessage.mimetype,
+    };
+  }
+  if (msgContent.videoMessage) {
+    return {
+      type: 'video',
+      url: msgContent.videoMessage.url || msgContent.videoMessage.directPath || '',
+      mimeType: msgContent.videoMessage.mimetype,
+    };
+  }
+  if (msgContent.audioMessage) {
+    return {
+      type: 'audio',
+      url: msgContent.audioMessage.url || msgContent.audioMessage.directPath || '',
+      mimeType: msgContent.audioMessage.mimetype,
+    };
+  }
+  if (msgContent.documentMessage) {
+    return {
+      type: 'document',
+      url: msgContent.documentMessage.url || msgContent.documentMessage.directPath || '',
+      filename: msgContent.documentMessage.fileName || msgContent.documentMessage.title,
+      mimeType: msgContent.documentMessage.mimetype,
+    };
+  }
+  return null;
+}
+
+async function downloadAndUploadMediaForImport(
+  supabase: any,
+  attachment: Attachment,
+  message: any,
+  conversationId: string,
+  instanceName: string,
+  evolutionApiUrl: string,
+  evolutionApiKey: string
+): Promise<string | null> {
+  try {
+    console.log('📥 Downloading media from WhatsApp via Evolution API...');
+    
+    // Evolution API endpoint to get base64 from media message
+    const mediaResponse = await fetch(`${evolutionApiUrl}/chat/getBase64FromMediaMessage/${instanceName}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': evolutionApiKey,
+      },
+      body: JSON.stringify({
+        message: {
+          key: message.key,
+          message: message.message,
+        },
+        convertToMp4: false,
+      }),
+    });
+    
+    if (!mediaResponse.ok) {
+      console.error('❌ Failed to download media from Evolution API:', mediaResponse.status);
+      return null;
+    }
+    
+    const mediaData = await mediaResponse.json();
+    
+    if (!mediaData.base64) {
+      console.error('❌ No base64 data in response');
+      return null;
+    }
+    
+    console.log('✅ Media downloaded, uploading to Supabase Storage...');
+    
+    // Convert base64 to binary
+    const base64Data = mediaData.base64.replace(/^data:[^;]+;base64,/, '');
+    const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+    
+    // Generate unique filename
+    const extension = getExtensionFromMimeType(attachment.mimeType || 'application/octet-stream');
+    const fileName = `${conversationId}/${Date.now()}-${Math.random().toString(36).substring(7)}.${extension}`;
+    
+    // Upload to Supabase Storage
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('chat-attachments')
+      .upload(fileName, binaryData, {
+        contentType: attachment.mimeType || 'application/octet-stream',
+        upsert: false,
+      });
+    
+    if (uploadError) {
+      console.error('❌ Error uploading to storage:', uploadError);
+      return null;
+    }
+    
+    // Get public URL
+    const { data: publicUrlData } = supabase.storage
+      .from('chat-attachments')
+      .getPublicUrl(fileName);
+    
+    console.log('✅ Media uploaded to Supabase Storage:', publicUrlData.publicUrl);
+    return publicUrlData.publicUrl;
+    
+  } catch (error) {
+    console.error('❌ Error in downloadAndUploadMediaForImport:', error);
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -895,12 +1034,26 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
                 // Extrair conteúdo
                 const msgContent = msg.message || {};
                 let content = '';
+                let hasMedia = false;
+                
                 if (msgContent.conversation) content = msgContent.conversation;
                 else if (msgContent.extendedTextMessage?.text) content = msgContent.extendedTextMessage.text;
-                else if (msgContent.imageMessage) content = msgContent.imageMessage.caption || '📷 Imagem';
-                else if (msgContent.videoMessage) content = msgContent.videoMessage.caption || '🎬 Vídeo';
-                else if (msgContent.audioMessage) content = '🎵 Áudio';
-                else if (msgContent.documentMessage) content = `📄 ${msgContent.documentMessage.fileName || 'Documento'}`;
+                else if (msgContent.imageMessage) {
+                  content = msgContent.imageMessage.caption || '📷 Imagem';
+                  hasMedia = true;
+                }
+                else if (msgContent.videoMessage) {
+                  content = msgContent.videoMessage.caption || '🎬 Vídeo';
+                  hasMedia = true;
+                }
+                else if (msgContent.audioMessage) {
+                  content = '🎵 Áudio';
+                  hasMedia = true;
+                }
+                else if (msgContent.documentMessage) {
+                  content = `📄 ${msgContent.documentMessage.fileName || 'Documento'}`;
+                  hasMedia = true;
+                }
                 else if (msgContent.stickerMessage) content = '🎨 Sticker';
                 
                 if (!content) continue;
@@ -924,12 +1077,45 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
                   finalContent = `*${msg.pushName}*:\n\n${content}`;
                 }
                 
+                // Extrair e processar attachment se houver mídia
+                let messageMetadata: Record<string, any> = { messageId: msgId };
+                
+                if (hasMedia) {
+                  const attachment = extractAttachmentFromMessage(msgContent);
+                  if (attachment) {
+                    console.log(`    📎 Attachment detected: ${attachment.type}`);
+                    
+                    // Tentar baixar e fazer upload da mídia
+                    const storageUrl = await downloadAndUploadMediaForImport(
+                      supabase,
+                      attachment,
+                      msg,
+                      convId,
+                      instanceName,
+                      evolutionApiUrl,
+                      evolutionApiKey
+                    );
+                    
+                    if (storageUrl) {
+                      messageMetadata.attachment = {
+                        ...attachment,
+                        url: storageUrl,
+                      };
+                      console.log(`    ✅ Media uploaded: ${storageUrl.substring(0, 60)}...`);
+                    } else {
+                      // Manter URL original (pode expirar) ou marcar como indisponível
+                      messageMetadata.attachment = attachment;
+                      console.log(`    ⚠️ Media not uploaded, keeping reference`);
+                    }
+                  }
+                }
+                
                 await supabase.from('messages').insert({
                   conversation_id: convId,
                   content: finalContent,
                   sender_type: msg.key?.fromMe ? 'agent' : 'user',
                   created_at: msgDate.toISOString(),
-                  metadata: { messageId: msgId }
+                  metadata: messageMetadata
                 });
                 stats.messages++;
               }
