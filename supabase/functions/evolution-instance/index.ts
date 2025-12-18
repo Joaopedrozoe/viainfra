@@ -761,24 +761,60 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     } catch (e) { /* ignore */ }
 
     // ============================================================
-    // PROCESSAR TODOS OS CONTATOS (não apenas chats)
-    // Esta é a mudança crítica - usar contatos como fonte principal
+    // BUSCAR TODAS AS MENSAGENS DE UMA VEZ (WORKAROUND PARA BUG #1632)
+    // findMessages com filtro remoteJid NÃO FUNCIONA na Evolution API v2
+    // Solução: usar /messages/fetch para buscar TODAS e agrupar client-side
     // ============================================================
-    console.log(`\n🔄 Processando ${allContacts.length} CONTATOS (fonte principal)...`);
-
-    // Processar TODOS os contatos (não apenas os ~35 chats)
-    for (const contact of allContacts) {
-      try {
-        const jid = contact.remoteJid || contact.jid || contact.id || '';
+    console.log(`\n📨 Buscando TODAS as mensagens (workaround bug #1632)...`);
+    
+    const allMessages: any[] = [];
+    const messagesByJid = new Map<string, any[]>();
+    
+    try {
+      const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
+        body: JSON.stringify({ where: {}, limit: 999999 }) // No filter = all messages
+      });
+      
+      if (messagesResponse.ok) {
+        const data = await messagesResponse.json();
+        const msgs = Array.isArray(data) ? data : (data?.messages?.records || data?.messages || data?.records || []);
+        allMessages.push(...msgs);
+        console.log(`✅ ${allMessages.length} mensagens totais recuperadas`);
         
-        // Skip if already processed or invalid
-        if (!jid || processedJids.has(jid)) continue;
-        if (jid.includes('@broadcast') || jid.startsWith('status@')) {
-          stats.skipped++;
-          continue;
+        // Group by remoteJid
+        for (const msg of allMessages) {
+          const jid = msg.key?.remoteJid || msg.remoteJid || '';
+          if (jid && !jid.includes('@broadcast') && !jid.startsWith('status@')) {
+            if (!messagesByJid.has(jid)) {
+              messagesByJid.set(jid, []);
+            }
+            messagesByJid.get(jid)!.push(msg);
+          }
         }
-        
+        console.log(`✅ ${messagesByJid.size} conversas com mensagens identificadas`);
+      }
+    } catch (e) {
+      console.log(`⚠️ Erro ao buscar mensagens:`, e);
+    }
+
+    // ============================================================
+    // PROCESSAR CONVERSAS QUE TÊM MENSAGENS
+    // ============================================================
+    console.log(`\n🔄 Processando ${messagesByJid.size} conversas com mensagens...`);
+
+    // Processar CADA JID que tem mensagens (não contatos!)
+    for (const [jid, messages] of messagesByJid.entries()) {
+      try {
+        // Skip if already processed
+        if (processedJids.has(jid)) continue;
         processedJids.add(jid);
+        
+        // Find contact info from allContacts
+        const contact = allContacts.find((c: any) => 
+          (c.remoteJid || c.jid) === jid
+        );
         
         const isGroup = jid.includes('@g.us');
         const isLid = jid.includes('@lid');
@@ -787,11 +823,11 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         const chatMeta = chatLookup.get(jid);
         const isArchived = chatMeta?.archive === true || chatMeta?.archived === true;
         
-        // Get contact info
-        const contactName = contact.pushName || contact.name || contact.notify || 
-                           contact.verifiedName || chatMeta?.name || chatMeta?.pushName || '';
-        const profilePicUrl = contact.profilePictureUrl || contact.profilePicUrl || 
-                             contact.imgUrl || chatMeta?.profilePictureUrl || null;
+        // Get contact info (contact may be undefined for @lid or unknown JIDs)
+        const contactName = contact?.pushName || contact?.name || contact?.notify || 
+                           contact?.verifiedName || chatMeta?.name || chatMeta?.pushName || '';
+        const profilePicUrl = contact?.profilePictureUrl || contact?.profilePicUrl || 
+                             contact?.imgUrl || chatMeta?.profilePictureUrl || null;
 
         // ============================================================
         // PROCESS GROUPS
@@ -1024,48 +1060,13 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         }
 
         // ============================================================
-        // VERIFICAR SE TEM MENSAGENS ANTES DE CRIAR CONVERSA
-        // Esta é a mudança crítica - só cria se tiver mensagens
+        // USAR MENSAGENS JÁ CARREGADAS (do messagesByJid)
+        // Não precisamos buscar novamente - já temos!
         // ============================================================
         
-        // Build all JID variations to try
-        const jidsToTry = [
-          jid, 
-          whatsappJid, 
-          `${phone}@s.whatsapp.net`,
-          phone.startsWith('55') ? `${phone.substring(2)}@s.whatsapp.net` : null,
-          !phone.startsWith('55') && phone.length >= 10 ? `55${phone}@s.whatsapp.net` : null,
-        ].filter(Boolean) as string[];
+        console.log(`📱 ${finalName || phone} (${phone}) - ${messages.length} msgs`);
         
-        // STEP 1: Check if contact has messages BEFORE creating conversation
-        let messages: any[] = [];
-        let workingJid = '';
-        
-        for (const tryJid of [...new Set(jidsToTry)]) {
-          try {
-            const resp = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
-              method: 'POST',
-              headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                where: { key: { remoteJid: tryJid } },
-                limit: 99999
-              })
-            });
-
-            if (resp.ok) {
-              const data = await resp.json();
-              const msgs = Array.isArray(data) ? data : 
-                          (data?.messages?.records || data?.messages || data?.records || []);
-              if (msgs.length > 0) {
-                messages = msgs;
-                workingJid = tryJid;
-                break;
-              }
-            }
-          } catch (e) { /* continue */ }
-        }
-        
-        // STEP 2: If NO messages found, check if conversation already exists
+        // Find or check existing conversation
         let { data: existingConv } = await supabase
           .from('conversations')
           .select('id, archived, status')
@@ -1073,17 +1074,6 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           .eq('contact_id', contactId)
           .eq('channel', 'whatsapp')
           .maybeSingle();
-        
-        // CRITICAL: If no messages AND no existing conversation, SKIP
-        if (messages.length === 0 && !existingConv) {
-          stats.skipped++;
-          continue;
-        }
-        
-        // Log progress for contacts with messages
-        if (messages.length > 0) {
-          console.log(`📱 ${finalName || phone} (${phone}) - ${messages.length} msgs`);
-        }
         
         let conversationId;
         
@@ -1098,7 +1088,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
               channel: 'whatsapp',
               status: isArchived ? 'resolved' : 'open',
               archived: isArchived,
-              metadata: { instanceName, remoteJid: workingJid || whatsappJid }
+              metadata: { instanceName, remoteJid: jid }
             })
             .select()
             .single();
