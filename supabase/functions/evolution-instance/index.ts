@@ -1023,12 +1023,49 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           }
         }
 
-        // Check if this contact has an active chat (from findChats)
-        // Only create conversation if contact is in chatLookup OR already has conversation
-        const hasActiveChat = chatLookup.has(jid) || chatLookup.has(whatsappJid) || 
-                             chatLookup.has(`${phone}@s.whatsapp.net`);
+        // ============================================================
+        // VERIFICAR SE TEM MENSAGENS ANTES DE CRIAR CONVERSA
+        // Esta é a mudança crítica - só cria se tiver mensagens
+        // ============================================================
+        
+        // Build all JID variations to try
+        const jidsToTry = [
+          jid, 
+          whatsappJid, 
+          `${phone}@s.whatsapp.net`,
+          phone.startsWith('55') ? `${phone.substring(2)}@s.whatsapp.net` : null,
+          !phone.startsWith('55') && phone.length >= 10 ? `55${phone}@s.whatsapp.net` : null,
+        ].filter(Boolean) as string[];
+        
+        // STEP 1: Check if contact has messages BEFORE creating conversation
+        let messages: any[] = [];
+        let workingJid = '';
+        
+        for (const tryJid of [...new Set(jidsToTry)]) {
+          try {
+            const resp = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+              method: 'POST',
+              headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                where: { key: { remoteJid: tryJid } },
+                limit: 99999
+              })
+            });
 
-        // Find existing conversation first
+            if (resp.ok) {
+              const data = await resp.json();
+              const msgs = Array.isArray(data) ? data : 
+                          (data?.messages?.records || data?.messages || data?.records || []);
+              if (msgs.length > 0) {
+                messages = msgs;
+                workingJid = tryJid;
+                break;
+              }
+            }
+          } catch (e) { /* continue */ }
+        }
+        
+        // STEP 2: If NO messages found, check if conversation already exists
         let { data: existingConv } = await supabase
           .from('conversations')
           .select('id, archived, status')
@@ -1036,17 +1073,23 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           .eq('contact_id', contactId)
           .eq('channel', 'whatsapp')
           .maybeSingle();
-
+        
+        // CRITICAL: If no messages AND no existing conversation, SKIP
+        if (messages.length === 0 && !existingConv) {
+          stats.skipped++;
+          continue;
+        }
+        
+        // Log progress for contacts with messages
+        if (messages.length > 0) {
+          console.log(`📱 ${finalName || phone} (${phone}) - ${messages.length} msgs`);
+        }
+        
         let conversationId;
         
-        // Only create NEW conversation if contact has active chat in WhatsApp
+        // STEP 3: Create or reuse conversation
         if (!existingConv) {
-          if (!hasActiveChat) {
-            // Skip - contact exists but no active chat (just a saved contact)
-            stats.skipped++;
-            continue;
-          }
-          
+          // Only reach here if messages.length > 0
           const { data: newConv, error } = await supabase
             .from('conversations')
             .insert({
@@ -1055,7 +1098,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
               channel: 'whatsapp',
               status: isArchived ? 'resolved' : 'open',
               archived: isArchived,
-              metadata: { instanceName, remoteJid: whatsappJid, originalJid: resolvedFromLid ? jid : undefined }
+              metadata: { instanceName, remoteJid: workingJid || whatsappJid }
             })
             .select()
             .single();
@@ -1095,24 +1138,86 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
         if (!conversationId) continue;
 
-        // Sync messages - try multiple JID variations
-        const jidsToTry = [originalJid, jid, whatsappJid, `${phone}@s.whatsapp.net`].filter(Boolean);
-        let msgCount = 0;
-        
-        for (const tryJid of [...new Set(jidsToTry)]) {
-          msgCount = await syncMessagesForConversation(
-            supabase, evolutionApiUrl, evolutionApiKey, instanceName,
-            conversationId, tryJid, extractMessageContent
-          );
-          if (msgCount > 0) break;
+        // STEP 4: Import messages (we already have them)
+        if (messages.length > 0) {
+          // Get existing message IDs to avoid duplicates
+          const { data: existingMessages } = await supabase
+            .from('messages')
+            .select('metadata')
+            .eq('conversation_id', conversationId);
+
+          const existingMessageIds = new Set<string>();
+          if (existingMessages) {
+            for (const msg of existingMessages) {
+              if (msg.metadata?.messageId) {
+                existingMessageIds.add(msg.metadata.messageId);
+              }
+            }
+          }
+
+          // Sort messages by timestamp
+          messages.sort((a: any, b: any) => {
+            const tsA = a.messageTimestamp || a.key?.messageTimestamp || 0;
+            const tsB = b.messageTimestamp || b.key?.messageTimestamp || 0;
+            return (typeof tsA === 'number' ? tsA : 0) - (typeof tsB === 'number' ? tsB : 0);
+          });
+
+          let importedCount = 0;
+          let lastMsgTimestamp: Date | null = null;
+
+          for (const msg of messages) {
+            try {
+              const messageId = msg.key?.id;
+              
+              // Track timestamp even for existing messages
+              const timestamp = msg.messageTimestamp || msg.key?.messageTimestamp;
+              if (timestamp) {
+                const msgDate = new Date(typeof timestamp === 'number' ? 
+                  (timestamp > 9999999999 ? timestamp : timestamp * 1000) : timestamp);
+                if (!lastMsgTimestamp || msgDate > lastMsgTimestamp) {
+                  lastMsgTimestamp = msgDate;
+                }
+              }
+              
+              // Skip duplicates
+              if (messageId && existingMessageIds.has(messageId)) continue;
+
+              const { content, type } = extractMessageContent(msg);
+              if (type === 'unknown' || !content) continue;
+              if (!timestamp) continue;
+
+              const msgDate = new Date(typeof timestamp === 'number' ? 
+                (timestamp > 9999999999 ? timestamp : timestamp * 1000) : timestamp);
+
+              const isFromMe = msg.key?.fromMe === true;
+
+              const { error: msgError } = await supabase
+                .from('messages')
+                .insert({
+                  conversation_id: conversationId,
+                  content: content,
+                  sender_type: isFromMe ? 'agent' : 'user',
+                  created_at: msgDate.toISOString(),
+                  metadata: { messageId, type }
+                });
+
+              if (!msgError) {
+                importedCount++;
+                if (messageId) existingMessageIds.add(messageId);
+              }
+            } catch (e) { /* continue */ }
+          }
+
+          // Update conversation timestamp to last message
+          if (lastMsgTimestamp) {
+            await supabase
+              .from('conversations')
+              .update({ updated_at: lastMsgTimestamp.toISOString() })
+              .eq('id', conversationId);
+          }
+
+          stats.messagesImported += importedCount;
         }
-        
-        // Log if we couldn't fetch messages (API limitation)
-        if (msgCount === 0) {
-          console.log(`  ⚠️ Sem mensagens disponíveis via API para: ${originalJid || jid}`);
-        }
-        
-        stats.messagesImported += msgCount;
 
       } catch (chatError) {
         console.error('Erro ao processar contato:', chatError);
