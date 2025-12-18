@@ -1066,7 +1066,64 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     console.log(`\n📋 Processados ${processedJids.size} JIDs únicos`);
 
     // ============================================================
-    // FINAL PASS: Update contacts with phone-as-name
+    // CRITICAL FINAL PASS: CREATE MISSING CONVERSATIONS
+    // ============================================================
+    console.log(`\n🔴 VERIFICAÇÃO FINAL: Criando conversas faltantes...`);
+    
+    // Get ALL contacts without conversations
+    const { data: contactsWithoutConv } = await supabase
+      .from('contacts')
+      .select(`
+        id, name, phone,
+        conversations!left(id)
+      `)
+      .eq('company_id', companyId)
+      .not('phone', 'is', null);
+    
+    let missingConvsCreated = 0;
+    for (const contact of contactsWithoutConv || []) {
+      // Check if has any whatsapp conversation
+      const hasConv = contact.conversations && contact.conversations.length > 0;
+      
+      if (!hasConv && contact.phone) {
+        // Double-check by querying directly
+        const { data: existingConv } = await supabase
+          .from('conversations')
+          .select('id')
+          .eq('contact_id', contact.id)
+          .eq('channel', 'whatsapp')
+          .maybeSingle();
+        
+        if (!existingConv) {
+          console.log(`  🆕 Criando conversa FALTANTE: ${contact.name} (${contact.phone})`);
+          
+          const { data: newConv, error } = await supabase
+            .from('conversations')
+            .insert({
+              company_id: companyId,
+              contact_id: contact.id,
+              channel: 'whatsapp',
+              status: 'open',
+              metadata: { instanceName, source: 'import_final_pass' }
+            })
+            .select('id')
+            .single();
+          
+          if (error) {
+            console.error(`  ❌ Erro: ${error.message}`);
+          } else if (newConv) {
+            missingConvsCreated++;
+            console.log(`  ✅ CRIADA: ${contact.name} -> ${newConv.id}`);
+          }
+        }
+      }
+    }
+    
+    console.log(`\n🔴 CONVERSAS FALTANTES CRIADAS: ${missingConvsCreated}`);
+    stats.conversationsCreated += missingConvsCreated;
+
+    // ============================================================
+    // Update contacts with phone-as-name
     // ============================================================
     console.log(`\n🔄 Atualizando nomes de contatos...`);
     
@@ -1096,7 +1153,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     console.log(`📊 Contatos processados: ${allContacts.length}`);
     console.log(`📊 Contatos: ${stats.contactsCreated} criados, ${stats.contactsUpdated + namesUpdated} atualizados`);
     console.log(`📊 Grupos: ${stats.groupsCreated} criados`);
-    console.log(`📊 Conversas: ${stats.conversationsCreated} criadas, ${stats.conversationsReused} reusadas, ${stats.conversationsUpdated} atualizadas`);
+    console.log(`📊 Conversas: ${stats.conversationsCreated} criadas (${missingConvsCreated} na verificação final), ${stats.conversationsReused} reusadas, ${stats.conversationsUpdated} atualizadas`);
     console.log(`📊 Mensagens: ${stats.messagesImported} importadas`);
     console.log(`📊 @lid resolvidos: ${stats.lidResolved}`);
     console.log(`📊 Ignorados: ${stats.skipped} (telefone inválido: ${stats.invalidPhone})`);
