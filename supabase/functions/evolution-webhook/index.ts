@@ -298,17 +298,47 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     if (isLidFormat) {
       console.log(`📱 Mensagem @lid recebida de: ${contactName}`);
       
-      // Try to find existing contact by pushName in the company
-      const { data: existingContacts, error: searchError } = await supabase
+      // Normalize name for matching (remove accents)
+      const normalizedName = contactName
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+      
+      // Try to find existing contact by pushName in the company using fuzzy match
+      // First try exact ilike, then try partial match
+      let { data: existingContacts, error: searchError } = await supabase
         .from('contacts')
         .select('id, name, phone, avatar_url, company_id')
-        .ilike('name', contactName)
+        .ilike('name', `%${contactName}%`)
         .not('phone', 'is', null)
-        .limit(5);
+        .limit(10);
       
       if (searchError) {
         console.error('Error searching for @lid contact:', searchError);
         continue;
+      }
+      
+      // If no match, try with normalized name (without accents)
+      if (!existingContacts || existingContacts.length === 0) {
+        console.log(`🔍 Trying fuzzy match for "${contactName}" (normalized: ${normalizedName})`);
+        
+        // Get all contacts with phones and do client-side fuzzy match
+        const { data: allContacts } = await supabase
+          .from('contacts')
+          .select('id, name, phone, avatar_url, company_id')
+          .not('phone', 'is', null)
+          .limit(500);
+        
+        if (allContacts && allContacts.length > 0) {
+          existingContacts = allContacts.filter(c => {
+            const cName = c.name
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .toLowerCase();
+            return cName.includes(normalizedName) || normalizedName.includes(cName.split(' ')[0]);
+          });
+          console.log(`🔍 Fuzzy match found ${existingContacts.length} contacts`);
+        }
       }
       
       if (!existingContacts || existingContacts.length === 0) {
