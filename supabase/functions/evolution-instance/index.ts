@@ -827,40 +827,36 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     console.log(`\n🔄 Processando ${allJidsToProcess.size} JIDs...`);
     console.log(`📨 Buscando mensagens por chat...`);
 
-    // Processar CADA JID - SEM BUSCAR MENSAGENS (muito lento)
-    // Mensagens serão sincronizadas depois via syncMessages
+    // ============================================================
+    // PROCESSAR TODOS OS JIDs - CRIAR CONTATOS E CONVERSAS
+    // ============================================================
     let processedCount = 0;
-    for (const jid of allJidsToProcess) {
+    const jidsArray = Array.from(allJidsToProcess);
+    
+    console.log(`\n🔄 Processando ${jidsArray.length} JIDs...`);
+    
+    for (const jid of jidsArray) {
       try {
         if (!jid) continue;
-        
-        // Skip if already processed
         if (processedJids.has(jid)) continue;
         processedJids.add(jid);
         
         processedCount++;
-        if (processedCount % 50 === 0) {
-          console.log(`  📥 Processados ${processedCount}/${allJidsToProcess.size} JIDs...`);
+        if (processedCount % 30 === 0) {
+          console.log(`  📥 Processados ${processedCount}/${jidsArray.length}...`);
         }
-        
-        // Find contact info from allContacts
-        const contact = allContacts.find((c: any) => 
-          (c.remoteJid || c.jid) === jid
-        );
         
         const isGroup = jid.includes('@g.us');
         const isLid = jid.includes('@lid');
-        
-        // Get chat metadata (for archived status)
         const chatMeta = chatLookup.get(jid);
         const isArchived = chatMeta?.archive === true || chatMeta?.archived === true;
         
-        // Get contact info (contact may be undefined for @lid or unknown JIDs)
+        // Find contact info
+        const contact = allContacts.find((c: any) => (c.remoteJid || c.jid) === jid);
         const contactName = contact?.pushName || contact?.name || contact?.notify || 
                            contact?.verifiedName || chatMeta?.name || chatMeta?.pushName || 
                            chatMeta?.subject || '';
-        const profilePicUrl = contact?.profilePictureUrl || contact?.profilePicUrl || 
-                             contact?.imgUrl || chatMeta?.profilePictureUrl || null;
+        const profilePicUrl = contact?.profilePictureUrl || contact?.profilePicUrl || null;
 
         // ============================================================
         // PROCESS GROUPS
@@ -869,15 +865,8 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           if (processedGroups.has(jid)) continue;
           processedGroups.add(jid);
 
-          let groupName = contactName || chatMeta?.subject || chatMeta?.name;
-          
-          if (!groupName) {
-            // Generate name from JID
-            const groupId = jid.replace('@g.us', '').slice(-8);
-            groupName = `Grupo ${groupId}`;
-          }
-
-          console.log(`👥 Grupo: ${groupName}`);
+          let groupName = contactName || chatMeta?.subject || chatMeta?.name || `Grupo ${jid.slice(-8)}`;
+          console.log(`👥 ${groupName}`);
 
           // Find or create group contact
           let { data: existingGroupContact } = await supabase
@@ -898,15 +887,12 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
                 avatar_url: profilePicUrl,
                 metadata: { remoteJid: jid, isGroup: true }
               })
-              .select()
+              .select('id')
               .single();
 
-            if (error) {
-              console.error(`❌ Erro criar grupo:`, error);
-              continue;
-            }
+            if (error) { stats.skipped++; continue; }
             groupContactId = newContact.id;
-            stats.groupsCreated++;
+            stats.contactsCreated++;
           } else {
             groupContactId = existingGroupContact.id;
           }
@@ -920,7 +906,6 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             .eq('channel', 'whatsapp')
             .maybeSingle();
 
-          let conversationId;
           if (!existingConv) {
             const { data: newConv, error } = await supabase
               .from('conversations')
@@ -932,115 +917,69 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
                 archived: isArchived,
                 metadata: { isGroup: true, remoteJid: jid, instanceName }
               })
-              .select()
+              .select('id')
               .single();
 
             if (!error && newConv) {
-              conversationId = newConv.id;
               stats.conversationsCreated++;
+            } else if (error?.code === '23505') {
+              stats.conversationsReused++;
             }
           } else {
-            conversationId = existingConv.id;
             stats.conversationsReused++;
           }
-
-          // Mensagens serão sincronizadas depois via syncMessages
+          stats.groupsCreated++;
           continue;
         }
 
         // ============================================================
         // PROCESS INDIVIDUAL CONTACTS
         // ============================================================
-        
         let phone = extractPhoneFromJid(jid);
-        let resolvedFromLid = false;
         
-        // Handle @lid - try to resolve to phone number
+        // Handle @lid
         if (isLid) {
-          // Try contactsPhoneMap first
           phone = contactsPhoneMap.get(jid) || contactsPhoneMap.get(jid.replace('@lid', ''));
-          
-          // Try nameToPhoneMap
           if (!phone && contactName) {
             phone = nameToPhoneMap.get(contactName.toLowerCase().trim());
-            if (phone) {
-              console.log(`🔗 @lid resolved via name: ${contactName} -> ${phone}`);
-            }
           }
-          
-          // Try to find in DB by name
-          if (!phone && contactName) {
-            const { data: dbContact } = await supabase
-              .from('contacts')
-              .select('phone')
-              .eq('company_id', companyId)
-              .ilike('name', contactName)
-              .not('phone', 'is', null)
-              .maybeSingle();
-            
-            if (dbContact?.phone) {
-              phone = dbContact.phone;
-              console.log(`🔗 @lid resolved via DB name search: ${contactName} -> ${phone}`);
-            }
-          }
-          
-          if (phone) {
-            resolvedFromLid = true;
-            stats.lidResolved++;
-          } else {
-            stats.invalidPhone++;
-            continue;
-          }
+          if (!phone) { stats.invalidPhone++; continue; }
+          stats.lidResolved++;
         }
 
-        if (!phone || phone.length < 8) {
-          stats.invalidPhone++;
-          continue;
-        }
+        if (!phone || phone.length < 8) { stats.invalidPhone++; continue; }
 
         const normalizedPhone = normalizePhone(phone);
-        
-        if (processedPhones.has(normalizedPhone)) {
-          continue;
-        }
+        if (processedPhones.has(normalizedPhone)) continue;
         processedPhones.add(normalizedPhone);
 
-        // Get best name for contact
+        // Get best name
         let finalName = contactName;
-        if (!finalName || finalName === normalizedPhone || /^\+?\d[\d\s-]+$/.test(finalName)) {
-          finalName = contactsNameMap.get(normalizedPhone) || 
-                     contactsNameMap.get(phone) || 
-                     normalizedPhone;
+        if (!finalName || /^\+?\d[\d\s-]+$/.test(finalName)) {
+          finalName = contactsNameMap.get(normalizedPhone) || contactsNameMap.get(phone) || normalizedPhone;
         }
 
-        const whatsappJid = `${normalizedPhone}@s.whatsapp.net`;
-        const originalJid = resolvedFromLid ? jid : whatsappJid;
-
-        console.log(`📱 ${finalName} (${normalizedPhone})${resolvedFromLid ? ' [@lid]' : ''}${isArchived ? ' [arquivado]' : ''}`);
+        console.log(`📱 ${finalName} (${normalizedPhone})${isArchived ? ' [arq]' : ''}`);
 
         // Find or create contact
-        let existingContact = null;
-        
-        const { data: contactByPhone } = await supabase
+        let { data: existingContact } = await supabase
           .from('contacts')
-          .select('id, name, avatar_url, phone')
+          .select('id, name, avatar_url')
           .eq('company_id', companyId)
           .eq('phone', normalizedPhone)
           .maybeSingle();
         
-        existingContact = contactByPhone;
-        
+        let contactId;
         if (!existingContact) {
-          const { data: contactByOrigPhone } = await supabase
+          // Try original phone
+          const { data: altContact } = await supabase
             .from('contacts')
-            .select('id, name, avatar_url, phone')
+            .select('id, name, avatar_url')
             .eq('company_id', companyId)
             .eq('phone', phone)
             .maybeSingle();
-          existingContact = contactByOrigPhone;
+          existingContact = altContact;
         }
-
-        let contactId;
         
         if (!existingContact) {
           const { data: newContact, error } = await supabase
@@ -1050,62 +989,35 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
               name: finalName,
               phone: normalizedPhone,
               avatar_url: profilePicUrl,
-              metadata: { remoteJid: whatsappJid, source: 'whatsapp_import' }
+              metadata: { remoteJid: `${normalizedPhone}@s.whatsapp.net`, source: 'import' }
             })
-            .select()
+            .select('id')
             .single();
 
-          if (error) {
-            console.error(`❌ Erro criar contato ${finalName}:`, error);
-            stats.skipped++;
-            continue;
-          }
+          if (error) { stats.skipped++; continue; }
           contactId = newContact.id;
           stats.contactsCreated++;
         } else {
           contactId = existingContact.id;
-          
           // Update name if we have a better one
-          const currentNameIsPhone = !existingContact.name || 
-            existingContact.name === existingContact.phone || 
-            /^\+?\d[\d\s-]+$/.test(existingContact.name.trim());
-          
-          const newNameIsReal = finalName && 
-            finalName !== normalizedPhone && 
-            !/^\+?\d[\d\s-]+$/.test(finalName.trim());
-          
-          if (newNameIsReal && (currentNameIsPhone || finalName !== existingContact.name)) {
-            await supabase.from('contacts').update({ 
-              name: finalName,
-              avatar_url: profilePicUrl || existingContact.avatar_url
-            }).eq('id', contactId);
+          const hasRealName = finalName && !/^\+?\d[\d\s-]+$/.test(finalName);
+          const currentNameIsPhone = !existingContact.name || /^\+?\d[\d\s-]+$/.test(existingContact.name);
+          if (hasRealName && currentNameIsPhone) {
+            await supabase.from('contacts').update({ name: finalName }).eq('id', contactId);
             stats.contactsUpdated++;
-            console.log(`  📝 Nome atualizado: "${existingContact.name}" → "${finalName}"`);
-          } else if (profilePicUrl && !existingContact.avatar_url) {
-            await supabase.from('contacts').update({ avatar_url: profilePicUrl }).eq('id', contactId);
           }
         }
 
-        // ============================================================
-        // BUSCAR MENSAGENS PARA ESTE CHAT
-        // ============================================================
-        
-        console.log(`📱 ${finalName || phone} (${phone})`);
-        
-        // Find or check existing conversation
+        // Find or create conversation - THIS IS THE KEY PART
         let { data: existingConv } = await supabase
           .from('conversations')
-          .select('id, archived, status')
+          .select('id, status')
           .eq('company_id', companyId)
           .eq('contact_id', contactId)
           .eq('channel', 'whatsapp')
           .maybeSingle();
-        
-        let conversationId;
-        
-        // STEP 3: Create or reuse conversation
+
         if (!existingConv) {
-          // Only reach here if messages.length > 0
           const { data: newConv, error } = await supabase
             .from('conversations')
             .insert({
@@ -1116,48 +1028,30 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
               archived: isArchived,
               metadata: { instanceName, remoteJid: jid }
             })
-            .select()
+            .select('id')
             .single();
 
           if (error) {
             if (error.code === '23505') {
-              const { data: dup } = await supabase
-                .from('conversations')
-                .select('id')
-                .eq('company_id', companyId)
-                .eq('contact_id', contactId)
-                .eq('channel', 'whatsapp')
-                .maybeSingle();
-              if (dup) {
-                conversationId = dup.id;
-                stats.conversationsReused++;
-              }
+              stats.conversationsReused++;
             } else {
-              console.error(`❌ Erro criar conversa:`, error);
-              continue;
+              console.error(`❌ Criar conversa:`, error.message);
             }
-          } else {
-            conversationId = newConv.id;
+          } else if (newConv) {
             stats.conversationsCreated++;
+            console.log(`  ✅ CONV CRIADA: ${finalName}`);
           }
         } else {
-          conversationId = existingConv.id;
           stats.conversationsReused++;
-          
-          if (isArchived !== existingConv.archived) {
-            await supabase.from('conversations')
-              .update({ archived: isArchived, status: isArchived ? 'resolved' : 'open' })
-              .eq('id', conversationId);
+          // Update archived status if changed
+          if (isArchived && existingConv.status !== 'resolved') {
+            await supabase.from('conversations').update({ archived: true, status: 'resolved' }).eq('id', existingConv.id);
             stats.conversationsUpdated++;
           }
         }
 
-        if (!conversationId) continue;
-
-        // Mensagens serão sincronizadas depois via syncMessages
-
       } catch (chatError) {
-        console.error('Erro ao processar contato:', chatError);
+        console.error('Erro processar:', chatError);
         stats.skipped++;
       }
     }
