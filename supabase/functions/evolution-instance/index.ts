@@ -941,6 +941,72 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             }
           }
           
+          // Try 5: FETCH MESSAGES to extract real JID from sender
+          if (!phone) {
+            console.log(`🔍 Tentando resolver @lid via mensagens: ${jid}`);
+            try {
+              const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
+                body: JSON.stringify({
+                  where: { key: { remoteJid: jid } },
+                  limit: 10
+                })
+              });
+              
+              if (messagesResponse.ok) {
+                const messagesData = await messagesResponse.json();
+                const messages = messagesData?.messages?.records || messagesData?.records || 
+                                 (Array.isArray(messagesData) ? messagesData : []);
+                
+                // Look for a message with a real phone JID
+                for (const msg of messages) {
+                  // Check participant field (for messages in @lid chats)
+                  const participant = msg.key?.participant || msg.participant;
+                  if (participant && participant.includes('@s.whatsapp.net')) {
+                    const extractedPhone = extractPhoneFromJid(participant);
+                    if (extractedPhone && isValidBrazilianPhone(extractedPhone)) {
+                      phone = extractedPhone;
+                      resolvedFromLid = true;
+                      console.log(`🔗 @lid resolved via message participant: ${jid} -> ${phone}`);
+                      break;
+                    }
+                  }
+                  
+                  // Check sender's remoteJid 
+                  const senderJid = msg.key?.remoteJid;
+                  if (senderJid && senderJid.includes('@s.whatsapp.net') && !senderJid.includes('@lid')) {
+                    const extractedPhone = extractPhoneFromJid(senderJid);
+                    if (extractedPhone && isValidBrazilianPhone(extractedPhone)) {
+                      phone = extractedPhone;
+                      resolvedFromLid = true;
+                      console.log(`🔗 @lid resolved via message remoteJid: ${jid} -> ${phone}`);
+                      break;
+                    }
+                  }
+                  
+                  // Check message sender info
+                  const msgPhone = msg.phone || msg.number || msg.from;
+                  if (msgPhone) {
+                    const cleaned = msgPhone.replace(/\D/g, '');
+                    if (isValidBrazilianPhone(cleaned)) {
+                      phone = cleaned;
+                      resolvedFromLid = true;
+                      console.log(`🔗 @lid resolved via message phone field: ${jid} -> ${phone}`);
+                      break;
+                    }
+                  }
+                }
+                
+                if (!phone) {
+                  console.log(`  📭 ${messages.length} mensagens encontradas mas nenhuma com JID real`);
+                }
+              }
+            } catch (msgErr) {
+              console.log(`  ⚠️ Erro ao buscar mensagens @lid:`, msgErr);
+            }
+          }
+          
           if (!phone) {
             console.log(`⏭️ Skip: ${jid} (could not resolve @lid, name: ${chatName || 'N/A'})`);
             stats.invalidPhone++;
