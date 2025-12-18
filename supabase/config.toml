@@ -56,3 +56,6 @@ verify_jwt = false
 
 [functions.cleanup-duplicates]
 verify_jwt = false
+
+[functions.full-inbox-sync]
+verify_jwt = false
