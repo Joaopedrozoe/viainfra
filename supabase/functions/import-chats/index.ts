@@ -418,19 +418,27 @@ async function syncMessagesSimple(
     
     if (!messages.length) return 0;
 
+    // Get existing messageIds for this conversation to avoid duplicates
+    const { data: existingMsgs } = await supabase
+      .from('messages')
+      .select('metadata')
+      .eq('conversation_id', conversationId);
+    
+    const existingMessageIds = new Set(
+      (existingMsgs || [])
+        .map(m => m.metadata?.messageId || m.metadata?.external_id)
+        .filter(Boolean)
+    );
+    
+    console.log(`  📦 ${existingMessageIds.size} mensagens já existentes`);
+
     let imported = 0;
     for (const msg of messages) {
       const messageId = msg.key?.id || msg.id;
       if (!messageId) continue;
-
-      // Check if exists
-      const { data: existing } = await supabase
-        .from('messages')
-        .select('id')
-        .eq('metadata->>messageId', messageId)
-        .maybeSingle();
-
-      if (existing) continue;
+      
+      // Skip if message already exists
+      if (existingMessageIds.has(messageId)) continue;
 
       const content = extractContent(msg);
       if (!content) continue;
@@ -448,6 +456,8 @@ async function syncMessagesSimple(
         metadata: { messageId, fromMe, remoteJid: jid }
       });
 
+      // Add to set to prevent duplicates within same import batch
+      existingMessageIds.add(messageId);
       imported++;
     }
 
