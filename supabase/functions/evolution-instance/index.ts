@@ -745,16 +745,42 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
       try {
         // ============================================================
-        // GRUPOS
+        // GRUPOS - Buscar nome real via API de metadados do grupo
         // ============================================================
         if (isGroup) {
-          const groupName = chatName || chat.subject || `Grupo ${jid.slice(-8)}`;
+          let groupName = chatName || chat.subject || '';
+          let groupPic = profilePic;
+          
+          // Buscar metadados do grupo para obter nome real (subject)
+          try {
+            const groupMetaResponse = await fetch(`${evolutionApiUrl}/group/fetchAllGroups/${instanceName}?getParticipants=false`, {
+              method: 'GET',
+              headers: { 'apikey': evolutionApiKey }
+            });
+            
+            if (groupMetaResponse.ok) {
+              const groupsData = await groupMetaResponse.json();
+              const groups = Array.isArray(groupsData) ? groupsData : [];
+              const groupInfo = groups.find((g: any) => g.id === jid || g.jid === jid);
+              
+              if (groupInfo) {
+                groupName = groupInfo.subject || groupInfo.name || groupName;
+                groupPic = groupInfo.profilePictureUrl || groupInfo.pictureUrl || groupPic;
+                console.log(`👥 Grupo encontrado: "${groupName}" (API metadata)`);
+              }
+            }
+          } catch (e) {
+            console.log(`⚠️ Falha ao buscar metadados do grupo ${jid}`);
+          }
+          
+          // Fallback se ainda não tem nome
+          if (!groupName) groupName = `Grupo ${jid.slice(-8)}`;
           console.log(`👥 ${groupName}`);
 
           // Criar/encontrar contato do grupo
           let { data: existingContact } = await supabase
             .from('contacts')
-            .select('id')
+            .select('id, name')
             .eq('company_id', companyId)
             .eq('metadata->>remoteJid', jid)
             .maybeSingle();
@@ -766,7 +792,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
               .insert({
                 company_id: companyId,
                 name: groupName,
-                avatar_url: profilePic,
+                avatar_url: groupPic,
                 metadata: { remoteJid: jid, isGroup: true }
               })
               .select('id')
@@ -775,6 +801,16 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             if (contactId) stats.contacts++;
           } else {
             contactId = existingContact.id;
+            // Atualizar nome do grupo se mudou ou era genérico
+            if (existingContact.name !== groupName && !existingContact.name.includes('Grupo ')) {
+              // Manter nome atual se não é genérico
+            } else if (groupName && groupName !== existingContact.name) {
+              await supabase
+                .from('contacts')
+                .update({ name: groupName, avatar_url: groupPic || existingContact.avatar_url })
+                .eq('id', contactId);
+              console.log(`  ✏️ Nome atualizado: "${existingContact.name}" → "${groupName}"`);
+            }
           }
 
           if (!contactId) continue;
@@ -797,7 +833,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
                 contact_id: contactId,
                 channel: 'whatsapp',
                 status: 'open',
-                metadata: { isGroup: true, remoteJid: jid, instanceName }
+                metadata: { isGroup: true, remoteJid: jid, instanceName, groupSubject: groupName }
               })
               .select('id')
               .single();
