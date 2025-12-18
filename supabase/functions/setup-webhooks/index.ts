@@ -54,13 +54,20 @@ serve(async (req) => {
       console.log(`\n=== Configuring webhook for ${instance.instance_name} ===`);
       
       try {
+        // Formato correto para Evolution API v2
         const webhookPayload = {
           webhook: {
             enabled: true,
             url: webhookUrl,
-            webhook_by_events: false,
-            webhook_base64: false,
-            events: ['MESSAGES_UPSERT', 'CONNECTION_UPDATE']
+            webhookByEvents: false,
+            webhookBase64: true,
+            events: [
+              'MESSAGES_UPSERT',
+              'MESSAGES_UPDATE',
+              'CONNECTION_UPDATE',
+              'PRESENCE_UPDATE',
+              'QRCODE_UPDATED'
+            ]
           }
         };
 
