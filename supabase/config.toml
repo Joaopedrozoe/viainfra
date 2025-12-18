@@ -1,33 +1,58 @@
 project_id = "xxojpfhnkxpbznbmhmua"
 
-[functions.setup-users]
-verify_jwt = false
-
-[functions.chat-bot]
-verify_jwt = false
-
-[functions.evolution-instance]
-verify_jwt = false
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
 
 [functions.evolution-webhook]
-verify_jwt = false
-
-[functions.setup-webhooks]
-verify_jwt = false
-
-[functions.reset-user-password]
-verify_jwt = false
-
-[functions.sync-profile-pictures]
 verify_jwt = false
 
 [functions.send-whatsapp-message]
 verify_jwt = false
 
-[functions.test-agent-messages]
+[functions.evolution-instance]
+verify_jwt = false
+
+[functions.chat-bot]
+verify_jwt = false
+
+[functions.import-chats]
+verify_jwt = false
+
+[functions.full-inbox-sync]
+verify_jwt = false
+
+[functions.sync-profile-pictures]
 verify_jwt = false
 
 [functions.send-email]
+verify_jwt = false
+
+[functions.setup-webhooks]
+verify_jwt = false
+
+[functions.fix-remote-jid]
+verify_jwt = false
+
+[functions.fix-contact-names]
+verify_jwt = false
+
+[functions.cleanup-duplicates]
+verify_jwt = false
+
+[functions.fix-conversations]
+verify_jwt = false
+
+[functions.diagnose-instance]
+verify_jwt = false
+
+[functions.diagnose-missing-chats]
+verify_jwt = false
+
+[functions.force-sync-inbox]
 verify_jwt = false
 
 [functions.send-password-reset]
@@ -36,7 +61,13 @@ verify_jwt = false
 [functions.verify-reset-code]
 verify_jwt = false
 
-[functions.import-chats]
+[functions.reset-user-password]
+verify_jwt = false
+
+[functions.setup-users]
+verify_jwt = false
+
+[functions.test-agent-messages]
 verify_jwt = false
 
 [functions.fix-contact-names]
