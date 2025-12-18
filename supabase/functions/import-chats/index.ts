@@ -389,7 +389,7 @@ async function syncMessagesSimple(
     const response = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
       method: 'POST',
       headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ where: { key: { remoteJid: jid } }, limit: 100 })
+      body: JSON.stringify({ where: { key: { remoteJid: jid } }, limit: 1000 })
     });
     
     console.log(`  📥 Status: ${response.status}`);
@@ -397,10 +397,23 @@ async function syncMessagesSimple(
     if (!response.ok) return 0;
 
     const data = await response.json();
-    console.log(`  📦 messages type: ${typeof data}, isArray: ${Array.isArray(data)}`);
-    console.log(`  📦 messages keys: ${Object.keys(data || {}).join(', ')}`);
+    const rawMessages = data?.messages;
+    console.log(`  📦 data type: ${typeof data}, keys: ${Object.keys(data || {}).join(', ')}`);
+    console.log(`  📦 rawMessages type: ${typeof rawMessages}, isArray: ${Array.isArray(rawMessages)}`);
     
-    const messages = data?.records || data?.messages || (Array.isArray(data) ? data : []);
+    // Handle multiple possible response structures:
+    // { messages: [...] } or { messages: { records: [...] } } or { records: [...] }
+    let messages: any[] = [];
+    if (Array.isArray(rawMessages)) {
+      messages = rawMessages;
+    } else if (rawMessages?.records && Array.isArray(rawMessages.records)) {
+      messages = rawMessages.records;
+    } else if (data?.records && Array.isArray(data.records)) {
+      messages = data.records;
+    } else if (Array.isArray(data)) {
+      messages = data;
+    }
+    
     console.log(`  📨 ${messages.length} mensagens encontradas`);
     
     if (!messages.length) return 0;
