@@ -629,7 +629,6 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     // ============================================================
     
     let allContacts: any[] = [];
-    let allChats: any[] = [];
 
     // Fetch contacts first
     console.log(`👥 Buscando contatos...`);
@@ -696,8 +695,9 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     console.log(`📇 Mapas criados: ${contactsNameMap.size} nomes, ${contactsPhoneMap.size} lids, ${nameToPhoneMap.size} name->phone`);
 
     // ============================================================
-    // CORRECT APPROACH: Process CHATS (active inbox conversations)
-    // This is what matters - chats are actual conversations with messages
+    // SOLUÇÃO DEFINITIVA: USAR CONTATOS COMO FONTE PRINCIPAL
+    // findChats só retorna ~35 chats recentes
+    // findContacts retorna TODOS os 303 contatos
     // ============================================================
     
     const stats = {
@@ -717,96 +717,31 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     const processedGroups = new Set<string>();
     const processedJids = new Set<string>();
 
-    // Fetch ALL chats from Evolution API with pagination
-    allChats = [];
-    console.log(`\n📥 Buscando TODOS os chats com paginação...`);
+    // Build chat lookup for quick reference (archived status, etc)
+    const chatLookup = new Map<string, any>();
     
-    // Use POST with pagination to get ALL chats
-    let page = 1;
-    const pageSize = 100;
-    let hasMore = true;
-    const seenJids = new Set<string>();
-    
-    while (hasMore) {
-      try {
-        console.log(`  📄 Página ${page}...`);
-        const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-          body: JSON.stringify({ 
-            where: {},
-            limit: pageSize,
-            page: page
-          })
+    // Fetch chats just for metadata (archived status, etc) - not as primary source
+    console.log(`\n📥 Buscando metadados de chats...`);
+    try {
+      const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
+        body: JSON.stringify({ where: {}, limit: 1000 })
+      });
+      if (chatsResponse.ok) {
+        const data = await chatsResponse.json();
+        const chats = Array.isArray(data) ? data : (data?.chats || data?.data || []);
+        chats.forEach((c: any) => {
+          const jid = c.remoteJid || c.id || c.jid || '';
+          if (jid) chatLookup.set(jid, c);
         });
-        
-        if (chatsResponse.ok) {
-          const data = await chatsResponse.json();
-          const pageChats = Array.isArray(data) ? data : (data?.chats || data?.data || data?.records || []);
-          
-          if (pageChats.length === 0) {
-            hasMore = false;
-            console.log(`  ✅ Página ${page}: vazia - fim da paginação`);
-          } else {
-            let newChats = 0;
-            for (const chat of pageChats) {
-              const jid = chat.remoteJid || chat.id || chat.jid || '';
-              if (jid && !seenJids.has(jid)) {
-                seenJids.add(jid);
-                allChats.push(chat);
-                newChats++;
-              }
-            }
-            console.log(`  ✅ Página ${page}: ${pageChats.length} chats, ${newChats} novos`);
-            
-            // If we got fewer than pageSize, we're done
-            if (pageChats.length < pageSize) {
-              hasMore = false;
-            } else {
-              page++;
-              // Safety limit to avoid infinite loops
-              if (page > 50) {
-                console.log(`  ⚠️ Limite de páginas atingido (50)`);
-                hasMore = false;
-              }
-            }
-          }
-        } else {
-          console.log(`  ⚠️ Erro HTTP página ${page}: ${chatsResponse.status}`);
-          hasMore = false;
-        }
-      } catch (e) {
-        console.log(`  ⚠️ Erro página ${page}:`, e);
-        hasMore = false;
+        console.log(`✅ ${chatLookup.size} chats carregados para lookup`);
       }
-    }
-    
-    console.log(`✅ Paginação concluída: ${allChats.length} chats em ${page} página(s)`);
-
-    // Also try GET endpoint as fallback (some Evolution versions return all via GET)
-    if (allChats.length < 50) {
-      console.log(`⚠️ Poucos chats (${allChats.length}), tentando GET como fallback...`);
-      try {
-        const getResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
-          method: 'GET',
-          headers: { 'apikey': evolutionApiKey }
-        });
-        if (getResponse.ok) {
-          const data = await getResponse.json();
-          const getChats = Array.isArray(data) ? data : (data?.chats || data?.data || []);
-          for (const chat of getChats) {
-            const jid = chat.remoteJid || chat.id || chat.jid || '';
-            if (jid && !seenJids.has(jid)) {
-              seenJids.add(jid);
-              allChats.push(chat);
-            }
-          }
-          console.log(`✅ GET fallback: total agora ${allChats.length} chats`);
-        }
-      } catch (e) { /* ignore */ }
+    } catch (e) { 
+      console.log(`⚠️ Erro ao buscar chats (não crítico):`, e);
     }
 
-    // Get archived chats separately
+    // Also get archived chats
     try {
       const archivedResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
         method: 'POST',
@@ -816,39 +751,25 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       if (archivedResponse.ok) {
         const data = await archivedResponse.json();
         const archived = Array.isArray(data) ? data : (data?.chats || data?.data || []);
-        console.log(`✅ Arquivados encontrados: ${archived.length}`);
-        let addedArchived = 0;
         archived.forEach((c: any) => {
           c.archived = true;
           const jid = c.remoteJid || c.id || c.jid || '';
-          if (jid && !seenJids.has(jid)) {
-            seenJids.add(jid);
-            allChats.push(c);
-            addedArchived++;
-          }
+          if (jid && !chatLookup.has(jid)) chatLookup.set(jid, c);
         });
-        if (addedArchived > 0) console.log(`  ➕ Adicionados ${addedArchived} arquivados novos`);
+        console.log(`✅ ${archived.length} chats arquivados adicionados`);
       }
     } catch (e) { /* ignore */ }
 
-    console.log(`📊 Total de chats para processar: ${allChats.length}`);
-    
-    // Log sample chats for debugging
-    console.log(`📋 Amostra de chats:`);
-    allChats.slice(0, 10).forEach((chat: any, i: number) => {
-      const jid = chat.remoteJid || chat.id || chat.jid || '';
-      const name = chat.name || chat.pushName || chat.subject || 'N/A';
-      console.log(`  ${i+1}. ${name} - ${jid}`);
-    });
-
     // ============================================================
-    // PROCESS CHATS - Each chat is an actual conversation
+    // PROCESSAR TODOS OS CONTATOS (não apenas chats)
+    // Esta é a mudança crítica - usar contatos como fonte principal
     // ============================================================
-    console.log(`\n🔄 Processando ${allChats.length} chats...`);
+    console.log(`\n🔄 Processando ${allContacts.length} CONTATOS (fonte principal)...`);
 
-    for (const chat of allChats) {
+    // Processar TODOS os contatos (não apenas os ~35 chats)
+    for (const contact of allContacts) {
       try {
-        const jid = chat.remoteJid || chat.id || chat.jid || '';
+        const jid = contact.remoteJid || contact.jid || contact.id || '';
         
         // Skip if already processed or invalid
         if (!jid || processedJids.has(jid)) continue;
@@ -861,16 +782,16 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         
         const isGroup = jid.includes('@g.us');
         const isLid = jid.includes('@lid');
-        const isArchived = chat.archive === true || chat.archived === true;
         
-        // Get contact info from contacts API lookup
-        const matchedContact = allContacts.find((c: any) => (c.remoteJid || c.jid) === jid);
-        const contactName = chat.name || chat.pushName || chat.subject || 
-                           matchedContact?.pushName || matchedContact?.name || 
-                           matchedContact?.notify || matchedContact?.verifiedName || '';
-        const profilePicUrl = chat.profilePictureUrl || chat.imgUrl || 
-                             matchedContact?.profilePictureUrl || matchedContact?.profilePicUrl || 
-                             matchedContact?.imgUrl || null;
+        // Get chat metadata (for archived status)
+        const chatMeta = chatLookup.get(jid);
+        const isArchived = chatMeta?.archive === true || chatMeta?.archived === true;
+        
+        // Get contact info
+        const contactName = contact.pushName || contact.name || contact.notify || 
+                           contact.verifiedName || chatMeta?.name || chatMeta?.pushName || '';
+        const profilePicUrl = contact.profilePictureUrl || contact.profilePicUrl || 
+                             contact.imgUrl || chatMeta?.profilePictureUrl || null;
 
         // ============================================================
         // PROCESS GROUPS
@@ -879,7 +800,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           if (processedGroups.has(jid)) continue;
           processedGroups.add(jid);
 
-          let groupName = contactName || chat.subject || chat.name;
+          let groupName = contactName || chatMeta?.subject || chatMeta?.name;
           
           if (!groupName) {
             // Generate name from JID
@@ -1228,13 +1149,13 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
     return new Response(JSON.stringify({ 
       success: true,
-      totalChats: allChats.length,
+      totalChats: processedJids.size,
       totalContacts: allContacts.length,
       // Flat fields for UI progress display
       importedContacts: stats.contactsCreated + stats.contactsUpdated + namesUpdated,
       importedConversations: stats.conversationsCreated + stats.conversationsReused,
       importedMessages: stats.messagesImported,
-      archivedCount: allChats.filter((c: any) => c.archived).length,
+      archivedCount: Array.from(chatLookup.values()).filter((c: any) => c.archived).length,
       skippedCount: stats.skipped,
       // Detailed stats
       stats: {
