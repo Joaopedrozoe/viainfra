@@ -115,7 +115,8 @@ export const useConversations = () => {
       let lastMessages: Record<string, any> = {};
       
       if (conversationIds.length > 0) {
-        // Fetch last messages - group by conversation and take latest
+        // Fetch last messages - group by conversation and take latest USER message as preview
+        // This matches WhatsApp Web behavior which shows the last contact message
         const { data: allLastMessages } = await supabase
           .from('messages')
           .select('id, conversation_id, content, sender_type, created_at')
@@ -124,12 +125,26 @@ export const useConversations = () => {
         
         if (!mountedRef.current) return;
         
-        // Group by conversation and take only the first (latest)
+        // Group by conversation - prioritize user messages for preview (like WhatsApp Web)
         if (allLastMessages) {
-          const seen = new Set<string>();
+          const seenLatest = new Set<string>(); // Track overall latest message per conv
+          const seenUserMsg = new Set<string>(); // Track if we found a user message
+          
           for (const msg of allLastMessages) {
-            if (msg.conversation_id && !seen.has(msg.conversation_id)) {
-              seen.add(msg.conversation_id);
+            if (!msg.conversation_id) continue;
+            
+            // Store first (latest) message as fallback
+            if (!seenLatest.has(msg.conversation_id)) {
+              seenLatest.add(msg.conversation_id);
+              // Only use bot/agent message if we don't have a user message yet
+              if (!seenUserMsg.has(msg.conversation_id)) {
+                lastMessages[msg.conversation_id] = msg;
+              }
+            }
+            
+            // Prefer user messages for preview (like WhatsApp Web)
+            if (msg.sender_type === 'user' && !seenUserMsg.has(msg.conversation_id)) {
+              seenUserMsg.add(msg.conversation_id);
               lastMessages[msg.conversation_id] = msg;
             }
           }
