@@ -1023,7 +1023,12 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           }
         }
 
-        // Find or create conversation
+        // Check if this contact has an active chat (from findChats)
+        // Only create conversation if contact is in chatLookup OR already has conversation
+        const hasActiveChat = chatLookup.has(jid) || chatLookup.has(whatsappJid) || 
+                             chatLookup.has(`${phone}@s.whatsapp.net`);
+
+        // Find existing conversation first
         let { data: existingConv } = await supabase
           .from('conversations')
           .select('id, archived, status')
@@ -1034,7 +1039,14 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
         let conversationId;
         
+        // Only create NEW conversation if contact has active chat in WhatsApp
         if (!existingConv) {
+          if (!hasActiveChat) {
+            // Skip - contact exists but no active chat (just a saved contact)
+            stats.skipped++;
+            continue;
+          }
+          
           const { data: newConv, error } = await supabase
             .from('conversations')
             .insert({
