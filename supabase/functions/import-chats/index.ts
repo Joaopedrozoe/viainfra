@@ -43,7 +43,7 @@ serve(async (req) => {
     }
 
     console.log(`\n========================================`);
-    console.log(`📥 IMPORTAÇÃO COMPLETA: ${instanceName}`);
+    console.log(`📥 IMPORTAÇÃO FOCADA: ${instanceName}`);
     console.log(`========================================\n`);
 
     // Get instance record
@@ -60,6 +60,7 @@ serve(async (req) => {
     }
 
     const companyId = instanceRecord.company_id;
+    console.log(`📍 Company ID: ${companyId}`);
 
     // Check connection
     const statusResponse = await fetch(`${evolutionApiUrl}/instance/connectionState/${instanceName}`, {
@@ -85,30 +86,10 @@ serve(async (req) => {
     const stats = { contacts: 0, conversations: 0, messages: 0, groups: 0, skipped: 0, updated: 0, synced: 0 };
 
     // ==========================================
-    // BUSCAR DADOS DA API
+    // PASSO 1: BUSCAR CHATS ATIVOS (FOCO PRINCIPAL)
     // ==========================================
-
-    // 1. BUSCAR TODOS OS CONTATOS
-    console.log(`📥 Buscando contatos...`);
-    let allContacts: any[] = [];
-    try {
-      const contactsResponse = await fetch(`${evolutionApiUrl}/chat/findContacts/${instanceName}`, {
-        method: 'POST',
-        headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ where: {} })
-      });
-      if (contactsResponse.ok) {
-        const data = await contactsResponse.json();
-        allContacts = Array.isArray(data) ? data : [];
-        console.log(`✅ ${allContacts.length} contatos encontrados`);
-      }
-    } catch (e) {
-      console.log(`⚠️ Erro buscando contatos: ${e}`);
-    }
-
-    // 2. BUSCAR CHATS ATIVOS (FUNDAMENTAL - indica conversas que precisam de sync)
     console.log(`📥 Buscando chats ativos...`);
-    let allChats: any[] = [];
+    let activeChats: any[] = [];
     try {
       const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
         method: 'POST',
@@ -117,90 +98,69 @@ serve(async (req) => {
       });
       if (chatsResponse.ok) {
         const chatsData = await chatsResponse.json();
-        allChats = Array.isArray(chatsData) ? chatsData : (chatsData?.chats || []);
-        console.log(`✅ ${allChats.length} chats ativos encontrados`);
+        activeChats = Array.isArray(chatsData) ? chatsData : (chatsData?.chats || []);
+        console.log(`✅ ${activeChats.length} chats ativos encontrados`);
       }
     } catch (e) {
       console.log(`⚠️ Erro buscando chats: ${e}`);
     }
 
-    // 3. BUSCAR GRUPOS
+    if (activeChats.length === 0) {
+      return new Response(JSON.stringify({ error: 'Nenhum chat ativo encontrado' }), { 
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+    }
+
+    // ==========================================
+    // PASSO 2: BUSCAR GRUPOS (para metadados)
+    // ==========================================
     console.log(`📥 Buscando grupos...`);
-    let allGroups: any[] = [];
+    const groupsMap = new Map<string, any>();
     try {
       const groupsResponse = await fetch(`${evolutionApiUrl}/group/fetchAllGroups/${instanceName}?getParticipants=false`, {
         headers: { 'apikey': evolutionApiKey }
       });
       if (groupsResponse.ok) {
         const groupsData = await groupsResponse.json();
-        allGroups = Array.isArray(groupsData) ? groupsData : [];
-        console.log(`✅ ${allGroups.length} grupos encontrados`);
+        const allGroups = Array.isArray(groupsData) ? groupsData : [];
+        for (const group of allGroups) {
+          const jid = group.id || group.jid;
+          if (jid) {
+            groupsMap.set(jid, group);
+          }
+        }
+        console.log(`✅ ${groupsMap.size} grupos mapeados`);
       }
     } catch (e) {
       console.log(`⚠️ Erro buscando grupos: ${e}`);
     }
 
     // ==========================================
-    // CRIAR MAPA DE DADOS POR JID
+    // PASSO 3: PROCESSAR CADA CHAT ATIVO
     // ==========================================
-    const jidToData = new Map<string, any>();
+    console.log(`\n📊 Processando ${activeChats.length} chats ativos...\n`);
 
-    // Adicionar contatos ao mapa (para nomes e fotos)
-    for (const contact of allContacts) {
-      const jid = contact.remoteJid || contact.jid || contact.id;
-      if (jid && !jid.includes('@lid') && !jid.includes('@broadcast') && !jid.startsWith('status@')) {
-        jidToData.set(jid, { 
-          pushName: contact.pushName || contact.name,
-          profilePictureUrl: contact.profilePictureUrl,
-          fromContacts: true
-        });
-      }
-    }
-
-    // Adicionar chats ao mapa (PRIORIDADE - indica conversas ativas)
-    for (const chat of allChats) {
+    for (let i = 0; i < activeChats.length; i++) {
+      const chat = activeChats[i];
       const jid = chat.remoteJid || chat.id || chat.jid;
-      if (jid && !jid.includes('@lid') && !jid.includes('@broadcast') && !jid.startsWith('status@')) {
-        const existing = jidToData.get(jid) || {};
-        jidToData.set(jid, { 
-          ...existing,
-          ...chat,
-          pushName: chat.name || chat.pushName || existing.pushName,
-          hasActiveChat: true // Marca como chat ativo
-        });
-      }
-    }
-
-    // Adicionar grupos ao mapa
-    for (const group of allGroups) {
-      const jid = group.id || group.jid;
-      if (jid) {
-        const existing = jidToData.get(jid) || {};
-        jidToData.set(jid, { 
-          ...existing,
-          ...group,
-          isGroup: true,
-          name: group.subject || group.name || existing.name
-        });
-      }
-    }
-
-    console.log(`\n📊 Total de JIDs para processar: ${jidToData.size}\n`);
-
-    // ==========================================
-    // PROCESSAR CADA JID - CRIAR/ATUALIZAR CONTATOS E CONVERSAS
-    // ==========================================
-    let processed = 0;
-    const total = jidToData.size;
-
-    for (const [jid, data] of jidToData) {
-      processed++;
       
-      const isGroup = jid.includes('@g.us') || data.isGroup === true;
-      const chatName = data.subject || data.name || data.pushName || data.notify || data.verifiedName || '';
+      if (!jid) {
+        stats.skipped++;
+        continue;
+      }
+
+      // Skip @lid e broadcasts
+      if (jid.includes('@lid') || jid.includes('@broadcast') || jid.startsWith('status@')) {
+        stats.skipped++;
+        continue;
+      }
+
+      const isGroup = jid.includes('@g.us');
+      const groupData = isGroup ? groupsMap.get(jid) : null;
+      const chatName = groupData?.subject || chat.name || chat.pushName || chat.notify || chat.verifiedName || '';
 
       try {
-        // Extrair telefone (para não-grupos)
+        // ========== EXTRAIR TELEFONE ==========
         let phone = '';
         let phoneVariants: string[] = [];
         
@@ -225,15 +185,15 @@ serve(async (req) => {
           }
           
           // Validação
-          if (phone.length < 8 || phone.length > 15) {
+          if (phone.length < 10 || phone.length > 15) {
             stats.skipped++;
             continue;
           }
         }
 
-        // CRIAR/ATUALIZAR CONTATO
+        // ========== CRIAR/ATUALIZAR CONTATO ==========
         let contactId: string | null = null;
-        const profilePic = data.profilePictureUrl || data.imgUrl || null;
+        const profilePic = chat.profilePictureUrl || chat.imgUrl || null;
 
         if (isGroup) {
           stats.groups++;
@@ -263,7 +223,7 @@ serve(async (req) => {
             contactId = existingContact.id;
             // Atualizar nome do grupo se mudou
             if (groupName && existingContact.name !== groupName) {
-              await supabase.from('contacts').update({ name: groupName }).eq('id', contactId);
+              await supabase.from('contacts').update({ name: groupName, updated_at: new Date().toISOString() }).eq('id', contactId);
               stats.updated++;
             }
           }
@@ -320,7 +280,7 @@ serve(async (req) => {
 
         if (!contactId) continue;
 
-        // CRIAR/ENCONTRAR CONVERSA
+        // ========== CRIAR/ENCONTRAR CONVERSA ==========
         let { data: existingConv } = await supabase
           .from('conversations')
           .select('id')
@@ -347,32 +307,28 @@ serve(async (req) => {
             .select('id')
             .single();
           convId = newConv?.id;
-          if (convId) stats.conversations++;
         }
 
         if (!convId) continue;
 
-        // ==========================================
-        // SINCRONIZAR MENSAGENS - SEMPRE (nova ou existente)
-        // ==========================================
-        const messages = await fetchMessagesFromApi(evolutionApiUrl, evolutionApiKey, instanceName, jid, 1000);
+        // ========== BUSCAR E IMPORTAR MENSAGENS ==========
+        const messages = await fetchMessagesFromApi(evolutionApiUrl, evolutionApiKey, instanceName, jid, 500);
         
         if (messages.length > 0) {
           const imported = await importMessagesToDb(supabase, convId, messages, jid);
           stats.messages += imported;
           
-          if (imported > 0 && !isNewConversation) {
+          if (isNewConversation && imported > 0) {
+            stats.conversations++;
+          } else if (!isNewConversation && imported > 0) {
             stats.synced++;
           }
+          
+          console.log(`✅ ${i+1}/${activeChats.length} ${isGroup ? '👥' : '👤'} ${chatName || phone}: +${imported} msgs`);
         } else if (isNewConversation) {
           // Se é conversa nova mas não tem mensagens, deletar
           await supabase.from('conversations').delete().eq('id', convId);
-          stats.conversations--;
-        }
-
-        // Log de progresso
-        if (processed % 20 === 0) {
-          console.log(`📊 Progresso: ${processed}/${total} (${stats.conversations} novas, ${stats.synced} sincronizadas, ${stats.messages} msgs)`);
+          stats.skipped++;
         }
 
       } catch (err) {
@@ -382,82 +338,57 @@ serve(async (req) => {
     }
 
     // ==========================================
-    // SINCRONIZAR TODAS AS CONVERSAS EXISTENTES NO BANCO
-    // (Incluindo as criadas pelo webhook)
+    // PASSO 4: SINCRONIZAR CONVERSAS EXISTENTES (webhook-created)
     // ==========================================
-    console.log(`\n📥 Sincronizando TODAS as conversas existentes...`);
+    console.log(`\n📥 Verificando conversas existentes que precisam de sync...`);
     
-    const { data: allDbConversations } = await supabase
+    const { data: dbConversations } = await supabase
       .from('conversations')
       .select(`
         id,
-        contact_id,
         metadata,
-        contacts!conversations_contact_id_fkey(id, name, phone, metadata)
+        contacts!conversations_contact_id_fkey(name, phone, metadata)
       `)
       .eq('company_id', companyId)
       .eq('channel', 'whatsapp');
 
-    if (allDbConversations) {
-      console.log(`   Encontradas ${allDbConversations.length} conversas no banco`);
+    if (dbConversations) {
+      const activeJids = new Set(activeChats.map(c => c.remoteJid || c.id || c.jid));
       
-      let syncCount = 0;
-      for (const conv of allDbConversations) {
-        syncCount++;
-        
-        // Obter remoteJid
+      for (const conv of dbConversations) {
         const remoteJid = conv.metadata?.remoteJid || conv.contacts?.metadata?.remoteJid;
         
-        if (!remoteJid || remoteJid.includes('@lid')) continue;
-
-        // Buscar mensagens da API
-        const messages = await fetchMessagesFromApi(evolutionApiUrl, evolutionApiKey, instanceName, remoteJid, 1000);
+        if (!remoteJid || remoteJid.includes('@lid') || activeJids.has(remoteJid)) continue;
         
-        if (messages.length > 0) {
-          const imported = await importMessagesToDb(supabase, conv.id, messages, remoteJid);
-          if (imported > 0) {
-            stats.synced++;
-            stats.messages += imported;
-            console.log(`   ✅ ${conv.contacts?.name || 'Desconhecido'}: +${imported} mensagens`);
-          }
-        }
-
-        // Log de progresso
-        if (syncCount % 10 === 0) {
-          console.log(`   📊 Sync: ${syncCount}/${allDbConversations.length}`);
-        }
-      }
-    }
-
-    // ==========================================
-    // LIMPAR CONVERSAS VAZIAS
-    // ==========================================
-    console.log(`\n🧹 Limpando conversas vazias...`);
-    const { data: emptyConversations } = await supabase
-      .from('conversations')
-      .select('id')
-      .eq('company_id', companyId)
-      .eq('channel', 'whatsapp');
-
-    let deleted = 0;
-    if (emptyConversations) {
-      for (const conv of emptyConversations) {
+        // Verificar se conversa está vazia
         const { count } = await supabase
           .from('messages')
           .select('id', { count: 'exact', head: true })
           .eq('conversation_id', conv.id);
 
         if (count === 0) {
-          await supabase.from('conversations').delete().eq('id', conv.id);
-          deleted++;
+          // Buscar mensagens para conversas vazias
+          const messages = await fetchMessagesFromApi(evolutionApiUrl, evolutionApiKey, instanceName, remoteJid, 500);
+          
+          if (messages.length > 0) {
+            const imported = await importMessagesToDb(supabase, conv.id, messages, remoteJid);
+            if (imported > 0) {
+              stats.synced++;
+              stats.messages += imported;
+              console.log(`   ✅ ${conv.contacts?.name || 'Desconhecido'}: +${imported} mensagens`);
+            }
+          } else {
+            // Conversa vazia sem mensagens na API - deletar
+            await supabase.from('conversations').delete().eq('id', conv.id);
+            console.log(`   🗑️ Removida conversa vazia: ${conv.contacts?.name || 'Desconhecido'}`);
+          }
         }
       }
     }
-    if (deleted > 0) {
-      console.log(`   🗑️ ${deleted} conversas vazias removidas`);
-    }
 
-    // Sync profile pictures
+    // ==========================================
+    // PASSO 5: SINCRONIZAR FOTOS DE PERFIL
+    // ==========================================
     console.log(`\n📸 Sincronizando fotos de perfil...`);
     try {
       await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/sync-profile-pictures`, {
@@ -466,10 +397,11 @@ serve(async (req) => {
           'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ instanceName })
+        body: JSON.stringify({ companyId })
       });
+      console.log(`   ✅ Sync de fotos iniciado`);
     } catch (e) {
-      console.log(`⚠️ Erro sync fotos: ${e}`);
+      console.log(`   ⚠️ Erro sync fotos: ${e}`);
     }
 
     console.log(`\n========================================`);
@@ -502,13 +434,16 @@ serve(async (req) => {
   }
 });
 
-// Buscar mensagens da API Evolution
+// ==========================================
+// FUNÇÕES AUXILIARES
+// ==========================================
+
 async function fetchMessagesFromApi(
   evolutionApiUrl: string,
   evolutionApiKey: string,
   instanceName: string,
   jid: string,
-  limit: number = 1000
+  limit: number = 500
 ): Promise<any[]> {
   try {
     const response = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
@@ -539,7 +474,6 @@ async function fetchMessagesFromApi(
   }
 }
 
-// Importar mensagens para o banco de dados
 async function importMessagesToDb(
   supabase: any,
   conversationId: string,
@@ -574,7 +508,6 @@ async function importMessagesToDb(
         ? new Date(Number(msg.messageTimestamp) * 1000).toISOString()
         : new Date().toISOString();
 
-      // Extrair dados de mídia para persistência
       const attachment = extractAttachment(msg);
 
       messagesToInsert.push({
@@ -596,7 +529,6 @@ async function importMessagesToDb(
 
     // Insert em batch para performance
     if (messagesToInsert.length > 0) {
-      // Insert em chunks de 100 para evitar timeout
       for (let i = 0; i < messagesToInsert.length; i += 100) {
         const chunk = messagesToInsert.slice(i, i + 100);
         await supabase.from('messages').insert(chunk);
