@@ -692,92 +692,13 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     
     console.log(`📇 Mapas criados: ${contactsNameMap.size} nomes, ${contactsPhoneMap.size} lids, ${nameToPhoneMap.size} name->phone`);
 
-    // Fetch ALL chats - try multiple methods to ensure complete coverage
-    console.log(`💬 Buscando TODOS os chats...`);
-    const allChatsMap = new Map<string, any>();
-    
-    // Method 1: findChats with no filters
-    try {
-      const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-        body: JSON.stringify({})
-      });
-
-      if (chatsResponse.ok) {
-        const chatsData = await chatsResponse.json();
-        const chats = Array.isArray(chatsData) ? chatsData : [];
-        console.log(`✅ findChats (sem filtro): ${chats.length} chats`);
-        chats.forEach((c: any) => {
-          const jid = c.remoteJid || c.id || c.jid || '';
-          if (jid) allChatsMap.set(jid, c);
-        });
-      }
-    } catch (e) {
-      console.log(`⚠️ Erro findChats:`, e);
-    }
-    
-    // Method 2: findChats with where clause for archived
-    try {
-      const archivedResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-        body: JSON.stringify({ where: { archived: true } })
-      });
-
-      if (archivedResponse.ok) {
-        const archivedData = await archivedResponse.json();
-        const archived = Array.isArray(archivedData) ? archivedData : [];
-        console.log(`✅ findChats (archived): ${archived.length} chats`);
-        archived.forEach((c: any) => {
-          const jid = c.remoteJid || c.id || c.jid || '';
-          if (jid && !allChatsMap.has(jid)) {
-            c.archived = true;
-            allChatsMap.set(jid, c);
-          }
-        });
-      }
-    } catch (e) {
-      console.log(`⚠️ Erro findChats archived:`, e);
-    }
-    
-    // Method 3: Try fetchAllChats endpoint if available
-    try {
-      const allChatsResponse = await fetch(`${evolutionApiUrl}/chat/fetchAllChats/${instanceName}`, {
-        method: 'GET',
-        headers: { 'apikey': evolutionApiKey }
-      });
-
-      if (allChatsResponse.ok) {
-        const allChatsData = await allChatsResponse.json();
-        const chats = Array.isArray(allChatsData) ? allChatsData : (allChatsData?.chats || []);
-        console.log(`✅ fetchAllChats: ${chats.length} chats`);
-        chats.forEach((c: any) => {
-          const jid = c.remoteJid || c.id || c.jid || '';
-          if (jid && !allChatsMap.has(jid)) allChatsMap.set(jid, c);
-        });
-      }
-    } catch (e) {
-      // Endpoint may not exist
-    }
-    
-    allChats = Array.from(allChatsMap.values());
-    console.log(`📊 Total de chats únicos: ${allChats.length}`);
-    
-    // Log ALL chats
-    console.log(`💬 LISTA COMPLETA DE CHATS:`);
-    allChats.forEach((c, i) => {
-      const jid = c.remoteJid || c.id || c.jid || '';
-      const name = c.pushName || c.name || c.subject || 'N/A';
-      const phone = c.phone || c.number || '';
-      const archived = c.archive || c.archived || false;
-      console.log(`  ${i+1}. ${name} | JID: ${jid.substring(0,35)} | Phone: ${phone} | Arch: ${archived}`);
-    });
-
     // ============================================================
-    // PROCESS ALL CHATS
+    // NEW APPROACH: Process contacts directly, not chats
+    // This ensures we capture ALL conversations with messages
     // ============================================================
-
+    
+    console.log(`\n🔄 NOVA ABORDAGEM: Processando contatos diretamente...`);
+    
     const stats = {
       contactsCreated: 0,
       contactsUpdated: 0,
@@ -793,28 +714,87 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
     const processedPhones = new Set<string>();
     const processedGroups = new Set<string>();
+    const processedJids = new Set<string>();
 
-    // Sort chats by most recent first
-    const sortedChats = allChats.sort((a: any, b: any) => {
-      const tsA = a.updatedAt || a.lastMsgTimestamp || 0;
-      const tsB = b.updatedAt || b.lastMsgTimestamp || 0;
-      return new Date(tsB).getTime() - new Date(tsA).getTime();
+    // First, get ALL chats to know which contacts have conversations
+    let allChats: any[] = [];
+    try {
+      const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
+        body: JSON.stringify({})
+      });
+      if (chatsResponse.ok) {
+        allChats = await chatsResponse.json() || [];
+        console.log(`✅ findChats: ${allChats.length} chats`);
+      }
+    } catch (e) {
+      console.log(`⚠️ Erro findChats:`, e);
+    }
+
+    // Also get archived chats
+    try {
+      const archivedResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
+        body: JSON.stringify({ where: { archived: true } })
+      });
+      if (archivedResponse.ok) {
+        const archived = await archivedResponse.json() || [];
+        console.log(`✅ findChats (archived): ${archived.length} chats`);
+        archived.forEach((c: any) => {
+          c.archived = true;
+          allChats.push(c);
+        });
+      }
+    } catch (e) {
+      console.log(`⚠️ Erro findChats archived:`, e);
+    }
+
+    // Build set of JIDs from chats for quick lookup
+    const chatJids = new Set<string>();
+    allChats.forEach((c: any) => {
+      const jid = c.remoteJid || c.id || c.jid || '';
+      if (jid) chatJids.add(jid);
+    });
+    
+    console.log(`📊 Total JIDs de chats: ${chatJids.size}`);
+
+    // ============================================================
+    // PROCESS ALL CONTACTS - Try to fetch messages for each
+    // ============================================================
+    console.log(`\n👥 Processando ${allContacts.length} contatos...`);
+    
+    // Sort contacts to process those in chatJids first (they definitely have messages)
+    const sortedContacts = allContacts.sort((a: any, b: any) => {
+      const jidA = a.remoteJid || a.jid || '';
+      const jidB = b.remoteJid || b.jid || '';
+      const inChatsA = chatJids.has(jidA) ? 0 : 1;
+      const inChatsB = chatJids.has(jidB) ? 0 : 1;
+      return inChatsA - inChatsB;
     });
 
-    console.log(`\n📋 Processando ${sortedChats.length} chats...\n`);
-
-    for (const chat of sortedChats) {
+    for (const contact of sortedContacts) {
       try {
-        const jid = chat.remoteJid || chat.id || chat.jid || '';
+        const jid = contact.remoteJid || contact.jid || '';
         
-        // Skip broadcasts and status
+        // Skip if already processed or invalid
+        if (!jid || processedJids.has(jid)) continue;
         if (jid.includes('@broadcast') || jid.startsWith('status@')) {
           stats.skipped++;
           continue;
         }
-
+        
+        processedJids.add(jid);
+        
         const isGroup = jid.includes('@g.us');
-        const isArchived = chat.archive === true || chat.archived === true;
+        const isLid = jid.includes('@lid');
+        const contactName = contact.pushName || contact.name || contact.notify || contact.verifiedName || '';
+        const profilePicUrl = contact.profilePictureUrl || contact.profilePicUrl || contact.imgUrl || null;
+        
+        // Find matching chat data for archived status
+        const chatData = allChats.find((c: any) => (c.remoteJid || c.id || c.jid) === jid);
+        const isArchived = chatData?.archive === true || chatData?.archived === true;
 
         // ============================================================
         // PROCESS GROUPS
@@ -823,39 +803,25 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           if (processedGroups.has(jid)) continue;
           processedGroups.add(jid);
 
-          let groupName = chat.subject || chat.name || chat.pushName;
+          let groupName = contactName || chatData?.subject || chatData?.name;
           
-          // Try to get group name from API if not available
           if (!groupName) {
-            try {
-              const groupInfoResponse = await fetch(`${evolutionApiUrl}/group/findGroupInfos/${instanceName}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-                body: JSON.stringify({ groupJid: jid })
-              });
-              
-              if (groupInfoResponse.ok) {
-                const groupInfo = await groupInfoResponse.json();
-                groupName = groupInfo?.subject || groupInfo?.name;
-              }
-            } catch (e) {
-              // Ignore error
-            }
+            // Generate name from JID
+            const groupId = jid.replace('@g.us', '').slice(-8);
+            groupName = `Grupo ${groupId}`;
           }
 
-          groupName = groupName || `Grupo ${jid.split('@')[0].slice(-8)}`;
           console.log(`👥 Grupo: ${groupName}`);
 
           // Find or create group contact
           let { data: existingGroupContact } = await supabase
             .from('contacts')
-            .select('id, name')
+            .select('id')
             .eq('company_id', companyId)
             .eq('metadata->>remoteJid', jid)
             .maybeSingle();
 
-          let contactId;
-          
+          let groupContactId;
           if (!existingGroupContact) {
             const { data: newContact, error } = await supabase
               .from('contacts')
@@ -863,298 +829,111 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
                 company_id: companyId,
                 name: groupName,
                 phone: null,
-                avatar_url: chat.profilePictureUrl || chat.profilePicUrl || null,
-                metadata: { remoteJid: jid, isGroup: true, source: 'whatsapp_import' }
+                avatar_url: profilePicUrl,
+                metadata: { remoteJid: jid, isGroup: true }
               })
               .select()
               .single();
 
             if (error) {
-              console.error(`❌ Erro ao criar grupo ${groupName}:`, error);
-              stats.skipped++;
+              console.error(`❌ Erro criar grupo:`, error);
               continue;
             }
-            contactId = newContact.id;
+            groupContactId = newContact.id;
             stats.groupsCreated++;
           } else {
-            contactId = existingGroupContact.id;
-            if (groupName !== existingGroupContact.name) {
-              await supabase.from('contacts').update({ name: groupName }).eq('id', contactId);
-            }
+            groupContactId = existingGroupContact.id;
           }
 
-          // Find or create conversation
+          // Find or create group conversation
           let { data: existingConv } = await supabase
             .from('conversations')
-            .select('id, archived, status')
+            .select('id')
             .eq('company_id', companyId)
-            .eq('contact_id', contactId)
+            .eq('contact_id', groupContactId)
             .eq('channel', 'whatsapp')
             .maybeSingle();
 
           let conversationId;
-          
           if (!existingConv) {
             const { data: newConv, error } = await supabase
               .from('conversations')
               .insert({
                 company_id: companyId,
-                contact_id: contactId,
+                contact_id: groupContactId,
                 channel: 'whatsapp',
                 status: isArchived ? 'resolved' : 'open',
                 archived: isArchived,
-                metadata: { instanceName, remoteJid: jid, isGroup: true }
+                metadata: { isGroup: true, remoteJid: jid, instanceName }
               })
               .select()
               .single();
 
-            if (error) {
-              console.error(`❌ Erro ao criar conversa grupo:`, error);
-              continue;
+            if (!error && newConv) {
+              conversationId = newConv.id;
+              stats.conversationsCreated++;
             }
-            conversationId = newConv.id;
-            stats.conversationsCreated++;
           } else {
             conversationId = existingConv.id;
             stats.conversationsReused++;
-            if (isArchived !== existingConv.archived) {
-              await supabase.from('conversations')
-                .update({ archived: isArchived, status: isArchived ? 'resolved' : 'open' })
-                .eq('id', conversationId);
-              stats.conversationsUpdated++;
-            }
           }
 
-          // Sync group messages
-          const msgCount = await syncMessagesForConversation(
-            supabase, evolutionApiUrl, evolutionApiKey, instanceName,
-            conversationId, jid, extractMessageContent
-          );
-          stats.messagesImported += msgCount;
-          
+          if (conversationId) {
+            const msgCount = await syncMessagesForConversation(
+              supabase, evolutionApiUrl, evolutionApiKey, instanceName,
+              conversationId, jid, extractMessageContent
+            );
+            stats.messagesImported += msgCount;
+          }
           continue;
         }
 
         // ============================================================
-        // PROCESS INDIVIDUAL CHATS
+        // PROCESS INDIVIDUAL CONTACTS
         // ============================================================
         
-        // Try to extract phone from JID or resolve @lid
         let phone = extractPhoneFromJid(jid);
         let resolvedFromLid = false;
         
-        // If it's an @lid JID, try to resolve to a real phone
-        if (!phone && jid.includes('@lid')) {
-          const lidId = jid.split('@')[0];
-          const chatName = chat.pushName || chat.name || chat.notify || '';
-          const chatPhone = chat.phone || chat.number || '';
+        // Handle @lid - try to resolve to phone number
+        if (isLid) {
+          // Try contactsPhoneMap first
+          phone = contactsPhoneMap.get(jid) || contactsPhoneMap.get(jid.replace('@lid', ''));
           
-          // Try 1: Direct phone field in chat
-          if (chatPhone && chatPhone.length >= 10) {
-            const cleaned = chatPhone.replace(/\D/g, '');
-            if (isValidBrazilianPhone(cleaned)) {
-              phone = cleaned;
-              resolvedFromLid = true;
-              console.log(`🔗 @lid resolved via phone field: ${lidId} -> ${phone}`);
-            }
-          }
-          
-          // Try 2: Look up in contacts lid map
-          if (!phone) {
-            phone = contactsPhoneMap.get(lidId) || contactsPhoneMap.get(jid);
+          // Try nameToPhoneMap
+          if (!phone && contactName) {
+            phone = nameToPhoneMap.get(contactName.toLowerCase().trim());
             if (phone) {
-              resolvedFromLid = true;
-              console.log(`🔗 @lid resolved via lid map: ${lidId} -> ${phone}`);
+              console.log(`🔗 @lid resolved via name: ${contactName} -> ${phone}`);
             }
           }
           
-          // Try 3: Match by name in nameToPhone map
-          if (!phone && chatName) {
-            const nameLower = chatName.toLowerCase().trim();
-            phone = nameToPhoneMap.get(nameLower);
-            if (phone) {
-              resolvedFromLid = true;
-              console.log(`🔗 @lid resolved via name: ${chatName} -> ${phone}`);
-            }
-          }
-          
-          // Try 4: Search in database for contact by name (exact match)
-          if (!phone && chatName && chatName.length > 2) {
-            const { data: contactByName } = await supabase
+          // Try to find in DB by name
+          if (!phone && contactName) {
+            const { data: dbContact } = await supabase
               .from('contacts')
-              .select('phone, name')
+              .select('phone')
               .eq('company_id', companyId)
-              .ilike('name', chatName)
+              .ilike('name', contactName)
               .not('phone', 'is', null)
-              .limit(1)
               .maybeSingle();
             
-            if (contactByName?.phone && isValidBrazilianPhone(contactByName.phone)) {
-              phone = contactByName.phone;
-              resolvedFromLid = true;
-              console.log(`🔗 @lid resolved via DB name search: ${chatName} -> ${phone}`);
+            if (dbContact?.phone) {
+              phone = dbContact.phone;
+              console.log(`🔗 @lid resolved via DB name search: ${contactName} -> ${phone}`);
             }
           }
           
-          // Try 5: Use fetchProfile API to get phone from @lid
-          if (!phone) {
-            console.log(`🔍 Tentando resolver @lid via fetchProfile: ${jid}`);
-            try {
-              const profileResponse = await fetch(`${evolutionApiUrl}/chat/fetchProfile/${instanceName}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-                body: JSON.stringify({ number: jid })
-              });
-              
-              if (profileResponse.ok) {
-                const profileData = await profileResponse.json();
-                console.log(`  🔎 Profile response: ${JSON.stringify(profileData).slice(0, 300)}`);
-                
-                // Try to extract phone from profile
-                const profilePhone = profileData?.wid?.user || profileData?.jid?.split('@')[0] || 
-                                     profileData?.number || profileData?.phone;
-                if (profilePhone) {
-                  const cleaned = String(profilePhone).replace(/\D/g, '');
-                  if (isValidBrazilianPhone(cleaned)) {
-                    phone = cleaned;
-                    resolvedFromLid = true;
-                    console.log(`🔗 @lid resolved via fetchProfile: ${jid} -> ${phone}`);
-                  }
-                }
-              }
-            } catch (profileErr) {
-              console.log(`  ⚠️ Erro fetchProfile:`, profileErr);
-            }
-          }
-          
-          // Try 6: Check contact in contacts API with @lid directly
-          if (!phone) {
-            try {
-              const contactResponse = await fetch(`${evolutionApiUrl}/chat/findContacts/${instanceName}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-                body: JSON.stringify({ where: { remoteJid: jid } })
-              });
-              
-              if (contactResponse.ok) {
-                const contactData = await contactResponse.json();
-                const contacts = Array.isArray(contactData) ? contactData : [];
-                console.log(`  🔎 Contact by @lid: ${contacts.length} encontrados`);
-                
-                if (contacts.length > 0) {
-                  const contact = contacts[0];
-                  console.log(`  🔎 Contact data: ${JSON.stringify(contact).slice(0, 300)}`);
-                  
-                  // Extract phone from contact
-                  const contactPhone = contact.phone || contact.number || contact.wid?.user;
-                  if (contactPhone) {
-                    const cleaned = String(contactPhone).replace(/\D/g, '');
-                    if (isValidBrazilianPhone(cleaned)) {
-                      phone = cleaned;
-                      resolvedFromLid = true;
-                      console.log(`🔗 @lid resolved via contact lookup: ${jid} -> ${phone}`);
-                    }
-                  }
-                }
-              }
-            } catch (contactErr) {
-              console.log(`  ⚠️ Erro contact lookup:`, contactErr);
-            }
-          }
-          
-          // Try 7: FETCH MESSAGES and look for non-fromMe messages with pushName
-          if (!phone) {
-            try {
-              const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-                body: JSON.stringify({
-                  where: { key: { remoteJid: jid, fromMe: false } },
-                  limit: 20
-                })
-              });
-              
-              if (messagesResponse.ok) {
-                const messagesData = await messagesResponse.json();
-                const messages = messagesData?.messages?.records || messagesData?.records || 
-                                 (Array.isArray(messagesData) ? messagesData : []);
-                
-                console.log(`  📬 ${messages.length} msgs recebidas (fromMe=false)`);
-                
-                for (const msg of messages) {
-                  // Check pushName from received messages
-                  const msgPushName = msg.pushName;
-                  if (msgPushName) {
-                    console.log(`  🔎 Msg pushName: ${msgPushName}`);
-                    
-                    // Try nameToPhoneMap
-                    const nameLower = msgPushName.toLowerCase().trim();
-                    let foundPhone = nameToPhoneMap.get(nameLower);
-                    
-                    // Try partial match
-                    if (!foundPhone) {
-                      for (const [name, ph] of nameToPhoneMap.entries()) {
-                        if (name.includes(nameLower) || nameLower.includes(name)) {
-                          foundPhone = ph;
-                          break;
-                        }
-                      }
-                    }
-                    
-                    if (foundPhone) {
-                      phone = foundPhone;
-                      resolvedFromLid = true;
-                      console.log(`🔗 @lid resolved via msg pushName->map: ${msgPushName} -> ${phone}`);
-                      break;
-                    }
-                    
-                    // DB lookup
-                    const { data: contactByMsgName } = await supabase
-                      .from('contacts')
-                      .select('phone, name')
-                      .eq('company_id', companyId)
-                      .ilike('name', `%${msgPushName}%`)
-                      .not('phone', 'is', null)
-                      .limit(1)
-                      .maybeSingle();
-                    
-                    if (contactByMsgName?.phone && isValidBrazilianPhone(contactByMsgName.phone)) {
-                      phone = contactByMsgName.phone;
-                      resolvedFromLid = true;
-                      console.log(`🔗 @lid resolved via msg pushName->DB: ${msgPushName} -> ${phone}`);
-                      break;
-                    }
-                  }
-                  
-                  // Check participant
-                  const participant = msg.key?.participant || msg.participant;
-                  if (participant && participant.includes('@s.whatsapp.net')) {
-                    const extractedPhone = extractPhoneFromJid(participant);
-                    if (extractedPhone && isValidBrazilianPhone(extractedPhone)) {
-                      phone = extractedPhone;
-                      resolvedFromLid = true;
-                      console.log(`🔗 @lid resolved via msg participant: ${jid} -> ${phone}`);
-                      break;
-                    }
-                  }
-                }
-              }
-            } catch (msgErr) {
-              console.log(`  ⚠️ Erro buscar msgs:`, msgErr);
-            }
-          }
-          
-          if (!phone) {
-            console.log(`⏭️ Skip: ${jid} (could not resolve @lid, name: ${chatName || 'N/A'})`);
+          if (phone) {
+            resolvedFromLid = true;
+            stats.lidResolved++;
+          } else {
             stats.invalidPhone++;
             continue;
           }
-          
-          stats.lidResolved++;
         }
-        
-        if (!phone) {
-          console.log(`⏭️ Skip: ${jid} (invalid phone format)`);
+
+        if (!phone || phone.length < 8) {
           stats.invalidPhone++;
           continue;
         }
@@ -1166,46 +945,39 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         }
         processedPhones.add(normalizedPhone);
 
-        // Get contact name - PRIORITY: pushName from chat > contacts map > phone
-        let contactName = chat.pushName || chat.name || chat.notify || chat.verifiedName;
-        
-        if (!contactName || contactName === normalizedPhone || /^\d+$/.test(contactName)) {
-          contactName = contactsNameMap.get(normalizedPhone) || 
-                       contactsNameMap.get(phone) || 
-                       normalizedPhone;
+        // Get best name for contact
+        let finalName = contactName;
+        if (!finalName || finalName === normalizedPhone || /^\+?\d[\d\s-]+$/.test(finalName)) {
+          finalName = contactsNameMap.get(normalizedPhone) || 
+                     contactsNameMap.get(phone) || 
+                     normalizedPhone;
         }
 
-        const profilePicUrl = chat.profilePictureUrl || chat.profilePicUrl || chat.imgUrl || null;
         const whatsappJid = `${normalizedPhone}@s.whatsapp.net`;
         const originalJid = resolvedFromLid ? jid : whatsappJid;
 
-        console.log(`📱 ${contactName} (${normalizedPhone})${resolvedFromLid ? ' [@lid]' : ''}${isArchived ? ' [arquivado]' : ''}`);
+        console.log(`📱 ${finalName} (${normalizedPhone})${resolvedFromLid ? ' [@lid]' : ''}${isArchived ? ' [arquivado]' : ''}`);
 
-        // Find or create contact - try multiple phone variations
+        // Find or create contact
         let existingContact = null;
         
-        // Try normalized phone first
-        let { data: contactByNorm } = await supabase
+        const { data: contactByPhone } = await supabase
           .from('contacts')
           .select('id, name, avatar_url, phone')
           .eq('company_id', companyId)
           .eq('phone', normalizedPhone)
           .maybeSingle();
         
-        if (contactByNorm) {
-          existingContact = contactByNorm;
-        } else {
-          // Try original phone
-          let { data: contactByOrig } = await supabase
+        existingContact = contactByPhone;
+        
+        if (!existingContact) {
+          const { data: contactByOrigPhone } = await supabase
             .from('contacts')
             .select('id, name, avatar_url, phone')
             .eq('company_id', companyId)
             .eq('phone', phone)
             .maybeSingle();
-          
-          if (contactByOrig) {
-            existingContact = contactByOrig;
-          }
+          existingContact = contactByOrigPhone;
         }
 
         let contactId;
@@ -1215,7 +987,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             .from('contacts')
             .insert({
               company_id: companyId,
-              name: contactName,
+              name: finalName,
               phone: normalizedPhone,
               avatar_url: profilePicUrl,
               metadata: { remoteJid: whatsappJid, source: 'whatsapp_import' }
@@ -1224,7 +996,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             .single();
 
           if (error) {
-            console.error(`❌ Erro ao criar contato ${contactName}:`, error);
+            console.error(`❌ Erro criar contato ${finalName}:`, error);
             stats.skipped++;
             continue;
           }
@@ -1233,32 +1005,24 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         } else {
           contactId = existingContact.id;
           
-          // ALWAYS update contact name if we have a better name from pushName
-          const updates: any = {};
+          // Update name if we have a better one
           const currentNameIsPhone = !existingContact.name || 
             existingContact.name === existingContact.phone || 
             /^\+?\d[\d\s-]+$/.test(existingContact.name.trim());
           
-          // Use pushName if it's a real name (not a phone number) and different from current
-          const pushNameIsRealName = contactName && 
-            contactName !== normalizedPhone && 
-            !/^\+?\d[\d\s-]+$/.test(contactName.trim());
+          const newNameIsReal = finalName && 
+            finalName !== normalizedPhone && 
+            !/^\+?\d[\d\s-]+$/.test(finalName.trim());
           
-          if (pushNameIsRealName && (currentNameIsPhone || contactName !== existingContact.name)) {
-            // Only update if pushName is different and better
-            if (contactName !== existingContact.name) {
-              updates.name = contactName;
-              console.log(`  📝 Nome atualizado: "${existingContact.name}" → "${contactName}"`);
-            }
-          }
-          
-          if (profilePicUrl && !existingContact.avatar_url) {
-            updates.avatar_url = profilePicUrl;
-          }
-          
-          if (Object.keys(updates).length > 0) {
-            await supabase.from('contacts').update(updates).eq('id', contactId);
+          if (newNameIsReal && (currentNameIsPhone || finalName !== existingContact.name)) {
+            await supabase.from('contacts').update({ 
+              name: finalName,
+              avatar_url: profilePicUrl || existingContact.avatar_url
+            }).eq('id', contactId);
             stats.contactsUpdated++;
+            console.log(`  📝 Nome atualizado: "${existingContact.name}" → "${finalName}"`);
+          } else if (profilePicUrl && !existingContact.avatar_url) {
+            await supabase.from('contacts').update({ avatar_url: profilePicUrl }).eq('id', contactId);
           }
         }
 
@@ -1289,7 +1053,6 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
           if (error) {
             if (error.code === '23505') {
-              // Duplicate - fetch existing
               const { data: dup } = await supabase
                 .from('conversations')
                 .select('id')
@@ -1302,7 +1065,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
                 stats.conversationsReused++;
               }
             } else {
-              console.error(`❌ Erro ao criar conversa:`, error);
+              console.error(`❌ Erro criar conversa:`, error);
               continue;
             }
           } else {
@@ -1323,7 +1086,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
         if (!conversationId) continue;
 
-        // Sync messages - try multiple JID variations including original @lid
+        // Sync messages - try multiple JID variations
         const jidsToTry = [originalJid, jid, whatsappJid, `${phone}@s.whatsapp.net`].filter(Boolean);
         let msgCount = 0;
         
@@ -1335,13 +1098,31 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           if (msgCount > 0) break;
         }
         
+        // If no messages found, delete the conversation to avoid empty entries
+        if (msgCount === 0 && stats.conversationsCreated > 0) {
+          // Only delete if we just created it
+          const { data: msgCheck } = await supabase
+            .from('messages')
+            .select('id')
+            .eq('conversation_id', conversationId)
+            .limit(1);
+          
+          if (!msgCheck || msgCheck.length === 0) {
+            await supabase.from('conversations').delete().eq('id', conversationId);
+            stats.conversationsCreated--;
+            console.log(`  ⏭️ Conversa removida (sem mensagens)`);
+          }
+        }
+        
         stats.messagesImported += msgCount;
 
       } catch (chatError) {
-        console.error('Erro ao processar chat:', chatError);
+        console.error('Erro ao processar contato:', chatError);
         stats.skipped++;
       }
     }
+
+    console.log(`\n📋 Processados ${processedJids.size} JIDs únicos`);
 
     // ============================================================
     // FINAL PASS: Update contacts with phone-as-name
@@ -1359,8 +1140,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       const nameIsJustPhone = contact.name === contact.phone || /^\+?\d[\d\s-]+$/.test(contact.name?.trim() || '');
       if (nameIsJustPhone && contact.phone) {
         const betterName = contactsNameMap.get(contact.phone) || 
-                          contactsNameMap.get(normalizePhone(contact.phone)) ||
-                          nameToPhoneMap.get(contact.phone?.toLowerCase());
+                          contactsNameMap.get(normalizePhone(contact.phone));
         if (betterName && betterName !== contact.phone && !/^\+?\d[\d\s-]+$/.test(betterName.trim())) {
           await supabase.from('contacts').update({ name: betterName }).eq('id', contact.id);
           namesUpdated++;
@@ -1369,13 +1149,10 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       }
     }
 
-    // NOTE: Removed "orphan contact recovery" feature as it was creating empty conversations
-    // The Evolution API findChats should be the source of truth for conversations
-
     console.log(`\n========================================`);
     console.log(`✅ IMPORTAÇÃO CONCLUÍDA`);
     console.log(`========================================`);
-    console.log(`📊 Chats processados: ${sortedChats.length}`);
+    console.log(`📊 Contatos processados: ${allContacts.length}`);
     console.log(`📊 Contatos: ${stats.contactsCreated} criados, ${stats.contactsUpdated + namesUpdated} atualizados`);
     console.log(`📊 Grupos: ${stats.groupsCreated} criados`);
     console.log(`📊 Conversas: ${stats.conversationsCreated} criadas, ${stats.conversationsReused} reusadas, ${stats.conversationsUpdated} atualizadas`);
