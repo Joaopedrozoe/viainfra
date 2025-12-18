@@ -1572,7 +1572,18 @@ async function syncMessagesForConversation(
     }
     const latestApiDate = new Date((latestApiTimestamp > 9999999999 ? latestApiTimestamp : latestApiTimestamp * 1000));
     
-    // Get existing message IDs
+    // Get existing message IDs para TODAS as conversas (evitar duplicar entre conversas)
+    const { data: existingMsgsGlobal } = await supabase
+      .from('messages')
+      .select('metadata')
+      .not('metadata->messageId', 'is', null);
+    
+    const globalMessageIds = new Set<string>();
+    for (const msg of existingMsgsGlobal || []) {
+      if (msg.metadata?.messageId) globalMessageIds.add(msg.metadata.messageId);
+    }
+    
+    // Get existing message IDs para esta conversa
     const { data: existingMsgs } = await supabase
       .from('messages')
       .select('metadata, created_at')
@@ -1592,6 +1603,7 @@ async function syncMessagesForConversation(
     console.log(`  📊 ${phoneForLog}: API=${messages.length} msgs (até ${latestApiDate.toISOString().slice(0,16)}), DB=${existingIds.size} (até ${latestDbDate?.toISOString().slice(0,16) || 'N/A'})`);
     
     let importedCount = 0;
+    let skippedGlobal = 0;
     let lastMsgTimestamp: Date | null = null;
     
     // Sort by timestamp
@@ -1603,7 +1615,15 @@ async function syncMessagesForConversation(
     
     for (const msg of messages) {
       const messageId = msg.key?.id;
+      
+      // Skip se já existe nesta conversa
       if (messageId && existingIds.has(messageId)) continue;
+      
+      // CRÍTICO: Skip se já existe em QUALQUER conversa (evita duplicar entre conversas)
+      if (messageId && globalMessageIds.has(messageId)) {
+        skippedGlobal++;
+        continue;
+      }
       
       const timestamp = msg.messageTimestamp || msg.key?.messageTimestamp;
       if (!timestamp) continue;
@@ -1630,8 +1650,15 @@ async function syncMessagesForConversation(
       
       if (!error) {
         importedCount++;
-        if (messageId) existingIds.add(messageId);
+        if (messageId) {
+          existingIds.add(messageId);
+          globalMessageIds.add(messageId);
+        }
       }
+    }
+    
+    if (skippedGlobal > 0) {
+      console.log(`  ⚠️ ${phoneForLog}: ${skippedGlobal} msgs já em outras conversas (ignoradas)`);
     }
     
     // Update conversation timestamp
