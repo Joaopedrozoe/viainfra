@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useDemoMode } from "@/hooks/useDemoMode";
+import { useAuth } from "@/contexts/AuthContext";
 import { 
   getDemoChannelsExpanded, 
   addDemoChannelExpanded, 
@@ -72,15 +73,17 @@ const getStatusBadge = (status: string) => {
 const Channels = () => {
   const isMobile = useIsMobile();
   const { isDemoMode } = useDemoMode();
+  const { company } = useAuth();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [configChannelId, setConfigChannelId] = useState<string | null>(null);
   const [settingsChannelId, setSettingsChannelId] = useState<string | null>(null);
 
-  // Load channels on component mount
+  // Load channels on component mount - ISOLADO POR EMPRESA
   useEffect(() => {
     const loadChannels = () => {
-      const expandedChannels = getDemoChannelsExpanded();
+      if (!company?.id) return;
+      const expandedChannels = getDemoChannelsExpanded(company.id);
       setChannels(expandedChannels);
     };
     
@@ -96,17 +99,19 @@ const Channels = () => {
     return () => {
       window.removeEventListener('storage', handleStorageChange);
     };
-  }, [isDemoMode]);
+  }, [isDemoMode, company?.id]);
 
 
   const handleChannelComplete = (channelData: any) => {
+    if (!company?.id) return;
+    
     if (isDemoMode) {
       const newChannel = addDemoChannelExpanded({
         name: channelData.name || `${channelData.type} Channel`,
         description: channelData.description || `Canal de ${channelData.type}`,
         type: channelData.type,
         status: 'pending',
-        companyId: 'demo-company-456',
+        companyId: company.id,
         integration: {
           provider: getProviderByType(channelData.type),
           webhookUrl: `https://app.exemplo.com/webhooks/${channelData.type}`,
@@ -143,7 +148,7 @@ const Channels = () => {
           deliveryRate: 0,
           errorRate: 0
         }
-      });
+      }, company.id);
       setChannels(prev => [...prev, newChannel]);
     }
     
@@ -151,14 +156,16 @@ const Channels = () => {
   };
 
   const toggleChannelStatus = (id: string) => {
+    if (!company?.id) return;
+    
     const channelToUpdate = channels.find(ch => ch.id === id);
     
     if (!channelToUpdate) return;
     
     const newStatus = channelToUpdate.status === 'connected' ? 'disconnected' : 'connected';
     
-    // Sempre atualiza localStorage para persistir
-    updateDemoChannelExpanded(id, { status: newStatus });
+    // Sempre atualiza localStorage para persistir - ISOLADO POR EMPRESA
+    updateDemoChannelExpanded(id, { status: newStatus }, company.id);
     
     // Atualiza estado local
     setChannels(prev => 
@@ -176,8 +183,10 @@ const Channels = () => {
   };
 
   const deleteChannel = (id: string) => {
+    if (!company?.id) return;
+    
     if (isDemoMode) {
-      deleteDemoChannelExpanded(id);
+      deleteDemoChannelExpanded(id, company.id);
     }
     
     setChannels(prev => prev.filter(channel => channel.id !== id));
@@ -185,8 +194,10 @@ const Channels = () => {
   };
 
   const updateChannel = (channelId: string, updates: Partial<Channel>) => {
+    if (!company?.id) return;
+    
     if (isDemoMode) {
-      updateDemoChannelExpanded(channelId, updates);
+      updateDemoChannelExpanded(channelId, updates, company.id);
     }
     
     setChannels(prev => 

@@ -5,9 +5,11 @@ import { calculateDashboardMetrics, formatResponseTime, getPerformanceColor, Das
 import { useDemoMode } from "@/hooks/useDemoMode";
 import { usePreviewConversation } from "@/contexts/PreviewConversationContext";
 import { useConversations } from "@/hooks/useConversations";
+import { useAuth } from "@/contexts/auth";
 
 export const MetricsOverview: React.FC = () => {
   const { isDemoMode } = useDemoMode();
+  const { profile } = useAuth();
   const { previewConversations } = usePreviewConversation();
   const { conversations: supabaseConversations, loading } = useConversations();
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
@@ -17,8 +19,8 @@ export const MetricsOverview: React.FC = () => {
     
     try {
       // Usar apenas conversas do preview para os cálculos, 
-      // mas considerar conversas reais do Supabase para métricas
-      const calculatedMetrics = calculateDashboardMetrics(isDemoMode, previewConversations);
+      // mas considerar conversas reais do Supabase para métricas - ISOLADO POR EMPRESA
+      const calculatedMetrics = calculateDashboardMetrics(isDemoMode, previewConversations, profile?.company_id);
       
       // Sobrescrever métricas com dados reais se houver conversas do Supabase
       if (supabaseConversations.length > 0) {
@@ -37,7 +39,7 @@ export const MetricsOverview: React.FC = () => {
     } catch (error) {
       console.error('Error loading metrics:', error);
     }
-  }, [isDemoMode, previewConversations, supabaseConversations, loading]);
+  }, [isDemoMode, previewConversations, supabaseConversations, loading, profile?.company_id]);
   
   if (loading || !metrics) {
     return (

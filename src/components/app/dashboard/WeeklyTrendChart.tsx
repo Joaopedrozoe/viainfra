@@ -4,6 +4,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLe
 import { Line, LineChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid } from "recharts";
 import { calculateDashboardMetrics, DashboardMetrics } from "./dashboardUtils";
 import { useDemoMode } from "@/hooks/useDemoMode";
+import { useAuth } from "@/contexts/auth";
 
 const chartConfig = {
   conversations: {
@@ -18,6 +19,7 @@ const chartConfig = {
 
 export const WeeklyTrendChart: React.FC = () => {
   const { isDemoMode } = useDemoMode();
+  const { profile } = useAuth();
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
@@ -25,7 +27,7 @@ export const WeeklyTrendChart: React.FC = () => {
     const loadMetrics = () => {
       setIsLoading(true);
       try {
-        const calculatedMetrics = calculateDashboardMetrics(isDemoMode);
+        const calculatedMetrics = calculateDashboardMetrics(isDemoMode, [], profile?.company_id);
         setMetrics(calculatedMetrics);
       } catch (error) {
         console.error('Error loading metrics:', error);
@@ -35,14 +37,14 @@ export const WeeklyTrendChart: React.FC = () => {
     };
     
     loadMetrics();
-  }, [isDemoMode]);
+  }, [isDemoMode, profile?.company_id]);
   
   // Listen for dashboard refresh events
   useEffect(() => {
     const handleRefresh = () => {
       setIsLoading(true);
       try {
-        const calculatedMetrics = calculateDashboardMetrics(isDemoMode);
+        const calculatedMetrics = calculateDashboardMetrics(isDemoMode, [], profile?.company_id);
         setMetrics(calculatedMetrics);
       } catch (error) {
         console.error('Error refreshing metrics:', error);
@@ -53,7 +55,7 @@ export const WeeklyTrendChart: React.FC = () => {
     
     window.addEventListener('dashboard-refresh', handleRefresh);
     return () => window.removeEventListener('dashboard-refresh', handleRefresh);
-  }, [isDemoMode]);
+  }, [isDemoMode, profile?.company_id]);
   
   if (isLoading || !metrics || !metrics.weeklyTrend) {
     return (
