@@ -706,13 +706,14 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         allChats = Array.isArray(chatsData) ? chatsData : [];
         console.log(`✅ ${allChats.length} chats encontrados na API`);
         
-        // Log first 15 chats for debugging (including @lid ones)
-        console.log(`💬 Amostra de chats:`);
-        allChats.slice(0, 15).forEach((c, i) => {
+        // Log ALL chats for complete debugging
+        console.log(`💬 TODOS os chats retornados pela API:`);
+        allChats.forEach((c, i) => {
           const jid = c.remoteJid || c.id || c.jid || '';
           const name = c.pushName || c.name || c.subject || 'N/A';
           const phone = c.phone || c.number || '';
-          console.log(`  ${i+1}. JID: ${jid}, Name: ${name}, Phone: ${phone}, Archived: ${c.archive || c.archived || false}`);
+          const archived = c.archive || c.archived || false;
+          console.log(`  ${i+1}. ${name} | JID: ${jid.slice(0,30)}... | Phone: ${phone} | Archived: ${archived}`);
         });
       }
     } catch (e) {
