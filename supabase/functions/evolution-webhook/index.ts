@@ -118,8 +118,8 @@ serve(async (req) => {
         await processNewMessage(supabase, webhook, payload);
         break;
       case 'MESSAGES_UPDATE':
-        // Status update (delivered, read, etc.) - only log for now
-        console.log(`📬 Message status update: ${JSON.stringify(webhook.data?.status || webhook.data)}`);
+        // Use status update to resolve @lid contacts - this contains the real phone number!
+        await processMessageUpdate(supabase, webhook);
         break;
       case 'CONNECTION_UPDATE':
         await processConnectionUpdate(supabase, webhook);
@@ -401,7 +401,188 @@ async function processConnectionUpdate(supabase: any, webhook: EvolutionWebhook)
   }
 }
 
-// Fetch profile picture from WhatsApp via Evolution API
+// Process message status updates - CRITICAL for resolving @lid contacts!
+// The messages.update event contains the REAL phone number in remoteJid
+async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
+  const data = webhook.data;
+  const remoteJid = data?.remoteJid;
+  const keyId = data?.keyId;
+  
+  // Skip if no phone or is group
+  if (!remoteJid || remoteJid.includes('@g.us') || remoteJid.includes('@lid')) {
+    console.log(`📬 Message status update (skipped): ${JSON.stringify(data?.status || data)}`);
+    return;
+  }
+  
+  // Extract phone from remoteJid
+  const phone = remoteJid.split('@')[0];
+  if (!phone || !/^\d{10,15}$/.test(phone)) {
+    console.log(`📬 Message status update (invalid phone): ${remoteJid}`);
+    return;
+  }
+  
+  console.log(`📬 Message status update: phone=${phone}, keyId=${keyId}`);
+  
+  // Get company_id from instance
+  const { data: instance } = await supabase
+    .from('whatsapp_instances')
+    .select('company_id')
+    .eq('instance_name', webhook.instance)
+    .single();
+  
+  if (!instance?.company_id) {
+    console.log('⚠️ Instance not found');
+    return;
+  }
+  
+  const companyId = instance.company_id;
+  
+  // Check if contact already exists with this phone
+  const { data: existingContact } = await supabase
+    .from('contacts')
+    .select('id, name, phone')
+    .eq('company_id', companyId)
+    .eq('phone', phone)
+    .maybeSingle();
+  
+  if (existingContact) {
+    // Contact already exists with phone - check if conversation exists
+    const { data: existingConv } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('contact_id', existingContact.id)
+      .eq('channel', 'whatsapp')
+      .maybeSingle();
+    
+    if (!existingConv) {
+      // Create conversation for existing contact
+      console.log(`➕ Creating conversation for existing contact: ${existingContact.name} (${phone})`);
+      await supabase.from('conversations').insert({
+        contact_id: existingContact.id,
+        company_id: companyId,
+        channel: 'whatsapp',
+        status: 'open',
+        bot_active: true,
+        metadata: {
+          remoteJid,
+          instanceName: webhook.instance
+        }
+      });
+    }
+    return;
+  }
+  
+  // No contact with this phone - try to find placeholder contact without phone
+  // and update it with the real phone number
+  const { data: placeholderContacts } = await supabase
+    .from('contacts')
+    .select('id, name, phone, metadata')
+    .eq('company_id', companyId)
+    .is('phone', null)
+    .order('updated_at', { ascending: false })
+    .limit(10);
+  
+  // If we can find a contact with matching @lid remoteJid, update it
+  for (const contact of placeholderContacts || []) {
+    const contactJid = contact.metadata?.remoteJid || '';
+    if (contactJid.includes('@lid')) {
+      // This is a placeholder @lid contact - update with real phone
+      console.log(`🔄 Updating @lid contact ${contact.name} with phone: ${phone}`);
+      
+      const { error: updateError } = await supabase
+        .from('contacts')
+        .update({
+          phone,
+          metadata: {
+            ...contact.metadata,
+            remoteJid,
+            lidJid: contactJid,
+            resolvedFromUpdate: true
+          },
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', contact.id);
+      
+      if (!updateError) {
+        console.log(`✅ Contact ${contact.name} updated with phone ${phone}`);
+        
+        // Check/create conversation
+        const { data: existingConv } = await supabase
+          .from('conversations')
+          .select('id, metadata')
+          .eq('contact_id', contact.id)
+          .eq('channel', 'whatsapp')
+          .maybeSingle();
+        
+        if (existingConv) {
+          // Update conversation with real remoteJid
+          await supabase.from('conversations').update({
+            metadata: {
+              ...existingConv.metadata,
+              remoteJid,
+              lidJid: contactJid,
+              instanceName: webhook.instance
+            }
+          }).eq('id', existingConv.id);
+        } else {
+          // Create new conversation
+          await supabase.from('conversations').insert({
+            contact_id: contact.id,
+            company_id: companyId,
+            channel: 'whatsapp',
+            status: 'open',
+            bot_active: true,
+            metadata: {
+              remoteJid,
+              lidJid: contactJid,
+              instanceName: webhook.instance
+            }
+          });
+        }
+      }
+      return; // Found and updated one, exit
+    }
+  }
+  
+  // No placeholder found - create new contact and conversation
+  console.log(`➕ Creating new contact from status update: ${phone}`);
+  
+  // Try to get name from recent messages in our DB
+  let contactName = phone;
+  
+  const { data: newContact, error: contactError } = await supabase
+    .from('contacts')
+    .insert({
+      name: contactName,
+      phone,
+      company_id: companyId,
+      metadata: { remoteJid, resolvedFromUpdate: true }
+    })
+    .select()
+    .single();
+  
+  if (contactError) {
+    console.log(`⚠️ Error creating contact: ${contactError.message}`);
+    return;
+  }
+  
+  // Create conversation
+  await supabase.from('conversations').insert({
+    contact_id: newContact.id,
+    company_id: companyId,
+    channel: 'whatsapp',
+    status: 'open',
+    bot_active: true,
+    metadata: {
+      remoteJid,
+      instanceName: webhook.instance
+    }
+  });
+  
+  console.log(`✅ Created contact and conversation: ${newContact.id}`);
+}
+
+
 async function fetchProfilePicture(phoneNumber: string, instanceName: string): Promise<string | null> {
   if (!phoneNumber) return null;
   
