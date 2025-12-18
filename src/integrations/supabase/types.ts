@@ -723,6 +723,7 @@ export type Database = {
     Functions: {
       cleanup_expired_typing_status: { Args: never; Returns: undefined }
       get_user_company_id: { Args: { _user_id: string }; Returns: string }
+      get_user_company_ids: { Args: { _user_id: string }; Returns: string[] }
       get_web_conversation_messages: {
         Args: { p_access_token: string; p_conversation_id: string }
         Returns: {
