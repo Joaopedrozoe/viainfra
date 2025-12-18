@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { cn } from "@/lib/utils";
 
 const getFileType = (file: File): Attachment['type'] => {
   if (file.type.startsWith('image/')) return 'image';
@@ -470,19 +471,29 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       />
       <div className="flex-1 overflow-y-auto bg-gray-50/50 p-4 scroll-smooth">
         <div className="space-y-3">
-          {messages.map((message, index) => (
-            <div 
-              key={message.id} 
-              className="animate-in fade-in-0 slide-in-from-bottom-2 duration-200"
-              style={{ animationDelay: index === messages.length - 1 ? '0ms' : undefined }}
-            >
-              <MessageItem message={message} />
-            </div>
-          ))}
+          {messages.map((message, index) => {
+            const isLastMessage = index === messages.length - 1;
+            const isNewMessage = isLastMessage && message.sender === 'user';
+            const isSentMessage = message.id.startsWith('temp-');
+            
+            return (
+              <div 
+                key={message.id} 
+                className={cn(
+                  "transition-all duration-200",
+                  isNewMessage && "animate-in fade-in-0 slide-in-from-bottom-3 duration-300",
+                  isSentMessage && "opacity-70 scale-[0.98]",
+                  !isSentMessage && message.sender === 'agent' && isLastMessage && "animate-in fade-in-0 slide-in-from-bottom-2 duration-200"
+                )}
+              >
+                <MessageItem message={message} />
+              </div>
+            );
+          })}
           <div ref={messagesEndRef} />
         </div>
       </div>
-      <div className="flex-shrink-0 border-t bg-white">
+      <div className="flex-shrink-0 border-t bg-background">
         <ChatInput onSendMessage={handleSendMessage} />
       </div>
     </div>
