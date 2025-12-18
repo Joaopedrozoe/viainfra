@@ -27,7 +27,7 @@ let cachedMetrics: DashboardMetrics | null = null;
 let lastCalculation = 0;
 const CACHE_DURATION = 30000; // 30 segundos
 
-export const calculateDashboardMetrics = (isDemoMode: boolean = true, previewConversations: any[] = [], companyId?: string): DashboardMetrics => {
+export const calculateDashboardMetrics = (isDemoMode: boolean = true, previewConversations: any[] = []): DashboardMetrics => {
   const now = Date.now();
   
   // Limpa cache para forçar recálculo sempre (temporário para garantir dados zerados)
@@ -41,8 +41,8 @@ export const calculateDashboardMetrics = (isDemoMode: boolean = true, previewCon
     conversations = previewConversations;
   }
   
-  // Carrega canais do localStorage (mesma fonte que a página Canais) - ISOLADO POR EMPRESA
-  channels = getDemoChannelsExpanded(companyId);
+  // Carrega canais do localStorage (mesma fonte que a página Canais)
+  channels = getDemoChannelsExpanded();
   
   // Conversas ativas (consideramos conversas com unread > 0 como ativas)
   const activeConversations = conversations.filter(c => c.unread && c.unread > 0).length;

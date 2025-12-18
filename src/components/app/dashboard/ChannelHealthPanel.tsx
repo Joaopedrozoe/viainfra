@@ -17,8 +17,8 @@ export const ChannelHealthPanel: React.FC = () => {
   const loadChannels = async () => {
     setIsLoading(true);
     try {
-      // Carrega os canais salvos (mesma fonte que a página de Canais usa) - ISOLADO POR EMPRESA
-      const savedChannels = getDemoChannelsExpanded(profile?.company_id);
+      // Carrega os canais salvos (mesma fonte que a página de Canais usa)
+      const savedChannels = getDemoChannelsExpanded();
       
       // Filtra apenas canais conectados para mostrar no dashboard
       const activeChannels = savedChannels.filter(ch => ch.status === 'connected');
@@ -33,9 +33,7 @@ export const ChannelHealthPanel: React.FC = () => {
   };
   
   useEffect(() => {
-    if (profile?.company_id) {
-      loadChannels();
-    }
+    loadChannels();
   }, [isDemoMode, profile?.company_id]);
   
   // Listen for dashboard refresh events
