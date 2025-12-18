@@ -744,6 +744,10 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       if ((i + 1) % 20 === 0) console.log(`📊 Processados ${i + 1}/${allChats.length}...`);
 
       try {
+        // Variáveis compartilhadas para grupos e contatos individuais
+        let contactId: string | null = null;
+        let convId: string | null = null;
+        
         // ============================================================
         // GRUPOS - Buscar nome real via API de metadados do grupo
         // ============================================================
@@ -785,7 +789,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             .eq('metadata->>remoteJid', jid)
             .maybeSingle();
 
-          let contactId;
+          // Usar contactId declarado no escopo externo
           if (!existingContact) {
             const { data: newContact } = await supabase
               .from('contacts')
@@ -824,7 +828,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             .eq('channel', 'whatsapp')
             .maybeSingle();
 
-          let convId;
+          // Usar convId declarado no escopo externo
           if (!existingConv) {
             const { data: newConv } = await supabase
               .from('conversations')
@@ -844,22 +848,19 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           }
 
           stats.groups++;
-          continue;
-        }
-
-        // ============================================================
-        // CONTATOS INDIVIDUAIS
-        // ============================================================
-        
-        // Detectar se é @lid (ID interno) ou @s.whatsapp.net (telefone real)
-        const isLid = jid.includes('@lid');
-        const phoneMatch = jid.match(/^(\d+)@/);
-        if (!phoneMatch) continue;
-        
-        const rawNumber = phoneMatch[1];
-        let phone = rawNumber;
-        let contactId: string | null = null;
-        let convId: string | null = null;
+          // NÃO usar continue aqui - grupos também precisam ter mensagens importadas!
+        } else {
+          // ============================================================
+          // CONTATOS INDIVIDUAIS (não grupos)
+          // ============================================================
+          
+          // Detectar se é @lid (ID interno) ou @s.whatsapp.net (telefone real)
+          const isLid = jid.includes('@lid');
+          const phoneMatch = jid.match(/^(\d+)@/);
+          if (!phoneMatch) continue;
+          
+          const rawNumber = phoneMatch[1];
+          let phone = rawNumber;
         
         // Obter nome
         const name = chatName || nameMap.get(jid) || '';
@@ -1024,7 +1025,8 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             convId = existingConv.id;
             console.log(`  🔄 Conversa existente, sincronizando mensagens...`);
           }
-        }
+          }
+        } // Fim do else (contatos individuais)
 
         if (!convId) continue;
 
@@ -1041,7 +1043,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
             body: JSON.stringify({
               where: { key: { remoteJid: jid } },
-              limit: 50
+              limit: 500
             })
           });
           
