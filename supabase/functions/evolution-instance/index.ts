@@ -676,89 +676,162 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         // CONTATOS INDIVIDUAIS
         // ============================================================
         
-        // Extrair telefone do JID
+        // Detectar se é @lid (ID interno) ou @s.whatsapp.net (telefone real)
+        const isLid = jid.includes('@lid');
         const phoneMatch = jid.match(/^(\d+)@/);
         if (!phoneMatch) continue;
         
-        let phone = phoneMatch[1];
-        // Normalizar: adicionar 55 se necessário
-        if (phone.length === 10 || phone.length === 11) {
-          phone = '55' + phone;
-        }
+        const rawNumber = phoneMatch[1];
+        let phone = rawNumber;
+        let contactId: string | null = null;
+        let convId: string | null = null;
         
         // Obter nome
-        let name = chatName || nameMap.get(jid) || phone;
+        const name = chatName || nameMap.get(jid) || '';
         
-        console.log(`📱 ${name} (${phone})`);
-
-        // Criar/encontrar contato
-        let { data: existingContact } = await supabase
-          .from('contacts')
-          .select('id, name, avatar_url')
-          .eq('company_id', companyId)
-          .eq('phone', phone)
-          .maybeSingle();
-
-        let contactId;
-        if (!existingContact) {
-          const { data: newContact } = await supabase
+        // ============================================================
+        // @lid - IDs internos do WhatsApp (sem telefone real)
+        // Tentar fazer match por nome com contato existente
+        // ============================================================
+        if (isLid) {
+          if (!name || name === rawNumber) {
+            console.log(`⏭️ @lid sem nome: ${rawNumber}`);
+            continue;
+          }
+          
+          console.log(`🔍 @lid: Buscando "${name}" por nome...`);
+          
+          // Buscar contato existente pelo nome (case insensitive)
+          const { data: existingContact } = await supabase
             .from('contacts')
-            .insert({
-              company_id: companyId,
-              name: name,
-              phone: phone,
-              avatar_url: profilePic,
-              metadata: { remoteJid: jid }
-            })
-            .select('id')
-            .single();
-          contactId = newContact?.id;
-          if (contactId) stats.contacts++;
-        } else {
+            .select('id, phone')
+            .eq('company_id', companyId)
+            .ilike('name', name)
+            .not('phone', 'is', null)
+            .maybeSingle();
+          
+          if (!existingContact) {
+            console.log(`  ❌ Contato "${name}" não encontrado no DB`);
+            continue;
+          }
+          
+          console.log(`  ✅ Match: "${name}" → ${existingContact.phone}`);
           contactId = existingContact.id;
-          // Atualizar nome se temos um melhor
-          const hasRealName = name && !/^\d+$/.test(name);
-          const currentNameIsPhone = /^\d+$/.test(existingContact.name || '');
-          if (hasRealName && currentNameIsPhone) {
-            await supabase.from('contacts').update({ name }).eq('id', contactId);
-          }
-          // Atualizar foto se não tem
-          if (profilePic && !existingContact.avatar_url) {
-            await supabase.from('contacts').update({ avatar_url: profilePic }).eq('id', contactId);
-          }
-        }
-
-        if (!contactId) continue;
-
-        // Criar/encontrar conversa
-        let { data: existingConv } = await supabase
-          .from('conversations')
-          .select('id')
-          .eq('company_id', companyId)
-          .eq('contact_id', contactId)
-          .eq('channel', 'whatsapp')
-          .maybeSingle();
-
-        let convId;
-        if (!existingConv) {
-          const { data: newConv } = await supabase
+          
+          // Verificar/criar conversa
+          const { data: existingConv } = await supabase
             .from('conversations')
-            .insert({
-              company_id: companyId,
-              contact_id: contactId,
-              channel: 'whatsapp',
-              status: 'open',
-              metadata: { remoteJid: jid, instanceName }
-            })
             .select('id')
-            .single();
-          convId = newConv?.id;
-          if (convId) {
-            stats.conversations++;
-            console.log(`  ✅ Conversa criada`);
+            .eq('company_id', companyId)
+            .eq('contact_id', contactId)
+            .eq('channel', 'whatsapp')
+            .maybeSingle();
+          
+          if (!existingConv) {
+            const { data: newConv } = await supabase
+              .from('conversations')
+              .insert({
+                company_id: companyId,
+                contact_id: contactId,
+                channel: 'whatsapp',
+                status: 'open',
+                metadata: { lidJid: jid, instanceName }
+              })
+              .select('id')
+              .single();
+            convId = newConv?.id || null;
+            if (convId) {
+              stats.conversations++;
+              console.log(`  ✅ Conversa criada para "${name}"`);
+            }
+          } else {
+            convId = existingConv.id;
           }
-        } else {
-          convId = existingConv.id;
+        } 
+        // ============================================================
+        // @s.whatsapp.net - Telefone real
+        // ============================================================
+        else {
+          // Normalizar: adicionar 55 se necessário
+          if (phone.length === 10 || phone.length === 11) {
+            phone = '55' + phone;
+          }
+          
+          // Validar que parece um telefone real (8-15 dígitos)
+          if (phone.length < 8 || phone.length > 15) {
+            console.log(`⏭️ Telefone inválido: ${phone}`);
+            continue;
+          }
+          
+          console.log(`📱 ${name || phone} (${phone})`);
+
+          // Criar/encontrar contato
+          let { data: existingContact } = await supabase
+            .from('contacts')
+            .select('id, name, avatar_url')
+            .eq('company_id', companyId)
+            .eq('phone', phone)
+            .maybeSingle();
+
+          if (!existingContact) {
+            const { data: newContact } = await supabase
+              .from('contacts')
+              .insert({
+                company_id: companyId,
+                name: name || phone,
+                phone: phone,
+                avatar_url: profilePic,
+                metadata: { remoteJid: jid }
+              })
+              .select('id')
+              .single();
+            contactId = newContact?.id || null;
+            if (contactId) stats.contacts++;
+          } else {
+            contactId = existingContact.id;
+            // Atualizar nome se temos um melhor
+            const hasRealName = name && !/^\d+$/.test(name);
+            const currentNameIsPhone = /^\d+$/.test(existingContact.name || '');
+            if (hasRealName && currentNameIsPhone) {
+              await supabase.from('contacts').update({ name }).eq('id', contactId);
+            }
+            // Atualizar foto se não tem
+            if (profilePic && !existingContact.avatar_url) {
+              await supabase.from('contacts').update({ avatar_url: profilePic }).eq('id', contactId);
+            }
+          }
+
+          if (!contactId) continue;
+
+          // Criar/encontrar conversa
+          let { data: existingConv } = await supabase
+            .from('conversations')
+            .select('id')
+            .eq('company_id', companyId)
+            .eq('contact_id', contactId)
+            .eq('channel', 'whatsapp')
+            .maybeSingle();
+
+          if (!existingConv) {
+            const { data: newConv } = await supabase
+              .from('conversations')
+              .insert({
+                company_id: companyId,
+                contact_id: contactId,
+                channel: 'whatsapp',
+                status: 'open',
+                metadata: { remoteJid: jid, instanceName }
+              })
+              .select('id')
+              .single();
+            convId = newConv?.id || null;
+            if (convId) {
+              stats.conversations++;
+              console.log(`  ✅ Conversa criada`);
+            }
+          } else {
+            convId = existingConv.id;
+          }
         }
 
         if (!convId) continue;
