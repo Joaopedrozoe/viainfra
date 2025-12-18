@@ -1488,17 +1488,29 @@ async function syncMessagesForConversation(
   extractMessageContent: (msg: any) => { content: string; type: string }
 ): Promise<number> {
   try {
-    // Buscar mensagens usando fetchMessages (busca direto do WhatsApp)
-    const response = await fetch(`${evolutionApiUrl}/chat/fetchMessages/${instanceName}`, {
+    console.log(`  🔍 Buscando mensagens: ${remoteJid}`);
+    
+    // Usar findMessages (mesmo endpoint que funciona na importação)
+    const response = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
       method: 'POST',
       headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ number: remoteJid, count: 100 })
+      body: JSON.stringify({
+        where: { key: { remoteJid: remoteJid } },
+        limit: 500
+      })
     });
     
-    if (!response.ok) return 0;
+    if (!response.ok) {
+      console.log(`  ❌ findMessages falhou: ${response.status}`);
+      return 0;
+    }
     
     const data = await response.json();
-    const messages = Array.isArray(data) ? data : (data?.messages || data?.records || []);
+    const rawMessages = data?.messages;
+    const messages = Array.isArray(rawMessages) ? rawMessages : 
+                    (rawMessages?.records || rawMessages?.data || []);
+    
+    console.log(`  📨 ${messages.length} mensagens da API`);
     
     if (messages.length === 0) return 0;
     
@@ -1512,6 +1524,8 @@ async function syncMessagesForConversation(
     for (const msg of existingMsgs || []) {
       if (msg.metadata?.messageId) existingIds.add(msg.metadata.messageId);
     }
+    
+    console.log(`  📦 ${existingIds.size} mensagens já no DB`);
     
     let importedCount = 0;
     let lastMsgTimestamp: Date | null = null;
@@ -1563,9 +1577,13 @@ async function syncMessagesForConversation(
         .eq('id', conversationId);
     }
     
+    if (importedCount > 0) {
+      console.log(`  ✅ +${importedCount} novas mensagens`);
+    }
+    
     return importedCount;
   } catch (e) {
-    console.error('Erro sync messages:', e);
+    console.error('❌ Erro sync messages:', e);
     return 0;
   }
 }
