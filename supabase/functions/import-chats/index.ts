@@ -366,11 +366,15 @@ serve(async (req) => {
             conversationId = newConv?.id;
             isNewConversation = true;
           } else {
-            // Ensure metadata has remoteJid
-            if (!existingConv?.metadata?.remoteJid) {
+            // CRITICAL FIX: Ensure metadata has remoteJid AND instanceName
+            const needsUpdate = !existingConv?.metadata?.remoteJid || !existingConv?.metadata?.instanceName;
+            if (needsUpdate) {
+              console.log(`      🔧 Updating metadata for ${jid}: remoteJid=${!!existingConv?.metadata?.remoteJid}, instanceName=${!!existingConv?.metadata?.instanceName}`);
               await supabase.from('conversations').update({
-                metadata: { ...existingConv?.metadata, remoteJid: jid, instanceName }
+                metadata: { ...existingConv?.metadata, remoteJid: jid, instanceName },
+                updated_at: new Date().toISOString()
               }).eq('id', conversationId);
+              stats.updatedConversations++;
             }
           }
 
