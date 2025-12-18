@@ -1009,7 +1009,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         }
 
         // Find or create conversation - THIS IS THE KEY PART
-        let { data: existingConv } = await supabase
+        const { data: existingConv, error: findError } = await supabase
           .from('conversations')
           .select('id, status')
           .eq('company_id', companyId)
@@ -1017,7 +1017,13 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           .eq('channel', 'whatsapp')
           .maybeSingle();
 
+        if (findError) {
+          console.error(`❌ Erro buscar conversa para ${finalName}:`, findError.message);
+        }
+
         if (!existingConv) {
+          console.log(`  🆕 Criando conversa para: ${finalName} (contact: ${contactId})`);
+          
           const { data: newConv, error } = await supabase
             .from('conversations')
             .insert({
@@ -1032,14 +1038,15 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             .single();
 
           if (error) {
+            console.error(`  ❌ ERRO INSERT: ${error.code} - ${error.message}`);
             if (error.code === '23505') {
               stats.conversationsReused++;
-            } else {
-              console.error(`❌ Criar conversa:`, error.message);
             }
           } else if (newConv) {
             stats.conversationsCreated++;
-            console.log(`  ✅ CONV CRIADA: ${finalName}`);
+            console.log(`  ✅ CONV CRIADA: ${finalName} -> ${newConv.id}`);
+          } else {
+            console.error(`  ⚠️ INSERT sem erro mas sem dados: ${finalName}`);
           }
         } else {
           stats.conversationsReused++;
