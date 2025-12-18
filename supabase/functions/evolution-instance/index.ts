@@ -1648,12 +1648,16 @@ async function syncMessagesForConversation(
         metadata: { messageId, type }
       });
       
+      // Tratar erro de duplicata (índice único no messageId) graciosamente
       if (!error) {
         importedCount++;
         if (messageId) {
           existingIds.add(messageId);
           globalMessageIds.add(messageId);
         }
+      } else if (error.code === '23505') {
+        // Duplicata detectada pelo índice único - ignorar silenciosamente
+        skippedGlobal++;
       }
     }
     
