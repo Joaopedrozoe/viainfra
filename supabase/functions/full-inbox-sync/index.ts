@@ -50,28 +50,32 @@ serve(async (req) => {
     console.log(`📌 Company ID: ${companyId}`);
 
     // ============================================
-    // STEP 0: Clean up duplicate contacts with @lid IDs
+    // STEP 0: Clean up ONLY duplicate contacts with INVALID phone format
+    // Do NOT delete contacts with @lid - they are valid WhatsApp contacts!
     // ============================================
-    console.log('\n🧹 STEP 0: Cleaning duplicate @lid contacts...');
+    console.log('\n🧹 STEP 0: Cleaning invalid phone formats (NOT @lid contacts)...');
     
-    // Delete contacts with invalid phone (contains 'cmja' or '@lid')
+    // Only delete contacts with invalid phone format (e.g., phone contains 'cmja' but NOT valid @lid contacts)
+    // We keep contacts with @lid in metadata - they just have phone=NULL
     const { data: invalidContacts } = await supabase
       .from('contacts')
       .select('id, name, phone')
       .eq('company_id', companyId)
-      .or('phone.like.%cmja%,phone.like.%@lid%,metadata->>remoteJid.like.%@lid%');
+      .not('phone', 'is', null)
+      .or('phone.like.%cmja%,phone.like.%@lid%');
 
     if (invalidContacts && invalidContacts.length > 0) {
-      console.log(`  🗑️ Found ${invalidContacts.length} invalid contacts to clean`);
+      console.log(`  🗑️ Found ${invalidContacts.length} contacts with invalid phone format`);
       
       for (const contact of invalidContacts) {
-        // First delete conversations linked to this contact
-        await supabase.from('conversations').delete().eq('contact_id', contact.id);
-        // Then delete the contact
-        await supabase.from('contacts').delete().eq('id', contact.id);
+        // Instead of deleting, just set phone to NULL
+        await supabase
+          .from('contacts')
+          .update({ phone: null })
+          .eq('id', contact.id);
         stats.cleanedDuplicates++;
       }
-      console.log(`  ✅ Cleaned ${stats.cleanedDuplicates} invalid contacts`);
+      console.log(`  ✅ Cleaned ${stats.cleanedDuplicates} invalid phone formats`);
     }
 
     // ============================================
