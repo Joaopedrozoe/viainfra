@@ -1508,10 +1508,13 @@ async function syncMessagesForConversation(
   extractMessageContent: (msg: any) => { content: string; type: string }
 ): Promise<number> {
   try {
-    console.log(`  🔍 Buscando mensagens: ${remoteJid}`);
+    // Extrair apenas o número do JID para logs mais claros
+    const phoneForLog = remoteJid.replace('@s.whatsapp.net', '');
+    console.log(`  🔍 Sync: ${phoneForLog}`);
     
     // Tentar múltiplos métodos para buscar mensagens (Evolution API é inconsistente)
     let messages: any[] = [];
+    let apiMethod = '';
     
     // Método 1: findMessages com where.key.remoteJid
     try {
@@ -1529,6 +1532,7 @@ async function syncMessagesForConversation(
         const raw = data?.messages;
         messages = Array.isArray(raw) ? raw : 
                    (raw?.records || data?.records || raw?.data || []);
+        if (messages.length > 0) apiMethod = 'key.remoteJid';
       }
     } catch (e) { /* continue */ }
     
@@ -1549,26 +1553,43 @@ async function syncMessagesForConversation(
           const raw = data?.messages;
           messages = Array.isArray(raw) ? raw : 
                      (raw?.records || data?.records || raw?.data || []);
+          if (messages.length > 0) apiMethod = 'remoteJid';
         }
       } catch (e) { /* continue */ }
     }
     
-    console.log(`  📨 ${messages.length} mensagens da API`);
+    if (messages.length === 0) {
+      console.log(`  ⚠️ ${phoneForLog}: 0 msgs na API`);
+      return 0;
+    }
     
-    if (messages.length === 0) return 0;
+    // Encontrar a mensagem mais recente da API para comparação
+    let latestApiTimestamp = 0;
+    for (const msg of messages) {
+      const ts = msg.messageTimestamp || msg.key?.messageTimestamp || 0;
+      const tsNum = typeof ts === 'number' ? ts : 0;
+      if (tsNum > latestApiTimestamp) latestApiTimestamp = tsNum;
+    }
+    const latestApiDate = new Date((latestApiTimestamp > 9999999999 ? latestApiTimestamp : latestApiTimestamp * 1000));
     
     // Get existing message IDs
     const { data: existingMsgs } = await supabase
       .from('messages')
-      .select('metadata')
+      .select('metadata, created_at')
       .eq('conversation_id', conversationId);
     
     const existingIds = new Set<string>();
+    let latestDbTimestamp = 0;
     for (const msg of existingMsgs || []) {
       if (msg.metadata?.messageId) existingIds.add(msg.metadata.messageId);
+      const dbTs = new Date(msg.created_at).getTime();
+      if (dbTs > latestDbTimestamp) latestDbTimestamp = dbTs;
     }
     
-    console.log(`  📦 ${existingIds.size} mensagens já no DB`);
+    const latestDbDate = latestDbTimestamp > 0 ? new Date(latestDbTimestamp) : null;
+    
+    // Log detalhado para debug
+    console.log(`  📊 ${phoneForLog}: API=${messages.length} msgs (até ${latestApiDate.toISOString().slice(0,16)}), DB=${existingIds.size} (até ${latestDbDate?.toISOString().slice(0,16) || 'N/A'})`);
     
     let importedCount = 0;
     let lastMsgTimestamp: Date | null = null;
