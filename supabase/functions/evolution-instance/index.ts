@@ -693,11 +693,9 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     console.log(`📇 Mapas criados: ${contactsNameMap.size} nomes, ${contactsPhoneMap.size} lids, ${nameToPhoneMap.size} name->phone`);
 
     // ============================================================
-    // NEW APPROACH: Process contacts directly, not chats
-    // This ensures we capture ALL conversations with messages
+    // CORRECT APPROACH: Process CHATS (active inbox conversations)
+    // This is what matters - chats are actual conversations with messages
     // ============================================================
-    
-    console.log(`\n🔄 NOVA ABORDAGEM: Processando contatos diretamente...`);
     
     const stats = {
       contactsCreated: 0,
@@ -716,8 +714,10 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     const processedGroups = new Set<string>();
     const processedJids = new Set<string>();
 
-    // First, get ALL chats to know which contacts have conversations
+    // Fetch ALL chats - these are actual inbox conversations
     allChats = [];
+    console.log(`\n📥 Buscando chats do inbox...`);
+    
     try {
       const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
         method: 'POST',
@@ -726,7 +726,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       });
       if (chatsResponse.ok) {
         allChats = await chatsResponse.json() || [];
-        console.log(`✅ findChats: ${allChats.length} chats`);
+        console.log(`✅ findChats: ${allChats.length} chats ativos`);
       }
     } catch (e) {
       console.log(`⚠️ Erro findChats:`, e);
@@ -741,42 +741,40 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       });
       if (archivedResponse.ok) {
         const archived = await archivedResponse.json() || [];
-        console.log(`✅ findChats (archived): ${archived.length} chats`);
+        console.log(`✅ findChats (arquivados): ${archived.length} chats`);
         archived.forEach((c: any) => {
           c.archived = true;
-          allChats.push(c);
+          // Only add if not already present
+          const existingIndex = allChats.findIndex((existing: any) => 
+            (existing.remoteJid || existing.id || existing.jid) === (c.remoteJid || c.id || c.jid)
+          );
+          if (existingIndex === -1) {
+            allChats.push(c);
+          }
         });
       }
     } catch (e) {
       console.log(`⚠️ Erro findChats archived:`, e);
     }
 
-    // Build set of JIDs from chats for quick lookup
-    const chatJids = new Set<string>();
-    allChats.forEach((c: any) => {
-      const jid = c.remoteJid || c.id || c.jid || '';
-      if (jid) chatJids.add(jid);
-    });
+    console.log(`📊 Total de chats para processar: ${allChats.length}`);
     
-    console.log(`📊 Total JIDs de chats: ${chatJids.size}`);
-
-    // ============================================================
-    // PROCESS ALL CONTACTS - Try to fetch messages for each
-    // ============================================================
-    console.log(`\n👥 Processando ${allContacts.length} contatos...`);
-    
-    // Sort contacts to process those in chatJids first (they definitely have messages)
-    const sortedContacts = allContacts.sort((a: any, b: any) => {
-      const jidA = a.remoteJid || a.jid || '';
-      const jidB = b.remoteJid || b.jid || '';
-      const inChatsA = chatJids.has(jidA) ? 0 : 1;
-      const inChatsB = chatJids.has(jidB) ? 0 : 1;
-      return inChatsA - inChatsB;
+    // Log sample chats for debugging
+    console.log(`📋 Amostra de chats:`);
+    allChats.slice(0, 10).forEach((chat: any, i: number) => {
+      const jid = chat.remoteJid || chat.id || chat.jid || '';
+      const name = chat.name || chat.pushName || chat.subject || 'N/A';
+      console.log(`  ${i+1}. ${name} - ${jid}`);
     });
 
-    for (const contact of sortedContacts) {
+    // ============================================================
+    // PROCESS CHATS - Each chat is an actual conversation
+    // ============================================================
+    console.log(`\n🔄 Processando ${allChats.length} chats...`);
+
+    for (const chat of allChats) {
       try {
-        const jid = contact.remoteJid || contact.jid || '';
+        const jid = chat.remoteJid || chat.id || chat.jid || '';
         
         // Skip if already processed or invalid
         if (!jid || processedJids.has(jid)) continue;
@@ -789,12 +787,16 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         
         const isGroup = jid.includes('@g.us');
         const isLid = jid.includes('@lid');
-        const contactName = contact.pushName || contact.name || contact.notify || contact.verifiedName || '';
-        const profilePicUrl = contact.profilePictureUrl || contact.profilePicUrl || contact.imgUrl || null;
+        const isArchived = chat.archive === true || chat.archived === true;
         
-        // Find matching chat data for archived status
-        const chatData = allChats.find((c: any) => (c.remoteJid || c.id || c.jid) === jid);
-        const isArchived = chatData?.archive === true || chatData?.archived === true;
+        // Get contact info from contacts API lookup
+        const matchedContact = allContacts.find((c: any) => (c.remoteJid || c.jid) === jid);
+        const contactName = chat.name || chat.pushName || chat.subject || 
+                           matchedContact?.pushName || matchedContact?.name || 
+                           matchedContact?.notify || matchedContact?.verifiedName || '';
+        const profilePicUrl = chat.profilePictureUrl || chat.imgUrl || 
+                             matchedContact?.profilePictureUrl || matchedContact?.profilePicUrl || 
+                             matchedContact?.imgUrl || null;
 
         // ============================================================
         // PROCESS GROUPS
@@ -803,7 +805,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           if (processedGroups.has(jid)) continue;
           processedGroups.add(jid);
 
-          let groupName = contactName || chatData?.subject || chatData?.name;
+          let groupName = contactName || chat.subject || chat.name;
           
           if (!groupName) {
             // Generate name from JID
@@ -1098,20 +1100,9 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           if (msgCount > 0) break;
         }
         
-        // If no messages found, delete the conversation to avoid empty entries
-        if (msgCount === 0 && stats.conversationsCreated > 0) {
-          // Only delete if we just created it
-          const { data: msgCheck } = await supabase
-            .from('messages')
-            .select('id')
-            .eq('conversation_id', conversationId)
-            .limit(1);
-          
-          if (!msgCheck || msgCheck.length === 0) {
-            await supabase.from('conversations').delete().eq('id', conversationId);
-            stats.conversationsCreated--;
-            console.log(`  ⏭️ Conversa removida (sem mensagens)`);
-          }
+        // Log if we couldn't fetch messages (API limitation)
+        if (msgCount === 0) {
+          console.log(`  ⚠️ Sem mensagens disponíveis via API para: ${originalJid || jid}`);
         }
         
         stats.messagesImported += msgCount;
@@ -1239,10 +1230,11 @@ async function syncMessagesForConversation(
     let messages: any[] = [];
     let successJid: string | null = null;
 
-    // Try each JID variant
+    // Try each JID variant with multiple request formats
     for (const jidToTry of jidVariants) {
+      // Format 1: where.key.remoteJid (most common)
       try {
-        const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+        const resp1 = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
           method: 'POST',
           headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1251,21 +1243,82 @@ async function syncMessagesForConversation(
           })
         });
 
-        if (messagesResponse.ok) {
-          const messagesData = await messagesResponse.json();
-          const fetchedMsgs = Array.isArray(messagesData) ? messagesData : 
-                            (messagesData?.messages?.records || messagesData?.messages || []);
-          
-          if (fetchedMsgs.length > 0) {
-            messages = fetchedMsgs;
+        if (resp1.ok) {
+          const data = await resp1.json();
+          const msgs = Array.isArray(data) ? data : 
+                      (data?.messages?.records || data?.messages || data?.records || []);
+          if (msgs.length > 0) {
+            messages = msgs;
             successJid = jidToTry;
-            console.log(`  ✅ ${fetchedMsgs.length} msgs encontradas com JID: ${jidToTry}`);
+            console.log(`  ✅ ${msgs.length} msgs (format1): ${jidToTry}`);
             break;
           }
         }
-      } catch (e) {
-        // Continue to next variant
-      }
+      } catch (e) { /* continue */ }
+
+      // Format 2: remoteJid directly
+      try {
+        const resp2 = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+          method: 'POST',
+          headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ remoteJid: jidToTry, limit: 99999 })
+        });
+
+        if (resp2.ok) {
+          const data = await resp2.json();
+          const msgs = Array.isArray(data) ? data : 
+                      (data?.messages?.records || data?.messages || data?.records || []);
+          if (msgs.length > 0) {
+            messages = msgs;
+            successJid = jidToTry;
+            console.log(`  ✅ ${msgs.length} msgs (format2): ${jidToTry}`);
+            break;
+          }
+        }
+      } catch (e) { /* continue */ }
+
+      // Format 3: where.remoteJid
+      try {
+        const resp3 = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+          method: 'POST',
+          headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            where: { remoteJid: jidToTry },
+            limit: 99999
+          })
+        });
+
+        if (resp3.ok) {
+          const data = await resp3.json();
+          const msgs = Array.isArray(data) ? data : 
+                      (data?.messages?.records || data?.messages || data?.records || []);
+          if (msgs.length > 0) {
+            messages = msgs;
+            successJid = jidToTry;
+            console.log(`  ✅ ${msgs.length} msgs (format3): ${jidToTry}`);
+            break;
+          }
+        }
+      } catch (e) { /* continue */ }
+    }
+
+    // If still no messages, try GET endpoint for conversation history
+    if (messages.length === 0) {
+      try {
+        const histResp = await fetch(
+          `${evolutionApiUrl}/chat/fetchMessagesChatId/${instanceName}?remoteJid=${encodeURIComponent(remoteJid)}&limit=99999`,
+          { headers: { 'apikey': evolutionApiKey } }
+        );
+        if (histResp.ok) {
+          const data = await histResp.json();
+          const msgs = Array.isArray(data) ? data : (data?.messages || data?.records || []);
+          if (msgs.length > 0) {
+            messages = msgs;
+            successJid = remoteJid;
+            console.log(`  ✅ ${msgs.length} msgs (fetchMessagesChatId)`);
+          }
+        }
+      } catch (e) { /* continue */ }
     }
 
     if (messages.length === 0) {
