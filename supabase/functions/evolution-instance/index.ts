@@ -718,43 +718,95 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     allChats = [];
     console.log(`\n📥 Buscando chats do inbox...`);
     
+    // Try different methods to get ALL chats
+    
+    // Method 1: Standard findChats
     try {
       const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-        body: JSON.stringify({})
+        body: JSON.stringify({ limit: 99999 })
       });
       if (chatsResponse.ok) {
-        allChats = await chatsResponse.json() || [];
-        console.log(`✅ findChats: ${allChats.length} chats ativos`);
+        const data = await chatsResponse.json() || [];
+        console.log(`✅ findChats (limit 99999): ${data.length} chats`);
+        data.forEach((c: any) => {
+          const jid = c.remoteJid || c.id || c.jid || '';
+          if (jid && !allChats.some((existing: any) => (existing.remoteJid || existing.id || existing.jid) === jid)) {
+            allChats.push(c);
+          }
+        });
       }
     } catch (e) {
       console.log(`⚠️ Erro findChats:`, e);
     }
 
-    // Also get archived chats
+    // Method 2: Get archived chats
     try {
       const archivedResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-        body: JSON.stringify({ where: { archived: true } })
+        body: JSON.stringify({ where: { archived: true }, limit: 99999 })
       });
       if (archivedResponse.ok) {
         const archived = await archivedResponse.json() || [];
-        console.log(`✅ findChats (arquivados): ${archived.length} chats`);
+        console.log(`✅ findChats arquivados: ${archived.length} chats`);
         archived.forEach((c: any) => {
           c.archived = true;
-          // Only add if not already present
-          const existingIndex = allChats.findIndex((existing: any) => 
-            (existing.remoteJid || existing.id || existing.jid) === (c.remoteJid || c.id || c.jid)
-          );
-          if (existingIndex === -1) {
+          const jid = c.remoteJid || c.id || c.jid || '';
+          if (jid && !allChats.some((existing: any) => (existing.remoteJid || existing.id || existing.jid) === jid)) {
             allChats.push(c);
           }
         });
       }
     } catch (e) {
       console.log(`⚠️ Erro findChats archived:`, e);
+    }
+
+    // Method 3: GET endpoint as fallback
+    try {
+      const getChatsResp = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}?limit=99999`, {
+        headers: { 'apikey': evolutionApiKey }
+      });
+      if (getChatsResp.ok) {
+        const data = await getChatsResp.json() || [];
+        console.log(`✅ findChats GET: ${data.length} chats`);
+        (Array.isArray(data) ? data : []).forEach((c: any) => {
+          const jid = c.remoteJid || c.id || c.jid || '';
+          if (jid && !allChats.some((existing: any) => (existing.remoteJid || existing.id || existing.jid) === jid)) {
+            allChats.push(c);
+          }
+        });
+      }
+    } catch (e) { /* ignore */ }
+
+    // ================================================================
+    // IMPORTANT: Also add contacts with valid phones as potential chats
+    // This catches conversations that findChats missed
+    // ================================================================
+    const chatJids = new Set(allChats.map((c: any) => c.remoteJid || c.id || c.jid || ''));
+    let addedFromContacts = 0;
+    
+    for (const contact of allContacts) {
+      const jid = contact.remoteJid || contact.jid || '';
+      if (!jid || chatJids.has(jid)) continue;
+      if (jid.includes('@broadcast') || jid.startsWith('status@') || jid.includes('@g.us')) continue;
+      
+      // Only process individual contacts with valid phone-like JIDs
+      const phone = extractPhoneFromJid(jid);
+      if (phone && phone.length >= 10) {
+        allChats.push({
+          remoteJid: jid,
+          name: contact.pushName || contact.name || contact.notify || contact.verifiedName,
+          profilePictureUrl: contact.profilePictureUrl || contact.profilePicUrl || contact.imgUrl,
+          fromContacts: true
+        });
+        addedFromContacts++;
+      }
+    }
+    
+    if (addedFromContacts > 0) {
+      console.log(`➕ Adicionados ${addedFromContacts} contatos extras`);
     }
 
     console.log(`📊 Total de chats para processar: ${allChats.length}`);
