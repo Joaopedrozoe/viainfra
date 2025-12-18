@@ -109,12 +109,17 @@ serve(async (req) => {
 
     console.log(`✅ Processando instância autorizada: ${webhook.instance}`);
 
-    // Process based on event type - normalize to uppercase for comparison
-    const eventType = webhook.event.toUpperCase().replace('.', '_').replace('-', '_');
+    // Process based on event type - normalize to uppercase and handle various formats
+    const eventType = webhook.event.toUpperCase().replace(/\./g, '_').replace(/-/g, '_');
+    console.log(`📥 Evento: ${webhook.event} -> Normalizado: ${eventType}`);
     
     switch (eventType) {
       case 'MESSAGES_UPSERT':
         await processNewMessage(supabase, webhook, payload);
+        break;
+      case 'MESSAGES_UPDATE':
+        // Status update (delivered, read, etc.) - only log for now
+        console.log(`📬 Message status update: ${JSON.stringify(webhook.data?.status || webhook.data)}`);
         break;
       case 'CONNECTION_UPDATE':
         await processConnectionUpdate(supabase, webhook);
@@ -123,8 +128,11 @@ serve(async (req) => {
       case 'PRESENCEUPDATE':
         await processPresenceUpdate(supabase, webhook);
         break;
+      case 'QRCODE_UPDATED':
+        console.log(`📱 QR Code atualizado para ${webhook.instance}`);
+        break;
       default:
-        console.log(`Unhandled event type: ${webhook.event}`);
+        console.log(`⚠️ Evento não tratado: ${webhook.event}`);
     }
 
     return new Response('OK', { status: 200, headers: corsHeaders });
