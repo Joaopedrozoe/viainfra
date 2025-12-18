@@ -142,7 +142,6 @@ serve(async (req) => {
     }
 
     // Criar mapa de JIDs para evitar duplicatas
-    const processedJids = new Set<string>();
     const jidToData = new Map<string, any>();
 
     // Mapear chats por JID (fonte primária de timestamps)
@@ -201,21 +200,33 @@ serve(async (req) => {
       try {
         // Extrair telefone (para não-grupos)
         let phone = '';
+        let phoneWithout55 = '';
+        let phoneWith55 = '';
+        
         if (!isGroup) {
           const phoneMatch = jid.match(/^(\d+)@/);
           if (!phoneMatch) {
             stats.skipped++;
             continue;
           }
-          phone = phoneMatch[1];
+          const rawPhone = phoneMatch[1];
           
-          // Normalizar telefone brasileiro
-          if (phone.length === 10 || phone.length === 11) {
-            phone = '55' + phone;
+          // Criar variações do telefone para busca
+          if (rawPhone.startsWith('55') && rawPhone.length >= 12) {
+            phoneWith55 = rawPhone;
+            phoneWithout55 = rawPhone.slice(2);
+          } else if (rawPhone.length === 10 || rawPhone.length === 11) {
+            phoneWithout55 = rawPhone;
+            phoneWith55 = '55' + rawPhone;
+          } else {
+            phoneWith55 = rawPhone;
+            phoneWithout55 = rawPhone;
           }
           
+          phone = phoneWith55; // Usar com 55 como padrão para novos contatos
+          
           // Validação flexível
-          if (phone.length < 8 || phone.length > 15) {
+          if (phoneWith55.length < 8 || phoneWith55.length > 15) {
             stats.skipped++;
             continue;
           }
@@ -224,14 +235,12 @@ serve(async (req) => {
         // BUSCAR MENSAGENS - aumentado limite para 1000
         const messages = await fetchMessagesFromApi(evolutionApiUrl, evolutionApiKey, instanceName, jid, 1000);
         
-        if (messages.length === 0) {
-          stats.skipped++;
-          continue;
-        }
+        // NÃO pular se não tem mensagens - podemos ter conversas vazias para sincronizar depois
+        // if (messages.length === 0) { stats.skipped++; continue; }
 
         // Log de progresso a cada 20 processados
         if (processed % 20 === 0) {
-          console.log(`  📊 Progresso: ${processed}/${total} (${stats.conversations} conversas, ${stats.messages} mensagens)`);
+          console.log(`  📊 Progresso: ${processed}/${total} (${stats.conversations} conversas, ${stats.messages} msgs)`);
         }
 
         // Criar/atualizar contato
@@ -270,12 +279,12 @@ serve(async (req) => {
             }
           }
         } else {
-          // Contato individual - buscar por telefone
+          // Contato individual - buscar por telefone COM ou SEM prefixo 55
           let { data: existingContact } = await supabase
             .from('contacts')
-            .select('id, name')
+            .select('id, name, phone')
             .eq('company_id', companyId)
-            .eq('phone', phone)
+            .or(`phone.eq.${phoneWith55},phone.eq.${phoneWithout55}`)
             .maybeSingle();
 
           if (!existingContact) {
@@ -296,16 +305,20 @@ serve(async (req) => {
           } else {
             contactId = existingContact.id;
             
-            // IMPORTANTE: Atualizar nome se estava usando telefone como nome
-            const shouldUpdateName = chatName && 
-              (existingContact.name === phone || 
-               existingContact.name === existingContact.id ||
-               /^\d+$/.test(existingContact.name));
-               
-            if (shouldUpdateName) {
+            // IMPORTANTE: Atualizar nome se:
+            // 1. Nome é apenas números (como "2", "5511991593841")
+            // 2. Nome é igual ao telefone
+            // 3. Nome é curto demais (menos de 3 chars) e temos um nome melhor
+            const currentName = existingContact.name || '';
+            const isNameJustNumbers = /^\d+$/.test(currentName);
+            const isNameTooShort = currentName.length < 3;
+            const hasGoodName = chatName && chatName.length >= 2 && !/^\d+$/.test(chatName);
+            
+            if (hasGoodName && (isNameJustNumbers || isNameTooShort)) {
+              console.log(`📝 Atualizando nome: "${currentName}" -> "${chatName}" (telefone: ${existingContact.phone})`);
               await supabase.from('contacts').update({ 
                 name: chatName,
-                metadata: { remoteJid: jid }
+                updated_at: new Date().toISOString()
               }).eq('id', contactId);
               stats.updated++;
             }
@@ -326,6 +339,11 @@ serve(async (req) => {
         let convId = existingConv?.id;
 
         if (!existingConv) {
+          // Só criar conversa se tiver mensagens
+          if (messages.length === 0) {
+            continue;
+          }
+          
           const { data: newConv } = await supabase
             .from('conversations')
             .insert({
@@ -346,16 +364,65 @@ serve(async (req) => {
         if (!convId) continue;
 
         // Importar mensagens
-        const imported = await importMessagesToDb(supabase, convId, messages, jid);
-        stats.messages += imported;
+        if (messages.length > 0) {
+          const imported = await importMessagesToDb(supabase, convId, messages, jid);
+          stats.messages += imported;
+        }
 
       } catch (err) {
-        console.error(`Erro processando ${jid}:`, err);
+        console.error(`❌ Erro processando ${jid}:`, err);
+        stats.skipped++;
+      }
+    }
+
+    // ==========================================
+    // SINCRONIZAR CONVERSAS EXISTENTES SEM MENSAGENS
+    // (Criadas pelo webhook mas vazias)
+    // ==========================================
+    console.log(`\n📥 Verificando conversas existentes sem mensagens...`);
+    
+    const { data: emptyConversations } = await supabase
+      .from('conversations')
+      .select(`
+        id,
+        contact_id,
+        metadata,
+        contacts!conversations_contact_id_fkey(id, name, phone, metadata)
+      `)
+      .eq('company_id', companyId)
+      .eq('channel', 'whatsapp');
+
+    if (emptyConversations) {
+      for (const conv of emptyConversations) {
+        // Verificar se tem mensagens
+        const { count } = await supabase
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('conversation_id', conv.id);
+
+        if (count === 0) {
+          // Buscar remoteJid do contato ou metadata
+          const remoteJid = conv.metadata?.remoteJid || conv.contacts?.metadata?.remoteJid;
+          
+          if (remoteJid && !remoteJid.includes('@lid')) {
+            console.log(`📨 Sincronizando mensagens para conversa vazia: ${conv.contacts?.name || conv.id}`);
+            
+            const messages = await fetchMessagesFromApi(evolutionApiUrl, evolutionApiKey, instanceName, remoteJid, 1000);
+            
+            if (messages.length > 0) {
+              const imported = await importMessagesToDb(supabase, conv.id, messages, remoteJid);
+              stats.messages += imported;
+              console.log(`  ✅ ${imported} mensagens importadas`);
+            } else {
+              console.log(`  ⚠️ Nenhuma mensagem encontrada na API`);
+            }
+          }
+        }
       }
     }
 
     // Sync profile pictures
-    console.log(`\n📷 Sincronizando fotos de perfil...`);
+    console.log(`\n📸 Sincronizando fotos de perfil...`);
     try {
       await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/sync-profile-pictures`, {
         method: 'POST',
@@ -363,39 +430,34 @@ serve(async (req) => {
           'Authorization': `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ instanceName, companyId })
+        body: JSON.stringify({ instanceName })
       });
     } catch (e) {
-      console.log(`  ⚠️ Não foi possível sincronizar fotos`);
+      console.log(`⚠️ Erro sync fotos: ${e}`);
     }
 
     console.log(`\n========================================`);
     console.log(`✅ IMPORTAÇÃO CONCLUÍDA`);
-    console.log(`========================================`);
-    console.log(`📊 JIDs processados: ${processed}`);
-    console.log(`📊 Contatos criados: ${stats.contacts}`);
-    console.log(`📊 Contatos atualizados: ${stats.updated}`);
-    console.log(`📊 Conversas criadas: ${stats.conversations}`);
-    console.log(`📊 Mensagens importadas: ${stats.messages}`);
-    console.log(`📊 Grupos: ${stats.groups}`);
-    console.log(`📊 Ignorados: ${stats.skipped}`);
+    console.log(`   Contatos: ${stats.contacts} criados, ${stats.updated} atualizados`);
+    console.log(`   Conversas: ${stats.conversations}`);
+    console.log(`   Mensagens: ${stats.messages}`);
+    console.log(`   Grupos: ${stats.groups}`);
+    console.log(`   Pulados: ${stats.skipped}`);
     console.log(`========================================\n`);
 
-    return new Response(JSON.stringify({ 
+    return new Response(JSON.stringify({
       success: true,
       stats,
-      totalJids: jidToData.size,
-      processed
-    }), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      message: `Importação concluída: ${stats.contacts} contatos, ${stats.conversations} conversas, ${stats.messages} mensagens`
+    }), { 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
     });
 
   } catch (error) {
-    console.error('❌ Erro:', error);
+    console.error('❌ Erro fatal na importação:', error);
     return new Response(JSON.stringify({ 
-      error: 'Falha ao importar conversas', 
-      details: error instanceof Error ? error.message : 'Erro desconhecido'
+      error: error.message || 'Erro interno durante importação',
+      details: String(error)
     }), { 
       status: 500, 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
