@@ -652,22 +652,45 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       console.log(`⚠️ Erro ao buscar contatos:`, e);
     }
 
-    // Build contacts lookup map (phone -> name)
-    const contactsNameMap = new Map<string, string>();
+    // Build contacts lookup maps
+    const contactsNameMap = new Map<string, string>();  // phone -> name
+    const contactsPhoneMap = new Map<string, string>(); // lid -> phone (for @lid resolution)
+    const nameToPhoneMap = new Map<string, string>();   // name -> phone (fallback for @lid)
+    
     for (const contact of allContacts) {
       const jid = contact.remoteJid || contact.jid || '';
       const name = contact.pushName || contact.name || contact.notify || contact.verifiedName;
+      const lid = contact.lid || '';
       
-      if (name) {
-        const phone = extractPhoneFromJid(jid);
-        if (phone) {
-          const normalized = normalizePhone(phone);
+      // Extract phone from standard JID
+      const phone = extractPhoneFromJid(jid);
+      
+      if (phone) {
+        const normalized = normalizePhone(phone);
+        
+        // Map phone -> name
+        if (name) {
           contactsNameMap.set(phone, name);
           contactsNameMap.set(normalized, name);
         }
+        
+        // Map lid -> phone (if lid exists)
+        if (lid) {
+          contactsPhoneMap.set(lid, normalized);
+          contactsPhoneMap.set(`${lid}@lid`, normalized);
+        }
+        
+        // Map name -> phone (for fallback matching)
+        if (name) {
+          const nameLower = name.toLowerCase().trim();
+          if (!nameToPhoneMap.has(nameLower)) {
+            nameToPhoneMap.set(nameLower, normalized);
+          }
+        }
       }
     }
-    console.log(`📇 Mapa de nomes criado: ${contactsNameMap.size} entradas`);
+    
+    console.log(`📇 Mapas criados: ${contactsNameMap.size} nomes, ${contactsPhoneMap.size} lids, ${nameToPhoneMap.size} name->phone`);
 
     // Fetch chats
     console.log(`💬 Buscando chats...`);
@@ -683,11 +706,13 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         allChats = Array.isArray(chatsData) ? chatsData : [];
         console.log(`✅ ${allChats.length} chats encontrados na API`);
         
-        // Log first 10 chats for debugging
+        // Log first 15 chats for debugging (including @lid ones)
         console.log(`💬 Amostra de chats:`);
-        allChats.slice(0, 10).forEach((c, i) => {
+        allChats.slice(0, 15).forEach((c, i) => {
           const jid = c.remoteJid || c.id || c.jid || '';
-          console.log(`  ${i+1}. JID: ${jid}, Name: ${c.pushName || c.name || c.subject || 'N/A'}, Archived: ${c.archive || c.archived || false}`);
+          const name = c.pushName || c.name || c.subject || 'N/A';
+          const phone = c.phone || c.number || '';
+          console.log(`  ${i+1}. JID: ${jid}, Name: ${name}, Phone: ${phone}, Archived: ${c.archive || c.archived || false}`);
         });
       }
     } catch (e) {
@@ -707,7 +732,8 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       messagesImported: 0,
       groupsCreated: 0,
       skipped: 0,
-      invalidPhone: 0
+      invalidPhone: 0,
+      lidResolved: 0
     };
 
     const processedPhones = new Set<string>();
@@ -858,11 +884,73 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         // PROCESS INDIVIDUAL CHATS
         // ============================================================
         
-        // Extract phone number from JID - STRICT validation
-        const phone = extractPhoneFromJid(jid);
+        // Try to extract phone from JID or resolve @lid
+        let phone = extractPhoneFromJid(jid);
+        let resolvedFromLid = false;
+        
+        // If it's an @lid JID, try to resolve to a real phone
+        if (!phone && jid.includes('@lid')) {
+          const lidId = jid.split('@')[0];
+          const chatName = chat.pushName || chat.name || chat.notify || '';
+          const chatPhone = chat.phone || chat.number || '';
+          
+          // Try 1: Direct phone field in chat
+          if (chatPhone && chatPhone.length >= 10) {
+            const cleaned = chatPhone.replace(/\D/g, '');
+            if (isValidBrazilianPhone(cleaned)) {
+              phone = cleaned;
+              resolvedFromLid = true;
+              console.log(`🔗 @lid resolved via phone field: ${lidId} -> ${phone}`);
+            }
+          }
+          
+          // Try 2: Look up in contacts lid map
+          if (!phone) {
+            phone = contactsPhoneMap.get(lidId) || contactsPhoneMap.get(jid);
+            if (phone) {
+              resolvedFromLid = true;
+              console.log(`🔗 @lid resolved via lid map: ${lidId} -> ${phone}`);
+            }
+          }
+          
+          // Try 3: Match by name in nameToPhone map
+          if (!phone && chatName) {
+            const nameLower = chatName.toLowerCase().trim();
+            phone = nameToPhoneMap.get(nameLower);
+            if (phone) {
+              resolvedFromLid = true;
+              console.log(`🔗 @lid resolved via name: ${chatName} -> ${phone}`);
+            }
+          }
+          
+          // Try 4: Search in database for contact by name (exact match)
+          if (!phone && chatName && chatName.length > 2) {
+            const { data: contactByName } = await supabase
+              .from('contacts')
+              .select('phone, name')
+              .eq('company_id', companyId)
+              .ilike('name', chatName)
+              .not('phone', 'is', null)
+              .limit(1)
+              .maybeSingle();
+            
+            if (contactByName?.phone && isValidBrazilianPhone(contactByName.phone)) {
+              phone = contactByName.phone;
+              resolvedFromLid = true;
+              console.log(`🔗 @lid resolved via DB name search: ${chatName} -> ${phone}`);
+            }
+          }
+          
+          if (!phone) {
+            console.log(`⏭️ Skip: ${jid} (could not resolve @lid, name: ${chatName || 'N/A'})`);
+            stats.invalidPhone++;
+            continue;
+          }
+          
+          stats.lidResolved++;
+        }
         
         if (!phone) {
-          // Log why we're skipping
           console.log(`⏭️ Skip: ${jid} (invalid phone format)`);
           stats.invalidPhone++;
           continue;
@@ -886,8 +974,9 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
         const profilePicUrl = chat.profilePictureUrl || chat.profilePicUrl || chat.imgUrl || null;
         const whatsappJid = `${normalizedPhone}@s.whatsapp.net`;
+        const originalJid = resolvedFromLid ? jid : whatsappJid;
 
-        console.log(`📱 ${contactName} (${normalizedPhone})${isArchived ? ' [arquivado]' : ''}`);
+        console.log(`📱 ${contactName} (${normalizedPhone})${resolvedFromLid ? ' [@lid]' : ''}${isArchived ? ' [arquivado]' : ''}`);
 
         // Find or create contact - try multiple phone variations
         let existingContact = null;
@@ -980,7 +1069,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
               channel: 'whatsapp',
               status: isArchived ? 'resolved' : 'open',
               archived: isArchived,
-              metadata: { instanceName, remoteJid: whatsappJid }
+              metadata: { instanceName, remoteJid: whatsappJid, originalJid: resolvedFromLid ? jid : undefined }
             })
             .select()
             .single();
@@ -1021,8 +1110,8 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
         if (!conversationId) continue;
 
-        // Sync messages - use both the original JID and normalized JID
-        const jidsToTry = [jid, whatsappJid, `${phone}@s.whatsapp.net`];
+        // Sync messages - try multiple JID variations including original @lid
+        const jidsToTry = [originalJid, jid, whatsappJid, `${phone}@s.whatsapp.net`].filter(Boolean);
         let msgCount = 0;
         
         for (const tryJid of [...new Set(jidsToTry)]) {
@@ -1074,6 +1163,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     console.log(`📊 Grupos: ${stats.groupsCreated} criados`);
     console.log(`📊 Conversas: ${stats.conversationsCreated} criadas, ${stats.conversationsReused} reusadas, ${stats.conversationsUpdated} atualizadas`);
     console.log(`📊 Mensagens: ${stats.messagesImported} importadas`);
+    console.log(`📊 @lid resolvidos: ${stats.lidResolved}`);
     console.log(`📊 Ignorados: ${stats.skipped} (telefone inválido: ${stats.invalidPhone})`);
     console.log(`========================================\n`);
 
@@ -1089,10 +1179,11 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         conversationsReused: stats.conversationsReused,
         conversationsUpdated: stats.conversationsUpdated,
         messagesImported: stats.messagesImported,
+        lidResolved: stats.lidResolved,
         skipped: stats.skipped,
         invalidPhone: stats.invalidPhone
       },
-      message: `${stats.contactsCreated} contato(s), ${stats.groupsCreated} grupo(s), ${stats.conversationsCreated + stats.conversationsReused} conversa(s), ${stats.messagesImported} mensagem(ns)`
+      message: `${stats.contactsCreated} contato(s), ${stats.groupsCreated} grupo(s), ${stats.conversationsCreated + stats.conversationsReused} conversa(s), ${stats.messagesImported} mensagem(ns), ${stats.lidResolved} @lid resolvidos`
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
