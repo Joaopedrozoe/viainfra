@@ -827,7 +827,8 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     console.log(`\n🔄 Processando ${allJidsToProcess.size} JIDs...`);
     console.log(`📨 Buscando mensagens por chat...`);
 
-    // Processar CADA JID
+    // Processar CADA JID - SEM BUSCAR MENSAGENS (muito lento)
+    // Mensagens serão sincronizadas depois via syncMessages
     let processedCount = 0;
     for (const jid of allJidsToProcess) {
       try {
@@ -837,11 +838,8 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         if (processedJids.has(jid)) continue;
         processedJids.add(jid);
         
-        // BUSCAR MENSAGENS PARA ESTE JID ESPECIFICAMENTE
-        const cachedMessages = await fetchMessagesForJid(jid);
-        
         processedCount++;
-        if (processedCount % 20 === 0) {
+        if (processedCount % 50 === 0) {
           console.log(`  📥 Processados ${processedCount}/${allJidsToProcess.size} JIDs...`);
         }
         
@@ -946,13 +944,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
             stats.conversationsReused++;
           }
 
-          if (conversationId && cachedMessages.length > 0) {
-            const msgCount = await importCachedMessages(
-              supabase, conversationId, cachedMessages, extractMessageContent, isGroup
-            );
-            stats.messagesImported += msgCount;
-            console.log(`  ✅ ${msgCount} msgs importadas (grupo)`);
-          }
+          // Mensagens serão sincronizadas depois via syncMessages
           continue;
         }
 
@@ -1162,17 +1154,7 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
 
         if (!conversationId) continue;
 
-        // STEP 4: Import messages from cache
-        if (cachedMessages.length > 0) {
-          const msgCount = await importCachedMessages(
-            supabase, conversationId, cachedMessages, extractMessageContent, false
-          );
-          stats.messagesImported += msgCount;
-          
-          if (msgCount > 0) {
-            console.log(`  ✅ ${msgCount} mensagens importadas`);
-          }
-        }
+        // Mensagens serão sincronizadas depois via syncMessages
 
       } catch (chatError) {
         console.error('Erro ao processar contato:', chatError);
