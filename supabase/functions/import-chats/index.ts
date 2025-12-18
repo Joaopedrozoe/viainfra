@@ -101,7 +101,7 @@ serve(async (req) => {
     const allChats = Array.isArray(chatsData) ? chatsData : (chatsData?.chats || []);
     console.log(`✅ ${allChats.length} chats encontrados`);
 
-    // 2. BUSCAR CONTATOS PARA NOMES
+    // 2. BUSCAR CONTATOS PARA NOMES (E PARA PROCESSAR ADICIONAL)
     let contactsData: any[] = [];
     try {
       const contactsResponse = await fetch(`${evolutionApiUrl}/chat/findContacts/${instanceName}`, {
@@ -112,19 +112,22 @@ serve(async (req) => {
       if (contactsResponse.ok) {
         const data = await contactsResponse.json();
         contactsData = Array.isArray(data) ? data : [];
+        console.log(`✅ ${contactsData.length} contatos encontrados na API`);
       }
     } catch (e) { /* ignore */ }
 
-    // Mapa JID -> nome
+    // Mapa JID -> nome E track dos JIDs processados
     const nameMap = new Map<string, string>();
+    const processedJids = new Set<string>();
+    
     for (const c of contactsData) {
       const jid = c.remoteJid || c.jid || c.id;
       const name = c.pushName || c.name || c.notify || c.verifiedName;
       if (jid && name) nameMap.set(jid, name);
     }
 
-    // 3. PROCESSAR CHATS (limite de 100 para evitar timeout)
-    const chatsToProcess = allChats.slice(0, 100);
+    // 3. PROCESSAR CHATS DA API (limite de 80 para deixar espaço para contatos extras)
+    const chatsToProcess = allChats.slice(0, 80);
     console.log(`🔄 Processando ${chatsToProcess.length} chats...\n`);
 
     for (const chat of chatsToProcess) {
@@ -305,8 +308,107 @@ serve(async (req) => {
           const msgCount = await syncMessagesSimple(supabase, evolutionApiUrl, evolutionApiKey, instanceName, convId, jid);
           stats.messages += msgCount;
         }
+        
+        // Marcar JID como processado
+        processedJids.add(jid);
       } catch (err) {
         console.error(`Erro processando ${jid}:`, err);
+      }
+    }
+    
+    // 4. PROCESSAR CONTATOS ADICIONAIS (que não vieram no findChats)
+    console.log(`\n📥 Processando contatos adicionais...`);
+    const additionalContacts = contactsData
+      .filter(c => {
+        const jid = c.remoteJid || c.jid || c.id;
+        if (!jid || processedJids.has(jid)) return false;
+        if (jid.includes('@broadcast') || jid.startsWith('status@') || jid.includes('@g.us') || jid.includes('@lid')) return false;
+        // Apenas contatos com número de telefone válido
+        const phoneMatch = jid.match(/^(\d+)@/);
+        return phoneMatch && phoneMatch[1].length >= 8 && phoneMatch[1].length <= 15;
+      })
+      .slice(0, 50); // Limitar para não ultrapassar timeout
+    
+    console.log(`🔄 ${additionalContacts.length} contatos adicionais para processar`);
+    
+    for (const apiContact of additionalContacts) {
+      const jid = apiContact.remoteJid || apiContact.jid || apiContact.id;
+      const phoneMatch = jid.match(/^(\d+)@/);
+      if (!phoneMatch) continue;
+      
+      let phone = phoneMatch[1];
+      if (phone.length === 10 || phone.length === 11) {
+        phone = '55' + phone;
+      }
+      
+      const name = apiContact.pushName || apiContact.name || apiContact.notify || apiContact.verifiedName || phone;
+      const profilePic = apiContact.profilePictureUrl || apiContact.imgUrl || null;
+      
+      try {
+        // Criar/encontrar contato
+        let { data: existingContact } = await supabase
+          .from('contacts')
+          .select('id')
+          .eq('company_id', companyId)
+          .eq('phone', phone)
+          .maybeSingle();
+        
+        let contactId = existingContact?.id;
+        
+        if (!existingContact) {
+          const { data: newContact } = await supabase
+            .from('contacts')
+            .insert({
+              company_id: companyId,
+              name,
+              phone,
+              avatar_url: profilePic,
+              metadata: { remoteJid: jid, source: 'whatsapp_import_contacts' }
+            })
+            .select('id')
+            .single();
+          contactId = newContact?.id;
+          if (contactId) stats.contacts++;
+        }
+        
+        if (!contactId) continue;
+        
+        // Criar/encontrar conversa
+        let { data: existingConv } = await supabase
+          .from('conversations')
+          .select('id')
+          .eq('company_id', companyId)
+          .eq('contact_id', contactId)
+          .eq('channel', 'whatsapp')
+          .maybeSingle();
+        
+        let convId = existingConv?.id;
+        
+        if (!existingConv) {
+          const { data: newConv } = await supabase
+            .from('conversations')
+            .insert({
+              company_id: companyId,
+              contact_id: contactId,
+              channel: 'whatsapp',
+              status: 'open',
+              metadata: { remoteJid: jid, instanceName }
+            })
+            .select('id')
+            .single();
+          convId = newConv?.id;
+          if (convId) stats.conversations++;
+        }
+        
+        // Importar mensagens
+        if (convId) {
+          const msgCount = await syncMessagesSimple(supabase, evolutionApiUrl, evolutionApiKey, instanceName, convId, jid);
+          stats.messages += msgCount;
+        }
+        
+        processedJids.add(jid);
+      } catch (err) {
+        console.error(`Erro processando contato adicional ${jid}:`, err);
       }
     }
 
