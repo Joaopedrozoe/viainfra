@@ -717,54 +717,101 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     const processedGroups = new Set<string>();
     const processedJids = new Set<string>();
 
-    // Fetch ALL chats from Evolution API using GET endpoint (returns all, no pagination)
+    // Fetch ALL chats from Evolution API with pagination
     allChats = [];
-    console.log(`\n📥 Buscando TODOS os chats (endpoint GET)...`);
+    console.log(`\n📥 Buscando TODOS os chats com paginação...`);
     
-    // Method 1: GET endpoint returns ALL chats without pagination limit
-    try {
-      const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
-        method: 'GET',
-        headers: { 'apikey': evolutionApiKey }
-      });
-      if (chatsResponse.ok) {
-        const data = await chatsResponse.json();
-        allChats = Array.isArray(data) ? data : (data?.chats || data?.data || []);
-        console.log(`✅ GET findChats: ${allChats.length} chats`);
-      }
-    } catch (e) {
-      console.log(`⚠️ Erro GET findChats:`, e);
-    }
-
-    // Method 2: Fallback to POST with high limit if GET returned few results
-    if (allChats.length < 50) {
-      console.log(`⚠️ GET retornou poucos chats (${allChats.length}), tentando POST com limit alto...`);
+    // Use POST with pagination to get ALL chats
+    let page = 1;
+    const pageSize = 100;
+    let hasMore = true;
+    const seenJids = new Set<string>();
+    
+    while (hasMore) {
       try {
+        console.log(`  📄 Página ${page}...`);
         const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-          body: JSON.stringify({ limit: 10000 })
+          body: JSON.stringify({ 
+            where: {},
+            limit: pageSize,
+            page: page
+          })
         });
+        
         if (chatsResponse.ok) {
           const data = await chatsResponse.json();
-          const postChats = Array.isArray(data) ? data : (data?.chats || data?.data || []);
-          if (postChats.length > allChats.length) {
-            allChats = postChats;
-            console.log(`✅ POST findChats (limit): ${allChats.length} chats`);
+          const pageChats = Array.isArray(data) ? data : (data?.chats || data?.data || data?.records || []);
+          
+          if (pageChats.length === 0) {
+            hasMore = false;
+            console.log(`  ✅ Página ${page}: vazia - fim da paginação`);
+          } else {
+            let newChats = 0;
+            for (const chat of pageChats) {
+              const jid = chat.remoteJid || chat.id || chat.jid || '';
+              if (jid && !seenJids.has(jid)) {
+                seenJids.add(jid);
+                allChats.push(chat);
+                newChats++;
+              }
+            }
+            console.log(`  ✅ Página ${page}: ${pageChats.length} chats, ${newChats} novos`);
+            
+            // If we got fewer than pageSize, we're done
+            if (pageChats.length < pageSize) {
+              hasMore = false;
+            } else {
+              page++;
+              // Safety limit to avoid infinite loops
+              if (page > 50) {
+                console.log(`  ⚠️ Limite de páginas atingido (50)`);
+                hasMore = false;
+              }
+            }
           }
+        } else {
+          console.log(`  ⚠️ Erro HTTP página ${page}: ${chatsResponse.status}`);
+          hasMore = false;
         }
       } catch (e) {
-        console.log(`⚠️ Erro POST findChats:`, e);
+        console.log(`  ⚠️ Erro página ${page}:`, e);
+        hasMore = false;
       }
     }
+    
+    console.log(`✅ Paginação concluída: ${allChats.length} chats em ${page} página(s)`);
 
-    // Method 3: Get archived chats separately
-    const existingJids = new Set(allChats.map((c: any) => c.remoteJid || c.id || c.jid || ''));
+    // Also try GET endpoint as fallback (some Evolution versions return all via GET)
+    if (allChats.length < 50) {
+      console.log(`⚠️ Poucos chats (${allChats.length}), tentando GET como fallback...`);
+      try {
+        const getResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
+          method: 'GET',
+          headers: { 'apikey': evolutionApiKey }
+        });
+        if (getResponse.ok) {
+          const data = await getResponse.json();
+          const getChats = Array.isArray(data) ? data : (data?.chats || data?.data || []);
+          for (const chat of getChats) {
+            const jid = chat.remoteJid || chat.id || chat.jid || '';
+            if (jid && !seenJids.has(jid)) {
+              seenJids.add(jid);
+              allChats.push(chat);
+            }
+          }
+          console.log(`✅ GET fallback: total agora ${allChats.length} chats`);
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    // Get archived chats separately
     try {
       const archivedResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-        body: JSON.stringify({ where: { archived: true }, limit: 10000 })
+        body: JSON.stringify({ where: { archived: true }, limit: 1000 })
       });
       if (archivedResponse.ok) {
         const data = await archivedResponse.json();
@@ -774,9 +821,9 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         archived.forEach((c: any) => {
           c.archived = true;
           const jid = c.remoteJid || c.id || c.jid || '';
-          if (jid && !existingJids.has(jid)) {
+          if (jid && !seenJids.has(jid)) {
+            seenJids.add(jid);
             allChats.push(c);
-            existingJids.add(jid);
             addedArchived++;
           }
         });
