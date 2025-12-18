@@ -136,16 +136,20 @@ serve(async (req) => {
     for (const chat of allChats) {
       const jid = chat.remoteJid || chat.id || chat.jid;
       if (!jid || jid.includes('@lid') || jid.includes('@broadcast') || jid.startsWith('status@')) continue;
-      if (jid.includes('@g.us')) continue; // Skip groups for now
       
-      const phoneMatch = jid.match(/^(\d+)@/);
-      if (!phoneMatch) continue;
+      const isGroup = jid.includes('@g.us');
       
-      let phone = phoneMatch[1];
-      if (!phone.startsWith('55') && phone.length <= 11) phone = '55' + phone;
+      // For non-groups, extract phone
+      let phone = '';
+      if (!isGroup) {
+        const phoneMatch = jid.match(/^(\d+)@/);
+        if (!phoneMatch) continue;
+        phone = phoneMatch[1];
+        if (!phone.startsWith('55') && phone.length <= 11) phone = '55' + phone;
+      }
       
       // Find existing conversation
-      let existingConv = convByJid.get(jid) || convByPhone.get(phone);
+      let existingConv = convByJid.get(jid) || (phone ? convByPhone.get(phone) : null);
       if (!existingConv) {
         console.log(`   ⏭️ No DB conversation for ${jid}`);
         continue;
