@@ -394,13 +394,13 @@ export const WhatsAppInstanceManager = () => {
                     // Update progress with results
                     setImportProgress({
                       status: 'complete',
-                      totalChats: result.totalChats || result.importedConversations || 0,
-                      processedChats: result.totalChats || result.importedConversations || 0,
+                      totalChats: result.totalChats || 0,
+                      processedChats: result.processedChats || result.totalChats || 0,
                       importedConversations: result.importedConversations || 0,
                       importedContacts: result.importedContacts || 0,
                       importedMessages: result.importedMessages || 0,
-                      archivedCount: result.archivedCount || 0,
-                      skippedCount: result.skippedCount || 0,
+                      archivedCount: result.groupsCount || 0,
+                      skippedCount: 0,
                     });
                   } catch (error: any) {
                     console.error('Error importing chats:', error);
