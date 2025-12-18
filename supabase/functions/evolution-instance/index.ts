@@ -1183,6 +1183,13 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
       success: true,
       totalChats: allChats.length,
       totalContacts: allContacts.length,
+      // Flat fields for UI progress display
+      importedContacts: stats.contactsCreated + stats.contactsUpdated + namesUpdated,
+      importedConversations: stats.conversationsCreated + stats.conversationsReused,
+      importedMessages: stats.messagesImported,
+      archivedCount: allChats.filter((c: any) => c.archived).length,
+      skippedCount: stats.skipped,
+      // Detailed stats
       stats: {
         contactsCreated: stats.contactsCreated,
         contactsUpdated: stats.contactsUpdated + namesUpdated,

@@ -249,17 +249,23 @@ export const useWhatsAppInstances = () => {
       const data = await response.json();
       if (!response.ok) {
         const errorMessage = data.error || 'Falha ao importar conversas';
-        toast.error(errorMessage);
         throw new Error(errorMessage);
       }
       
-      toast.success(data.message || `${data.importedContacts || 0} contatos, ${data.importedConversations || 0} conversas importadas`);
-      return data;
+      // Return the full data for the progress modal
+      return {
+        totalChats: data.totalChats || 0,
+        totalContacts: data.totalContacts || 0,
+        importedContacts: data.importedContacts || data.stats?.contactsCreated || 0,
+        importedConversations: data.importedConversations || (data.stats?.conversationsCreated + data.stats?.conversationsReused) || 0,
+        importedMessages: data.importedMessages || data.stats?.messagesImported || 0,
+        archivedCount: data.archivedCount || 0,
+        skippedCount: data.skippedCount || data.stats?.skipped || 0,
+        stats: data.stats,
+        message: data.message
+      };
     } catch (error: any) {
       console.error('Error fetching chats:', error);
-      if (!error.message?.includes('Falha') && !error.message?.includes('Instância')) {
-        toast.error('Erro ao importar conversas');
-      }
       throw error;
     }
   };
