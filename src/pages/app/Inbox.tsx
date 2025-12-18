@@ -114,8 +114,10 @@ const Inbox = () => {
       let totalMessages = 0;
       
       if (instances && instances.length > 0) {
-        // Sincronizar apenas instâncias autorizadas (TESTE2 por enquanto)
-        const authorizedInstances = instances.filter(i => i.instance_name === 'TESTE2');
+        // Sincronizar instâncias autorizadas (TESTE2 e VIAINFRAOFICIAL)
+        const authorizedInstances = instances.filter(i => 
+          i.instance_name === 'TESTE2' || i.instance_name === 'VIAINFRAOFICIAL'
+        );
         
         for (const instance of authorizedInstances) {
           try {

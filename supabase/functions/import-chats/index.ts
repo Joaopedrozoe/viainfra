@@ -126,8 +126,8 @@ serve(async (req) => {
       if (jid && name) nameMap.set(jid, name);
     }
 
-    // 3. PROCESSAR CHATS DA API (limite de 80 para deixar espaço para contatos extras)
-    const chatsToProcess = allChats.slice(0, 80);
+    // 3. PROCESSAR TODOS OS CHATS DA API
+    const chatsToProcess = allChats;
     console.log(`🔄 Processando ${chatsToProcess.length} chats...\n`);
 
     for (const chat of chatsToProcess) {
@@ -141,7 +141,7 @@ serve(async (req) => {
       try {
         let contactId: string | null = null;
         let convId: string | null = null;
-        
+        let contactPhone: string | null = null; // Telefone do contato para sync de mensagens
         if (isGroup) {
           stats.groups++;
           let groupName = chatName || `Grupo ${jid.slice(-8)}`;
@@ -209,12 +209,17 @@ serve(async (req) => {
           if (rawNumber.length > 15) continue; // ID inválido
           
           let phone = rawNumber;
+          let syncJid = jid; // JID usado para sincronizar mensagens
           const name = chatName || nameMap.get(jid) || '';
 
           if (isLid) {
-            if (!name || name === rawNumber) continue;
+            // Para @lid, APENAS processar se encontrarmos um contato existente
+            if (!name || name === rawNumber) {
+              console.log(`  ⏭️ Ignorando @lid sem nome: ${jid}`);
+              continue;
+            }
             
-            // Match por nome
+            // Match por nome - procurar contato existente
             const normalizeStr = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
             const normalizedName = normalizeStr(name);
             
@@ -235,10 +240,16 @@ serve(async (req) => {
               });
             }
             
-            if (!existingContact) continue;
+            if (!existingContact) {
+              console.log(`  ⏭️ @lid sem contato correspondente: ${jid} (${name})`);
+              continue;
+            }
             
             contactId = existingContact.id;
             phone = existingContact.phone;
+            // IMPORTANTE: usar o JID baseado em telefone para sincronizar mensagens
+            syncJid = `${phone}@s.whatsapp.net`;
+            console.log(`  ✅ @lid mapeado: ${jid} -> ${syncJid}`);
           } else {
             // Normalizar telefone
             if (phone.length === 10 || phone.length === 11) {
@@ -270,15 +281,22 @@ serve(async (req) => {
               if (contactId) stats.contacts++;
             } else {
               contactId = existingContact.id;
+              // Atualizar nome se estava vazio
+              if (name && existingContact.name === phone) {
+                await supabase.from('contacts').update({ name }).eq('id', contactId);
+              }
             }
           }
+          
+          // Guardar o telefone para usar no sync de mensagens
+          contactPhone = phone;
 
           if (!contactId) continue;
 
           // Criar/encontrar conversa
           let { data: existingConv } = await supabase
             .from('conversations')
-            .select('id')
+            .select('id, metadata')
             .eq('company_id', companyId)
             .eq('contact_id', contactId)
             .eq('channel', 'whatsapp')
@@ -292,7 +310,9 @@ serve(async (req) => {
                 contact_id: contactId,
                 channel: 'whatsapp',
                 status: 'open',
-                metadata: { remoteJid: jid, instanceName }
+                metadata: isLid 
+                  ? { originalJid: jid, remoteJid: syncJid, instanceName }
+                  : { remoteJid: jid, instanceName }
               })
               .select('id')
               .single();
@@ -300,12 +320,21 @@ serve(async (req) => {
             if (convId) stats.conversations++;
           } else {
             convId = existingConv.id;
+            // Atualizar metadata se necessário
+            if (!existingConv.metadata?.remoteJid && syncJid) {
+              await supabase.from('conversations')
+                .update({ metadata: { ...existingConv.metadata, remoteJid: syncJid, instanceName } })
+                .eq('id', convId);
+            }
           }
         }
 
-        // IMPORTAR MENSAGENS
-        if (convId && jid) {
-          const msgCount = await syncMessagesSimple(supabase, evolutionApiUrl, evolutionApiKey, instanceName, convId, jid);
+        // IMPORTAR MENSAGENS usando o JID correto
+        if (convId) {
+          // Para grupos usar JID do grupo; para contatos usar JID baseado em telefone
+          const messageJid = isGroup ? jid : (contactPhone ? `${contactPhone}@s.whatsapp.net` : jid);
+          
+          const msgCount = await syncMessagesSimple(supabase, evolutionApiUrl, evolutionApiKey, instanceName, convId, messageJid);
           stats.messages += msgCount;
         }
         
@@ -326,8 +355,7 @@ serve(async (req) => {
         // Apenas contatos com número de telefone válido
         const phoneMatch = jid.match(/^(\d+)@/);
         return phoneMatch && phoneMatch[1].length >= 8 && phoneMatch[1].length <= 15;
-      })
-      .slice(0, 50); // Limitar para não ultrapassar timeout
+      }); // Sem limite - processar todos
     
     console.log(`🔄 ${additionalContacts.length} contatos adicionais para processar`);
     
