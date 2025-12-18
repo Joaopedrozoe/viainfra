@@ -43,7 +43,7 @@ serve(async (req) => {
     }
 
     console.log(`\n========================================`);
-    console.log(`📥 IMPORTAÇÃO FOCADA: ${instanceName}`);
+    console.log(`📥 IMPORTAÇÃO COMPLETA: ${instanceName}`);
     console.log(`========================================\n`);
 
     // Get instance record
@@ -83,10 +83,51 @@ serve(async (req) => {
     }
 
     // Stats
-    const stats = { contacts: 0, conversations: 0, messages: 0, groups: 0, skipped: 0, updated: 0, synced: 0 };
+    const stats = { contacts: 0, conversations: 0, messages: 0, groups: 0, skipped: 0, updated: 0, synced: 0, namesFixed: 0 };
 
     // ==========================================
-    // PASSO 1: BUSCAR CHATS ATIVOS (FOCO PRINCIPAL)
+    // PASSO 1: BUSCAR CONTATOS DA API (para nomes)
+    // ==========================================
+    console.log(`📥 Buscando contatos para nomes...`);
+    const contactsNameMap = new Map<string, string>();
+    
+    try {
+      const contactsResponse = await fetch(`${evolutionApiUrl}/chat/findContacts/${instanceName}`, {
+        method: 'POST',
+        headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      
+      if (contactsResponse.ok) {
+        const contactsData = await contactsResponse.json();
+        const contacts = Array.isArray(contactsData) ? contactsData : (contactsData?.contacts || []);
+        
+        for (const contact of contacts) {
+          const jid = contact.id || contact.jid || contact.remoteJid;
+          const name = contact.pushName || contact.name || contact.notify || contact.verifiedName || contact.shortName;
+          
+          if (jid && name && !jid.includes('@g.us') && !jid.includes('@lid')) {
+            const phoneMatch = jid.match(/^(\d+)@/);
+            if (phoneMatch) {
+              const phone = phoneMatch[1];
+              // Guardar variações
+              contactsNameMap.set(phone, name);
+              if (phone.startsWith('55') && phone.length >= 12) {
+                contactsNameMap.set(phone.slice(2), name);
+              } else if (phone.length >= 10) {
+                contactsNameMap.set('55' + phone, name);
+              }
+            }
+          }
+        }
+        console.log(`✅ ${contactsNameMap.size} nomes de contatos mapeados`);
+      }
+    } catch (e) {
+      console.log(`⚠️ Erro buscando contatos: ${e}`);
+    }
+
+    // ==========================================
+    // PASSO 2: BUSCAR CHATS ATIVOS
     // ==========================================
     console.log(`📥 Buscando chats ativos...`);
     let activeChats: any[] = [];
@@ -112,7 +153,7 @@ serve(async (req) => {
     }
 
     // ==========================================
-    // PASSO 2: BUSCAR GRUPOS (para metadados)
+    // PASSO 3: BUSCAR GRUPOS (para metadados)
     // ==========================================
     console.log(`📥 Buscando grupos...`);
     const groupsMap = new Map<string, any>();
@@ -136,7 +177,39 @@ serve(async (req) => {
     }
 
     // ==========================================
-    // PASSO 3: PROCESSAR CADA CHAT ATIVO
+    // PASSO 4: CORRIGIR NOMES NUMÉRICOS EXISTENTES
+    // ==========================================
+    console.log(`\n🔧 Corrigindo nomes numéricos existentes...`);
+    const { data: numericContacts } = await supabase
+      .from('contacts')
+      .select('id, name, phone')
+      .eq('company_id', companyId)
+      .filter('name', 'neq', null);
+    
+    if (numericContacts) {
+      for (const contact of numericContacts) {
+        const isNumericName = /^\d+$/.test(contact.name || '');
+        if (isNumericName && contact.phone) {
+          // Buscar nome no mapa
+          const realName = contactsNameMap.get(contact.phone) || 
+                          contactsNameMap.get(contact.phone.replace(/^55/, '')) ||
+                          (contact.phone.length <= 11 ? contactsNameMap.get('55' + contact.phone) : null);
+          
+          if (realName && realName !== contact.name) {
+            console.log(`   📝 Corrigindo: "${contact.name}" -> "${realName}"`);
+            await supabase.from('contacts').update({ 
+              name: realName, 
+              updated_at: new Date().toISOString() 
+            }).eq('id', contact.id);
+            stats.namesFixed++;
+          }
+        }
+      }
+    }
+    console.log(`✅ ${stats.namesFixed} nomes corrigidos`);
+
+    // ==========================================
+    // PASSO 5: PROCESSAR CADA CHAT ATIVO
     // ==========================================
     console.log(`\n📊 Processando ${activeChats.length} chats ativos...\n`);
 
@@ -157,7 +230,9 @@ serve(async (req) => {
 
       const isGroup = jid.includes('@g.us');
       const groupData = isGroup ? groupsMap.get(jid) : null;
-      const chatName = groupData?.subject || chat.name || chat.pushName || chat.notify || chat.verifiedName || '';
+      
+      // Nome: primeiro do chat, depois do mapa de contatos
+      let chatName = groupData?.subject || chat.name || chat.pushName || chat.notify || chat.verifiedName || '';
 
       try {
         // ========== EXTRAIR TELEFONE ==========
@@ -188,6 +263,17 @@ serve(async (req) => {
           if (phone.length < 10 || phone.length > 15) {
             stats.skipped++;
             continue;
+          }
+
+          // Se nome está vazio ou é numérico, buscar no mapa
+          if (!chatName || /^\d+$/.test(chatName)) {
+            for (const pv of phoneVariants) {
+              const mappedName = contactsNameMap.get(pv);
+              if (mappedName) {
+                chatName = mappedName;
+                break;
+              }
+            }
           }
         }
 
@@ -268,7 +354,7 @@ serve(async (req) => {
             const hasGoodName = chatName && chatName.length >= 2 && !/^\d+$/.test(chatName);
             
             if (hasGoodName && (isNameJustNumbers || isNameTooShort)) {
-              console.log(`📝 Atualizando nome: "${currentName}" -> "${chatName}"`);
+              console.log(`   📝 Atualizando nome: "${currentName}" -> "${chatName}"`);
               await supabase.from('contacts').update({ 
                 name: chatName,
                 updated_at: new Date().toISOString()
@@ -312,7 +398,7 @@ serve(async (req) => {
         if (!convId) continue;
 
         // ========== BUSCAR E IMPORTAR MENSAGENS ==========
-        const messages = await fetchMessagesFromApi(evolutionApiUrl, evolutionApiKey, instanceName, jid, 500);
+        const messages = await fetchMessagesFromApi(evolutionApiUrl, evolutionApiKey, instanceName, jid, 1000);
         
         if (messages.length > 0) {
           const imported = await importMessagesToDb(supabase, convId, messages, jid);
@@ -329,6 +415,8 @@ serve(async (req) => {
           // Se é conversa nova mas não tem mensagens, deletar
           await supabase.from('conversations').delete().eq('id', convId);
           stats.skipped++;
+        } else {
+          console.log(`✅ ${i+1}/${activeChats.length} ${isGroup ? '👥' : '👤'} ${chatName || phone}: +0 msgs`);
         }
 
       } catch (err) {
@@ -338,11 +426,11 @@ serve(async (req) => {
     }
 
     // ==========================================
-    // PASSO 4: SINCRONIZAR CONVERSAS EXISTENTES (webhook-created)
+    // PASSO 6: SINCRONIZAR CONVERSAS EXISTENTES SEM MENSAGENS
     // ==========================================
-    console.log(`\n📥 Verificando conversas existentes que precisam de sync...`);
+    console.log(`\n📥 Verificando conversas vazias...`);
     
-    const { data: dbConversations } = await supabase
+    const { data: emptyConversations } = await supabase
       .from('conversations')
       .select(`
         id,
@@ -352,42 +440,44 @@ serve(async (req) => {
       .eq('company_id', companyId)
       .eq('channel', 'whatsapp');
 
-    if (dbConversations) {
-      const activeJids = new Set(activeChats.map(c => c.remoteJid || c.id || c.jid));
-      
-      for (const conv of dbConversations) {
-        const remoteJid = conv.metadata?.remoteJid || conv.contacts?.metadata?.remoteJid;
-        
-        if (!remoteJid || remoteJid.includes('@lid') || activeJids.has(remoteJid)) continue;
-        
-        // Verificar se conversa está vazia
+    if (emptyConversations) {
+      for (const conv of emptyConversations) {
         const { count } = await supabase
           .from('messages')
           .select('id', { count: 'exact', head: true })
           .eq('conversation_id', conv.id);
 
         if (count === 0) {
-          // Buscar mensagens para conversas vazias
-          const messages = await fetchMessagesFromApi(evolutionApiUrl, evolutionApiKey, instanceName, remoteJid, 500);
+          const remoteJid = conv.metadata?.remoteJid || conv.contacts?.metadata?.remoteJid;
+          const contactName = conv.contacts?.name || 'Desconhecido';
           
-          if (messages.length > 0) {
-            const imported = await importMessagesToDb(supabase, conv.id, messages, remoteJid);
-            if (imported > 0) {
-              stats.synced++;
-              stats.messages += imported;
-              console.log(`   ✅ ${conv.contacts?.name || 'Desconhecido'}: +${imported} mensagens`);
+          if (remoteJid && !remoteJid.includes('@lid')) {
+            // Tentar buscar mensagens novamente
+            const messages = await fetchMessagesFromApi(evolutionApiUrl, evolutionApiKey, instanceName, remoteJid, 1000);
+            
+            if (messages.length > 0) {
+              const imported = await importMessagesToDb(supabase, conv.id, messages, remoteJid);
+              if (imported > 0) {
+                stats.synced++;
+                stats.messages += imported;
+                console.log(`   ✅ ${contactName}: +${imported} mensagens`);
+              }
+            } else {
+              // Conversa vazia sem mensagens na API - deletar
+              await supabase.from('conversations').delete().eq('id', conv.id);
+              console.log(`   🗑️ Removida conversa vazia: ${contactName}`);
             }
-          } else {
-            // Conversa vazia sem mensagens na API - deletar
+          } else if (!remoteJid || remoteJid.includes('@lid')) {
+            // Conversa sem JID válido - deletar
             await supabase.from('conversations').delete().eq('id', conv.id);
-            console.log(`   🗑️ Removida conversa vazia: ${conv.contacts?.name || 'Desconhecido'}`);
+            console.log(`   🗑️ Removida conversa sem JID: ${contactName}`);
           }
         }
       }
     }
 
     // ==========================================
-    // PASSO 5: SINCRONIZAR FOTOS DE PERFIL
+    // PASSO 7: SINCRONIZAR FOTOS DE PERFIL
     // ==========================================
     console.log(`\n📸 Sincronizando fotos de perfil...`);
     try {
@@ -407,6 +497,7 @@ serve(async (req) => {
     console.log(`\n========================================`);
     console.log(`✅ IMPORTAÇÃO CONCLUÍDA`);
     console.log(`   Contatos: ${stats.contacts} novos, ${stats.updated} atualizados`);
+    console.log(`   Nomes corrigidos: ${stats.namesFixed}`);
     console.log(`   Conversas: ${stats.conversations} novas`);
     console.log(`   Sincronizadas: ${stats.synced}`);
     console.log(`   Mensagens: ${stats.messages}`);
@@ -417,7 +508,7 @@ serve(async (req) => {
     return new Response(JSON.stringify({
       success: true,
       stats,
-      message: `Importação concluída: ${stats.contacts} contatos, ${stats.conversations} conversas, ${stats.synced} sincronizadas, ${stats.messages} mensagens`
+      message: `Importação concluída: ${stats.contacts} contatos, ${stats.conversations} conversas, ${stats.synced} sincronizadas, ${stats.messages} mensagens, ${stats.namesFixed} nomes corrigidos`
     }), { 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
     });
@@ -443,7 +534,7 @@ async function fetchMessagesFromApi(
   evolutionApiKey: string,
   instanceName: string,
   jid: string,
-  limit: number = 500
+  limit: number = 1000
 ): Promise<any[]> {
   try {
     const response = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
@@ -493,6 +584,26 @@ async function importMessagesToDb(
         .filter(Boolean)
     );
 
+    // Also check global duplicates (messages that might be in other conversations)
+    const messageIdsToCheck = messages
+      .map(msg => msg.key?.id || msg.id)
+      .filter(Boolean)
+      .slice(0, 100); // Check first 100
+
+    if (messageIdsToCheck.length > 0) {
+      const { data: globalExisting } = await supabase
+        .from('messages')
+        .select('metadata')
+        .filter('metadata->>messageId', 'in', `(${messageIdsToCheck.map(id => `"${id}"`).join(',')})`);
+
+      if (globalExisting) {
+        for (const msg of globalExisting) {
+          const msgId = msg.metadata?.messageId;
+          if (msgId) existingMessageIds.add(msgId);
+        }
+      }
+    }
+
     let imported = 0;
     const messagesToInsert: any[] = [];
 
@@ -531,7 +642,14 @@ async function importMessagesToDb(
     if (messagesToInsert.length > 0) {
       for (let i = 0; i < messagesToInsert.length; i += 100) {
         const chunk = messagesToInsert.slice(i, i + 100);
-        await supabase.from('messages').insert(chunk);
+        try {
+          await supabase.from('messages').insert(chunk);
+        } catch (insertErr: any) {
+          // Handle duplicate key errors gracefully
+          if (insertErr.code !== '23505') {
+            console.error(`Erro inserindo batch:`, insertErr);
+          }
+        }
       }
 
       // Update conversation timestamp with last message
