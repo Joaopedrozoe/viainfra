@@ -714,100 +714,43 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     const processedGroups = new Set<string>();
     const processedJids = new Set<string>();
 
-    // Fetch ALL chats - these are actual inbox conversations
+    // Fetch chats from Evolution API - ONLY these, no extras
     allChats = [];
-    console.log(`\n📥 Buscando chats do inbox...`);
+    console.log(`\n📥 Buscando chats...`);
     
-    // Try different methods to get ALL chats
-    
-    // Method 1: Standard findChats
     try {
       const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-        body: JSON.stringify({ limit: 99999 })
+        body: JSON.stringify({})
       });
       if (chatsResponse.ok) {
-        const data = await chatsResponse.json() || [];
-        console.log(`✅ findChats (limit 99999): ${data.length} chats`);
-        data.forEach((c: any) => {
-          const jid = c.remoteJid || c.id || c.jid || '';
-          if (jid && !allChats.some((existing: any) => (existing.remoteJid || existing.id || existing.jid) === jid)) {
-            allChats.push(c);
-          }
-        });
+        allChats = await chatsResponse.json() || [];
+        console.log(`✅ findChats: ${allChats.length} chats`);
       }
     } catch (e) {
       console.log(`⚠️ Erro findChats:`, e);
     }
 
-    // Method 2: Get archived chats
+    // Get archived
     try {
       const archivedResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-        body: JSON.stringify({ where: { archived: true }, limit: 99999 })
+        body: JSON.stringify({ where: { archived: true } })
       });
       if (archivedResponse.ok) {
         const archived = await archivedResponse.json() || [];
-        console.log(`✅ findChats arquivados: ${archived.length} chats`);
+        console.log(`✅ Arquivados: ${archived.length}`);
         archived.forEach((c: any) => {
           c.archived = true;
           const jid = c.remoteJid || c.id || c.jid || '';
-          if (jid && !allChats.some((existing: any) => (existing.remoteJid || existing.id || existing.jid) === jid)) {
-            allChats.push(c);
-          }
-        });
-      }
-    } catch (e) {
-      console.log(`⚠️ Erro findChats archived:`, e);
-    }
-
-    // Method 3: GET endpoint as fallback
-    try {
-      const getChatsResp = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}?limit=99999`, {
-        headers: { 'apikey': evolutionApiKey }
-      });
-      if (getChatsResp.ok) {
-        const data = await getChatsResp.json() || [];
-        console.log(`✅ findChats GET: ${data.length} chats`);
-        (Array.isArray(data) ? data : []).forEach((c: any) => {
-          const jid = c.remoteJid || c.id || c.jid || '';
-          if (jid && !allChats.some((existing: any) => (existing.remoteJid || existing.id || existing.jid) === jid)) {
+          if (jid && !allChats.some((e: any) => (e.remoteJid || e.id || e.jid) === jid)) {
             allChats.push(c);
           }
         });
       }
     } catch (e) { /* ignore */ }
-
-    // ================================================================
-    // IMPORTANT: Also add contacts with valid phones as potential chats
-    // This catches conversations that findChats missed
-    // ================================================================
-    const chatJids = new Set(allChats.map((c: any) => c.remoteJid || c.id || c.jid || ''));
-    let addedFromContacts = 0;
-    
-    for (const contact of allContacts) {
-      const jid = contact.remoteJid || contact.jid || '';
-      if (!jid || chatJids.has(jid)) continue;
-      if (jid.includes('@broadcast') || jid.startsWith('status@') || jid.includes('@g.us')) continue;
-      
-      // Only process individual contacts with valid phone-like JIDs
-      const phone = extractPhoneFromJid(jid);
-      if (phone && phone.length >= 10) {
-        allChats.push({
-          remoteJid: jid,
-          name: contact.pushName || contact.name || contact.notify || contact.verifiedName,
-          profilePictureUrl: contact.profilePictureUrl || contact.profilePicUrl || contact.imgUrl,
-          fromContacts: true
-        });
-        addedFromContacts++;
-      }
-    }
-    
-    if (addedFromContacts > 0) {
-      console.log(`➕ Adicionados ${addedFromContacts} contatos extras`);
-    }
 
     console.log(`📊 Total de chats para processar: ${allChats.length}`);
     
@@ -1280,13 +1223,11 @@ async function syncMessagesForConversation(
     ].filter(Boolean) as string[];
 
     let messages: any[] = [];
-    let successJid: string | null = null;
 
-    // Try each JID variant with multiple request formats
+    // ONLY use format1 with proper JID filter - format2 returns wrong data
     for (const jidToTry of jidVariants) {
-      // Format 1: where.key.remoteJid (most common)
       try {
-        const resp1 = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+        const resp = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
           method: 'POST',
           headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1295,79 +1236,14 @@ async function syncMessagesForConversation(
           })
         });
 
-        if (resp1.ok) {
-          const data = await resp1.json();
+        if (resp.ok) {
+          const data = await resp.json();
           const msgs = Array.isArray(data) ? data : 
                       (data?.messages?.records || data?.messages || data?.records || []);
           if (msgs.length > 0) {
             messages = msgs;
-            successJid = jidToTry;
-            console.log(`  ✅ ${msgs.length} msgs (format1): ${jidToTry}`);
+            console.log(`  ✅ ${msgs.length} msgs: ${jidToTry}`);
             break;
-          }
-        }
-      } catch (e) { /* continue */ }
-
-      // Format 2: remoteJid directly
-      try {
-        const resp2 = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
-          method: 'POST',
-          headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ remoteJid: jidToTry, limit: 99999 })
-        });
-
-        if (resp2.ok) {
-          const data = await resp2.json();
-          const msgs = Array.isArray(data) ? data : 
-                      (data?.messages?.records || data?.messages || data?.records || []);
-          if (msgs.length > 0) {
-            messages = msgs;
-            successJid = jidToTry;
-            console.log(`  ✅ ${msgs.length} msgs (format2): ${jidToTry}`);
-            break;
-          }
-        }
-      } catch (e) { /* continue */ }
-
-      // Format 3: where.remoteJid
-      try {
-        const resp3 = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
-          method: 'POST',
-          headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            where: { remoteJid: jidToTry },
-            limit: 99999
-          })
-        });
-
-        if (resp3.ok) {
-          const data = await resp3.json();
-          const msgs = Array.isArray(data) ? data : 
-                      (data?.messages?.records || data?.messages || data?.records || []);
-          if (msgs.length > 0) {
-            messages = msgs;
-            successJid = jidToTry;
-            console.log(`  ✅ ${msgs.length} msgs (format3): ${jidToTry}`);
-            break;
-          }
-        }
-      } catch (e) { /* continue */ }
-    }
-
-    // If still no messages, try GET endpoint for conversation history
-    if (messages.length === 0) {
-      try {
-        const histResp = await fetch(
-          `${evolutionApiUrl}/chat/fetchMessagesChatId/${instanceName}?remoteJid=${encodeURIComponent(remoteJid)}&limit=99999`,
-          { headers: { 'apikey': evolutionApiKey } }
-        );
-        if (histResp.ok) {
-          const data = await histResp.json();
-          const msgs = Array.isArray(data) ? data : (data?.messages || data?.records || []);
-          if (msgs.length > 0) {
-            messages = msgs;
-            successJid = remoteJid;
-            console.log(`  ✅ ${msgs.length} msgs (fetchMessagesChatId)`);
           }
         }
       } catch (e) { /* continue */ }
