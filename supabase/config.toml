@@ -59,3 +59,6 @@ verify_jwt = false
 
 [functions.full-inbox-sync]
 verify_jwt = false
+
+[functions.diagnose-missing-chats]
+verify_jwt = false
