@@ -701,21 +701,35 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
           
           console.log(`🔍 @lid: Buscando "${name}" por nome...`);
           
-          // Buscar contato existente pelo nome (case insensitive)
-          const { data: existingContact } = await supabase
+          // Função para normalizar nome (remover acentos)
+          const normalizeStr = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+          const normalizedName = normalizeStr(name);
+          
+          // Buscar TODOS os contatos da empresa com telefone
+          const { data: allContacts } = await supabase
             .from('contacts')
-            .select('id, phone')
+            .select('id, name, phone')
             .eq('company_id', companyId)
-            .ilike('name', name)
-            .not('phone', 'is', null)
-            .maybeSingle();
+            .not('phone', 'is', null);
+          
+          // Fazer match ignorando acentos
+          let existingContact = null;
+          if (allContacts) {
+            existingContact = allContacts.find(c => {
+              if (!c.name) return false;
+              const normalizedContactName = normalizeStr(c.name);
+              return normalizedContactName === normalizedName || 
+                     normalizedContactName.includes(normalizedName) ||
+                     normalizedName.includes(normalizedContactName);
+            });
+          }
           
           if (!existingContact) {
             console.log(`  ❌ Contato "${name}" não encontrado no DB`);
             continue;
           }
           
-          console.log(`  ✅ Match: "${name}" → ${existingContact.phone}`);
+          console.log(`  ✅ Match: "${name}" → ${existingContact.name} (${existingContact.phone})`);
           contactId = existingContact.id;
           
           // Verificar/criar conversa
