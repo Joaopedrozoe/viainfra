@@ -331,14 +331,19 @@ async function syncInstances(req: Request, supabase: any, evolutionApiUrl: strin
       return new Response('Invalid user token', { status: 401, headers: corsHeaders });
     }
 
-    const { data: profile } = await supabase
+    // Buscar primeiro perfil do usuário (pode ter múltiplos em empresas diferentes)
+    const { data: profiles } = await supabase
       .from('profiles')
       .select('company_id')
       .eq('user_id', user.id)
-      .single();
+      .limit(1);
 
-    if (!profile?.company_id) {
-      return new Response('User has no company', { status: 400, headers: corsHeaders });
+    const companyId = profiles?.[0]?.company_id;
+    if (!companyId) {
+      return new Response(JSON.stringify({ error: 'User has no company' }), { 
+        status: 400, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
     }
 
     const response = await fetch(`${evolutionApiUrl}/instance/fetchInstances`, {
@@ -375,7 +380,7 @@ async function syncInstances(req: Request, supabase: any, evolutionApiUrl: strin
       }
 
       const instanceData = {
-        company_id: profile.company_id,
+        company_id: companyId,
         instance_name: instanceName,
         phone_number: instance.number || instance.instance?.owner || null,
         status: instance.connectionStatus || instance.state || 'pending',
