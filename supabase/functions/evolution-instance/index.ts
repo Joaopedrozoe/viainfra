@@ -766,80 +766,69 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
     } catch (e) { /* ignore */ }
 
     // ============================================================
-    // BUSCAR TODAS AS MENSAGENS COM PAGINAÇÃO (uma única vez)
-    // Bug Evolution API #1632: filtro remoteJid não funciona
-    // Solução: buscar TODAS com paginação e agrupar por JID
+    // NOVA ESTRATÉGIA: BUSCAR MENSAGENS POR CHAT INDIVIDUALMENTE
+    // Usando fetchMessages que busca direto do WhatsApp
     // ============================================================
-    console.log(`\n📨 Buscando TODAS mensagens (paginado)...`);
     
-    const allMessagesCache: any[] = [];
-    const messagesByJid = new Map<string, any[]>();
-    let offset = 0;
-    const pageSize = 500;
-    let hasMore = true;
-    
-    while (hasMore && offset < 100000) { // max 100k mensagens
+    // Função para buscar mensagens de um chat específico
+    async function fetchMessagesForJid(jid: string): Promise<any[]> {
       try {
-        const resp = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+        // Primeiro tenta findMessages com filtro (pode não funcionar - bug #1632)
+        const resp1 = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
           method: 'POST',
           headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ where: {}, limit: pageSize, offset })
+          body: JSON.stringify({ 
+            where: { key: { remoteJid: jid } },
+            limit: 100
+          })
         });
-
-        if (resp.ok) {
-          const data = await resp.json();
-          const msgs = Array.isArray(data) ? data : 
-                      (data?.messages?.records || data?.messages || data?.records || []);
-          
-          if (msgs.length > 0) {
-            allMessagesCache.push(...msgs);
-            offset += msgs.length;
-            hasMore = msgs.length === pageSize;
-            console.log(`  📥 ${offset} mensagens carregadas...`);
-          } else {
-            hasMore = false;
-          }
-        } else {
-          hasMore = false;
+        
+        if (resp1.ok) {
+          const data1 = await resp1.json();
+          const msgs1 = Array.isArray(data1) ? data1 : 
+                       (data1?.messages?.records || data1?.messages || data1?.records || []);
+          if (msgs1.length > 0) return msgs1;
+        }
+        
+        // Se não funcionou, tenta fetchMessages (busca do WhatsApp diretamente)
+        const resp2 = await fetch(`${evolutionApiUrl}/chat/fetchMessages/${instanceName}`, {
+          method: 'POST',
+          headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ number: jid, count: 50 })
+        });
+        
+        if (resp2.ok) {
+          const data2 = await resp2.json();
+          return Array.isArray(data2) ? data2 : 
+                 (data2?.messages || data2?.records || []);
         }
       } catch (e) { 
-        hasMore = false;
+        // Silently fail - will process without messages
       }
+      return [];
     }
     
-    console.log(`✅ ${allMessagesCache.length} mensagens totais carregadas`);
-    
-    // Group messages by remoteJid
-    for (const msg of allMessagesCache) {
-      const msgJid = msg.key?.remoteJid || msg.remoteJid || '';
-      if (msgJid && !msgJid.includes('@broadcast') && !msgJid.startsWith('status@')) {
-        if (!messagesByJid.has(msgJid)) {
-          messagesByJid.set(msgJid, []);
-        }
-        messagesByJid.get(msgJid)!.push(msg);
-      }
-    }
-    console.log(`✅ ${messagesByJid.size} conversas com mensagens`);
-
-    // ============================================================
-    // PROCESSAR TODOS OS JIDS QUE TÊM MENSAGENS
-    // Usar messagesByJid como base (não chatLookup que pode ter chats vazios)
-    // ============================================================
-    
-    // Collect all JIDs to process (union of chatLookup + messagesByJid)
+    // Processar TODOS os chats do chatLookup (que vem de findChats)
     const allJidsToProcess = new Set<string>();
     for (const jid of chatLookup.keys()) {
       if (!jid.includes('@broadcast') && !jid.startsWith('status@')) {
         allJidsToProcess.add(jid);
       }
     }
-    for (const jid of messagesByJid.keys()) {
-      allJidsToProcess.add(jid);
+    
+    // Adicionar JIDs de contatos também (podem não estar em chatLookup)
+    for (const contact of allContacts) {
+      const jid = contact.remoteJid || contact.jid || contact.id || '';
+      if (jid && !jid.includes('@broadcast') && !jid.startsWith('status@')) {
+        allJidsToProcess.add(jid);
+      }
     }
     
     console.log(`\n🔄 Processando ${allJidsToProcess.size} JIDs...`);
+    console.log(`📨 Buscando mensagens por chat...`);
 
     // Processar CADA JID
+    let processedCount = 0;
     for (const jid of allJidsToProcess) {
       try {
         if (!jid) continue;
@@ -848,13 +837,12 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
         if (processedJids.has(jid)) continue;
         processedJids.add(jid);
         
-        // Get messages for this JID from cache
-        const cachedMessages = messagesByJid.get(jid) || [];
+        // BUSCAR MENSAGENS PARA ESTE JID ESPECIFICAMENTE
+        const cachedMessages = await fetchMessagesForJid(jid);
         
-        // Skip if no messages (don't create empty conversations)
-        if (cachedMessages.length === 0) {
-          stats.skipped++;
-          continue;
+        processedCount++;
+        if (processedCount % 20 === 0) {
+          console.log(`  📥 Processados ${processedCount}/${allJidsToProcess.size} JIDs...`);
         }
         
         // Find contact info from allContacts
