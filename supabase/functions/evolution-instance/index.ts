@@ -1106,12 +1106,33 @@ async function fetchChats(req: Request, supabase: any, evolutionApiUrl: string, 
                 // Verificar duplicata
                 const { data: existingMsg } = await supabase
                   .from('messages')
-                  .select('id')
+                  .select('id, metadata')
                   .eq('conversation_id', convId)
                   .eq('metadata->>messageId', msgId)
                   .maybeSingle();
                 
-                if (existingMsg) continue;
+                // Se mensagem existe mas tem mídia sem URL, tentar reprocessar
+                if (existingMsg) {
+                  const existingAttachment = existingMsg.metadata?.attachment;
+                  const needsMediaReprocess = hasMedia && (!existingAttachment?.url || existingAttachment?.url === '');
+                  
+                  if (needsMediaReprocess) {
+                    console.log(`    🔄 Reprocessando mídia para mensagem existente: ${msgId}`);
+                    const attachment = extractAttachmentFromMessage(msgContent);
+                    if (attachment) {
+                      const storageUrl = await downloadAndUploadMediaForImport(
+                        supabase, attachment, msg, convId, instanceName, evolutionApiUrl, evolutionApiKey
+                      );
+                      if (storageUrl) {
+                        await supabase.from('messages')
+                          .update({ metadata: { ...existingMsg.metadata, attachment: { ...attachment, url: storageUrl } } })
+                          .eq('id', existingMsg.id);
+                        console.log(`    ✅ Mídia atualizada: ${storageUrl.substring(0, 50)}...`);
+                      }
+                    }
+                  }
+                  continue;
+                }
                 
                 const timestamp = msg.messageTimestamp;
                 const msgDate = timestamp ? new Date(timestamp > 9999999999 ? timestamp : timestamp * 1000) : new Date();
