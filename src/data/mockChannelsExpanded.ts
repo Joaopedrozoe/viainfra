@@ -253,7 +253,7 @@ export const mockChannelsExpanded: Channel[] = [
 ];
 
 // Funções para gerenciar os canais expandidos - ISOLAMENTO POR EMPRESA
-const VIAINFRA_COMPANY_ID = '52052566-faa3-4535-b764-7fcc6a4c2ea8';
+const VIAINFRA_COMPANY_ID = 'da17735c-5a76-4797-b338-f6e63a7b3f8b';
 const OLD_SHARED_KEY = 'demo-channels-expanded';
 
 const getStorageKey = (companyId?: string): string => {
