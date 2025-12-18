@@ -1350,7 +1350,7 @@ async function importCachedMessages(
 }
 
 // ============================================================
-// SYNC MESSAGES FOR CONVERSATION (mantido para compatibilidade)
+// SYNC MESSAGES FOR CONVERSATION - BUSCA MENSAGENS DO WHATSAPP
 // ============================================================
 async function syncMessagesForConversation(
   supabase: any, 
@@ -1361,9 +1361,87 @@ async function syncMessagesForConversation(
   remoteJid: string,
   extractMessageContent: (msg: any) => { content: string; type: string }
 ): Promise<number> {
-  // Esta função não é mais usada no fetchChats principal
-  // Mantida para compatibilidade com outros usos
-  return 0;
+  try {
+    // Buscar mensagens usando fetchMessages (busca direto do WhatsApp)
+    const response = await fetch(`${evolutionApiUrl}/chat/fetchMessages/${instanceName}`, {
+      method: 'POST',
+      headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ number: remoteJid, count: 100 })
+    });
+    
+    if (!response.ok) return 0;
+    
+    const data = await response.json();
+    const messages = Array.isArray(data) ? data : (data?.messages || data?.records || []);
+    
+    if (messages.length === 0) return 0;
+    
+    // Get existing message IDs
+    const { data: existingMsgs } = await supabase
+      .from('messages')
+      .select('metadata')
+      .eq('conversation_id', conversationId);
+    
+    const existingIds = new Set<string>();
+    for (const msg of existingMsgs || []) {
+      if (msg.metadata?.messageId) existingIds.add(msg.metadata.messageId);
+    }
+    
+    let importedCount = 0;
+    let lastMsgTimestamp: Date | null = null;
+    
+    // Sort by timestamp
+    messages.sort((a: any, b: any) => {
+      const tsA = a.messageTimestamp || a.key?.messageTimestamp || 0;
+      const tsB = b.messageTimestamp || b.key?.messageTimestamp || 0;
+      return (typeof tsA === 'number' ? tsA : 0) - (typeof tsB === 'number' ? tsB : 0);
+    });
+    
+    for (const msg of messages) {
+      const messageId = msg.key?.id;
+      if (messageId && existingIds.has(messageId)) continue;
+      
+      const timestamp = msg.messageTimestamp || msg.key?.messageTimestamp;
+      if (!timestamp) continue;
+      
+      const { content, type } = extractMessageContent(msg);
+      if (type === 'unknown' || !content) continue;
+      
+      const msgDate = new Date(typeof timestamp === 'number' ? 
+        (timestamp > 9999999999 ? timestamp : timestamp * 1000) : timestamp);
+      
+      if (!lastMsgTimestamp || msgDate > lastMsgTimestamp) {
+        lastMsgTimestamp = msgDate;
+      }
+      
+      const isFromMe = msg.key?.fromMe === true;
+      
+      const { error } = await supabase.from('messages').insert({
+        conversation_id: conversationId,
+        content,
+        sender_type: isFromMe ? 'agent' : 'user',
+        created_at: msgDate.toISOString(),
+        metadata: { messageId, type }
+      });
+      
+      if (!error) {
+        importedCount++;
+        if (messageId) existingIds.add(messageId);
+      }
+    }
+    
+    // Update conversation timestamp
+    if (lastMsgTimestamp) {
+      await supabase.from('conversations')
+        .update({ updated_at: lastMsgTimestamp.toISOString() })
+        .eq('id', conversationId);
+    }
+    
+    return importedCount;
+  } catch (e) {
+    console.error('Erro sync messages:', e);
+    return 0;
+  }
 }
 
 // ============================================================
@@ -1495,32 +1573,64 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       return { content: '[Mensagem]', type: 'other' };
     }
 
+    // STEP 1: Criar conversas para contatos sem conversa
+    const { data: contactsWithoutConv } = await supabase
+      .from('contacts')
+      .select('id, phone, name')
+      .eq('company_id', companyId)
+      .not('phone', 'is', null);
+    
+    let conversationsCreated = 0;
+    for (const contact of contactsWithoutConv || []) {
+      if (!contact.phone || convsByPhone.has(contact.phone)) continue;
+      
+      const { data: existingConv } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('contact_id', contact.id)
+        .eq('channel', 'whatsapp')
+        .maybeSingle();
+      
+      if (!existingConv) {
+        const { data: newConv, error } = await supabase
+          .from('conversations')
+          .insert({
+            company_id: companyId,
+            contact_id: contact.id,
+            channel: 'whatsapp',
+            status: 'open',
+            metadata: { instanceName }
+          })
+          .select()
+          .single();
+        
+        if (!error && newConv) {
+          convsByPhone.set(contact.phone, newConv);
+          conversationsCreated++;
+          console.log(`✅ Conversa criada: ${contact.name} (${contact.phone})`);
+        }
+      }
+    }
+    
+    console.log(`📊 ${conversationsCreated} conversas criadas para contatos existentes`);
+
     let syncedMessages = 0;
     let updatedTimestamps = 0;
 
-    // Sync messages for existing conversations
-    for (const chat of whatsappChats) {
-      const jid = chat.remoteJid || chat.id || chat.jid || '';
-      
-      if (jid.includes('@broadcast') || jid.startsWith('status@') || jid.includes('@g.us')) {
-        continue;
-      }
-
-      let phone = '';
-      if (jid.includes('@s.whatsapp.net') || jid.includes('@c.us')) {
-        phone = jid.replace('@s.whatsapp.net', '').replace('@c.us', '').replace(/\D/g, '');
-      }
-
+    // STEP 2: Sync messages for ALL conversations (not just from findChats)
+    const { data: allConversations } = await supabase
+      .from('conversations')
+      .select('id, contact_id, contacts(phone, name)')
+      .eq('company_id', companyId)
+      .eq('channel', 'whatsapp')
+      .limit(500);
+    
+    console.log(`🔄 Sincronizando mensagens para ${allConversations?.length || 0} conversas...`);
+    
+    for (const conv of allConversations || []) {
+      const phone = conv.contacts?.phone;
       if (!phone || phone.length < 10) continue;
-
-      // Normalize phone
-      if (phone.length >= 10 && phone.length <= 11 && !phone.startsWith('55')) {
-        phone = '55' + phone;
-      }
-
-      const conv = convsByPhone.get(phone);
-      if (!conv) continue;
-
+      
       const whatsappJid = `${phone}@s.whatsapp.net`;
       
       const msgCount = await syncMessagesForConversation(
@@ -1531,6 +1641,7 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       if (msgCount > 0) {
         syncedMessages += msgCount;
         updatedTimestamps++;
+        console.log(`  📨 ${conv.contacts?.name}: +${msgCount} msgs`);
       }
     }
 
