@@ -159,13 +159,14 @@ serve(async (req) => {
       const contactName = existingConv.contacts?.name || phone;
       
       try {
-        // Fetch messages from Evolution API
+        // Fetch messages from Evolution API - including from device history
         const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${INSTANCE_NAME}`, {
           method: 'POST',
           headers: { 'apikey': evolutionApiKey, 'Content-Type': 'application/json' },
           body: JSON.stringify({
             where: { key: { remoteJid: jid } },
-            limit: MESSAGE_LIMIT
+            limit: MESSAGE_LIMIT,
+            page: 1
           })
         });
 
