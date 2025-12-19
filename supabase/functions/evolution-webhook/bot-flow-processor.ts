@@ -32,6 +32,8 @@ export interface ConversationState {
   currentNodeId: string;
   collectedData: Record<string, any>;
   waitingForInput?: string;
+  welcomeMessageSent?: boolean; // Controla se mensagem inicial já foi enviada
+  invalidAttempts?: number; // Contador de tentativas inválidas
 }
 
 export class BotFlowProcessor {
@@ -43,6 +45,8 @@ export class BotFlowProcessor {
     this.conversationState = conversationState || {
       currentNodeId: 'start-1',
       collectedData: {},
+      welcomeMessageSent: false,
+      invalidAttempts: 0,
     };
   }
 
@@ -140,6 +144,24 @@ export class BotFlowProcessor {
 
     switch (node.type) {
       case 'start':
+        // PROTEÇÃO: Mensagem de boas-vindas só é enviada UMA VEZ
+        if (this.conversationState.welcomeMessageSent) {
+          // Já enviou boas-vindas, ir direto para o menu sem repetir
+          const nextNode = this.getNextNode(node.id);
+          if (nextNode) {
+            return this.processNode(nextNode);
+          }
+          // Se não há próximo nó, transferir para atendente
+          return {
+            response: '👤 Conectando você a um atendente...',
+            newState: this.conversationState,
+            shouldTransferToAgent: true,
+          };
+        }
+        
+        // Marcar que enviou boas-vindas
+        this.conversationState.welcomeMessageSent = true;
+        
         // Após a mensagem de start, avançar automaticamente para o menu
         const startMessage = node.data.message || 'Olá! Bem-vindo!';
         const nextAfterStart = this.getNextNode(node.id);
@@ -263,11 +285,12 @@ export class BotFlowProcessor {
         };
       }
 
-      // Opção inválida
+      // ANTI-LOOP: Opção inválida = transferir para atendente IMEDIATAMENTE
+      // Nunca repetir menus - transferir direto
       return {
-        response: 'Opção inválida. Por favor, escolha um número entre 1 e 5.\n\n1. 📞 Atendimento\n2. 💼 Comercial\n3. 🔧 Manutenção\n4. 💰 Financeiro\n5. 👥 RH\n\nDigite **0** para voltar ao menu.',
+        response: '👤 Não entendi sua resposta. Vou transferir você para um atendente humano.\n\n⏳ Aguarde um momento...',
         newState: this.conversationState,
-        shouldTransferToAgent: false,
+        shouldTransferToAgent: true,
       };
     }
 
@@ -289,11 +312,11 @@ export class BotFlowProcessor {
         }
       }
       
-      // Se entrada inválida para placa
+      // ANTI-LOOP: Opção inválida = transferir para atendente IMEDIATAMENTE
       return {
-        response: `Opção inválida. Por favor, escolha um número entre 1 e ${placasDisponiveis.length}.\n\nDigite 0 para voltar ao menu.`,
+        response: '👤 Não entendi sua resposta. Vou transferir você para um atendente humano.\n\n⏳ Aguarde um momento...',
         newState: this.conversationState,
-        shouldTransferToAgent: false,
+        shouldTransferToAgent: true,
       };
     }
 
@@ -312,11 +335,12 @@ export class BotFlowProcessor {
       }
     }
 
-    // Se entrada inválida
+    // ANTI-LOOP: Opção inválida = transferir para atendente IMEDIATAMENTE
+    // Nunca repetir menus ou entrar em loop
     return {
-      response: `Opção inválida. Por favor, escolha um número entre 1 e ${options.length}.\n\nDigite 0 para voltar ao menu.`,
+      response: '👤 Não entendi sua resposta. Vou transferir você para um atendente humano.\n\n⏳ Aguarde um momento...',
       newState: this.conversationState,
-      shouldTransferToAgent: false,
+      shouldTransferToAgent: true,
     };
   }
 
