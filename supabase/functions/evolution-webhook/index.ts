@@ -283,10 +283,12 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       continue;
     }
 
-    // Skip group messages for now
-    if (message.key.remoteJid.includes('@g.us')) {
-      console.log('Skipping group message');
-      continue;
+    // Processar grupos - salvar mensagens mas não acionar bot
+    const isGroupMessage = message.key.remoteJid.includes('@g.us');
+    if (isGroupMessage) {
+      console.log(`📢 Mensagem de GRUPO recebida: ${message.key.remoteJid}`);
+      (message as any)._skipBot = true; // Grupos NUNCA acionam bot
+      (message as any)._isGroup = true;
     }
     
     // ============================================================
@@ -461,6 +463,127 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       await triggerBotResponse(supabase, conversation.id, messageContent, sendToRemoteJid, webhook.instance);
       continue;
     }
+    
+    // ============================================================
+    // PROCESSAMENTO DE GRUPOS
+    // ============================================================
+    if ((message as any)._isGroup) {
+      const groupId = remoteJid; // O ID do grupo é o remoteJid
+      const groupName = contactName || `Grupo ${groupId.split('@')[0]}`; // Nome do participante ou ID
+      const participantName = message.pushName || 'Participante';
+      
+      console.log(`📢 Processing GROUP message from ${participantName} in group ${groupId}`);
+      
+      // Buscar ou criar contato para o grupo (usando remoteJid como identificador)
+      let groupContact = null;
+      
+      // Buscar contato pelo metadata.remoteJid (identificador único do grupo)
+      const { data: existingGroupContact } = await supabase
+        .from('contacts')
+        .select('*')
+        .contains('metadata', { remoteJid: groupId })
+        .limit(1)
+        .single();
+      
+      if (existingGroupContact) {
+        groupContact = existingGroupContact;
+        console.log(`✅ Found existing group contact: ${groupContact.name}`);
+      } else {
+        // Criar novo contato para o grupo
+        const { data: newGroupContact, error: createError } = await supabase
+          .from('contacts')
+          .insert({
+            name: groupName,
+            metadata: { 
+              remoteJid: groupId, 
+              isGroup: true,
+              groupType: 'whatsapp'
+            }
+          })
+          .select()
+          .single();
+        
+        if (createError) {
+          console.error('Error creating group contact:', createError);
+          continue;
+        }
+        
+        groupContact = newGroupContact;
+        console.log(`✅ Created new group contact: ${groupContact.name}`);
+      }
+      
+      // Buscar ou criar conversa para o grupo
+      let groupConversation = null;
+      
+      const { data: existingConv } = await supabase
+        .from('conversations')
+        .select('*')
+        .eq('contact_id', groupContact.id)
+        .eq('channel', 'whatsapp')
+        .limit(1)
+        .single();
+      
+      if (existingConv) {
+        groupConversation = existingConv;
+        console.log(`✅ Found existing group conversation: ${groupConversation.id}`);
+      } else {
+        const { data: newConv, error: convError } = await supabase
+          .from('conversations')
+          .insert({
+            contact_id: groupContact.id,
+            channel: 'whatsapp',
+            status: 'open',
+            metadata: { 
+              remoteJid: groupId,
+              isGroup: true,
+              instanceName: webhook.instance
+            }
+          })
+          .select()
+          .single();
+        
+        if (convError) {
+          console.error('Error creating group conversation:', convError);
+          continue;
+        }
+        
+        groupConversation = newConv;
+        console.log(`✅ Created new group conversation: ${groupConversation.id}`);
+      }
+      
+      // Salvar mensagem do grupo (com nome do participante)
+      const { error: msgError } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: groupConversation.id,
+          sender_type: 'user',
+          content: `*${participantName}*:\n${messageContent}`,
+          metadata: {
+            external_id: message.key.id,
+            sender_name: participantName,
+            isGroup: true,
+            groupId: groupId
+          }
+        });
+      
+      if (msgError) {
+        console.error('Error saving group message:', msgError);
+      } else {
+        console.log(`✅ Group message saved for conversation ${groupConversation.id}`);
+      }
+      
+      // Atualizar updated_at da conversa
+      await supabase
+        .from('conversations')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', groupConversation.id);
+      
+      continue; // Grupos nunca acionam bot - já marcado com _skipBot
+    }
+    
+    // ============================================================
+    // PROCESSAMENTO DE MENSAGENS INDIVIDUAIS (não grupos)
+    // ============================================================
     
     // Regular @s.whatsapp.net messages - extract phone from remoteJid
     const phoneNumber = extractPhoneNumber(remoteJid);
