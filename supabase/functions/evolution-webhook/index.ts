@@ -118,7 +118,6 @@ serve(async (req) => {
         await processNewMessage(supabase, webhook, payload);
         break;
       case 'MESSAGES_UPDATE':
-        // Use status update to resolve @lid contacts - this contains the real phone number!
         await processMessageUpdate(supabase, webhook);
         break;
       case 'CONNECTION_UPDATE':
@@ -315,18 +314,19 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     
     // ============================================================
     // PROCESSAMENTO DE MENSAGENS @LID
-    // IMPORTANTE: Cada LID é um identificador ÚNICO do WhatsApp
-    // NÃO devemos fazer fuzzy matching - isso causa mistura de conversas
+    // IMPORTANTE: @lid NÃO tem número de telefone real
+    // Bot NUNCA pode responder para @lid pois a API Evolution
+    // exige o campo "number" que não existe para @lid
     // ============================================================
     if (isLidFormat) {
       const lidId = remoteJid.replace('@lid', '');
       console.log(`📱 Mensagem @lid recebida: LID=${lidId}, Nome=${contactName}`);
+      console.log(`🚫 @lid NÃO tem número real - BOT DESABILITADO para este contato`);
       
-      // ESTRATÉGIA: Buscar conversa existente de 3 formas:
-      // 1. Pelo remoteJid exato (LID)
-      // 2. Pelo lidJid no metadata
-      // 3. Por nome do contato (fallback)
+      // MARCAR PARA NÃO ACIONAR BOT - @lid não tem número para envio
+      (message as any)._skipBot = true;
       
+      // Buscar conversa existente
       let existingLidConv = null;
       
       // Busca 1: Pelo remoteJid exato
@@ -355,11 +355,11 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         
         if (convByLidJid) {
           existingLidConv = convByLidJid;
-          console.log(`✅ Conversa encontrada por lidJid: ${existingLidConv.id} - ${existingLidConv.contacts?.name}`);
+          console.log(`✅ Conversa encontrada por lidJid: ${existingLidConv.id}`);
         }
       }
       
-      // Busca 3: Pelo nome do pushName (contatos conhecidos)
+      // Busca 3: Pelo nome do pushName
       if (!existingLidConv && contactName && contactName !== 'Sem Nome') {
         const { data: convByName } = await supabase
           .from('conversations')
@@ -397,19 +397,12 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         // Salvar mensagem na conversa existente
         await saveMessage(supabase, existingLidConv.id, message, messageContent, lidId, webhook.instance);
         
-        // Não acionar bot para mensagens @lid antigas
-        if ((message as any)._skipBot) {
-          console.log(`⏰ Mensagem @lid antiga - bot NÃO será acionado`);
-          continue;
-        }
-        
-        // Trigger bot se necessário (usando LID para responder)
-        console.log(`✅ Triggering bot for @lid contact. LID: ${remoteJid}`);
-        await triggerBotResponse(supabase, existingLidConv.id, messageContent, remoteJid, webhook.instance);
+        // BOT NUNCA SERÁ ACIONADO PARA @lid - não temos número para enviar
+        console.log(`✅ Mensagem @lid salva. Bot DESABILITADO (sem número real).`);
         continue;
       }
       
-      // Não existe conversa para esse LID - criar nova
+      // Não existe conversa para esse LID - criar nova (SEM BOT)
       console.log(`📱 @lid sem conversa existente - criando nova conversa para LID ${lidId}`);
       
       // Obter company_id da instância
@@ -426,7 +419,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         continue;
       }
       
-      // Criar novo contato específico para esse LID
+      // Criar novo contato específico para esse LID (SEM TELEFONE)
       const { data: newContact, error: createError } = await supabase
         .from('contacts')
         .insert({
@@ -437,6 +430,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
             lidId: lidId,
             isLidContact: true 
           }
+          // NÃO TEM PHONE - @lid não é número real
         })
         .select()
         .single();
@@ -448,7 +442,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       
       console.log(`✅ Novo contato @lid criado: ${newContact.id} - ${contactName}`);
       
-      // Criar nova conversa para esse LID
+      // Criar nova conversa para esse LID com BOT DESABILITADO
       const { data: newConv, error: convError } = await supabase
         .from('conversations')
         .insert({
@@ -456,11 +450,14 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
           channel: 'whatsapp',
           status: 'open',
           company_id: companyId,
+          bot_active: false, // BOT SEMPRE DESABILITADO PARA @lid
           metadata: { 
             remoteJid: remoteJid,
             lidJid: remoteJid,
             lidId: lidId,
-            instanceName: webhook.instance
+            instanceName: webhook.instance,
+            isLidContact: true,
+            botDisabledReason: 'lid_no_phone_number'
           }
         })
         .select()
@@ -471,13 +468,13 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         continue;
       }
       
-      console.log(`✅ Nova conversa @lid criada: ${newConv.id}`);
+      console.log(`✅ Nova conversa @lid criada: ${newConv.id} - BOT DESABILITADO`);
       
       // Salvar mensagem
       await saveMessage(supabase, newConv.id, message, messageContent, lidId, webhook.instance);
       
-      // Não acionar bot para contatos LID novos (não temos número real)
-      console.log(`✅ Mensagem @lid salva. Bot desabilitado para novos contatos LID.`);
+      // BOT NUNCA SERÁ ACIONADO
+      console.log(`✅ Mensagem @lid salva. Bot DESABILITADO permanentemente.`);
       continue;
     }
     
@@ -485,16 +482,15 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     // PROCESSAMENTO DE GRUPOS
     // ============================================================
     if ((message as any)._isGroup) {
-      const groupId = remoteJid; // O ID do grupo é o remoteJid
-      const groupName = contactName || `Grupo ${groupId.split('@')[0]}`; // Nome do participante ou ID
+      const groupId = remoteJid;
+      const groupName = contactName || `Grupo ${groupId.split('@')[0]}`;
       const participantName = message.pushName || 'Participante';
       
       console.log(`📢 Processing GROUP message from ${participantName} in group ${groupId}`);
       
-      // Buscar ou criar contato para o grupo (usando remoteJid como identificador)
+      // Buscar ou criar contato para o grupo
       let groupContact = null;
       
-      // Buscar contato pelo metadata.remoteJid (identificador único do grupo)
       const { data: existingGroupContact } = await supabase
         .from('contacts')
         .select('*')
@@ -506,7 +502,6 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         groupContact = existingGroupContact;
         console.log(`✅ Found existing group contact: ${groupContact.name}`);
       } else {
-        // Criar novo contato para o grupo
         const { data: newGroupContact, error: createError } = await supabase
           .from('contacts')
           .insert({
@@ -550,6 +545,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
             contact_id: groupContact.id,
             channel: 'whatsapp',
             status: 'open',
+            bot_active: false, // Grupos NUNCA têm bot
             metadata: { 
               remoteJid: groupId,
               isGroup: true,
@@ -568,7 +564,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         console.log(`✅ Created new group conversation: ${groupConversation.id}`);
       }
       
-      // Salvar mensagem do grupo (com nome do participante)
+      // Salvar mensagem do grupo
       const { error: msgError } = await supabase
         .from('messages')
         .insert({
@@ -595,11 +591,11 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         .update({ updated_at: new Date().toISOString() })
         .eq('id', groupConversation.id);
       
-      continue; // Grupos nunca acionam bot - já marcado com _skipBot
+      continue; // Grupos nunca acionam bot
     }
     
     // ============================================================
-    // PROCESSAMENTO DE MENSAGENS INDIVIDUAIS (não grupos)
+    // PROCESSAMENTO DE MENSAGENS INDIVIDUAIS (não grupos, não @lid)
     // ============================================================
     
     // Regular @s.whatsapp.net messages - extract phone from remoteJid
@@ -616,11 +612,10 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       updateContactProfilePicture(supabase, contact, webhook.instance);
     }
     
-    // Use contact's phone if available (for cases where we found existing contact)
+    // Use contact's phone if available
     const contactPhone = contact.phone || phoneNumber;
     
-    // For sending: keep original remoteJid format (supports @lid, @s.whatsapp.net, etc)
-    // Only reconstruct if we have a phone number and it's a traditional WhatsApp channel
+    // For sending: keep original remoteJid format
     let sendToRemoteJid = remoteJid;
     if (contactPhone && remoteJid.includes('@s.whatsapp.net')) {
       sendToRemoteJid = `${contactPhone}@s.whatsapp.net`;
@@ -628,7 +623,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     
     console.log(`Contact phone: ${contactPhone || 'none'}, will send to: ${sendToRemoteJid}`);
     
-    // Get or create conversation (store remoteJid in metadata for later use)
+    // Get or create conversation
     const conversation = await getOrCreateConversation(supabase, contact.id, contactPhone, contactName, remoteJid, webhook.instance);
     
     // Save message - returns null if duplicate
@@ -640,14 +635,23 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       continue;
     }
 
-    // PROTEÇÃO: Não acionar bot para mensagens antigas (> 60 segundos)
+    // PROTEÇÃO: Não acionar bot para mensagens antigas
     if ((message as any)._skipBot) {
-      console.log(`⏰ Mensagem antiga - bot NÃO será acionado (mensagem salva para histórico)`);
+      console.log(`⏰ Mensagem antiga - bot NÃO será acionado`);
       continue;
     }
 
-    // Trigger bot response (supports all channel types including @lid)
-    console.log(`✅ Triggering bot for contact ${contact.id} (${contactName}). Phone: ${contactPhone || 'N/A'}, Send to: ${sendToRemoteJid}`);
+    // ============================================================
+    // PROTEÇÃO FINAL ANTES DE ACIONAR BOT
+    // Só aciona se temos um número de telefone VÁLIDO para enviar
+    // ============================================================
+    if (!contactPhone || contactPhone.length < 10) {
+      console.log(`🚫 BOT BLOQUEADO: Sem número de telefone válido (${contactPhone || 'vazio'})`);
+      continue;
+    }
+
+    // Trigger bot response (APENAS se tiver número válido)
+    console.log(`✅ Triggering bot for contact ${contact.id} (${contactName}). Phone: ${contactPhone}`);
     await triggerBotResponse(supabase, conversation.id, messageContent, sendToRemoteJid, webhook.instance);
   }
 }
@@ -669,8 +673,7 @@ async function processConnectionUpdate(supabase: any, webhook: EvolutionWebhook)
   }
 }
 
-// Process message status updates - CRITICAL for resolving @lid contacts!
-// The messages.update event contains the REAL phone number in remoteJid
+// Process message status updates
 async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
   const data = webhook.data;
   const remoteJid = data?.remoteJid;
@@ -741,7 +744,6 @@ async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
   }
   
   // No contact with this phone - try to find placeholder contact without phone
-  // and update it with the real phone number
   const { data: placeholderContacts } = await supabase
     .from('contacts')
     .select('id, name, phone, metadata')
@@ -774,7 +776,7 @@ async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
       if (!updateError) {
         console.log(`✅ Contact ${contact.name} updated with phone ${phone}`);
         
-        // Check/create conversation
+        // Also update conversation to enable bot now that we have a phone
         const { data: existingConv } = await supabase
           .from('conversations')
           .select('id, metadata')
@@ -783,17 +785,20 @@ async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
           .maybeSingle();
         
         if (existingConv) {
-          // Update conversation with real remoteJid
+          // Update conversation with real remoteJid and enable bot
           await supabase.from('conversations').update({
+            bot_active: true, // NOW we can enable bot since we have a phone
             metadata: {
               ...existingConv.metadata,
               remoteJid,
               lidJid: contactJid,
-              instanceName: webhook.instance
+              instanceName: webhook.instance,
+              botEnabledReason: 'phone_resolved_from_update'
             }
           }).eq('id', existingConv.id);
+          console.log(`✅ Bot enabled for conversation ${existingConv.id} after phone resolved`);
         } else {
-          // Create new conversation
+          // Create new conversation with bot enabled
           await supabase.from('conversations').insert({
             contact_id: contact.id,
             company_id: companyId,
@@ -808,20 +813,17 @@ async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
           });
         }
       }
-      return; // Found and updated one, exit
+      return;
     }
   }
   
   // No placeholder found - create new contact and conversation
   console.log(`➕ Creating new contact from status update: ${phone}`);
   
-  // Try to get name from recent messages in our DB
-  let contactName = phone;
-  
   const { data: newContact, error: contactError } = await supabase
     .from('contacts')
     .insert({
-      name: contactName,
+      name: phone,
       phone,
       company_id: companyId,
       metadata: { remoteJid, resolvedFromUpdate: true }
@@ -834,7 +836,7 @@ async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
     return;
   }
   
-  // Create conversation
+  // Create conversation with bot enabled (we have a valid phone)
   await supabase.from('conversations').insert({
     contact_id: newContact.id,
     company_id: companyId,
@@ -901,13 +903,10 @@ async function fetchProfilePicture(phoneNumber: string, instanceName: string): P
 // Normaliza telefone brasileiro para sempre ter prefixo 55
 function normalizePhoneNumber(phone: string): string {
   if (!phone) return '';
-  // Remove todos os caracteres não numéricos
   const digits = phone.replace(/\D/g, '');
-  // Se tem 10-11 dígitos e não começa com 55, adiciona
   if (digits.length >= 10 && digits.length <= 11 && !digits.startsWith('55')) {
     return '55' + digits;
   }
-  // Se tem 12-13 dígitos e começa com 55, mantém
   if (digits.length >= 12 && digits.length <= 13 && digits.startsWith('55')) {
     return digits;
   }
@@ -920,34 +919,30 @@ function getPhoneVariations(phone: string): string[] {
   const normalized = normalizePhoneNumber(phone);
   const variations = [normalized];
   
-  // Se tem 55, adiciona versão sem
   if (normalized.startsWith('55') && normalized.length >= 12) {
     variations.push(normalized.substring(2));
   }
-  // Se não tem 55, adiciona versão com
   if (!normalized.startsWith('55') && normalized.length >= 10) {
     variations.push('55' + normalized);
   }
   
-  return [...new Set(variations)]; // Remove duplicatas
+  return [...new Set(variations)];
 }
 
 async function getOrCreateContact(supabase: any, phoneNumber: string, name: string, remoteJid: string, instanceName?: string) {
-  // Get first company (will be used for searches)
+  // Get first company
   const { data: companies } = await supabase
     .from('companies')
     .select('id')
     .limit(1);
   const companyId = companies?.[0]?.id;
 
-  // NORMALIZAR telefone ANTES de qualquer busca
   const normalizedPhone = normalizePhoneNumber(phoneNumber);
   const phoneVariations = getPhoneVariations(phoneNumber);
 
   console.log(`🔍 Searching contact - Phone: ${phoneNumber || 'N/A'} (normalized: ${normalizedPhone}), Name: ${name}, RemoteJid: ${remoteJid}`);
-  console.log(`📱 Phone variations to search: ${JSON.stringify(phoneVariations)}`);
 
-  // PRIORITY 1: Try to find by phone number with flexible matching
+  // PRIORITY 1: Try to find by phone number
   if (normalizedPhone && phoneVariations.length > 0) {
     const { data: existingByPhone } = await supabase
       .from('contacts')
@@ -959,14 +954,13 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
 
     if (existingByPhone) {
       console.log('✅ Found existing contact by phone:', existingByPhone.id);
-      // ALWAYS update to normalized phone format
       const needsUpdate = existingByPhone.phone !== normalizedPhone || 
                           existingByPhone.metadata?.remoteJid !== remoteJid;
       if (needsUpdate) {
         await supabase
           .from('contacts')
           .update({ 
-            phone: normalizedPhone, // Always use normalized
+            phone: normalizedPhone,
             metadata: { ...existingByPhone.metadata, remoteJid: remoteJid },
             name: name || existingByPhone.name,
             updated_at: new Date().toISOString()
@@ -989,11 +983,9 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
   if (existingByRemoteJid) {
     console.log('✅ Found existing contact by remoteJid:', existingByRemoteJid.id);
     
-    // CRITICAL: ALWAYS update phone if we have a valid one (even if contact has one already)
-    // This fixes @lid contacts that may have wrong/empty phones
     if (normalizedPhone) {
-      console.log(`📞 Updating contact ${existingByRemoteJid.id} with phone: ${normalizedPhone} (old: ${existingByRemoteJid.phone || 'empty'})`);
-      const { error: updateError } = await supabase
+      console.log(`📞 Updating contact ${existingByRemoteJid.id} with phone: ${normalizedPhone}`);
+      await supabase
         .from('contacts')
         .update({ 
           phone: normalizedPhone,
@@ -1001,200 +993,54 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
           updated_at: new Date().toISOString()
         })
         .eq('id', existingByRemoteJid.id);
-      
-      if (updateError) {
-        console.error('Error updating contact phone:', updateError);
-      } else {
-        console.log('✅ Phone updated successfully');
-        existingByRemoteJid.phone = normalizedPhone;
-        existingByRemoteJid.name = name;
-      }
+      existingByRemoteJid.phone = normalizedPhone;
     }
-    
     return existingByRemoteJid;
   }
 
-  // PRIORITY 3: Try to find by name + phone variations
-  if (name && normalizedPhone) {
-    const { data: existingByName } = await supabase
-      .from('contacts')
-      .select('*')
-      .eq('company_id', companyId)
-      .ilike('name', name)
-      .in('phone', phoneVariations)
-      .limit(1)
-      .maybeSingle();
-
-    if (existingByName) {
-      console.log('✅ Found existing contact by name+phone:', existingByName.id);
-      await supabase
-        .from('contacts')
-        .update({ 
-          phone: normalizedPhone,
-          metadata: { ...existingByName.metadata, remoteJid: remoteJid },
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', existingByName.id);
-      return existingByName;
-    }
-  }
-
-  // PRIORITY 4: For @lid contacts WITHOUT phone, DON'T create new contacts
-  // Instead, log the issue and skip - the @s.whatsapp.net version will create the contact
-  const isLidFormat = remoteJid.includes('@lid');
-  if (isLidFormat && !normalizedPhone) {
-    console.log(`🔍 @lid contact without phone - searching by name: "${name}"`);
-    
-    // Try to find ANY contact with this name
-    const { data: existingByName } = await supabase
-      .from('contacts')
-      .select('*')
-      .eq('company_id', companyId)
-      .or(`name.ilike.${name},name.ilike.%${name.split(' ')[0]}%`)
-      .order('phone', { ascending: false, nullsFirst: false }) // Prefer contacts WITH phone
-      .limit(1)
-      .maybeSingle();
-
-    if (existingByName) {
-      console.log('✅ Found existing contact by name (for @lid):', existingByName.id);
-      // Update remoteJid but DON'T clear phone if it exists
-      await supabase
-        .from('contacts')
-        .update({ 
-          metadata: { ...existingByName.metadata, remoteJid: remoteJid },
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', existingByName.id);
-      return existingByName;
-    }
-    
-    // CRITICAL: If this is @lid format and we can't find existing contact by name,
-    // DO NOT create a new contact without phone - this causes duplicates!
-    // The same message usually arrives via @s.whatsapp.net format too
-    console.log(`⛔ Skipping @lid contact creation (no phone, no name match) - waiting for @s.whatsapp.net version`);
-    
-    // Return a placeholder contact that won't create duplicates
-    // This allows the message to still be processed but won't create orphan contacts
-    const { data: anyMatchingContact } = await supabase
-      .from('contacts')
-      .select('*')
-      .eq('company_id', companyId)
-      .not('phone', 'is', null)
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    
-    if (anyMatchingContact) {
-      console.log(`⚠️ Using fallback - will be matched later when @s.whatsapp.net arrives`);
-      // Don't return here - let normal creation flow but mark it
-    }
-  }
-
-  // PRIORITY 5: Create new contact ONLY if we have a phone number
-  // This prevents @lid contacts from creating orphan records
-  if (!normalizedPhone) {
-    console.log(`⛔ Cannot create contact without phone number. RemoteJid: ${remoteJid}`);
-    // Create a minimal placeholder but mark it clearly
-    const { data: placeholderContact, error } = await supabase
-      .from('contacts')
-      .insert({
-        name: name || 'Desconhecido',
-        phone: null,
-        company_id: companyId,
-        metadata: { remoteJid: remoteJid, isPlaceholder: true },
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      })
-      .select()
-      .single();
-    
-    if (error) {
-      console.error('Error creating placeholder contact:', error);
-      // If we can't create even a placeholder, throw error
-      throw new Error('Cannot process message without valid contact');
-    }
-    
-    return placeholderContact;
-  }
-
-  // PRIORITY 6: Create new contact with phone and race condition handling
-  console.log('➕ Creating new contact...');
+  // Create new contact
+  console.log(`➕ Creating new contact: ${name} (${normalizedPhone || 'no phone'})`);
   
-  // Try to fetch profile picture for new contact
-  let avatarUrl = null;
-  if (normalizedPhone && instanceName) {
-    avatarUrl = await fetchProfilePicture(normalizedPhone, instanceName);
-  }
-  
-  const { data: newContact, error: insertError } = await supabase
+  const { data: newContact, error } = await supabase
     .from('contacts')
     .insert({
-      name: name,
+      name: name || normalizedPhone || 'Contato WhatsApp',
       phone: normalizedPhone || null,
-      email: null,
-      avatar_url: avatarUrl,
       company_id: companyId,
-      metadata: { remoteJid: remoteJid },
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      metadata: { remoteJid }
     })
     .select()
     .single();
 
-  // Handle unique constraint violation (race condition)
-  if (insertError) {
-    if (insertError.code === '23505') {
-      console.log('⚠️ Contact already exists (race condition), fetching...');
-      
-      // Fetch the contact that was created by another request
-      const { data: existingContact } = await supabase
-        .from('contacts')
-        .select('*')
-        .eq('company_id', companyId)
-        .eq('phone', normalizedPhone)
-        .maybeSingle();
-      
-      if (existingContact) {
-        console.log('✅ Found existing contact after race condition:', existingContact.id);
-        // Update remoteJid if needed
-        if (existingContact.metadata?.remoteJid !== remoteJid) {
-          await supabase
-            .from('contacts')
-            .update({ 
-              metadata: { ...existingContact.metadata, remoteJid: remoteJid },
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', existingContact.id);
-        }
-        return existingContact;
-      }
-    }
-    
-    console.error('❌ Error creating contact:', insertError);
-    throw insertError;
+  if (error) {
+    console.error('Error creating contact:', error);
+    throw error;
   }
 
-  console.log(`✅ Created new contact: ${newContact.id}, Phone: ${newContact.phone || 'N/A'}, Avatar: ${avatarUrl ? 'yes' : 'no'}`);
+  // Fetch profile picture for new contact
+  if (normalizedPhone && instanceName) {
+    const avatarUrl = await fetchProfilePicture(normalizedPhone, instanceName);
+    if (avatarUrl) {
+      await supabase
+        .from('contacts')
+        .update({ avatar_url: avatarUrl })
+        .eq('id', newContact.id);
+      newContact.avatar_url = avatarUrl;
+    }
+  }
+
+  console.log('✅ Created new contact:', newContact.id);
   return newContact;
 }
 
-// Update existing contact's profile picture if missing
-async function updateContactProfilePicture(supabase: any, contact: any, instanceName?: string) {
-  if (!contact || !contact.phone || contact.avatar_url || !instanceName) {
-    return;
-  }
-  
-  console.log(`📷 Updating profile picture for existing contact ${contact.id}...`);
+async function updateContactProfilePicture(supabase: any, contact: any, instanceName: string) {
+  if (!contact.phone || contact.avatar_url) return;
   
   const avatarUrl = await fetchProfilePicture(contact.phone, instanceName);
-  
   if (avatarUrl) {
     const { error } = await supabase
       .from('contacts')
-      .update({ 
-        avatar_url: avatarUrl,
-        updated_at: new Date().toISOString()
-      })
+      .update({ avatar_url: avatarUrl, updated_at: new Date().toISOString() })
       .eq('id', contact.id);
     
     if (error) {
@@ -1214,10 +1060,9 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
     .eq('id', contactId)
     .single();
 
-  console.log(`🔍 [getOrCreateConversation] ContactId: ${contactId}, Phone: ${phoneNumber}, RemoteJid: ${remoteJid}, Instance: ${instanceName || 'NOT PROVIDED'}`);
+  console.log(`🔍 [getOrCreateConversation] ContactId: ${contactId}, Phone: ${phoneNumber}, RemoteJid: ${remoteJid}`);
 
-  // CRITICAL: Buscar QUALQUER conversa existente para este contato no WhatsApp
-  // O índice único impede múltiplas conversas por contato/canal
+  // Buscar conversa existente
   const { data: existingConversation } = await supabase
     .from('conversations')
     .select('*')
@@ -1228,57 +1073,29 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
     .maybeSingle();
 
   if (existingConversation) {
-    console.log(`✅ Found existing conversation: ${existingConversation.id} (status: ${existingConversation.status})`);
+    console.log(`✅ Found existing conversation: ${existingConversation.id}`);
     
-    // CRITICAL FIX: Update instanceName if missing or different
-    const currentInstanceName = existingConversation.metadata?.instanceName;
-    const needsInstanceUpdate = instanceName && (!currentInstanceName || currentInstanceName !== instanceName);
-    
-    if (needsInstanceUpdate) {
-      console.log(`🔧 Atualizando instanceName: ${currentInstanceName || 'NULL'} -> ${instanceName}`);
-    }
-    
-    // Se a conversa estava resolved/closed, reabrir com nova mensagem E RESETAR BOT STATE
     const needsReopen = existingConversation.status === 'resolved' || existingConversation.status === 'closed';
     
-    if (needsReopen || needsInstanceUpdate) {
-      console.log(needsReopen ? '🔄 Reabrindo conversa resolvida com nova mensagem - RESETANDO BOT STATE...' : '🔧 Atualizando metadata da conversa...');
+    if (needsReopen) {
+      console.log('🔄 Reabrindo conversa resolvida...');
       
-      // Build new metadata with instanceName
-      const newMetadata = {
-        ...(existingConversation.metadata || {}),
-        remoteJid: remoteJid,
-        instanceName: instanceName || existingConversation.metadata?.instanceName,
-        ...(needsReopen ? { bot_state: null, bot_triggered: false } : {})
-      };
-      
-      const updateData: any = { 
-        updated_at: new Date().toISOString(),
-        metadata: newMetadata
-      };
-      
-      if (needsReopen) {
-        updateData.status = 'open';
-        updateData.archived = false;
-      }
-      
-      const { error: updateError } = await supabase
+      await supabase
         .from('conversations')
-        .update(updateData)
+        .update({ 
+          status: 'open',
+          archived: false,
+          updated_at: new Date().toISOString(),
+          metadata: {
+            ...existingConversation.metadata,
+            remoteJid: remoteJid,
+            instanceName: instanceName || existingConversation.metadata?.instanceName
+          }
+        })
         .eq('id', existingConversation.id);
       
-      if (updateError) {
-        console.error('❌ Erro ao atualizar conversa:', updateError);
-      } else {
-        console.log(`✅ Conversa atualizada - instanceName: ${instanceName}, reaberta: ${needsReopen}`);
-        if (needsReopen) {
-          existingConversation.status = 'open';
-          existingConversation.archived = false;
-        }
-        existingConversation.metadata = newMetadata;
-      }
+      existingConversation.status = 'open';
     } else {
-      // Apenas atualizar timestamp
       await supabase
         .from('conversations')
         .update({ updated_at: new Date().toISOString() })
@@ -1288,15 +1105,8 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
     return existingConversation;
   }
 
-  // No existing conversation found - create new one
-  console.log(`➕ Creating new conversation for contact: ${contactId}, instance: ${instanceName || 'NOT SET'}`);
-  
-  const conversationMetadata = { 
-    remoteJid: remoteJid,
-    instanceName: instanceName || null
-  };
-  
-  console.log(`📝 New conversation metadata:`, JSON.stringify(conversationMetadata));
+  // Create new conversation
+  console.log(`➕ Creating new conversation for contact: ${contactId}`);
   
   const { data: newConversation, error: insertError } = await supabase
     .from('conversations')
@@ -1305,7 +1115,11 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
       channel: 'whatsapp',
       status: 'open',
       company_id: contact?.company_id,
-      metadata: conversationMetadata,
+      bot_active: !!phoneNumber, // Bot only if we have a phone
+      metadata: { 
+        remoteJid: remoteJid,
+        instanceName: instanceName || null
+      },
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     })
@@ -1313,11 +1127,9 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
     .single();
 
   if (insertError) {
-    // Race condition - outra requisição criou primeiro
     if (insertError.code === '23505') {
-      console.log('⚠️ Violação de constraint único - buscando conversa criada por outra requisição...');
+      console.log('⚠️ Constraint violation - fetching existing...');
       
-      // Buscar SEM filtro de status - o constraint garante que existe
       const { data: fallbackConversation } = await supabase
         .from('conversations')
         .select('*')
@@ -1327,28 +1139,6 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
         .maybeSingle();
       
       if (fallbackConversation) {
-        console.log('✅ Conversa encontrada após constraint:', fallbackConversation.id);
-        
-        // Update with instanceName if needed
-        if (instanceName && fallbackConversation.metadata?.instanceName !== instanceName) {
-          await supabase
-            .from('conversations')
-            .update({ 
-              metadata: { ...fallbackConversation.metadata, instanceName: instanceName, remoteJid: remoteJid },
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', fallbackConversation.id);
-        }
-        
-        // Reabrir se necessário
-        if (fallbackConversation.status === 'resolved' || fallbackConversation.status === 'closed') {
-          await supabase
-            .from('conversations')
-            .update({ status: 'open', updated_at: new Date().toISOString(), archived: false })
-            .eq('id', fallbackConversation.id);
-          fallbackConversation.status = 'open';
-        }
-        
         return fallbackConversation;
       }
     }
@@ -1357,127 +1147,11 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
     throw insertError;
   }
 
-  console.log(`✅ Created new conversation: ${newConversation.id} with instanceName: ${instanceName || 'NULL'}`);
+  console.log(`✅ Created new conversation: ${newConversation.id}`);
   return newConversation;
 }
 
-// Versão especial para mensagens @lid - salva o lidJid no metadata
-async function getOrCreateConversationWithLid(supabase: any, contactId: string, phoneNumber: string, contactName: string, lidJid: string, instanceName?: string) {
-  // Get contact to find company_id
-  const { data: contact } = await supabase
-    .from('contacts')
-    .select('company_id')
-    .eq('id', contactId)
-    .single();
-
-  console.log(`🔍 [getOrCreateConversationWithLid] ContactId: ${contactId}, Phone: ${phoneNumber}, LidJid: ${lidJid}, Instance: ${instanceName || 'NOT PROVIDED'}`);
-
-  // Buscar conversa existente para este contato
-  const { data: existingConversation } = await supabase
-    .from('conversations')
-    .select('*')
-    .eq('contact_id', contactId)
-    .eq('channel', 'whatsapp')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (existingConversation) {
-    console.log(`✅ Found existing conversation: ${existingConversation.id} - adding lidJid`);
-    
-    // CRITICAL: Always update with lidJid for @lid messages
-    const currentLidJid = existingConversation.metadata?.lidJid;
-    const needsLidUpdate = lidJid && (!currentLidJid || currentLidJid !== lidJid);
-    
-    const needsReopen = existingConversation.status === 'resolved' || existingConversation.status === 'closed';
-    
-    if (needsReopen || needsLidUpdate) {
-      console.log(`🔧 Updating conversation with lidJid: ${lidJid}`);
-      
-      const newMetadata = {
-        ...(existingConversation.metadata || {}),
-        remoteJid: lidJid,
-        lidJid: lidJid,
-        instanceName: instanceName || existingConversation.metadata?.instanceName,
-        ...(needsReopen ? { bot_state: null, bot_triggered: false } : {})
-      };
-      
-      const updateData: any = { 
-        updated_at: new Date().toISOString(),
-        metadata: newMetadata
-      };
-      
-      if (needsReopen) {
-        updateData.status = 'open';
-        updateData.archived = false;
-      }
-      
-      await supabase
-        .from('conversations')
-        .update(updateData)
-        .eq('id', existingConversation.id);
-      
-      existingConversation.metadata = newMetadata;
-    }
-    
-    return existingConversation;
-  }
-
-  // Create new conversation with lidJid
-  console.log(`➕ Creating new conversation with lidJid for contact: ${contactId}`);
-  
-  const conversationMetadata = { 
-    remoteJid: lidJid,
-    lidJid: lidJid,
-    instanceName: instanceName || null
-  };
-  
-  const { data: newConversation, error: insertError } = await supabase
-    .from('conversations')
-    .insert({
-      contact_id: contactId,
-      channel: 'whatsapp',
-      status: 'open',
-      company_id: contact?.company_id,
-      metadata: conversationMetadata,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    })
-    .select()
-    .single();
-
-  if (insertError) {
-    if (insertError.code === '23505') {
-      // Race condition - fetch and update
-      const { data: fallbackConversation } = await supabase
-        .from('conversations')
-        .select('*')
-        .eq('contact_id', contactId)
-        .eq('channel', 'whatsapp')
-        .limit(1)
-        .maybeSingle();
-      
-      if (fallbackConversation) {
-        // Update with lidJid
-        await supabase
-          .from('conversations')
-          .update({ 
-            metadata: { ...fallbackConversation.metadata, lidJid: lidJid, remoteJid: lidJid, instanceName: instanceName },
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', fallbackConversation.id);
-        
-        return fallbackConversation;
-      }
-    }
-    throw insertError;
-  }
-
-  console.log(`✅ Created new conversation with lidJid: ${newConversation.id}`);
-  return newConversation;
-}
-
-// Verificar se a mensagem já foi processada (idempotência)
+// Verificar se a mensagem já foi processada
 async function isMessageAlreadyProcessed(supabase: any, externalId: string): Promise<boolean> {
   const { data: existingMessage } = await supabase
     .from('messages')
@@ -1486,13 +1160,13 @@ async function isMessageAlreadyProcessed(supabase: any, externalId: string): Pro
     .maybeSingle();
   
   if (existingMessage) {
-    console.log(`⚠️ Mensagem ${externalId} já foi processada anteriormente. Ignorando duplicata.`);
+    console.log(`⚠️ Mensagem ${externalId} já foi processada anteriormente.`);
     return true;
   }
   return false;
 }
 
-// Verificar anti-flood: se o bot já respondeu recentemente (< 5 segundos)
+// Anti-flood check
 async function shouldSkipBotResponse(supabase: any, conversationId: string): Promise<boolean> {
   const fiveSecondsAgo = new Date(Date.now() - 5000).toISOString();
   
@@ -1505,16 +1179,15 @@ async function shouldSkipBotResponse(supabase: any, conversationId: string): Pro
     .limit(1);
   
   if (recentBotMessage && recentBotMessage.length > 0) {
-    console.log(`⚠️ Bot já respondeu nos últimos 5 segundos. Ignorando para evitar flood.`);
+    console.log(`⚠️ Bot já respondeu nos últimos 5 segundos. Anti-flood.`);
     return true;
   }
   return false;
 }
 
-// Download media from WhatsApp via Evolution API and upload to Supabase Storage
+// Download media from WhatsApp
 async function downloadAndUploadMedia(supabase: any, attachment: Attachment, message: EvolutionMessage, conversationId: string, instanceName: string): Promise<string | null> {
   if (!attachment.url || !attachment.url.startsWith('http')) {
-    console.log('⚠️ No valid URL for attachment download');
     return null;
   }
   
@@ -1529,7 +1202,6 @@ async function downloadAndUploadMedia(supabase: any, attachment: Attachment, mes
     
     console.log('📥 Downloading media from WhatsApp via Evolution API...');
     
-    // Evolution API endpoint to get base64 from media message
     const mediaResponse = await fetch(`${evolutionUrl}/chat/getBase64FromMediaMessage/${instanceName}`, {
       method: 'POST',
       headers: {
@@ -1546,7 +1218,7 @@ async function downloadAndUploadMedia(supabase: any, attachment: Attachment, mes
     });
     
     if (!mediaResponse.ok) {
-      console.error('❌ Failed to download media from Evolution API:', mediaResponse.status, await mediaResponse.text());
+      console.error('❌ Failed to download media:', mediaResponse.status);
       return null;
     }
     
@@ -1559,15 +1231,12 @@ async function downloadAndUploadMedia(supabase: any, attachment: Attachment, mes
     
     console.log('✅ Media downloaded, uploading to Supabase Storage...');
     
-    // Convert base64 to binary
     const base64Data = mediaData.base64.replace(/^data:[^;]+;base64,/, '');
     const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
     
-    // Generate unique filename
     const extension = getExtensionFromMimeType(attachment.mimeType || 'application/octet-stream');
     const fileName = `${conversationId}/${Date.now()}-${Math.random().toString(36).substring(7)}.${extension}`;
     
-    // Upload to Supabase Storage
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('chat-attachments')
       .upload(fileName, binaryData, {
@@ -1580,7 +1249,6 @@ async function downloadAndUploadMedia(supabase: any, attachment: Attachment, mes
       return null;
     }
     
-    // Get public URL
     const { data: publicUrlData } = supabase.storage
       .from('chat-attachments')
       .getPublicUrl(fileName);
@@ -1616,30 +1284,26 @@ function getExtensionFromMimeType(mimeType: string): string {
 async function saveMessage(supabase: any, conversationId: string, message: EvolutionMessage, content: string, phoneNumber: string, instanceName: string) {
   const externalId = message.key.id;
   
-  // PROTEÇÃO 1: Verificar se a mensagem já foi processada
+  // Check for duplicate
   const alreadyProcessed = await isMessageAlreadyProcessed(supabase, externalId);
   if (alreadyProcessed) {
-    return null; // Retorna null para indicar que não deve processar
+    return null;
   }
   
-  // Extrair informações de anexo se houver
+  // Extract attachment if any
   let attachment = extractAttachment(message);
   
-  // Se tiver anexo, baixar e fazer upload para o Supabase Storage
   if (attachment && attachment.url) {
     console.log('📎 Attachment detected:', attachment.type, attachment.url);
     
     const storageUrl = await downloadAndUploadMedia(supabase, attachment, message, conversationId, instanceName);
     
     if (storageUrl) {
-      // Substituir URL temporária do WhatsApp pela URL permanente do Supabase
       attachment = {
         ...attachment,
         url: storageUrl,
       };
       console.log('✅ Attachment URL replaced with Supabase Storage URL');
-    } else {
-      console.warn('⚠️ Failed to upload media, keeping original URL (may expire)');
     }
   }
   
@@ -1669,9 +1333,8 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
     .single();
 
   if (error) {
-    // Se o erro for de constraint única, é duplicata
     if (error.code === '23505') {
-      console.log('⚠️ Mensagem duplicada detectada por constraint. Ignorando.');
+      console.log('⚠️ Duplicate message detected by constraint.');
       return null;
     }
     console.error('Error saving message:', error);
@@ -1680,21 +1343,32 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
   
   if (!data) {
     console.error('Message insert returned no data');
-    throw new Error('Failed to save message - no data returned');
+    throw new Error('Failed to save message');
   }
 
   console.log('Message saved successfully with ID:', data.id);
   return data;
 }
 
+// ============================================================
+// TRIGGER BOT RESPONSE - COM PROTEÇÃO ABSOLUTA
+// ============================================================
 async function triggerBotResponse(supabase: any, conversationId: string, messageContent: string, remoteJid: string, instanceName: string) {
   console.log('Triggering bot response...');
   
   // ============================================================
-  // PROTEÇÃO MÁXIMA: NUNCA ENVIAR MENSAGENS AUTOMÁTICAS SEM VERIFICAÇÃO
+  // PROTEÇÃO ABSOLUTA 1: NUNCA enviar para @lid
+  // A API Evolution EXIGE o campo "number" que @lid não tem
   // ============================================================
+  if (remoteJid.includes('@lid')) {
+    console.log(`🚫🚫🚫 BOT BLOQUEADO ABSOLUTO: @lid não tem número de telefone real`);
+    console.log(`🚫 remoteJid: ${remoteJid}`);
+    return;
+  }
   
-  // PROTEÇÃO 0: Verificar se o bot está habilitado para esta instância
+  // ============================================================
+  // PROTEÇÃO ABSOLUTA 2: Verificar se instância tem bot habilitado
+  // ============================================================
   const { data: instance } = await supabase
     .from('whatsapp_instances')
     .select('bot_enabled')
@@ -1702,15 +1376,13 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     .single();
   
   if (instance && instance.bot_enabled === false) {
-    console.log(`⏸️ Bot desabilitado para instância ${instanceName}. Ignorando resposta automática.`);
+    console.log(`⏸️ Bot desabilitado para instância ${instanceName}.`);
     return;
   }
   
   // ============================================================
-  // VERIFICAÇÃO TRIPLA + SYNC CHECK - AGENT TAKEOVER
+  // PROTEÇÃO ABSOLUTA 3: Buscar estado FRESCO da conversa
   // ============================================================
-  
-  // BUSCAR ESTADO FRESCO DO BANCO - NUNCA usar estado em cache!
   const { data: freshConversation, error: freshError } = await supabase
     .from('conversations')
     .select('id, bot_active, metadata, status, contacts(phone)')
@@ -1718,12 +1390,12 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     .single();
 
   if (freshError) {
-    console.error('[BOT] Erro ao buscar estado FRESCO da conversa:', freshError);
+    console.error('[BOT] Erro ao buscar conversa:', freshError);
     return;
   }
 
   // ============================================================
-  // PROTEÇÃO CRÍTICA: SYNC-CREATED CONVERSATIONS NEVER TRIGGER BOT
+  // PROTEÇÃO ABSOLUTA 4: SYNC-CREATED nunca aciona bot
   // ============================================================
   if (freshConversation.metadata?.syncCreated === true) {
     console.log('[BOT] ❌ Conversa criada por SYNC - bot NUNCA responderá');
@@ -1734,22 +1406,41 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     console.log('[BOT] ❌ Conversa tem syncTimestamp - bot NUNCA responderá');
     return;
   }
+  
+  // ============================================================
+  // PROTEÇÃO ABSOLUTA 5: @lid contact nunca aciona bot
+  // ============================================================
+  if (freshConversation.metadata?.isLidContact === true) {
+    console.log('[BOT] ❌ Contato @lid - bot NUNCA responderá');
+    return;
+  }
+  
+  if (freshConversation.metadata?.botDisabledReason) {
+    console.log(`[BOT] ❌ Bot desabilitado: ${freshConversation.metadata.botDisabledReason}`);
+    return;
+  }
 
-  // Log detalhado para debug
+  // Log detalhado
   console.log('[BOT] Estado FRESCO da conversa:', {
     id: freshConversation.id,
     bot_active: freshConversation.bot_active,
     agent_takeover: freshConversation.metadata?.agent_takeover,
-    syncCreated: freshConversation.metadata?.syncCreated,
-    status: freshConversation.status
+    status: freshConversation.status,
+    contactPhone: freshConversation.contacts?.phone
   });
 
-  // DECISÃO TRIPLA: Bot deve responder SOMENTE se:
-  // 1. bot_active === true EXPLICITAMENTE (não null, não undefined)
-  // 2. agent_takeover !== true (agente não assumiu via metadata)
-  // 3. status !== 'pending' (não está aguardando atendente)
-  // 4. NOT syncCreated (não foi criada por sync)
-  const botActive = freshConversation.bot_active === true; // DEVE SER TRUE EXPLICITAMENTE
+  // ============================================================
+  // PROTEÇÃO ABSOLUTA 6: Verificar se contato tem telefone VÁLIDO
+  // Sem telefone = NUNCA pode enviar mensagem
+  // ============================================================
+  const contactPhone = freshConversation.contacts?.phone;
+  if (!contactPhone || contactPhone.length < 10) {
+    console.log(`[BOT] ❌ Contato sem telefone válido: ${contactPhone || 'vazio'}`);
+    return;
+  }
+
+  // Verificações do estado do bot
+  const botActive = freshConversation.bot_active === true;
   const agentTakeover = freshConversation.metadata?.agent_takeover === true;
   const isPending = freshConversation.status === 'pending';
   const isResolved = freshConversation.status === 'resolved';
@@ -1761,28 +1452,26 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     console.log('  - bot_active:', botActive);
     console.log('  - agent_takeover:', agentTakeover);
     console.log('  - isPending:', isPending);
+    console.log('  - isResolved:', isResolved);
     return;
   }
 
   console.log('[BOT] ✅ Bot ATIVO - processando resposta...');
   
-  // PROTEÇÃO 1: Anti-flood ANTES de qualquer processamento
+  // Anti-flood
   const floodCheck = await shouldSkipBotResponse(supabase, conversationId);
   if (floodCheck) {
     return;
   }
   
-  // PROTEÇÃO 2: Lock otimista - verificar e adquirir lock
+  // Lock otimista
   const lockTimestamp = Date.now();
-  
-  // Verificar se outro processo já está processando (lock ativo nos últimos 10 segundos)
   const existingLock = freshConversation?.metadata?.bot_processing_lock;
   if (existingLock && (lockTimestamp - existingLock) < 10000 && existingLock !== lockTimestamp) {
-    console.log(`🔒 Bot já está processando esta conversa (lock: ${existingLock}). Ignorando.`);
+    console.log(`🔒 Bot já está processando esta conversa.`);
     return;
   }
   
-  // Atualizar lock no metadata
   await supabase
     .from('conversations')
     .update({ 
@@ -1806,7 +1495,6 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     return;
   }
 
-  // Usar freshConversation como conversation daqui em diante
   const conversation = freshConversation;
 
   if (!bots || bots.length === 0) {
@@ -1822,11 +1510,11 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     collectedData: {},
   };
 
-  // Processar o fluxo do bot (import estático no topo do arquivo)
+  // Processar fluxo do bot
   const processor = new BotFlowProcessor(bot.flows, conversationState);
   const result = await processor.processUserInput(messageContent);
 
-  // Preparar atualização da conversa
+  // Preparar atualização
   const conversationUpdate: any = {
     metadata: {
       ...conversation?.metadata,
@@ -1837,7 +1525,6 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     updated_at: new Date().toISOString(),
   };
 
-  // Se for transferência, atribuir ao primeiro usuário disponível
   if (result.shouldTransferToAgent) {
     console.log('📞 Transferindo para atendente...');
     const { data: profiles } = await supabase
@@ -1848,13 +1535,11 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     
     if (profiles && profiles.length > 0) {
       conversationUpdate.assigned_to = profiles[0].user_id;
-      console.log('✅ Conversa atribuída ao usuário:', profiles[0].user_id);
     }
   }
 
-  // Processar chamada de API se necessário
+  // Processar chamada de API
   if (result.shouldCallApi) {
-    // Atualizar conversa antes de chamar API
     await supabase.from('conversations').update(conversationUpdate).eq('id', conversationId);
     
     if (result.shouldCallApi.action === 'fetch-placas') {
@@ -1868,11 +1553,11 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     }
   }
 
-  // Obter telefone do contato para envio direto
-  const contactPhone = conversation?.contacts?.phone;
-  const recipientJid = contactPhone ? `${contactPhone}@s.whatsapp.net` : remoteJid;
+  // USAR TELEFONE DO CONTATO para envio (NUNCA o remoteJid direto)
+  const recipientJid = `${contactPhone}@s.whatsapp.net`;
+  console.log(`📤 Enviando resposta do bot para: ${recipientJid}`);
 
-  // Executar em paralelo: salvar mensagem + atualizar conversa + enviar WhatsApp
+  // Executar em paralelo
   await Promise.all([
     supabase.from('messages').insert({
       conversation_id: conversationId,
@@ -1882,46 +1567,47 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
       created_at: new Date().toISOString(),
     }),
     supabase.from('conversations').update(conversationUpdate).eq('id', conversationId),
-    sendEvolutionMessageFast(instanceName, recipientJid, result.response)
+    sendEvolutionMessageSafe(instanceName, contactPhone, result.response)
   ]);
 }
 
 async function handleFetchPlacas(supabase: any, conversationId: string, remoteJid: string, instanceName: string, botFlow: any, currentState: any) {
   console.log('📋 Iniciando busca de placas - Canal WhatsApp');
   
+  // Buscar telefone do contato
+  const { data: conv } = await supabase
+    .from('conversations')
+    .select('contacts(phone)')
+    .eq('id', conversationId)
+    .single();
+  
+  const contactPhone = conv?.contacts?.phone;
+  if (!contactPhone) {
+    console.log('❌ Sem telefone para enviar resposta');
+    return;
+  }
+  
   try {
-    // Buscar placas exatamente como o canal web faz
-    console.log('🔄 Buscando placas da API:', `${GOOGLE_SCRIPT_URL}?action=placas`);
     const placasRes = await fetch(`${GOOGLE_SCRIPT_URL}?action=placas`);
-    console.log('✅ Status da resposta:', placasRes.status);
-    console.log('📄 Headers:', JSON.stringify(Object.fromEntries(placasRes.headers.entries())));
     
     const placasText = await placasRes.text();
-    console.log('📄 Resposta completa (primeiros 200 chars):', placasText.substring(0, 200));
-    console.log('📏 Tamanho da resposta:', placasText.length, 'chars');
     
     let placasData;
     try {
       placasData = JSON.parse(placasText);
-      console.log('✅ Parse JSON bem sucedido:', JSON.stringify(placasData));
     } catch (parseError) {
-      console.error('❌ Erro ao fazer parse do JSON:', parseError);
-      console.error('📄 Resposta que falhou no parse:', placasText);
       placasData = { placas: [] };
     }
     
     const placas = placasData.placas || [];
-    console.log('📊 Total de placas recebidas:', placas.length);
-    console.log('📋 Placas:', JSON.stringify(placas));
     
     if (placas.length === 0) {
       throw new Error('Lista de placas vazia');
     }
     
-    await sendPlacasMenu(supabase, conversationId, remoteJid, instanceName, placas, botFlow, currentState);
+    await sendPlacasMenu(supabase, conversationId, contactPhone, instanceName, placas, botFlow, currentState);
   } catch (error) {
     console.error('❌ Erro ao buscar placas:', error);
-    console.error('Stack:', error instanceof Error ? error.stack : 'N/A');
     
     const errorMessage = '❌ Erro ao buscar placas da API.\n\nDigite **0** para voltar ao menu ou falar com um atendente.';
     
@@ -1934,17 +1620,15 @@ async function handleFetchPlacas(supabase: any, conversationId: string, remoteJi
         created_at: new Date().toISOString(),
       });
     
-    await sendEvolutionMessage(supabase, conversationId, instanceName, remoteJid, errorMessage);
+    await sendEvolutionMessageSafe(instanceName, contactPhone, errorMessage);
   }
 }
 
-async function sendPlacasMenu(supabase: any, conversationId: string, remoteJid: string, instanceName: string, placas: string[], botFlow: any, currentState: any) {
-  // Formatar todas as placas para WhatsApp (igual ao canal web)
+async function sendPlacasMenu(supabase: any, conversationId: string, contactPhone: string, instanceName: string, placas: string[], botFlow: any, currentState: any) {
   const placasFormatadas = placas.map((placa, idx) => `${idx + 1}. ${placa}`).join('\n');
   
   const message = `📋 Selecione uma placa:\n\n${placasFormatadas}\n\nDigite o número da placa desejada ou 0 para voltar ao menu.`;
   
-  // Atualizar estado com TODAS as placas disponíveis
   const newState = {
     ...currentState,
     currentNodeId: 'chamado-placa',
@@ -1974,54 +1658,49 @@ async function sendPlacasMenu(supabase: any, conversationId: string, remoteJid: 
       created_at: new Date().toISOString(),
     });
   
-  await sendEvolutionMessage(supabase, conversationId, instanceName, remoteJid, message);
+  await sendEvolutionMessageSafe(instanceName, contactPhone, message);
 }
 
 async function handleCreateChamado(supabase: any, conversationId: string, remoteJid: string, instanceName: string, conversationState: any) {
   console.log('Creating chamado...');
   
+  // Buscar telefone do contato
+  const { data: conv } = await supabase
+    .from('conversations')
+    .select('company_id, contact_id, metadata, contacts(phone)')
+    .eq('id', conversationId)
+    .single();
+  
+  const contactPhone = conv?.contacts?.phone;
+  if (!contactPhone) {
+    console.log('❌ Sem telefone para enviar resposta');
+    return;
+  }
+  
   const collectedData = conversationState.collectedData;
-  const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz0viYlAJ_-v00BzqRgMROE0wdvixohvQ4d949mTvRQk_eRdqN-CsxQeAldpV6HR2xlBQ/exec';
   
   try {
-    // Extrair dados coletados
     const placaSelecionada = collectedData['chamado-placa'];
     const corretiva = collectedData['chamado-corretiva'] === 'Sim';
     const local = collectedData['chamado-local'];
-    const incidente = collectedData['chamado-agendamento']; // Mantém nome interno mas é "incidente" para usuário
+    const incidente = collectedData['chamado-agendamento'];
     const descricao = collectedData['chamado-descricao'];
     
-    console.log('Dados coletados:', { placaSelecionada, corretiva, local, incidente, descricao });
-    
-    // Validar placa
     if (!placaSelecionada || placaSelecionada === 'Lista dinâmica de placas da API') {
       throw new Error('Placa não selecionada corretamente');
     }
     
-    // Buscar company_id da conversa
-    const { data: conversation } = await supabase
-      .from('conversations')
-      .select('company_id, contact_id, metadata')
-      .eq('id', conversationId)
-      .single();
-    
-    const phoneNumber = extractPhoneNumber(remoteJid);
-    
-    // Buscar último número de chamado da API Google Sheets (igual ao canal web)
     let numeroChamado = `CH-${Date.now().toString().slice(-8)}`;
     try {
-      console.log('Buscando último chamado da API...');
       const ultimoChamadoRes = await fetch(`${GOOGLE_SCRIPT_URL}?action=ultimoChamado`);
       if (ultimoChamadoRes.ok) {
         const ultimoChamadoData = await ultimoChamadoRes.json();
         numeroChamado = ultimoChamadoData.numeroChamado || numeroChamado;
-        console.log('Número do chamado obtido:', numeroChamado);
       }
     } catch (apiError) {
-      console.error('Erro ao buscar último chamado, usando timestamp:', apiError);
+      console.error('Erro ao buscar último chamado:', apiError);
     }
     
-    // Converter incidente para timestamp de forma robusta
     let incidenteTimestamp = null;
     if (incidente) {
       try {
@@ -2030,16 +1709,13 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
           incidenteTimestamp = parsedDate.toISOString();
         }
       } catch (e) {
-        console.error('Erro ao parsear data do incidente:', e);
+        console.error('Erro ao parsear data:', e);
       }
     }
     
-    // Enviar para Google Sheets primeiro (igual ao canal web)
     let chamadoData: any = null;
-    let googleSheetsSucesso = false;
     
     try {
-      console.log('Enviando para Google Sheets...');
       const chamadoPayload = {
         placa: placaSelecionada,
         corretiva: corretiva ? 'Sim' : 'Não',
@@ -2054,14 +1730,10 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
       });
       
       if (createRes.status === 200 || createRes.status === 201) {
-        googleSheetsSucesso = true;
-        console.log('✅ Chamado criado no Google Sheets');
-        
         try {
           const responseText = await createRes.text();
           chamadoData = JSON.parse(responseText);
         } catch (parseError) {
-          console.log('Usando dados locais');
           chamadoData = { 
             numeroChamado: numeroChamado,
             ID: 'N/A'
@@ -2072,11 +1744,10 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
       console.error('Erro ao criar no Google Sheets:', googleError);
     }
     
-    // Criar chamado no Supabase
     const { data: chamado, error: chamadoError } = await supabase
       .from('chamados')
       .insert({
-        company_id: conversation?.company_id,
+        company_id: conv?.company_id,
         conversation_id: conversationId,
         numero_chamado: chamadoData?.numeroChamado || numeroChamado,
         google_sheet_id: chamadoData?.ID || null,
@@ -2088,24 +1759,19 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
         status: 'aberto',
         metadata: {
           origem: 'whatsapp',
-          telefone: phoneNumber,
+          telefone: contactPhone,
         },
       })
       .select()
       .single();
     
     if (chamadoError) {
-      console.error('Erro ao criar chamado no Supabase:', chamadoError);
       throw chamadoError;
     }
     
-    console.log('✅ Chamado criado no Supabase:', chamado);
-    
-    // Mensagem de sucesso com o número correto e placa
     const finalNumeroChamado = chamadoData?.numeroChamado || numeroChamado;
     const successMessage = `✅ Chamado criado com sucesso!\n\n📋 Número: ${finalNumeroChamado}\n🚗 Placa: ${placaSelecionada}\n📍 Local: ${local}\n${corretiva ? '🔧 Tipo: Corretiva\n' : ''}${incidente ? `📅 Data/Hora do Incidente: ${incidente}\n` : ''}\n\nDigite 0 para voltar ao menu principal.`;
     
-    // Resetar estado para o nó de sucesso
     await supabase
       .from('conversations')
       .update({
@@ -2129,7 +1795,7 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
         created_at: new Date().toISOString(),
       });
     
-    await sendEvolutionMessage(supabase, conversationId, instanceName, remoteJid, successMessage);
+    await sendEvolutionMessageSafe(instanceName, contactPhone, successMessage);
     
   } catch (error) {
     console.error('Error creating chamado:', error);
@@ -2145,13 +1811,14 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
         created_at: new Date().toISOString(),
       });
     
-    await sendEvolutionMessage(supabase, conversationId, instanceName, remoteJid, errorMessage);
+    await sendEvolutionMessageSafe(instanceName, contactPhone, errorMessage);
   }
 }
 
-// Função otimizada para envio rápido - sem query ao banco
-// Suporta tanto números reais (@s.whatsapp.net) quanto IDs internos (@lid)
-async function sendEvolutionMessageFast(instanceName: string, recipientJid: string, text: string) {
+// ============================================================
+// FUNÇÃO SEGURA PARA ENVIO - SEMPRE USA NUMBER, NUNCA REMOTEJID
+// ============================================================
+async function sendEvolutionMessageSafe(instanceName: string, phoneNumber: string, text: string) {
   const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL');
   const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
 
@@ -2160,18 +1827,22 @@ async function sendEvolutionMessageFast(instanceName: string, recipientJid: stri
     return;
   }
 
-  console.log(`Sending bot message to: ${recipientJid} via instance ${instanceName}`);
+  // VALIDAÇÃO: Telefone deve existir e ser numérico
+  if (!phoneNumber || phoneNumber.length < 10 || !/^\d+$/.test(phoneNumber)) {
+    console.error(`🚫 BLOQUEADO: Telefone inválido: ${phoneNumber || 'vazio'}`);
+    return;
+  }
+
+  console.log(`📤 Sending message to: ${phoneNumber} via instance ${instanceName}`);
 
   try {
-    // Para @lid e outros formatos especiais, usar remoteJid diretamente
-    // Para números normais, usar o campo number
-    const isSpecialFormat = recipientJid.includes('@lid') || recipientJid.includes('@g.us');
+    // SEMPRE usar campo "number", NUNCA "remoteJid"
+    const body = { 
+      number: phoneNumber, 
+      text: text 
+    };
     
-    const body = isSpecialFormat 
-      ? { remoteJid: recipientJid, text: text }
-      : { number: recipientJid.replace(/@s\.whatsapp\.net|@c\.us/g, ''), text: text };
-    
-    console.log(`📤 Sending message with body:`, JSON.stringify(body));
+    console.log(`📤 Body:`, JSON.stringify(body));
     
     const response = await fetch(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
       method: 'POST',
@@ -2186,66 +1857,31 @@ async function sendEvolutionMessageFast(instanceName: string, recipientJid: stri
       const errorText = await response.text();
       console.error('Failed to send message via Evolution API:', response.statusText, errorText);
     } else {
-      console.log('Message sent successfully via Evolution API');
+      console.log('✅ Message sent successfully via Evolution API');
     }
   } catch (error) {
     console.error('Error sending message via Evolution API:', error);
   }
 }
 
-async function sendEvolutionMessage(supabase: any, conversationId: string, instanceName: string, remoteJid: string, text: string) {
-  const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL');
-  const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
-
-  if (!evolutionApiUrl || !evolutionApiKey) {
-    console.error('Evolution API configuration missing');
-    return;
-  }
-
-  // Buscar contato da conversa para usar telefone real se disponível
-  let recipientJid = remoteJid;
-  try {
-    const { data: conversation } = await supabase
-      .from('conversations')
-      .select('contacts(phone)')
-      .eq('id', conversationId)
-      .single();
-
-    if (conversation?.contacts?.phone) {
-      recipientJid = `${conversation.contacts.phone}@s.whatsapp.net`;
-      console.log(`Bot using contact phone: ${conversation.contacts.phone} -> ${recipientJid}`);
-    } else {
-      console.log(`Bot using remoteJid from metadata: ${remoteJid}`);
-    }
-  } catch (error) {
-    console.error('Error fetching contact phone, using remoteJid:', error);
-  }
-
-  await sendEvolutionMessageFast(instanceName, recipientJid, text);
-}
-
 function extractPhoneNumber(remoteJid: string): string {
-  // NEVER extract phone from @lid - it's not a real phone number
+  // NEVER extract phone from @lid
   if (remoteJid.includes('@lid')) {
     return '';
   }
   
-  // Extract phone number from valid WhatsApp formats only
-  // Supports: @s.whatsapp.net, @c.us
+  // Extract phone from valid WhatsApp formats
   const phoneMatch = remoteJid.match(/^(\d+)@/);
   if (phoneMatch) {
     const phone = phoneMatch[1];
-    // Validate: Brazilian phones should start with 55 and be reasonable length
     if (phone.startsWith('55') && phone.length >= 12) {
       return phone;
     }
-    // For other valid WhatsApp formats, return as-is
     if (remoteJid.includes('@s.whatsapp.net') || remoteJid.includes('@c.us')) {
       return phone;
     }
   }
   
-  // No valid phone found
   return '';
 }
 
