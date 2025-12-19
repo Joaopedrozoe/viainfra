@@ -3,7 +3,7 @@ import { Conversation } from "@/types/conversation";
 import { cn } from "@/lib/utils";
 import { ChannelIcon } from "./ChannelIcon";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, MessageCircle, Check, CheckCheck } from "lucide-react";
+import { CheckCircle, MessageCircle, Check, CheckCheck, Image, Video, FileText, Mic, Sticker, MapPin, User } from "lucide-react";
 
 interface ConversationItemProps {
   conversation: Conversation;
@@ -14,6 +14,36 @@ interface ConversationItemProps {
   isTyping?: boolean;
   hasNewMessage?: boolean;
 }
+
+// Helper para detectar tipo de mídia no preview
+const getMediaInfo = (preview: string): { icon: React.ReactNode; text: string } | null => {
+  if (preview.startsWith('[Imagem]') || preview.startsWith('[Foto]')) {
+    return { icon: <Image className="w-3.5 h-3.5" />, text: 'Foto' };
+  }
+  if (preview.startsWith('[Vídeo]')) {
+    return { icon: <Video className="w-3.5 h-3.5" />, text: 'Vídeo' };
+  }
+  if (preview.startsWith('[Áudio]') || preview.includes('🎤')) {
+    return { icon: <Mic className="w-3.5 h-3.5" />, text: 'Áudio' };
+  }
+  if (preview.startsWith('[Documento') || preview.startsWith('[Arquivo]')) {
+    const match = preview.match(/\[Documento: (.+?)\]/);
+    return { 
+      icon: <FileText className="w-3.5 h-3.5" />, 
+      text: match ? match[1] : 'Documento' 
+    };
+  }
+  if (preview.startsWith('[Figurinha]') || preview.startsWith('[Sticker]')) {
+    return { icon: <Sticker className="w-3.5 h-3.5" />, text: 'Figurinha' };
+  }
+  if (preview.startsWith('[Localização]') || preview.startsWith('[Local]')) {
+    return { icon: <MapPin className="w-3.5 h-3.5" />, text: 'Localização' };
+  }
+  if (preview.startsWith('[Contato]')) {
+    return { icon: <User className="w-3.5 h-3.5" />, text: 'Contato' };
+  }
+  return null;
+};
 
 export const ConversationItem = memo(({ 
   conversation, 
@@ -60,8 +90,11 @@ export const ConversationItem = memo(({
     setImageError(true);
   }, []);
 
-  // Determinar se última mensagem foi enviada pelo agente (preview começa com nome do agente em negrito)
+  // Determinar se última mensagem foi enviada pelo agente (preview começa com *)
   const isLastMessageFromAgent = conversation.preview?.startsWith('*');
+  
+  // Detectar tipo de mídia
+  const mediaInfo = getMediaInfo(conversation.preview || '');
 
   // Render avatar with image or fallback initial
   const avatarElement = conversation.avatar && !imageError ? (
@@ -83,6 +116,19 @@ export const ConversationItem = memo(({
     e.stopPropagation();
     onResolve?.();
   }, [onResolve]);
+
+  // Renderizar preview com ícone de mídia se aplicável
+  const renderPreview = () => {
+    if (mediaInfo) {
+      return (
+        <span className="flex items-center gap-1.5 text-muted-foreground">
+          {mediaInfo.icon}
+          <span className="truncate">{mediaInfo.text}</span>
+        </span>
+      );
+    }
+    return conversation.preview;
+  };
 
   return (
     <div className="relative">
@@ -171,7 +217,7 @@ export const ConversationItem = memo(({
                   "text-sm truncate flex-1",
                   showNewBadge && !isSelected ? "text-foreground font-medium" : "text-muted-foreground"
                 )}>
-                  {conversation.preview}
+                  {renderPreview()}
                 </span>
               </div>
             )}
