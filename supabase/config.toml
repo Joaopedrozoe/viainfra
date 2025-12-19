@@ -6,6 +6,9 @@ verify_jwt = false
 [functions.fetch-flavio-messages]
 verify_jwt = false
 
+[functions.deep-search-phone]
+verify_jwt = false
+
 [api]
 enabled = true
 port = 54321
