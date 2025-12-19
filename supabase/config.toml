@@ -96,3 +96,6 @@ verify_jwt = false
 
 [functions.sync-single-contact]
 verify_jwt = false
+
+[functions.insert-missing-message]
+verify_jwt = false
