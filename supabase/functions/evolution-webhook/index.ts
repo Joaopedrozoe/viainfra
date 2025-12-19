@@ -1690,6 +1690,10 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
 async function triggerBotResponse(supabase: any, conversationId: string, messageContent: string, remoteJid: string, instanceName: string) {
   console.log('Triggering bot response...');
   
+  // ============================================================
+  // PROTEÇÃO MÁXIMA: NUNCA ENVIAR MENSAGENS AUTOMÁTICAS SEM VERIFICAÇÃO
+  // ============================================================
+  
   // PROTEÇÃO 0: Verificar se o bot está habilitado para esta instância
   const { data: instance } = await supabase
     .from('whatsapp_instances')
@@ -1703,7 +1707,7 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
   }
   
   // ============================================================
-  // VERIFICAÇÃO TRIPLA - AGENT TAKEOVER
+  // VERIFICAÇÃO TRIPLA + SYNC CHECK - AGENT TAKEOVER
   // ============================================================
   
   // BUSCAR ESTADO FRESCO DO BANCO - NUNCA usar estado em cache!
@@ -1718,11 +1722,25 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     return;
   }
 
+  // ============================================================
+  // PROTEÇÃO CRÍTICA: SYNC-CREATED CONVERSATIONS NEVER TRIGGER BOT
+  // ============================================================
+  if (freshConversation.metadata?.syncCreated === true) {
+    console.log('[BOT] ❌ Conversa criada por SYNC - bot NUNCA responderá');
+    return;
+  }
+  
+  if (freshConversation.metadata?.syncTimestamp) {
+    console.log('[BOT] ❌ Conversa tem syncTimestamp - bot NUNCA responderá');
+    return;
+  }
+
   // Log detalhado para debug
   console.log('[BOT] Estado FRESCO da conversa:', {
     id: freshConversation.id,
     bot_active: freshConversation.bot_active,
     agent_takeover: freshConversation.metadata?.agent_takeover,
+    syncCreated: freshConversation.metadata?.syncCreated,
     status: freshConversation.status
   });
 
@@ -1730,6 +1748,7 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
   // 1. bot_active === true EXPLICITAMENTE (não null, não undefined)
   // 2. agent_takeover !== true (agente não assumiu via metadata)
   // 3. status !== 'pending' (não está aguardando atendente)
+  // 4. NOT syncCreated (não foi criada por sync)
   const botActive = freshConversation.bot_active === true; // DEVE SER TRUE EXPLICITAMENTE
   const agentTakeover = freshConversation.metadata?.agent_takeover === true;
   const isPending = freshConversation.status === 'pending';

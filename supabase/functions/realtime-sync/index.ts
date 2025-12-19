@@ -13,7 +13,7 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  console.log('🔄 REALTIME SYNC V3 - Handling @lid JIDs properly...');
+  console.log('🔄 REALTIME SYNC V4 - SYNC ONLY, NO BOT RESPONSES');
 
   try {
     const supabase = createClient(
@@ -136,7 +136,7 @@ serve(async (req) => {
     console.log(`📊 Existing contacts: ${existingContacts?.length || 0}`);
 
     // =============================================
-    // STEP 3: Process each chat
+    // STEP 3: Process each chat - SYNC ONLY, NO BOT
     // =============================================
     for (const chat of recentChats) {
       const remoteJid = chat.id || chat.remoteJid || chat.jid;
@@ -184,8 +184,9 @@ serve(async (req) => {
       }
 
       // If still no conversation, create one (only for non-@lid with valid phone)
+      // CRITICAL: bot_active = FALSE to prevent automatic responses
       if (!conversation && !isLid && phone && /^\d{10,15}$/.test(phone)) {
-        console.log(`  ➕ Creating conversation for ${contactName} (${phone})`);
+        console.log(`  ➕ Creating conversation for ${contactName} (${phone}) - BOT DISABLED`);
         
         let contact = contactByPhone.get(phone) || contactByName.get(cleanName);
         
@@ -197,7 +198,7 @@ serve(async (req) => {
               name: contactName,
               phone: phone,
               company_id: companyId,
-              metadata: { remoteJid }
+              metadata: { remoteJid, syncCreated: true }
             })
             .select()
             .single();
@@ -216,6 +217,7 @@ serve(async (req) => {
         }
 
         if (contact) {
+          // CRITICAL: bot_active = FALSE for sync-created conversations
           const { data: newConv, error: convErr } = await supabase
             .from('conversations')
             .insert({
@@ -223,10 +225,12 @@ serve(async (req) => {
               company_id: companyId,
               channel: 'whatsapp',
               status: 'open',
-              bot_active: true,
+              bot_active: false, // NEVER enable bot for sync
               metadata: { 
                 remoteJid,
-                instanceName: INSTANCE_NAME
+                instanceName: INSTANCE_NAME,
+                syncCreated: true,
+                syncTimestamp: new Date().toISOString()
               }
             })
             .select('*, contacts(*)')
@@ -238,7 +242,7 @@ serve(async (req) => {
             convByJid.set(remoteJid, conversation);
             convByPhone.set(phone, conversation);
             convByContactId.set(contact.id, conversation);
-            console.log(`  ✅ Conversation created`);
+            console.log(`  ✅ Conversation created (bot disabled)`);
           } else if (convErr) {
             console.log(`  ❌ Conversation error: ${convErr.message}`);
             stats.errors.push(`Conversation error: ${convErr.message}`);
@@ -291,7 +295,7 @@ serve(async (req) => {
       }
     }
 
-    console.log('\n✅ SYNC COMPLETE');
+    console.log('\n✅ SYNC COMPLETE - NO BOT MESSAGES SENT');
     console.log(`Chats from API: ${stats.chatsFromApi}`);
     console.log(`Messages imported: ${stats.messagesImported}`);
     console.log(`Conversations created: ${stats.conversationsCreated}`);
@@ -396,7 +400,8 @@ async function syncMessages(
           messageId: messageId,
           remoteJid,
           fromMe: key.fromMe || false,
-          instanceName: INSTANCE_NAME
+          instanceName: INSTANCE_NAME,
+          syncImported: true // Mark as sync imported
         }
       });
 
