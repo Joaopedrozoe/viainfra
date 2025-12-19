@@ -93,3 +93,6 @@ verify_jwt = false
 
 [functions.test-evolution-endpoints]
 verify_jwt = false
+
+[functions.sync-single-contact]
+verify_jwt = false
