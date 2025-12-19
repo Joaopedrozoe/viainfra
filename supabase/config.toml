@@ -102,3 +102,6 @@ verify_jwt = false
 
 [functions.fix-duplicates-mpr]
 verify_jwt = false
+
+[functions.fetch-full-history]
+verify_jwt = false
