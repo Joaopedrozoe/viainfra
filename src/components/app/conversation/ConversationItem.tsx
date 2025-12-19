@@ -23,8 +23,14 @@ const getMediaInfo = (preview: string): { icon: React.ReactNode; text: string } 
   if (preview.startsWith('[Vídeo]')) {
     return { icon: <Video className="w-3.5 h-3.5" />, text: 'Vídeo' };
   }
-  if (preview.startsWith('[Áudio]') || preview.includes('🎤')) {
-    return { icon: <Mic className="w-3.5 h-3.5" />, text: 'Áudio' };
+  // Áudio com duração: [Áudio 0:11] ou [Áudio]
+  const audioMatch = preview.match(/\[Áudio(?:\s+(\d+:\d+))?\]/);
+  if (audioMatch || preview.includes('🎤')) {
+    const duration = audioMatch?.[1] || '';
+    return { 
+      icon: <Mic className="w-3.5 h-3.5 text-green-500" />, 
+      text: duration ? `🎤 ${duration}` : '🎤 Áudio' 
+    };
   }
   if (preview.startsWith('[Documento') || preview.startsWith('[Arquivo]')) {
     const match = preview.match(/\[Documento: (.+?)\]/);
@@ -37,7 +43,7 @@ const getMediaInfo = (preview: string): { icon: React.ReactNode; text: string } 
     return { icon: <Sticker className="w-3.5 h-3.5" />, text: 'Figurinha' };
   }
   if (preview.startsWith('[Localização]') || preview.startsWith('[Local]')) {
-    return { icon: <MapPin className="w-3.5 h-3.5" />, text: 'Localização' };
+    return { icon: <MapPin className="w-3.5 h-3.5 text-red-500" />, text: '📍 Localização' };
   }
   if (preview.startsWith('[Contato]')) {
     return { icon: <User className="w-3.5 h-3.5" />, text: 'Contato' };
