@@ -109,31 +109,35 @@ export const useConversations = () => {
         return;
       }
 
-      // Fetch last message for each conversation in a single query
+      // Fetch last message for each conversation individually (avoids 1000 row limit)
       const conversationIds = (convData || []).map(c => c.id);
       
       let lastMessages: Record<string, any> = {};
       
       if (conversationIds.length > 0) {
-        // Fetch last messages - get the actual LATEST message for ordering (like WhatsApp Web)
-        const { data: allLastMessages } = await supabase
-          .from('messages')
-          .select('id, conversation_id, content, sender_type, created_at, metadata')
-          .in('conversation_id', conversationIds)
-          .order('created_at', { ascending: false });
+        // Fetch last message for EACH conversation individually
+        // This avoids the 1000 row limit issue when there are many messages
+        const lastMessagePromises = conversationIds.map(async (convId) => {
+          const { data } = await supabase
+            .from('messages')
+            .select('id, conversation_id, content, sender_type, created_at, metadata')
+            .eq('conversation_id', convId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          return data;
+        });
         
-        if (!mountedRef.current) return;
-        
-        // Group by conversation - get the LATEST message for each conversation
-        if (allLastMessages) {
-          const seenConversation = new Set<string>();
+        // Execute all queries in parallel (batched)
+        const batchSize = 20;
+        for (let i = 0; i < lastMessagePromises.length; i += batchSize) {
+          const batch = lastMessagePromises.slice(i, i + batchSize);
+          const results = await Promise.all(batch);
           
-          for (const msg of allLastMessages) {
-            if (!msg.conversation_id) continue;
-            
-            // Store only the first (latest) message for each conversation
-            if (!seenConversation.has(msg.conversation_id)) {
-              seenConversation.add(msg.conversation_id);
+          if (!mountedRef.current) return;
+          
+          for (const msg of results) {
+            if (msg?.conversation_id) {
               lastMessages[msg.conversation_id] = msg;
             }
           }
