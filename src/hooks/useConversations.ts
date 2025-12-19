@@ -220,7 +220,7 @@ export const useConversations = () => {
     const newMsg = payload.new as any;
     if (!newMsg?.conversation_id) return;
     
-    console.log('📨 New message received - instant update');
+    console.log('📨 New message received - instant update:', newMsg.conversation_id);
     
     // Verificar se é uma mensagem do contato (não do agente/bot)
     const isContactMessage = newMsg.sender_type === 'user';
@@ -233,10 +233,19 @@ export const useConversations = () => {
     // Atualização otimista: atualiza o estado local imediatamente
     setConversations(prev => {
       const conversation = prev.find(c => c.id === newMsg.conversation_id);
+      
+      // Se a conversa não existe localmente, fazer fetch imediato
+      if (!conversation) {
+        console.log('📭 Conversation not found locally, fetching...');
+        // Fetch immediately without debounce
+        fetchConversations(false, true);
+        return prev;
+      }
+      
       const contactName = conversation?.contact?.name || 'Cliente';
       
       // Notificar nova mensagem se for do contato
-      if (isContactMessage && conversation) {
+      if (isContactMessage) {
         notifyNewMessage(contactName, newMsg.content);
         playNotificationSound();
       }
@@ -265,9 +274,6 @@ export const useConversations = () => {
         return new Date(bTime).getTime() - new Date(aTime).getTime();
       });
     });
-    
-    // Background refresh para garantir consistência
-    fetchConversations(true, true);
   }, [fetchConversations, notifyNewMessage, playNotificationSound]);
 
   useEffect(() => {
