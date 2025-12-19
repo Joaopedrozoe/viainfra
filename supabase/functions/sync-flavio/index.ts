@@ -21,11 +21,13 @@ serve(async (req) => {
     const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
     const instanceName = 'VIAINFRAOFICIAL';
     
-    // Flávio - dados atuais no banco
+    // Flávio DP - dados atuais no banco (INVESTIGAÇÃO)
     const phoneJid = '5511996793645@s.whatsapp.net';
     const lidJid = 'cmja77lvt41djo64ib7xf53aq';
     const conversationId = 'c18a76fd-4a13-4436-aeb8-32ab004fc2d5';
     const contactId = 'dc95bdc9-70af-4192-81c1-645749a0d731';
+    
+    // Vamos procurar por TODOS os chats Flavio para entender o problema
 
     console.log('='.repeat(60));
     console.log('🔍 INVESTIGANDO FLÁVIO - +55 11 99679-3645');
@@ -43,6 +45,7 @@ serve(async (req) => {
     // PASSO 1: Buscar todos os chats e encontrar o que corresponde ao Flávio
     console.log('\n📡 PASSO 1: Buscar todos os chats');
     let flavioChat: any = null;
+    let allFlavioChats: any[] = [];
     try {
       const res = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
         method: 'POST',
@@ -52,32 +55,38 @@ serve(async (req) => {
       const chats = await res.json();
       
       if (Array.isArray(chats)) {
-        // Buscar por Flávio em vários campos
+        // Buscar TODOS os Flávios
         for (const chat of chats) {
           const name = (chat.name || chat.pushName || '').toLowerCase();
           const jid = chat.remoteJid || '';
           
+          // Buscar qualquer variação de Flavio/Flávio
           if (name.includes('flávio') || name.includes('flavio') ||
-              jid.includes('996793645') || 
-              chat.id === lidJid) {
-            console.log(`  ✅ Chat encontrado: ${chat.pushName || chat.name}`);
+              jid.includes('996793645')) {
+            console.log(`  ✅ Chat: ${chat.pushName || chat.name}`);
             console.log(`     remoteJid: ${chat.remoteJid}`);
             console.log(`     id: ${chat.id}`);
-            results.chats_found.push({
+            console.log(`     updatedAt: ${chat.updatedAt}`);
+            
+            allFlavioChats.push({
               name: chat.pushName || chat.name,
               remoteJid: chat.remoteJid,
               id: chat.id,
               updatedAt: chat.updatedAt
             });
             
-            if (!flavioChat) {
+            // Preferir "Flavio DP" se existir
+            if ((chat.pushName || chat.name || '').toLowerCase().includes('dp')) {
+              flavioChat = chat;
+            } else if (!flavioChat) {
               flavioChat = chat;
             }
           }
         }
         
+        results.chats_found = allFlavioChats;
         console.log(`  Total chats: ${chats.length}`);
-        console.log(`  Chats com Flávio: ${results.chats_found.length}`);
+        console.log(`  Chats Flavio/Flávio encontrados: ${allFlavioChats.length}`);
       }
     } catch (e: any) {
       console.log(`  Error: ${e.message}`);
