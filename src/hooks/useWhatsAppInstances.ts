@@ -377,6 +377,36 @@ export const useWhatsAppInstances = () => {
     }
   };
 
+  const forceSyncInbox = async () => {
+    try {
+      console.log('🔄 Iniciando sincronização forçada do inbox...');
+      
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/force-sync-inbox`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          }
+        }
+      );
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Falha na sincronização');
+      }
+      
+      console.log('✅ Sincronização concluída:', data);
+      toast.success(`Sincronizado! ${data.stats?.messagesImported || 0} novas mensagens`);
+      return data;
+    } catch (error: any) {
+      console.error('Error in force sync:', error);
+      toast.error('Erro ao sincronizar inbox');
+      throw error;
+    }
+  };
+
   return {
     instances,
     loading,
@@ -391,6 +421,7 @@ export const useWhatsAppInstances = () => {
     diagnoseInstance,
     fixRemoteJid,
     reprocessMedia,
+    forceSyncInbox,
     refresh: loadInstances
   };
 };
