@@ -1525,12 +1525,18 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     updated_at: new Date().toISOString(),
   };
 
+  // ANTI-LOOP: Se transferir para atendente, DESABILITAR bot completamente
   if (result.shouldTransferToAgent) {
-    console.log('📞 Transferindo para atendente...');
+    console.log('📞 Transferindo para atendente - DESABILITANDO BOT');
+    conversationUpdate.bot_active = false;
+    conversationUpdate.metadata.agent_takeover = true;
+    conversationUpdate.metadata.transferred_at = new Date().toISOString();
+    conversationUpdate.metadata.transfer_reason = 'invalid_option_or_user_request';
+    
     const { data: profiles } = await supabase
       .from('profiles')
       .select('user_id')
-      .eq('is_active', true)
+      .eq('role', 'admin')
       .limit(1);
     
     if (profiles && profiles.length > 0) {
