@@ -105,3 +105,6 @@ verify_jwt = false
 
 [functions.fetch-full-history]
 verify_jwt = false
+
+[functions.sync-via-logistic]
+verify_jwt = false
