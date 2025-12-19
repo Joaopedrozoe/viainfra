@@ -1710,14 +1710,15 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
   });
 
   // DECISÃO TRIPLA: Bot deve responder SOMENTE se:
-  // 1. bot_active === true (coluna não foi desativada)
+  // 1. bot_active === true EXPLICITAMENTE (não null, não undefined)
   // 2. agent_takeover !== true (agente não assumiu via metadata)
   // 3. status !== 'pending' (não está aguardando atendente)
-  const botActive = freshConversation.bot_active !== false;
+  const botActive = freshConversation.bot_active === true; // DEVE SER TRUE EXPLICITAMENTE
   const agentTakeover = freshConversation.metadata?.agent_takeover === true;
   const isPending = freshConversation.status === 'pending';
+  const isResolved = freshConversation.status === 'resolved';
   
-  const botShouldRespond = botActive && !agentTakeover && !isPending;
+  const botShouldRespond = botActive && !agentTakeover && !isPending && !isResolved;
 
   if (!botShouldRespond) {
     console.log('[BOT] ❌ Bot NÃO responderá.');
