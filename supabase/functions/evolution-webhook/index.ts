@@ -288,6 +288,23 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       console.log('Skipping group message');
       continue;
     }
+    
+    // ============================================================
+    // PROTEÇÃO CRÍTICA: Ignorar mensagens antigas (> 60 segundos)
+    // Isso previne que o bot responda a mensagens sincronizadas
+    // ou reprocessadas pelo import-chats
+    // ============================================================
+    const messageTimestamp = message.messageTimestamp;
+    if (messageTimestamp) {
+      const messageAge = Date.now() - (messageTimestamp * 1000);
+      const maxAgeMs = 60000; // 60 segundos
+      
+      if (messageAge > maxAgeMs) {
+        console.log(`⏰ Mensagem antiga (${Math.round(messageAge/1000)}s) - NÃO ACIONARÁ BOT`);
+        // Continua para salvar a mensagem, mas marca para não acionar bot
+        (message as any)._skipBot = true;
+      }
+    }
 
     const remoteJid = message.key.remoteJid;
     const isLidFormat = remoteJid.includes('@lid');
@@ -433,6 +450,12 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       // Build sendToRemoteJid - use lidJid for responding to LID contacts
       const sendToRemoteJid = remoteJid;
       
+      // PROTEÇÃO: Não acionar bot para mensagens antigas
+      if ((message as any)._skipBot) {
+        console.log(`⏰ Mensagem @lid antiga - bot NÃO será acionado`);
+        continue;
+      }
+      
       // Trigger bot response using the LID address
       console.log(`✅ Triggering bot for @lid contact ${matchedContact.id} (${matchedContact.name}). LID: ${remoteJid}`);
       await triggerBotResponse(supabase, conversation.id, messageContent, sendToRemoteJid, webhook.instance);
@@ -474,6 +497,12 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     // PROTEÇÃO: Se a mensagem foi duplicada, não aciona o bot
     if (!savedMessage) {
       console.log('⚠️ Mensagem duplicada - ignorando trigger do bot');
+      continue;
+    }
+
+    // PROTEÇÃO: Não acionar bot para mensagens antigas (> 60 segundos)
+    if ((message as any)._skipBot) {
+      console.log(`⏰ Mensagem antiga - bot NÃO será acionado (mensagem salva para histórico)`);
       continue;
     }
 
