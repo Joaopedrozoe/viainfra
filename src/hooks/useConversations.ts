@@ -115,36 +115,25 @@ export const useConversations = () => {
       let lastMessages: Record<string, any> = {};
       
       if (conversationIds.length > 0) {
-        // Fetch last messages - group by conversation and take latest USER message as preview
-        // This matches WhatsApp Web behavior which shows the last contact message
+        // Fetch last messages - get the actual LATEST message for ordering (like WhatsApp Web)
         const { data: allLastMessages } = await supabase
           .from('messages')
-          .select('id, conversation_id, content, sender_type, created_at')
+          .select('id, conversation_id, content, sender_type, created_at, metadata')
           .in('conversation_id', conversationIds)
           .order('created_at', { ascending: false });
         
         if (!mountedRef.current) return;
         
-        // Group by conversation - prioritize user messages for preview (like WhatsApp Web)
+        // Group by conversation - get the LATEST message for each conversation
         if (allLastMessages) {
-          const seenLatest = new Set<string>(); // Track overall latest message per conv
-          const seenUserMsg = new Set<string>(); // Track if we found a user message
+          const seenConversation = new Set<string>();
           
           for (const msg of allLastMessages) {
             if (!msg.conversation_id) continue;
             
-            // Store first (latest) message as fallback
-            if (!seenLatest.has(msg.conversation_id)) {
-              seenLatest.add(msg.conversation_id);
-              // Only use bot/agent message if we don't have a user message yet
-              if (!seenUserMsg.has(msg.conversation_id)) {
-                lastMessages[msg.conversation_id] = msg;
-              }
-            }
-            
-            // Prefer user messages for preview (like WhatsApp Web)
-            if (msg.sender_type === 'user' && !seenUserMsg.has(msg.conversation_id)) {
-              seenUserMsg.add(msg.conversation_id);
+            // Store only the first (latest) message for each conversation
+            if (!seenConversation.has(msg.conversation_id)) {
+              seenConversation.add(msg.conversation_id);
               lastMessages[msg.conversation_id] = msg;
             }
           }
