@@ -104,25 +104,25 @@ serve(async (req) => {
     }
 
     // Encontrar grupos com mais de uma mensagem (duplicatas)
-    const idsToDelete: string[] = [];
+    const duplicateIdsToDelete: string[] = [];
     
     for (const [key, ids] of groups.entries()) {
       if (ids.length > 1) {
         // Manter o primeiro, deletar o resto
         console.log(`🔍 Duplicata encontrada: ${key.substring(0, 80)}... (${ids.length} msgs)`);
-        idsToDelete.push(...ids.slice(1));
+        duplicateIdsToDelete.push(...ids.slice(1));
       }
     }
 
-    console.log(`🗑️ Total de duplicatas para deletar: ${idsToDelete.length}`);
+    console.log(`🗑️ Total de duplicatas para deletar: ${duplicateIdsToDelete.length}`);
 
-    if (idsToDelete.length > 0) {
+    if (duplicateIdsToDelete.length > 0) {
       // Deletar em batches
       const batchSize = 50;
       let deleted = 0;
       
-      for (let i = 0; i < idsToDelete.length; i += batchSize) {
-        const batch = idsToDelete.slice(i, i + batchSize);
+      for (let i = 0; i < duplicateIdsToDelete.length; i += batchSize) {
+        const batch = duplicateIdsToDelete.slice(i, i + batchSize);
         const { error: deleteError } = await supabase
           .from('messages')
           .delete()
@@ -138,7 +138,7 @@ serve(async (req) => {
 
       // Atualizar updated_at das conversas afetadas
       const affectedConvs = [...new Set(allMessages
-        .filter(m => idsToDelete.includes(m.id))
+        .filter(m => duplicateIdsToDelete.includes(m.id))
         .map(m => m.conversation_id))];
 
       for (const convId of affectedConvs) {
@@ -163,7 +163,7 @@ serve(async (req) => {
 
       return new Response(JSON.stringify({
         success: true,
-        duplicatesFound: idsToDelete.length,
+        duplicatesFound: duplicateIdsToDelete.length,
         deleted: deleted,
         conversationsUpdated: affectedConvs.length
       }), {
