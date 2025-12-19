@@ -322,18 +322,69 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       const lidId = remoteJid.replace('@lid', '');
       console.log(`📱 Mensagem @lid recebida: LID=${lidId}, Nome=${contactName}`);
       
-      // Buscar conversa existente pelo EXATO remoteJid (LID)
-      const { data: existingLidConv } = await supabase
+      // ESTRATÉGIA: Buscar conversa existente de 3 formas:
+      // 1. Pelo remoteJid exato (LID)
+      // 2. Pelo lidJid no metadata
+      // 3. Por nome do contato (fallback)
+      
+      let existingLidConv = null;
+      
+      // Busca 1: Pelo remoteJid exato
+      const { data: convByJid } = await supabase
         .from('conversations')
         .select('*, contacts(*)')
         .eq('metadata->>remoteJid', remoteJid)
         .eq('channel', 'whatsapp')
         .limit(1)
-        .single();
+        .maybeSingle();
+      
+      if (convByJid) {
+        existingLidConv = convByJid;
+        console.log(`✅ Conversa encontrada por remoteJid: ${existingLidConv.id}`);
+      }
+      
+      // Busca 2: Pelo lidJid no metadata
+      if (!existingLidConv) {
+        const { data: convByLidJid } = await supabase
+          .from('conversations')
+          .select('*, contacts(*)')
+          .eq('metadata->>lidJid', remoteJid)
+          .eq('channel', 'whatsapp')
+          .limit(1)
+          .maybeSingle();
+        
+        if (convByLidJid) {
+          existingLidConv = convByLidJid;
+          console.log(`✅ Conversa encontrada por lidJid: ${existingLidConv.id} - ${existingLidConv.contacts?.name}`);
+        }
+      }
+      
+      // Busca 3: Pelo nome do pushName (contatos conhecidos)
+      if (!existingLidConv && contactName && contactName !== 'Sem Nome') {
+        const { data: convByName } = await supabase
+          .from('conversations')
+          .select('*, contacts(*)')
+          .eq('channel', 'whatsapp')
+          .ilike('contacts.name', contactName)
+          .limit(1)
+          .maybeSingle();
+        
+        if (convByName && convByName.contacts?.phone) {
+          existingLidConv = convByName;
+          console.log(`✅ Conversa encontrada por nome: ${existingLidConv.id} - ${existingLidConv.contacts?.name}`);
+          
+          // Atualizar o lidJid para facilitar buscas futuras
+          await supabase
+            .from('conversations')
+            .update({ 
+              metadata: { ...existingLidConv.metadata, lidJid: remoteJid },
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', existingLidConv.id);
+        }
+      }
       
       if (existingLidConv) {
-        console.log(`✅ Conversa @lid existente encontrada: ${existingLidConv.id} - ${existingLidConv.contacts?.name}`);
-        
         // Atualizar nome do contato se mudou
         if (existingLidConv.contacts && existingLidConv.contacts.name !== contactName && contactName !== 'Sem Nome') {
           await supabase

@@ -102,54 +102,28 @@ const Inbox = () => {
         return;
       }
       
-      // Buscar apenas instâncias WhatsApp conectadas DESTA empresa
-      const { data: instances } = await supabase
-        .from('whatsapp_instances')
-        .select('instance_name, connection_state, phone_number')
-        .eq('company_id', company.id)
-        .eq('connection_state', 'open');
-      
       let totalNew = 0;
-      let totalUpdated = 0;
       let totalMessages = 0;
+      let totalUpdated = 0;
       
-      if (instances && instances.length > 0) {
-        // Sincronizar instâncias autorizadas (TESTE2 e VIAINFRAOFICIAL)
-        const authorizedInstances = instances.filter(i => 
-          i.instance_name === 'TESTE2' || i.instance_name === 'VIAINFRAOFICIAL'
-        );
+      // 1. Chamar realtime-sync para sincronização completa
+      try {
+        console.log('🔄 Calling realtime-sync...');
+        const { data: syncData, error: syncError } = await supabase.functions.invoke('realtime-sync');
         
-        for (const instance of authorizedInstances) {
-          try {
-            console.log(`📱 Syncing instance: ${instance.instance_name} (${instance.phone_number})`);
-            const { data: syncData, error: syncError } = await supabase.functions.invoke('evolution-instance/sync-messages', {
-              body: { instanceName: instance.instance_name }
-            });
-            
-            // Ignorar erros 403 (instância não autorizada) silenciosamente
-            if (syncError) {
-              if (syncError.message?.includes('403') || syncError.context?.status === 403) {
-                console.warn(`⚠️ Instance ${instance.instance_name} not authorized, skipping`);
-              } else {
-                console.error(`Sync error for ${instance.instance_name}:`, syncError);
-              }
-              continue;
-            }
-            
-            if (syncData) {
-              totalNew += syncData.newConversations || 0;
-              totalUpdated += syncData.timestampsUpdated || 0;
-              totalMessages += syncData.messagesSynced || 0;
-            }
-          } catch (err) {
-            console.error(`Error syncing ${instance.instance_name}:`, err);
-          }
+        if (syncError) {
+          console.error('Realtime sync error:', syncError);
+        } else if (syncData?.stats) {
+          totalNew = syncData.stats.conversationsCreated || 0;
+          totalMessages = syncData.stats.messagesImported || 0;
+          totalUpdated = syncData.stats.conversationsUpdated || 0;
+          console.log('✅ Realtime sync complete:', syncData.stats);
         }
-      } else {
-        console.log('⚠️ No connected WhatsApp instances found');
+      } catch (err) {
+        console.error('Error in realtime-sync:', err);
       }
       
-      // Sincronizar fotos de perfil para contatos sem avatar
+      // 2. Sincronizar fotos de perfil
       let photosUpdated = 0;
       try {
         const { data: photoData } = await supabase.functions.invoke('sync-profile-pictures', {
@@ -162,16 +136,16 @@ const Inbox = () => {
         console.error('Photo sync error:', err);
       }
       
-      // Refetch para atualizar a lista com fotos atualizadas
-      // Aguardar um pouco para garantir que o banco foi atualizado
-      await new Promise(resolve => setTimeout(resolve, 300));
+      // 3. Refetch para atualizar a UI
+      await new Promise(resolve => setTimeout(resolve, 500));
       await refetch();
       setRefreshKey(prev => prev + 1);
       
+      // Mostrar resultado
       const parts = [];
       if (totalNew > 0) parts.push(`${totalNew} nova(s)`);
-      if (totalUpdated > 0) parts.push(`${totalUpdated} atualizada(s)`);
       if (totalMessages > 0) parts.push(`${totalMessages} msg`);
+      if (totalUpdated > 0) parts.push(`${totalUpdated} atualizada(s)`);
       if (photosUpdated > 0) parts.push(`${photosUpdated} foto(s)`);
       
       if (parts.length > 0) {
@@ -185,7 +159,7 @@ const Inbox = () => {
     } finally {
       setIsSyncing(false);
     }
-  }, [refetch, isSyncing]);
+  }, [refetch, isSyncing, company?.id]);
 
   const handleSelectInternalChat = useCallback((conversationId: string) => {
     setSelectedInternalChat(conversationId);
