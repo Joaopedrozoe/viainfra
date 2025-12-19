@@ -313,154 +313,120 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     const messageContent = extractMessageContent(message);
     const contactName = message.pushName || 'Sem Nome';
     
-    // For @lid messages: try to find existing contact by name
+    // ============================================================
+    // PROCESSAMENTO DE MENSAGENS @LID
+    // IMPORTANTE: Cada LID é um identificador ÚNICO do WhatsApp
+    // NÃO devemos fazer fuzzy matching - isso causa mistura de conversas
+    // ============================================================
     if (isLidFormat) {
-      console.log(`📱 Mensagem @lid recebida de: ${contactName}`);
+      const lidId = remoteJid.replace('@lid', '');
+      console.log(`📱 Mensagem @lid recebida: LID=${lidId}, Nome=${contactName}`);
       
-      // Normalize name for matching (remove accents)
-      const normalizedName = contactName
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase();
+      // Buscar conversa existente pelo EXATO remoteJid (LID)
+      const { data: existingLidConv } = await supabase
+        .from('conversations')
+        .select('*, contacts(*)')
+        .eq('metadata->>remoteJid', remoteJid)
+        .eq('channel', 'whatsapp')
+        .limit(1)
+        .single();
       
-      // Try to find existing contact by pushName in the company using fuzzy match
-      // First try exact ilike, then try partial match
-      let { data: existingContacts, error: searchError } = await supabase
+      if (existingLidConv) {
+        console.log(`✅ Conversa @lid existente encontrada: ${existingLidConv.id} - ${existingLidConv.contacts?.name}`);
+        
+        // Atualizar nome do contato se mudou
+        if (existingLidConv.contacts && existingLidConv.contacts.name !== contactName && contactName !== 'Sem Nome') {
+          await supabase
+            .from('contacts')
+            .update({ name: contactName })
+            .eq('id', existingLidConv.contacts.id);
+          console.log(`📝 Nome do contato atualizado: ${existingLidConv.contacts.name} -> ${contactName}`);
+        }
+        
+        // Salvar mensagem na conversa existente
+        await saveMessage(supabase, existingLidConv.id, message, messageContent, lidId, webhook.instance);
+        
+        // Não acionar bot para mensagens @lid antigas
+        if ((message as any)._skipBot) {
+          console.log(`⏰ Mensagem @lid antiga - bot NÃO será acionado`);
+          continue;
+        }
+        
+        // Trigger bot se necessário (usando LID para responder)
+        console.log(`✅ Triggering bot for @lid contact. LID: ${remoteJid}`);
+        await triggerBotResponse(supabase, existingLidConv.id, messageContent, remoteJid, webhook.instance);
+        continue;
+      }
+      
+      // Não existe conversa para esse LID - criar nova
+      console.log(`📱 @lid sem conversa existente - criando nova conversa para LID ${lidId}`);
+      
+      // Obter company_id da instância
+      const { data: companyData } = await supabase
+        .from('whatsapp_instances')
+        .select('company_id')
+        .eq('instance_name', webhook.instance)
+        .single();
+      
+      const companyId = companyData?.company_id;
+      
+      if (!companyId) {
+        console.error('❌ Não foi possível determinar company_id para criar contato @lid');
+        continue;
+      }
+      
+      // Criar novo contato específico para esse LID
+      const { data: newContact, error: createError } = await supabase
         .from('contacts')
-        .select('id, name, phone, avatar_url, company_id')
-        .ilike('name', `%${contactName}%`)
-        .not('phone', 'is', null)
-        .limit(10);
+        .insert({
+          name: contactName || `Contato ${lidId.slice(-6)}`,
+          company_id: companyId,
+          metadata: { 
+            remoteJid: remoteJid, 
+            lidId: lidId,
+            isLidContact: true 
+          }
+        })
+        .select()
+        .single();
       
-      if (searchError) {
-        console.error('Error searching for @lid contact:', searchError);
+      if (createError) {
+        console.error('❌ Erro ao criar contato @lid:', createError);
         continue;
       }
       
-      // If no match, try with normalized name (without accents)
-      if (!existingContacts || existingContacts.length === 0) {
-        console.log(`🔍 Trying fuzzy match for "${contactName}" (normalized: ${normalizedName})`);
-        
-        // Get all contacts with phones and do client-side fuzzy match
-        const { data: allContacts } = await supabase
-          .from('contacts')
-          .select('id, name, phone, avatar_url, company_id')
-          .not('phone', 'is', null)
-          .limit(500);
-        
-        if (allContacts && allContacts.length > 0) {
-          existingContacts = allContacts.filter(c => {
-            const cName = c.name
-              .normalize('NFD')
-              .replace(/[\u0300-\u036f]/g, '')
-              .toLowerCase();
-            return cName.includes(normalizedName) || normalizedName.includes(cName.split(' ')[0]);
-          });
-          console.log(`🔍 Fuzzy match found ${existingContacts.length} contacts`);
-        }
-      }
+      console.log(`✅ Novo contato @lid criado: ${newContact.id} - ${contactName}`);
       
-      if (!existingContacts || existingContacts.length === 0) {
-        console.log(`📱 @lid sem contato encontrado para "${contactName}" - criando novo contato com LID`);
-        
-        // Create new contact with LID as identifier
-        const { data: contact } = await supabase
-          .from('contacts')
-          .select('company_id')
-          .limit(1)
-          .single();
-        
-        // Get company_id from existing data
-        const { data: companyData } = await supabase
-          .from('whatsapp_instances')
-          .select('company_id')
-          .eq('instance_name', webhook.instance)
-          .single();
-        
-        const companyId = companyData?.company_id;
-        
-        if (!companyId) {
-          console.error('❌ Não foi possível determinar company_id para criar contato @lid');
-          continue;
-        }
-        
-        // Create contact with LID as phone (temporary)
-        const lidId = remoteJid.replace('@lid', '');
-        const { data: newContact, error: createError } = await supabase
-          .from('contacts')
-          .insert({
-            name: contactName || 'Contato LID',
-            phone: lidId,
-            company_id: companyId,
-            metadata: { remoteJid: remoteJid, isLidContact: true }
-          })
-          .select()
-          .single();
-        
-        if (createError) {
-          console.error('❌ Erro ao criar contato @lid:', createError);
-          continue;
-        }
-        
-        console.log(`✅ Novo contato @lid criado: ${newContact.id} - ${contactName}`);
-        
-        // Create conversation with lidJid in metadata
-        const { data: newConv, error: convError } = await supabase
-          .from('conversations')
-          .insert({
-            contact_id: newContact.id,
-            channel: 'whatsapp',
-            status: 'open',
-            company_id: companyId,
-            metadata: { 
-              remoteJid: remoteJid,
-              lidJid: remoteJid,
-              instanceName: webhook.instance
-            }
-          })
-          .select()
-          .single();
-        
-        if (convError) {
-          console.error('❌ Erro ao criar conversa @lid:', convError);
-          continue;
-        }
-        
-        // Save message
-        await saveMessage(supabase, newConv.id, message, messageContent, lidId, webhook.instance);
-        
-        // Don't trigger bot for LID contacts (can't respond reliably yet)
-        console.log(`✅ Mensagem @lid salva. Resposta automática desabilitada para contatos LID.`);
+      // Criar nova conversa para esse LID
+      const { data: newConv, error: convError } = await supabase
+        .from('conversations')
+        .insert({
+          contact_id: newContact.id,
+          channel: 'whatsapp',
+          status: 'open',
+          company_id: companyId,
+          metadata: { 
+            remoteJid: remoteJid,
+            lidJid: remoteJid,
+            lidId: lidId,
+            instanceName: webhook.instance
+          }
+        })
+        .select()
+        .single();
+      
+      if (convError) {
+        console.error('❌ Erro ao criar conversa @lid:', convError);
         continue;
       }
       
-      // Use the first matching contact with a phone number
-      const matchedContact = existingContacts[0];
-      console.log(`✅ @lid matched to existing contact: ${matchedContact.name} (${matchedContact.phone})`);
+      console.log(`✅ Nova conversa @lid criada: ${newConv.id}`);
       
-      // Get or create conversation - IMPORTANT: Save lidJid for responding
-      const conversation = await getOrCreateConversationWithLid(supabase, matchedContact.id, matchedContact.phone, matchedContact.name, remoteJid, webhook.instance);
+      // Salvar mensagem
+      await saveMessage(supabase, newConv.id, message, messageContent, lidId, webhook.instance);
       
-      // Save message
-      const savedMessage = await saveMessage(supabase, conversation.id, message, messageContent, matchedContact.phone, webhook.instance);
-      
-      if (!savedMessage) {
-        console.log('⚠️ Mensagem @lid duplicada - ignorando trigger do bot');
-        continue;
-      }
-      
-      // Build sendToRemoteJid - use lidJid for responding to LID contacts
-      const sendToRemoteJid = remoteJid;
-      
-      // PROTEÇÃO: Não acionar bot para mensagens antigas
-      if ((message as any)._skipBot) {
-        console.log(`⏰ Mensagem @lid antiga - bot NÃO será acionado`);
-        continue;
-      }
-      
-      // Trigger bot response using the LID address
-      console.log(`✅ Triggering bot for @lid contact ${matchedContact.id} (${matchedContact.name}). LID: ${remoteJid}`);
-      await triggerBotResponse(supabase, conversation.id, messageContent, sendToRemoteJid, webhook.instance);
+      // Não acionar bot para contatos LID novos (não temos número real)
+      console.log(`✅ Mensagem @lid salva. Bot desabilitado para novos contatos LID.`);
       continue;
     }
     
