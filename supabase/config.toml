@@ -78,3 +78,12 @@ verify_jwt = false
 
 [functions.fetch-device-history]
 verify_jwt = false
+
+[functions.deep-investigate]
+verify_jwt = false
+
+[functions.force-refresh-sync]
+verify_jwt = false
+
+[functions.sync-mpr]
+verify_jwt = false
