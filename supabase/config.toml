@@ -7,6 +7,9 @@ schemas = ["public", "graphql_public"]
 extra_search_path = ["public", "extensions"]
 max_rows = 1000
 
+[functions.aggressive-sync]
+verify_jwt = false
+
 [functions.evolution-webhook]
 verify_jwt = false
 
@@ -70,26 +73,8 @@ verify_jwt = false
 [functions.test-agent-messages]
 verify_jwt = false
 
-[functions.fix-contact-names]
+[functions.realtime-sync]
 verify_jwt = false
 
-[functions.diagnose-instance]
-verify_jwt = false
-
-[functions.fix-remote-jid]
-verify_jwt = false
-
-[functions.fix-conversations]
-verify_jwt = false
-
-[functions.force-sync-inbox]
-verify_jwt = false
-
-[functions.cleanup-duplicates]
-verify_jwt = false
-
-[functions.full-inbox-sync]
-verify_jwt = false
-
-[functions.diagnose-missing-chats]
+[functions.fetch-device-history]
 verify_jwt = false
