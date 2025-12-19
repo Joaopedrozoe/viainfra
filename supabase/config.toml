@@ -1,5 +1,8 @@
 project_id = "xxojpfhnkxpbznbmhmua"
 
+[functions.sync-flavio]
+verify_jwt = false
+
 [api]
 enabled = true
 port = 54321
