@@ -9,6 +9,7 @@ interface StatusItem {
   avatar?: string;
   time: string;
   viewed?: boolean;
+  count?: number;
 }
 
 interface StatusListProps {
@@ -133,7 +134,12 @@ const StatusListItem: React.FC<StatusListItemProps> = ({
       </Avatar>
       <div className="flex-1 min-w-0">
         <p className="font-medium text-foreground truncate">{status.name}</p>
-        <p className="text-sm text-muted-foreground">{status.time}</p>
+        <p className="text-sm text-muted-foreground">
+          {status.time}
+          {(status as any).count && (status as any).count > 1 && (
+            <span className="ml-1">• {(status as any).count} atualizações</span>
+          )}
+        </p>
       </div>
     </div>
   );

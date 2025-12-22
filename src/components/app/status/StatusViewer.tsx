@@ -8,6 +8,7 @@ interface StatusContent {
   id: string;
   type: 'text' | 'image' | 'video';
   content: string;
+  mediaUrl?: string;
   backgroundColor?: string;
   timestamp: string;
 }
@@ -211,21 +212,35 @@ export const StatusViewer: React.FC<StatusViewerProps> = ({
         )}
 
         {currentStatus.type === 'image' && (
-          <img 
-            src={currentStatus.content} 
-            alt="Status"
-            className="max-h-full max-w-full object-contain rounded-lg"
-          />
+          <div className="flex flex-col items-center">
+            <img 
+              src={currentStatus.mediaUrl || currentStatus.content} 
+              alt="Status"
+              className="max-h-[70vh] max-w-full object-contain rounded-lg"
+            />
+            {currentStatus.content && currentStatus.mediaUrl && (
+              <p className="mt-4 text-lg text-foreground text-center max-w-2xl">
+                {currentStatus.content}
+              </p>
+            )}
+          </div>
         )}
 
         {currentStatus.type === 'video' && (
-          <video 
-            src={currentStatus.content}
-            className="max-h-full max-w-full object-contain rounded-lg"
-            autoPlay
-            muted={isMuted}
-            loop={false}
-          />
+          <div className="flex flex-col items-center">
+            <video 
+              src={currentStatus.mediaUrl || currentStatus.content}
+              className="max-h-[70vh] max-w-full object-contain rounded-lg"
+              autoPlay
+              muted={isMuted}
+              loop={false}
+            />
+            {currentStatus.content && currentStatus.mediaUrl && (
+              <p className="mt-4 text-lg text-foreground text-center max-w-2xl">
+                {currentStatus.content}
+              </p>
+            )}
+          </div>
         )}
 
         {(currentIndex < totalStatuses - 1 || hasNext) && (

@@ -716,6 +716,81 @@ export type Database = {
           },
         ]
       }
+      whatsapp_statuses: {
+        Row: {
+          background_color: string | null
+          caption: string | null
+          company_id: string | null
+          contact_id: string | null
+          content: string | null
+          content_type: string
+          created_at: string
+          expires_at: string | null
+          id: string
+          instance_name: string
+          media_url: string | null
+          message_id: string | null
+          metadata: Json | null
+          remote_jid: string
+          thumbnail_base64: string | null
+          viewed: boolean | null
+          viewed_at: string | null
+        }
+        Insert: {
+          background_color?: string | null
+          caption?: string | null
+          company_id?: string | null
+          contact_id?: string | null
+          content?: string | null
+          content_type?: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          instance_name: string
+          media_url?: string | null
+          message_id?: string | null
+          metadata?: Json | null
+          remote_jid: string
+          thumbnail_base64?: string | null
+          viewed?: boolean | null
+          viewed_at?: string | null
+        }
+        Update: {
+          background_color?: string | null
+          caption?: string | null
+          company_id?: string | null
+          contact_id?: string | null
+          content?: string | null
+          content_type?: string
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          instance_name?: string
+          media_url?: string | null
+          message_id?: string | null
+          metadata?: Json | null
+          remote_jid?: string
+          thumbnail_base64?: string | null
+          viewed?: boolean | null
+          viewed_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_statuses_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_statuses_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
