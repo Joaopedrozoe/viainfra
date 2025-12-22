@@ -135,3 +135,6 @@ verify_jwt = false
 
 [functions.list-groups]
 verify_jwt = false
+
+[functions.test-group-send]
+verify_jwt = false
