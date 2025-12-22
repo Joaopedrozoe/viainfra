@@ -281,6 +281,8 @@ export const useConversations = () => {
 
   useEffect(() => {
     mountedRef.current = true;
+    
+    // Fetch inicial
     fetchConversations(false, false);
 
     // Real-time subscriptions com reconexão automática
@@ -358,12 +360,12 @@ export const useConversations = () => {
           }
         });
 
-      // Heartbeat para manter conexão ativa e detectar desconexões
+      // Heartbeat mais frequente: a cada 10s para manter sincronização
       const heartbeatInterval = setInterval(() => {
         if (mountedRef.current) {
           fetchConversations(true, true);
         }
-      }, 15000); // A cada 15s verifica se há updates
+      }, 10000);
 
       return () => {
         mountedRef.current = false;

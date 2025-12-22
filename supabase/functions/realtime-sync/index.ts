@@ -6,14 +6,12 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const INSTANCE_NAME = 'VIAINFRAOFICIAL';
-
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
-  console.log('🔄 REALTIME SYNC V4 - SYNC ONLY, NO BOT RESPONSES');
+  console.log('🔄 REALTIME SYNC V5 - FULL SYNC WITH GROUPS');
 
   try {
     const supabase = createClient(
@@ -30,277 +28,242 @@ serve(async (req) => {
       conversationsCreated: 0,
       conversationsUpdated: 0,
       contactsCreated: 0,
-      lidMappings: 0,
+      groupsProcessed: 0,
       errors: [] as string[]
     };
 
-    // Get company_id
-    const { data: instance } = await supabase
+    // Get all connected instances
+    const { data: instances } = await supabase
       .from('whatsapp_instances')
-      .select('company_id')
-      .eq('instance_name', INSTANCE_NAME)
-      .single();
-
-    if (!instance?.company_id) {
-      throw new Error('Instance not found');
-    }
-
-    const companyId = instance.company_id;
-    console.log(`📌 Company: ${companyId}`);
-
-    // =============================================
-    // STEP 1: Fetch ALL chats from Evolution API
-    // =============================================
-    console.log('\n📱 Fetching chats from Evolution API...');
-    
-    const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${INSTANCE_NAME}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': evolutionApiKey
-      },
-      body: JSON.stringify({})
-    });
-
-    if (!chatsResponse.ok) {
-      throw new Error(`API error: ${chatsResponse.status}`);
-    }
-
-    const allChats = await chatsResponse.json();
-    stats.chatsFromApi = allChats.length;
-    console.log(`📊 Found ${allChats.length} chats from API`);
-
-    // Sort chats by last message timestamp (most recent first)
-    allChats.sort((a: any, b: any) => {
-      const tsA = a.lastMsgTimestamp || a.timestamp || 0;
-      const tsB = b.lastMsgTimestamp || b.timestamp || 0;
-      return tsB - tsA;
-    });
-
-    // Process top 50 recent chats
-    const recentChats = allChats.slice(0, 50);
-    console.log(`📋 Processing top ${recentChats.length} recent chats\n`);
-
-    // =============================================
-    // STEP 2: Build maps of existing data
-    // =============================================
-    const { data: existingContacts } = await supabase
-      .from('contacts')
       .select('*')
-      .eq('company_id', companyId);
+      .in('connection_state', ['open', 'connected']);
 
-    const { data: existingConvs } = await supabase
-      .from('conversations')
-      .select('*, contacts(*)')
-      .eq('company_id', companyId)
-      .eq('channel', 'whatsapp');
-
-    // Contact maps
-    const contactByPhone = new Map<string, any>();
-    const contactByName = new Map<string, any>();
-    const contactById = new Map<string, any>();
-    
-    for (const c of existingContacts || []) {
-      contactById.set(c.id, c);
-      if (c.phone) contactByPhone.set(c.phone, c);
-      if (c.name) contactByName.set(c.name.toLowerCase().trim(), c);
+    if (!instances || instances.length === 0) {
+      console.log('⚠️ No connected instances');
+      return new Response(JSON.stringify({ success: true, stats, message: 'No connected instances' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
     }
 
-    // Conversation maps - multiple lookup paths
-    const convByJid = new Map<string, any>();
-    const convByPhone = new Map<string, any>();
-    const convByLidJid = new Map<string, any>();
-    const convByContactId = new Map<string, any>();
-    const convByContactName = new Map<string, any>();
-    
-    for (const conv of existingConvs || []) {
-      if (conv.metadata?.remoteJid) {
-        convByJid.set(conv.metadata.remoteJid, conv);
-        const phone = conv.metadata.remoteJid.split('@')[0];
-        if (phone && /^\d+$/.test(phone)) {
-          convByPhone.set(phone, conv);
+    for (const instance of instances) {
+      const instanceName = instance.instance_name;
+      const companyId = instance.company_id;
+      
+      console.log(`\n📱 Processing instance: ${instanceName} (Company: ${companyId})`);
+
+      // Fetch ALL chats from Evolution API
+      console.log('📱 Fetching chats from Evolution API...');
+      
+      const chatsResponse = await fetch(`${evolutionApiUrl}/chat/findChats/${instanceName}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': evolutionApiKey
+        },
+        body: JSON.stringify({})
+      });
+
+      if (!chatsResponse.ok) {
+        console.error(`❌ API error for ${instanceName}: ${chatsResponse.status}`);
+        stats.errors.push(`API error for ${instanceName}: ${chatsResponse.status}`);
+        continue;
+      }
+
+      const allChats = await chatsResponse.json();
+      stats.chatsFromApi += allChats.length;
+      console.log(`📊 Found ${allChats.length} chats from API`);
+
+      // Sort chats by last message timestamp (most recent first)
+      allChats.sort((a: any, b: any) => {
+        const tsA = a.lastMsgTimestamp || a.timestamp || 0;
+        const tsB = b.lastMsgTimestamp || b.timestamp || 0;
+        return tsB - tsA;
+      });
+
+      // Process top 100 recent chats (increased from 50)
+      const recentChats = allChats.slice(0, 100);
+      console.log(`📋 Processing top ${recentChats.length} recent chats`);
+
+      // Build maps of existing data
+      const { data: existingContacts } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('company_id', companyId);
+
+      const { data: existingConvs } = await supabase
+        .from('conversations')
+        .select('*, contacts(*)')
+        .eq('company_id', companyId)
+        .eq('channel', 'whatsapp');
+
+      // Contact maps
+      const contactByPhone = new Map<string, any>();
+      const contactByName = new Map<string, any>();
+      const contactById = new Map<string, any>();
+      
+      for (const c of existingContacts || []) {
+        contactById.set(c.id, c);
+        if (c.phone) contactByPhone.set(c.phone, c);
+        if (c.name) contactByName.set(c.name.toLowerCase().trim(), c);
+      }
+
+      // Conversation maps
+      const convByJid = new Map<string, any>();
+      const convByPhone = new Map<string, any>();
+      const convByContactName = new Map<string, any>();
+      
+      for (const conv of existingConvs || []) {
+        if (conv.metadata?.remoteJid) {
+          convByJid.set(conv.metadata.remoteJid, conv);
+          const phone = conv.metadata.remoteJid.split('@')[0];
+          if (phone && /^\d+$/.test(phone)) {
+            convByPhone.set(phone, conv);
+          }
+        }
+        if (conv.contacts?.name) {
+          convByContactName.set(conv.contacts.name.toLowerCase().trim(), conv);
         }
       }
-      if (conv.metadata?.lidJid) {
-        convByLidJid.set(conv.metadata.lidJid, conv);
-      }
-      if (conv.contact_id) {
-        convByContactId.set(conv.contact_id, conv);
-      }
-      if (conv.contacts?.name) {
-        convByContactName.set(conv.contacts.name.toLowerCase().trim(), conv);
-      }
-    }
 
-    console.log(`📊 Existing conversations: ${existingConvs?.length || 0}`);
-    console.log(`📊 Existing contacts: ${existingContacts?.length || 0}`);
+      console.log(`📊 Existing conversations: ${existingConvs?.length || 0}, contacts: ${existingContacts?.length || 0}`);
 
-    // =============================================
-    // STEP 3: Process each chat - SYNC ONLY, NO BOT
-    // =============================================
-    for (const chat of recentChats) {
-      const remoteJid = chat.id || chat.remoteJid || chat.jid;
-      if (!remoteJid) continue;
+      // Process each chat
+      for (const chat of recentChats) {
+        const remoteJid = chat.id || chat.remoteJid || chat.jid;
+        if (!remoteJid) continue;
 
-      // Skip groups
-      if (remoteJid.includes('@g.us')) continue;
+        // Skip status broadcast
+        if (remoteJid === 'status@broadcast') continue;
 
-      const isLid = remoteJid.includes('@lid') || remoteJid.startsWith('cmj');
-      const phone = isLid ? null : remoteJid.split('@')[0];
-      const contactName = chat.name || chat.pushName || chat.notify || phone || remoteJid;
-      const cleanName = contactName.toLowerCase().trim();
+        const isGroup = remoteJid.includes('@g.us');
+        const isLid = remoteJid.includes('@lid') || remoteJid.startsWith('cmj');
+        const phone = (isLid || isGroup) ? null : remoteJid.split('@')[0];
+        const contactName = chat.name || chat.pushName || chat.notify || phone || remoteJid;
+        const cleanName = contactName.toLowerCase().trim();
 
-      console.log(`📞 ${contactName} | JID: ${remoteJid.substring(0, 30)}... | isLid: ${isLid}`);
+        // Find existing conversation
+        let conversation = convByJid.get(remoteJid);
+        
+        if (!conversation && phone) {
+          conversation = convByPhone.get(phone);
+        }
+        
+        if (!conversation && contactName) {
+          conversation = convByContactName.get(cleanName);
+        }
 
-      // Find existing conversation by multiple methods
-      let conversation = convByJid.get(remoteJid) || convByLidJid.get(remoteJid);
-      
-      if (!conversation && phone) {
-        conversation = convByPhone.get(phone);
-      }
-      
-      // For @lid, try to find by contact name
-      if (!conversation && isLid && contactName) {
-        conversation = convByContactName.get(cleanName);
+        // Create new conversation if not found
+        if (!conversation && (phone || isGroup)) {
+          const validPhone = phone && /^\d{10,15}$/.test(phone);
+          
+          if (validPhone || isGroup) {
+            console.log(`➕ Creating ${isGroup ? 'group' : 'conversation'}: ${contactName}`);
+            
+            let contact = contactByPhone.get(phone || '') || contactByName.get(cleanName);
+            
+            if (!contact) {
+              const { data: newContact, error: contactErr } = await supabase
+                .from('contacts')
+                .insert({
+                  name: contactName,
+                  phone: phone || null,
+                  company_id: companyId,
+                  metadata: { remoteJid, isGroup, syncCreated: true }
+                })
+                .select()
+                .single();
+              
+              if (newContact) {
+                contact = newContact;
+                stats.contactsCreated++;
+                if (phone) contactByPhone.set(phone, contact);
+                contactByName.set(cleanName, contact);
+              } else if (contactErr) {
+                console.log(`❌ Contact error: ${contactErr.message}`);
+                continue;
+              }
+            }
+
+            if (contact) {
+              const { data: newConv, error: convErr } = await supabase
+                .from('conversations')
+                .insert({
+                  contact_id: contact.id,
+                  company_id: companyId,
+                  channel: 'whatsapp',
+                  status: 'open',
+                  bot_active: false,
+                  metadata: { 
+                    remoteJid,
+                    instanceName,
+                    isGroup,
+                    syncCreated: true,
+                    syncTimestamp: new Date().toISOString()
+                  }
+                })
+                .select('*, contacts(*)')
+                .single();
+
+              if (newConv) {
+                conversation = newConv;
+                stats.conversationsCreated++;
+                if (isGroup) stats.groupsProcessed++;
+                convByJid.set(remoteJid, conversation);
+                if (phone) convByPhone.set(phone, conversation);
+              } else if (convErr) {
+                console.log(`❌ Conversation error: ${convErr.message}`);
+              }
+            }
+          }
+        }
+
+        // Sync messages for this conversation
         if (conversation) {
-          console.log(`  ✅ Found by name: ${contactName}`);
-          // Update metadata to include this lidJid
-          const { error: updateErr } = await supabase
-            .from('conversations')
-            .update({
-              metadata: { 
-                ...conversation.metadata, 
-                lidJid: remoteJid,
-                lastSyncAt: new Date().toISOString()
-              }
-            })
-            .eq('id', conversation.id);
-          
-          if (!updateErr) {
-            convByLidJid.set(remoteJid, conversation);
-            stats.lidMappings++;
+          const msgCount = await syncMessages(
+            supabase, evolutionApiUrl, evolutionApiKey, 
+            conversation.id, remoteJid, instanceName, stats
+          );
+          if (msgCount > 0) {
+            console.log(`📥 ${contactName}: ${msgCount} new messages`);
           }
         }
       }
 
-      // If still no conversation, create one (only for non-@lid with valid phone)
-      // CRITICAL: bot_active = FALSE to prevent automatic responses
-      if (!conversation && !isLid && phone && /^\d{10,15}$/.test(phone)) {
-        console.log(`  ➕ Creating conversation for ${contactName} (${phone}) - BOT DISABLED`);
-        
-        let contact = contactByPhone.get(phone) || contactByName.get(cleanName);
-        
-        if (!contact) {
-          // Create contact
-          const { data: newContact, error: contactErr } = await supabase
-            .from('contacts')
-            .insert({
-              name: contactName,
-              phone: phone,
-              company_id: companyId,
-              metadata: { remoteJid, syncCreated: true }
-            })
-            .select()
-            .single();
-          
-          if (newContact) {
-            contact = newContact;
-            stats.contactsCreated++;
-            contactByPhone.set(phone, contact);
-            contactByName.set(cleanName, contact);
-            console.log(`  ✅ Contact created: ${contactName}`);
-          } else if (contactErr) {
-            console.log(`  ❌ Contact error: ${contactErr.message}`);
-            stats.errors.push(`Contact error: ${contactErr.message}`);
-            continue;
-          }
-        }
+      // Update all conversation timestamps
+      console.log('⏰ Updating timestamps...');
+      
+      const { data: allConvs } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('company_id', companyId)
+        .eq('channel', 'whatsapp');
 
-        if (contact) {
-          // CRITICAL: bot_active = FALSE for sync-created conversations
-          const { data: newConv, error: convErr } = await supabase
+      for (const conv of allConvs || []) {
+        const { data: latestMsg } = await supabase
+          .from('messages')
+          .select('created_at')
+          .eq('conversation_id', conv.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (latestMsg) {
+          await supabase
             .from('conversations')
-            .insert({
-              contact_id: contact.id,
-              company_id: companyId,
-              channel: 'whatsapp',
-              status: 'open',
-              bot_active: false, // NEVER enable bot for sync
-              metadata: { 
-                remoteJid,
-                instanceName: INSTANCE_NAME,
-                syncCreated: true,
-                syncTimestamp: new Date().toISOString()
-              }
-            })
-            .select('*, contacts(*)')
-            .single();
-
-          if (newConv) {
-            conversation = newConv;
-            stats.conversationsCreated++;
-            convByJid.set(remoteJid, conversation);
-            convByPhone.set(phone, conversation);
-            convByContactId.set(contact.id, conversation);
-            console.log(`  ✅ Conversation created (bot disabled)`);
-          } else if (convErr) {
-            console.log(`  ❌ Conversation error: ${convErr.message}`);
-            stats.errors.push(`Conversation error: ${convErr.message}`);
-          }
+            .update({ updated_at: latestMsg.created_at })
+            .eq('id', conv.id);
+          stats.conversationsUpdated++;
         }
-      }
-
-      // =============================================
-      // STEP 4: Sync messages for this conversation
-      // =============================================
-      if (conversation) {
-        const msgCount = await syncMessages(
-          supabase, evolutionApiUrl, evolutionApiKey, 
-          conversation.id, remoteJid, stats
-        );
-        if (msgCount > 0) {
-          console.log(`  📥 Imported ${msgCount} messages`);
-        }
-      } else if (isLid) {
-        console.log(`  ⚠️ No conversation found for @lid contact: ${contactName}`);
       }
     }
 
-    // =============================================
-    // STEP 5: Update all conversation timestamps
-    // =============================================
-    console.log('\n⏰ Updating timestamps...');
-    
-    const { data: allConvs } = await supabase
-      .from('conversations')
-      .select('id')
-      .eq('company_id', companyId)
-      .eq('channel', 'whatsapp');
-
-    for (const conv of allConvs || []) {
-      const { data: latestMsg } = await supabase
-        .from('messages')
-        .select('created_at')
-        .eq('conversation_id', conv.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (latestMsg) {
-        await supabase
-          .from('conversations')
-          .update({ updated_at: latestMsg.created_at })
-          .eq('id', conv.id);
-        stats.conversationsUpdated++;
-      }
-    }
-
-    console.log('\n✅ SYNC COMPLETE - NO BOT MESSAGES SENT');
+    console.log('\n✅ SYNC COMPLETE');
     console.log(`Chats from API: ${stats.chatsFromApi}`);
     console.log(`Messages imported: ${stats.messagesImported}`);
     console.log(`Conversations created: ${stats.conversationsCreated}`);
-    console.log(`LID mappings: ${stats.lidMappings}`);
-    console.log(`Errors: ${stats.errors.length}`);
+    console.log(`Groups processed: ${stats.groupsProcessed}`);
+    console.log(`Contacts created: ${stats.contactsCreated}`);
 
     return new Response(JSON.stringify({ success: true, stats }), {
       status: 200,
@@ -322,10 +285,11 @@ async function syncMessages(
   evolutionApiKey: string,
   conversationId: string,
   remoteJid: string,
+  instanceName: string,
   stats: any
 ): Promise<number> {
   try {
-    const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${INSTANCE_NAME}`, {
+    const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -400,8 +364,8 @@ async function syncMessages(
           messageId: messageId,
           remoteJid,
           fromMe: key.fromMe || false,
-          instanceName: INSTANCE_NAME,
-          syncImported: true // Mark as sync imported
+          instanceName,
+          syncImported: true
         }
       });
 
