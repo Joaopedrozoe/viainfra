@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { ConversationList } from "@/components/app/ConversationList";
 import { ChatWindow } from "@/components/app/ChatWindow";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { useLocation } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, MessageSquare } from "lucide-react";
 import { InternalChatWindow } from "@/components/app/InternalChatWindow";
@@ -18,12 +18,18 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 const Inbox = () => {
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const initialConversation = location.state?.selectedConversation;
   const shouldShowChat = location.state?.showChat;
+  const conversationFromUrl = searchParams.get('conversation');
   
-  const [selectedConversation, setSelectedConversation] = useState<string | undefined>(initialConversation);
+  const [selectedConversation, setSelectedConversation] = useState<string | undefined>(
+    conversationFromUrl || initialConversation
+  );
   const isMobile = useIsMobile();
-  const [showChat, setShowChat] = useState(shouldShowChat !== undefined ? shouldShowChat : false);
+  const [showChat, setShowChat] = useState(
+    shouldShowChat !== undefined ? shouldShowChat : !!conversationFromUrl
+  );
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedInternalChat, setSelectedInternalChat] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -46,6 +52,14 @@ const Inbox = () => {
     
     return () => clearInterval(autoRefreshInterval);
   }, [refetch, isSyncing]);
+  
+  // Effect para tratar conversa vinda da URL (ex: /inbox?conversation=xxx)
+  useEffect(() => {
+    if (conversationFromUrl) {
+      setSelectedConversation(conversationFromUrl);
+      setShowChat(true);
+    }
+  }, [conversationFromUrl]);
   
   // Effect to update the state when navigation happens
   useEffect(() => {
