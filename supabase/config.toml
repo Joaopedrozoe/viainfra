@@ -138,3 +138,6 @@ verify_jwt = false
 
 [functions.test-group-send]
 verify_jwt = false
+
+[functions.diagnose-sync]
+verify_jwt = false
