@@ -4,7 +4,7 @@ import { ChatWindow } from "@/components/app/ChatWindow";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, MessageSquare } from "lucide-react";
 import { InternalChatWindow } from "@/components/app/InternalChatWindow";
 import { useInternalChat } from "@/hooks/useInternalChat";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -13,6 +13,8 @@ import { useMessageNotifications } from "@/hooks/useMessageNotifications";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/auth";
+import { StatusTab, StatusIcon } from "@/components/app/status";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 const Inbox = () => {
   const location = useLocation();
@@ -25,6 +27,7 @@ const Inbox = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedInternalChat, setSelectedInternalChat] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [activeMainTab, setActiveMainTab] = useState<"conversations" | "status">("conversations");
   const { conversations: internalConversations } = useInternalChat();
   const { updateConversationStatus, refetch } = useConversations();
   const { company } = useAuth();
@@ -167,10 +170,11 @@ const Inbox = () => {
 
   const selectedInternalConversation = internalConversations.find(c => c.id === selectedInternalChat);
 
+  // Mobile Layout
   if (isMobile) {
     return (
       <div className="h-full w-full overflow-hidden">
-        {showChat ? (
+        {showChat && activeMainTab === "conversations" ? (
           <ChatWindow 
             conversationId={selectedConversation || ""} 
             key={selectedConversation}
@@ -178,28 +182,56 @@ const Inbox = () => {
           />
         ) : (
           <div className="flex-1 flex flex-col h-full overflow-hidden">
-            <div className="flex-none p-4 border-b border-border">
-              <div className="flex items-center justify-between">
-                <h1 className="text-xl font-bold">Conversas</h1>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleRefresh}
-                  disabled={isSyncing}
-                  className="h-8 w-8 p-0"
-                >
-                  <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
-                </Button>
+            {/* Tab Navigation */}
+            <div className="flex-none border-b border-border">
+              <div className="flex items-center justify-between px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant={activeMainTab === "conversations" ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setActiveMainTab("conversations")}
+                    className="gap-2"
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                    Conversas
+                  </Button>
+                  <Button
+                    variant={activeMainTab === "status" ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setActiveMainTab("status")}
+                    className="gap-2"
+                  >
+                    <StatusIcon size={16} />
+                    Status
+                  </Button>
+                </div>
+                {activeMainTab === "conversations" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleRefresh}
+                    disabled={isSyncing}
+                    className="h-8 w-8 p-0"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                  </Button>
+                )}
               </div>
             </div>
+
+            {/* Content */}
             <div className="flex-1 overflow-hidden">
-            <ConversationList 
-              onSelectConversation={handleSelectConversation}
-              selectedId={selectedConversation}
-              refreshTrigger={refreshKey}
-              onResolveConversation={handleResolveConversation}
-              onSelectInternalChat={handleSelectInternalChat}
-            />
+              {activeMainTab === "conversations" ? (
+                <ConversationList 
+                  onSelectConversation={handleSelectConversation}
+                  selectedId={selectedConversation}
+                  refreshTrigger={refreshKey}
+                  onResolveConversation={handleResolveConversation}
+                  onSelectInternalChat={handleSelectInternalChat}
+                />
+              ) : (
+                <StatusTab />
+              )}
             </div>
           </div>
         )}
@@ -207,42 +239,79 @@ const Inbox = () => {
     );
   }
   
+  // Desktop Layout
   return (
     <>
       <div className="flex h-full overflow-hidden">
+        {/* Left Sidebar - Navigation Icons */}
+        <div className="w-14 min-w-[3.5rem] border-r border-border flex flex-col items-center py-4 bg-muted/30">
+          <button
+            onClick={() => setActiveMainTab("conversations")}
+            className={`p-3 rounded-lg transition-colors ${
+              activeMainTab === "conversations" 
+                ? "bg-primary text-primary-foreground" 
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+            title="Conversas"
+          >
+            <MessageSquare className="h-5 w-5" />
+          </button>
+          <button
+            onClick={() => setActiveMainTab("status")}
+            className={`p-3 rounded-lg transition-colors mt-2 ${
+              activeMainTab === "status" 
+                ? "bg-primary text-primary-foreground" 
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+            title="Status"
+          >
+            <StatusIcon size={20} />
+          </button>
+        </div>
+
+        {/* Main Content */}
         <div className="flex flex-1 h-full overflow-hidden">
-          <div className="w-80 min-w-[20rem] border-r border-border flex flex-col h-full overflow-hidden">
-            <div className="p-4 border-b border-border flex-shrink-0">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold">Conversas</h2>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleRefresh}
-                  disabled={isSyncing}
-                  className="h-8 w-8 p-0"
-                >
-                  <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
-                </Button>
+          {activeMainTab === "conversations" ? (
+            <>
+              {/* Conversations List */}
+              <div className="w-80 min-w-[20rem] border-r border-border flex flex-col h-full overflow-hidden">
+                <div className="p-4 border-b border-border flex-shrink-0">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-semibold">Conversas</h2>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleRefresh}
+                      disabled={isSyncing}
+                      className="h-8 w-8 p-0"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                    </Button>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <ConversationList 
+                    onSelectConversation={handleSelectConversation}
+                    selectedId={selectedConversation}
+                    refreshTrigger={refreshKey}
+                    onResolveConversation={handleResolveConversation}
+                    onSelectInternalChat={handleSelectInternalChat}
+                  />
+                </div>
               </div>
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <ConversationList 
-                onSelectConversation={handleSelectConversation}
-                selectedId={selectedConversation}
-                refreshTrigger={refreshKey}
-                onResolveConversation={handleResolveConversation}
-                onSelectInternalChat={handleSelectInternalChat}
-              />
-            </div>
-          </div>
-          <div className="flex-1 overflow-hidden">
-            <ChatWindow 
-              conversationId={selectedConversation || ""} 
-              key={selectedConversation}
-              onEndConversation={() => selectedConversation && handleEndConversation(selectedConversation)}
-            />
-          </div>
+              
+              {/* Chat Window */}
+              <div className="flex-1 overflow-hidden">
+                <ChatWindow 
+                  conversationId={selectedConversation || ""} 
+                  key={selectedConversation}
+                  onEndConversation={() => selectedConversation && handleEndConversation(selectedConversation)}
+                />
+              </div>
+            </>
+          ) : (
+            <StatusTab />
+          )}
         </div>
       </div>
 
