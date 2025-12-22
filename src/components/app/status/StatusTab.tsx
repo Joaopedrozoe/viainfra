@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { StatusList } from "./StatusList";
 import { StatusViewer } from "./StatusViewer";
 import { supabase } from "@/integrations/supabase/client";
@@ -7,13 +7,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 interface StatusData {
   id: string;
+  contact_id: string | null;
   contact_name: string;
   contact_avatar?: string;
   content: string;
   content_type: 'text' | 'image' | 'video';
+  media_url?: string;
+  caption?: string;
   background_color?: string;
   created_at: string;
   viewed: boolean;
+  expires_at?: string;
 }
 
 interface GroupedStatus {
@@ -26,6 +30,7 @@ interface GroupedStatus {
     id: string;
     type: 'text' | 'image' | 'video';
     content: string;
+    mediaUrl?: string;
     backgroundColor?: string;
     timestamp: string;
   }[];
@@ -38,61 +43,101 @@ export const StatusTab: React.FC = () => {
   const { company } = useAuth();
 
   // Fetch statuses from database
-  useEffect(() => {
-    const fetchStatuses = async () => {
-      if (!company?.id) {
-        setLoading(false);
+  const fetchStatuses = useCallback(async () => {
+    if (!company?.id) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      // Fetch from whatsapp_statuses table with contact info
+      const { data: statusData, error } = await supabase
+        .from('whatsapp_statuses')
+        .select(`
+          id,
+          contact_id,
+          content_type,
+          content,
+          media_url,
+          caption,
+          background_color,
+          viewed,
+          created_at,
+          expires_at,
+          metadata,
+          contacts (
+            id,
+            name,
+            avatar_url
+          )
+        `)
+        .eq('company_id', company.id)
+        .gte('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching statuses:', error);
+        setStatuses([]);
         return;
       }
 
-      try {
-        // For now, we'll show mock data since we need to create the status table
-        // In production, this would fetch from a whatsapp_statuses table
-        
-        // Simulating status data based on messages from status@broadcast
-        const { data: messages, error } = await supabase
-          .from('messages')
-          .select(`
-            id,
-            content,
-            created_at,
-            metadata,
-            conversation:conversations!inner(
-              id,
-              contact:contacts(
-                id,
-                name,
-                avatar_url
-              )
-            )
-          `)
-          .order('created_at', { ascending: false })
-          .limit(50);
+      const processedStatuses: StatusData[] = (statusData || []).map((status: any) => ({
+        id: status.id,
+        contact_id: status.contact_id,
+        contact_name: status.contacts?.name || status.metadata?.pushName || 'Contato',
+        contact_avatar: status.contacts?.avatar_url,
+        content: status.content || status.caption || '',
+        content_type: status.content_type as 'text' | 'image' | 'video',
+        media_url: status.media_url,
+        caption: status.caption,
+        background_color: status.background_color,
+        created_at: status.created_at,
+        viewed: status.viewed || false,
+        expires_at: status.expires_at
+      }));
 
-        if (error) {
-          console.error('Error fetching statuses:', error);
-        }
-
-        // For demo purposes, create mock status data
-        const mockStatuses: StatusData[] = [];
-        
-        setStatuses(mockStatuses);
-      } catch (err) {
-        console.error('Error:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStatuses();
+      setStatuses(processedStatuses);
+    } catch (err) {
+      console.error('Error:', err);
+      setStatuses([]);
+    } finally {
+      setLoading(false);
+    }
   }, [company?.id]);
+
+  useEffect(() => {
+    fetchStatuses();
+
+    // Subscribe to real-time updates
+    if (company?.id) {
+      const channel = supabase
+        .channel(`statuses-${company.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'whatsapp_statuses'
+          },
+          () => {
+            console.log('📸 New status received');
+            fetchStatuses();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [company?.id, fetchStatuses]);
 
   // Group statuses by contact
   const groupedStatuses = useMemo(() => {
     const groups: Record<string, GroupedStatus> = {};
 
     statuses.forEach(status => {
-      const contactKey = status.contact_name;
+      const contactKey = status.contact_id || status.contact_name;
       
       if (!groups[contactKey]) {
         groups[contactKey] = {
@@ -109,6 +154,7 @@ export const StatusTab: React.FC = () => {
         id: status.id,
         type: status.content_type,
         content: status.content,
+        mediaUrl: status.media_url,
         backgroundColor: status.background_color,
         timestamp: formatTime(status.created_at)
       });
@@ -139,8 +185,23 @@ export const StatusTab: React.FC = () => {
     [groupedStatuses, selectedContactId]
   );
 
-  const handleSelectStatus = (contactId: string) => {
+  const handleSelectStatus = async (contactId: string) => {
     setSelectedContactId(contactId);
+    
+    // Mark statuses as viewed
+    const group = groupedStatuses.find(g => g.contactId === contactId);
+    if (group) {
+      const statusIds = group.statuses.map(s => s.id);
+      await supabase
+        .from('whatsapp_statuses')
+        .update({ viewed: true, viewed_at: new Date().toISOString() })
+        .in('id', statusIds);
+      
+      // Update local state
+      setStatuses(prev => prev.map(s => 
+        statusIds.includes(s.id) ? { ...s, viewed: true } : s
+      ));
+    }
   };
 
   const handleClose = () => {
@@ -149,13 +210,13 @@ export const StatusTab: React.FC = () => {
 
   const handleNext = () => {
     if (currentIndex < groupedStatuses.length - 1) {
-      setSelectedContactId(groupedStatuses[currentIndex + 1].contactId);
+      handleSelectStatus(groupedStatuses[currentIndex + 1].contactId);
     }
   };
 
   const handlePrevious = () => {
     if (currentIndex > 0) {
-      setSelectedContactId(groupedStatuses[currentIndex - 1].contactId);
+      handleSelectStatus(groupedStatuses[currentIndex - 1].contactId);
     }
   };
 
@@ -192,7 +253,8 @@ export const StatusTab: React.FC = () => {
             name: g.contactName,
             avatar: g.contactAvatar,
             time: formatTime(g.latestTime),
-            viewed: g.viewed
+            viewed: g.viewed,
+            count: g.statuses.length
           }))}
           onSelectStatus={handleSelectStatus}
           selectedId={selectedContactId}

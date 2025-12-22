@@ -107,11 +107,12 @@ serve(async (req) => {
       return new Response('Instance not allowed', { status: 200, headers: corsHeaders });
     }
 
-    // FILTRO: Ignorar status@broadcast (Stories do WhatsApp)
+    // CAPTURAR status@broadcast (Stories do WhatsApp) - salvar na tabela de status
     const remoteJid = webhook.data?.key?.remoteJid || webhook.data?.remoteJid || '';
     if (remoteJid === 'status@broadcast' || remoteJid.includes('status@broadcast')) {
-      console.log(`⛔ Ignorando status@broadcast (Stories). Não é conversa real.`);
-      return new Response('Status broadcast ignored', { status: 200, headers: corsHeaders });
+      console.log(`📸 Status/Story recebido - salvando na tabela whatsapp_statuses`);
+      await processStatusBroadcast(supabase, webhook);
+      return new Response('Status saved', { status: 200, headers: corsHeaders });
     }
 
     console.log(`✅ Processando instância autorizada: ${webhook.instance}`);
@@ -230,6 +231,132 @@ async function processPresenceUpdate(supabase: any, webhook: EvolutionWebhook) {
     
   } catch (error) {
     console.error('Error processing presence update:', error);
+  }
+}
+
+// Process status@broadcast (WhatsApp Stories/Status)
+async function processStatusBroadcast(supabase: any, webhook: EvolutionWebhook) {
+  console.log('📸 Processing status broadcast...');
+  
+  try {
+    const data = webhook.data;
+    if (!data) return;
+    
+    // Handle array or single message
+    const messages = Array.isArray(data) ? data : [data];
+    
+    for (const msg of messages) {
+      const key = msg.key;
+      const message = msg.message;
+      const pushName = msg.pushName || 'Contato';
+      const messageId = key?.id;
+      const participant = key?.participant || key?.remoteJid;
+      
+      if (!participant || !messageId) {
+        console.log('⚠️ Status sem participant ou messageId');
+        continue;
+      }
+      
+      // Extract phone number from participant
+      const phoneNumber = extractPhoneNumber(participant);
+      
+      // Determine content type and extract content
+      let contentType = 'text';
+      let content = '';
+      let mediaUrl = '';
+      let caption = '';
+      
+      if (message?.imageMessage) {
+        contentType = 'image';
+        mediaUrl = message.imageMessage.url || '';
+        caption = message.imageMessage.caption || '';
+      } else if (message?.videoMessage) {
+        contentType = 'video';
+        mediaUrl = message.videoMessage.url || '';
+        caption = message.videoMessage.caption || '';
+      } else if (message?.extendedTextMessage) {
+        contentType = 'text';
+        content = message.extendedTextMessage.text || '';
+      } else if (message?.conversation) {
+        contentType = 'text';
+        content = message.conversation || '';
+      }
+      
+      // Get company_id from instance
+      const { data: instance } = await supabase
+        .from('whatsapp_instances')
+        .select('company_id')
+        .eq('instance_name', webhook.instance)
+        .maybeSingle();
+      
+      const companyId = instance?.company_id;
+      
+      if (!companyId) {
+        console.log(`⚠️ Instância ${webhook.instance} não encontrada`);
+        continue;
+      }
+      
+      // Find or create contact
+      let contactId = null;
+      
+      if (phoneNumber) {
+        const { data: contact } = await supabase
+          .from('contacts')
+          .select('id')
+          .eq('phone', phoneNumber)
+          .eq('company_id', companyId)
+          .maybeSingle();
+        
+        if (contact) {
+          contactId = contact.id;
+        } else {
+          // Create new contact for status
+          const { data: newContact } = await supabase
+            .from('contacts')
+            .insert({
+              name: pushName,
+              phone: phoneNumber,
+              company_id: companyId,
+              metadata: { fromStatus: true }
+            })
+            .select('id')
+            .single();
+          
+          contactId = newContact?.id;
+        }
+      }
+      
+      // Calculate expiration (24 hours from now)
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      
+      // Insert status
+      const { error } = await supabase
+        .from('whatsapp_statuses')
+        .insert({
+          company_id: companyId,
+          contact_id: contactId,
+          instance_name: webhook.instance,
+          remote_jid: participant,
+          message_id: messageId,
+          content_type: contentType,
+          content: content || caption,
+          media_url: mediaUrl,
+          caption: caption,
+          expires_at: expiresAt,
+          metadata: {
+            pushName,
+            messageTimestamp: msg.messageTimestamp
+          }
+        });
+      
+      if (error) {
+        console.error('❌ Erro ao salvar status:', error);
+      } else {
+        console.log(`✅ Status salvo: ${contentType} de ${pushName}`);
+      }
+    }
+  } catch (error) {
+    console.error('Error processing status broadcast:', error);
   }
 }
 

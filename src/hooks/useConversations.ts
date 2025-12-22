@@ -147,22 +147,29 @@ export const useConversations = () => {
         }
       }
 
-      const newConversations = (convData || []).map(conv => {
-        const lastMsg = lastMessages[conv.id];
-        return {
-          ...conv,
-          status: conv.status as 'open' | 'resolved' | 'pending',
-          metadata: conv.metadata || {},
-          archived: conv.archived || false,
-          contact: conv.contacts || undefined,
-          lastMessage: lastMsg ? {
-            id: lastMsg.id,
-            content: lastMsg.content,
-            sender_type: lastMsg.sender_type as 'user' | 'agent' | 'bot',
-            created_at: lastMsg.created_at
-          } : undefined,
-        };
-      });
+      const newConversations = (convData || [])
+        // Filtrar conversas de status@broadcast (tanto pelo metadata da conversa quanto do contato)
+        .filter(conv => {
+          const convRemoteJid = (conv.metadata as any)?.remoteJid;
+          const contactRemoteJid = (conv.contacts as any)?.metadata?.remoteJid;
+          return convRemoteJid !== 'status@broadcast' && contactRemoteJid !== 'status@broadcast';
+        })
+        .map(conv => {
+          const lastMsg = lastMessages[conv.id];
+          return {
+            ...conv,
+            status: conv.status as 'open' | 'resolved' | 'pending',
+            metadata: conv.metadata || {},
+            archived: conv.archived || false,
+            contact: conv.contacts || undefined,
+            lastMessage: lastMsg ? {
+              id: lastMsg.id,
+              content: lastMsg.content,
+              sender_type: lastMsg.sender_type as 'user' | 'agent' | 'bot',
+              created_at: lastMsg.created_at
+            } : undefined,
+          };
+        });
 
       // Sort by lastMessage.created_at (most recent first), fallback to updated_at
       newConversations.sort((a, b) => {
