@@ -74,6 +74,7 @@ serve(async (req) => {
 
     // Determinar o destinatário: usar telefone se disponível, senão usar remoteJid
     // IMPORTANTE: lidJid NÃO funciona para enviar mensagens, apenas para receber!
+    // GRUPOS: remoteJid termina com @g.us - usar diretamente!
     let recipientJid: string;
     
     // Helper para verificar se é número de telefone válido
@@ -91,17 +92,35 @@ serve(async (req) => {
       return match ? match[1] : null;
     };
     
+    // Helper para verificar se é grupo
+    const isGroupJid = (jid: string) => {
+      return jid && jid.includes('@g.us');
+    };
+    
     const contactPhone = conversation.contacts?.phone;
     const remoteJid = conversation.metadata?.remoteJid;
-    // lidJid é ignorado para envio - só funciona para receber mensagens
+    const isGroup = conversation.metadata?.isGroup || isGroupJid(remoteJid);
+    
+    console.log('🔍 DEBUG V6 - Recipient resolution:', {
+      contactPhone,
+      remoteJid,
+      isGroup,
+      isGroupJidCheck: isGroupJid(remoteJid),
+      metadataIsGroup: conversation.metadata?.isGroup
+    });
     
     // Prioridade para ENVIAR mensagens:
-    // 1. Telefone numérico válido do contato
-    // 2. remoteJid no formato @s.whatsapp.net (número real)
-    // 3. Número extraído do remoteJid
+    // 1. GRUPOS: usar remoteJid diretamente (formato @g.us)
+    // 2. Telefone numérico válido do contato
+    // 3. remoteJid no formato @s.whatsapp.net (número real)
+    // 4. Número extraído do remoteJid
     // NÃO usar lidJid - ele não funciona para enviar!
     
-    if (contactPhone && isValidPhone(contactPhone)) {
+    if (isGroupJid(remoteJid)) {
+      // GRUPOS: usar o remoteJid diretamente (formato @g.us funciona!)
+      recipientJid = remoteJid;
+      console.log(`📤 Sending to GROUP: ${recipientJid}`);
+    } else if (contactPhone && isValidPhone(contactPhone)) {
       // Se temos telefone numérico válido, usar formato tradicional
       recipientJid = `${contactPhone}@s.whatsapp.net`;
       console.log(`Using contact phone: ${contactPhone} -> ${recipientJid}`);
@@ -278,17 +297,43 @@ serve(async (req) => {
       }
     } else {
       // Enviar apenas texto com identificação do atendente
+      const textPayload = {
+        number: recipientJid,
+        text: formattedMessage,
+      };
+      
+      console.log('📤 V7 - Sending text to Evolution API:', {
+        endpoint: `${evolutionUrl}/message/sendText/${instance.instance_name}`,
+        payload: textPayload
+      });
+      
       response = await fetch(`${evolutionUrl}/message/sendText/${instance.instance_name}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'apikey': evolutionKey,
         },
-        body: JSON.stringify({
-          number: recipientJid,
-          text: formattedMessage,
-        }),
+        body: JSON.stringify(textPayload),
       });
+      
+      const responseText = await response.text();
+      console.log('📥 V7 - Evolution API response:', response.status, responseText);
+      
+      // Parse response back for error handling
+      if (!response.ok) {
+        // Create a new response with the same body for downstream handling
+        response = new Response(responseText, { 
+          status: response.status, 
+          headers: response.headers 
+        });
+      } else {
+        // Success - return early
+        console.log('✅ WhatsApp message sent successfully');
+        return new Response(
+          JSON.stringify({ success: true }), 
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
     // Handle failed messages with retry queue
