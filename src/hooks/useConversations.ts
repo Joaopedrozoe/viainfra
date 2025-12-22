@@ -75,6 +75,7 @@ export const useConversations = () => {
       lastFetchRef.current = Date.now();
       
       // Fetch conversations with contacts - without all messages (too heavy)
+      // IMPORTANTE: Excluir status@broadcast (Stories) da lista de conversas
       const { data: convData, error: convError } = await supabase
         .from('conversations')
         .select(`
@@ -93,10 +94,12 @@ export const useConversations = () => {
             name,
             phone,
             email,
-            avatar_url
+            avatar_url,
+            metadata
           )
         `)
         .eq('company_id', company.id)
+        .neq('metadata->>remoteJid', 'status@broadcast')
         .order('updated_at', { ascending: false });
 
       if (!mountedRef.current) return;
