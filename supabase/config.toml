@@ -129,3 +129,6 @@ verify_jwt = false
 
 [functions.restart-instance]
 verify_jwt = false
+
+[functions.fix-inbox]
+verify_jwt = false
