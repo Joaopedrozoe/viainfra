@@ -132,3 +132,6 @@ verify_jwt = false
 
 [functions.fix-inbox]
 verify_jwt = false
+
+[functions.list-groups]
+verify_jwt = false
