@@ -50,21 +50,10 @@ export const useConversations = () => {
       return;
     }
 
-    // Prevent concurrent fetches only when debouncing
-    if (isFetchingRef.current && debounce) {
+    // Prevent concurrent fetches only when already fetching
+    if (isFetchingRef.current) {
+      console.log('⏭️ Skipping - already fetching');
       return;
-    }
-
-    // Ultra-fast debounce: 30ms para real-time instantâneo
-    if (debounce) {
-      const now = Date.now();
-      if (now - lastFetchRef.current < 30) {
-        if (fetchTimeoutRef.current) {
-          clearTimeout(fetchTimeoutRef.current);
-        }
-        fetchTimeoutRef.current = setTimeout(() => fetchConversations(false, true), 20);
-        return;
-      }
     }
 
     try {
@@ -100,9 +89,17 @@ export const useConversations = () => {
         `)
         .eq('company_id', company.id)
         .neq('metadata->>remoteJid', 'status@broadcast')
-        .order('updated_at', { ascending: false });
+        .order('updated_at', { ascending: false })
+        .limit(100); // Limit to most recent 100 for performance
 
       if (!mountedRef.current) return;
+
+      console.log('📊 Conversations fetched:', convData?.length || 0, 'First 3:', convData?.slice(0, 3)?.map(c => ({
+        id: c.id,
+        name: (c.contacts as any)?.name,
+        status: c.status,
+        updated_at: c.updated_at
+      })));
 
       if (convError) {
         console.error('Supabase query error:', convError);
@@ -349,9 +346,12 @@ export const useConversations = () => {
         )
         .subscribe((status) => {
           console.log('📡 Realtime subscription:', status);
+          if (status === 'SUBSCRIBED') {
+            console.log('✅ Real-time connected - fetching latest data');
+            fetchConversations(false, true);
+          }
           if (status === 'CHANNEL_ERROR') {
             console.error('❌ Real-time error - will retry');
-            // Retry subscription after error
             setTimeout(() => {
               if (mountedRef.current) {
                 fetchConversations(false, true);
@@ -360,12 +360,13 @@ export const useConversations = () => {
           }
         });
 
-      // Heartbeat mais frequente: a cada 10s para manter sincronização
+      // Heartbeat mais frequente: a cada 5s para manter sincronização
       const heartbeatInterval = setInterval(() => {
         if (mountedRef.current) {
-          fetchConversations(true, true);
+          console.log('💓 Heartbeat - syncing...');
+          fetchConversations(false, true);
         }
-      }, 10000);
+      }, 5000);
 
       return () => {
         mountedRef.current = false;
