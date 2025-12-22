@@ -117,3 +117,9 @@ verify_jwt = false
 
 [functions.sync-via-logistic]
 verify_jwt = false
+
+[functions.audit-conversations]
+verify_jwt = false
+
+[functions.fix-flavio-conversation]
+verify_jwt = false
