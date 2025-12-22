@@ -123,3 +123,9 @@ verify_jwt = false
 
 [functions.fix-flavio-conversation]
 verify_jwt = false
+
+[functions.check-webhook-status]
+verify_jwt = false
+
+[functions.restart-instance]
+verify_jwt = false
