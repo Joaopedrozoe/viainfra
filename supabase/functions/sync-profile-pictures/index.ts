@@ -7,8 +7,11 @@ const corsHeaders = {
 };
 
 // Instâncias autorizadas para buscar fotos
-const AUTHORIZED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL'];
+const AUTHORIZED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'JUNIORCORRETOR'];
 const BUCKET_NAME = 'profile-pictures';
+
+// LIMIT: Maximum contacts per run to avoid memory issues
+const MAX_CONTACTS_PER_RUN = 5;
 
 // Helper to download image and upload to storage
 async function downloadAndUploadImage(
@@ -17,11 +20,11 @@ async function downloadAndUploadImage(
   contactId: string
 ): Promise<string | null> {
   try {
-    console.log(`📥 Downloading image from: ${imageUrl.substring(0, 80)}...`);
+    console.log(`📥 Downloading image for contact ${contactId}...`);
     
-    // Download the image with timeout
+    // Download the image with short timeout
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => controller.abort(), 5000);
     
     const response = await fetch(imageUrl, {
       signal: controller.signal,
@@ -33,16 +36,23 @@ async function downloadAndUploadImage(
     clearTimeout(timeout);
     
     if (!response.ok) {
-      console.log(`❌ Failed to download image: ${response.status}`);
+      console.log(`❌ Failed to download: ${response.status}`);
       return null;
     }
     
     const contentType = response.headers.get('content-type') || 'image/jpeg';
     const arrayBuffer = await response.arrayBuffer();
+    
+    // Limit image size to 500KB
+    if (arrayBuffer.byteLength > 500000) {
+      console.log(`❌ Image too large (${arrayBuffer.byteLength} bytes)`);
+      return null;
+    }
+    
     const blob = new Uint8Array(arrayBuffer);
     
     if (blob.length < 100) {
-      console.log(`❌ Image too small (${blob.length} bytes)`);
+      console.log(`❌ Image too small`);
       return null;
     }
     
@@ -50,12 +60,10 @@ async function downloadAndUploadImage(
     let extension = 'jpg';
     if (contentType.includes('png')) extension = 'png';
     else if (contentType.includes('webp')) extension = 'webp';
-    else if (contentType.includes('gif')) extension = 'gif';
     
     const fileName = `${contactId}.${extension}`;
-    console.log(`📤 Uploading to storage: ${fileName} (${blob.length} bytes)`);
     
-    // Upload to Supabase Storage (upsert to replace if exists)
+    // Upload to Supabase Storage
     const { error: uploadError } = await supabase.storage
       .from(BUCKET_NAME)
       .upload(fileName, blob, {
@@ -64,7 +72,7 @@ async function downloadAndUploadImage(
       });
     
     if (uploadError) {
-      console.error(`❌ Upload error:`, uploadError);
+      console.error(`❌ Upload error:`, uploadError.message);
       return null;
     }
     
@@ -73,11 +81,11 @@ async function downloadAndUploadImage(
       .from(BUCKET_NAME)
       .getPublicUrl(fileName);
     
-    console.log(`✅ Uploaded successfully: ${urlData.publicUrl}`);
+    console.log(`✅ Uploaded: ${fileName}`);
     return urlData.publicUrl;
     
   } catch (error) {
-    console.error(`❌ Download/upload error:`, error);
+    console.error(`❌ Error:`, error);
     return null;
   }
 }
@@ -87,7 +95,7 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  console.log('🔄 Starting profile picture sync...');
+  console.log('🔄 Starting profile picture sync (optimized)...');
 
   try {
     const supabase = createClient(
@@ -105,44 +113,29 @@ serve(async (req) => {
       });
     }
 
-    // Ensure storage bucket exists
-    const { data: buckets } = await supabase.storage.listBuckets();
-    const bucketExists = buckets?.some((b: any) => b.name === BUCKET_NAME);
-    
-    if (!bucketExists) {
-      console.log(`📦 Creating storage bucket: ${BUCKET_NAME}`);
-      const { error: createError } = await supabase.storage.createBucket(BUCKET_NAME, {
-        public: true,
-        fileSizeLimit: 5242880, // 5MB
-      });
-      if (createError && !createError.message?.includes('already exists')) {
-        console.error(`❌ Failed to create bucket:`, createError);
-      }
-    }
-
     // Get request body for optional filters
     let body: any = {};
     try {
       body = await req.json();
     } catch {
-      // No body provided, sync all
+      // No body provided
     }
 
-    const { contactId, companyId, forceUpdate = false } = body;
+    const { contactId, forceUpdate = false } = body;
 
     // Get any authorized WhatsApp instance that is connected
-    const { data: instances, error: instanceError } = await supabase
+    const { data: instances } = await supabase
       .from('whatsapp_instances')
-      .select('instance_name, company_id, phone_number, connection_state')
+      .select('instance_name, company_id')
       .in('instance_name', AUTHORIZED_INSTANCES)
       .eq('connection_state', 'open')
       .limit(1);
 
-    if (instanceError || !instances?.length) {
-      console.log(`⚠️ No authorized instance connected (checked: ${AUTHORIZED_INSTANCES.join(', ')})`);
+    if (!instances?.length) {
+      console.log(`⚠️ No authorized instance connected`);
       return new Response(JSON.stringify({ 
-        error: `No authorized instance connected`,
-        details: instanceError 
+        error: 'No authorized instance connected',
+        checked: AUTHORIZED_INSTANCES
       }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -152,165 +145,103 @@ serve(async (req) => {
     const instance = instances[0];
     console.log(`📱 Using instance: ${instance.instance_name}`);
 
-    // Get contacts to sync - PRIORITY: contacts with active conversations
-    let contactsQuery;
-    
+    // Build query - VERY LIMITED to avoid memory issues
+    let contactsQuery = supabase
+      .from('contacts')
+      .select('id, name, phone, avatar_url')
+      .not('phone', 'is', null)
+      .neq('phone', '');
+
     if (contactId) {
-      // Sync specific contact
-      contactsQuery = supabase
-        .from('contacts')
-        .select('id, name, phone, avatar_url, company_id')
-        .eq('id', contactId)
-        .not('phone', 'is', null)
-        .neq('phone', '');
+      contactsQuery = contactsQuery.eq('id', contactId);
     } else {
-      // PRIORITY: Get contacts from active conversations first
-      const { data: activeConversations } = await supabase
-        .from('conversations')
-        .select('contact_id')
-        .eq('channel', 'whatsapp')
-        .in('status', ['open', 'pending'])
-        .not('contact_id', 'is', null);
-      
-      const activeContactIds = activeConversations?.map(c => c.contact_id).filter(Boolean) || [];
-      
-      console.log(`📋 Found ${activeContactIds.length} contacts with active conversations`);
-      
-      if (activeContactIds.length > 0) {
-        // Sync contacts with active conversations
-        contactsQuery = supabase
-          .from('contacts')
-          .select('id, name, phone, avatar_url, company_id')
-          .in('id', activeContactIds)
-          .not('phone', 'is', null)
-          .neq('phone', '');
-        
-        // Only sync contacts without avatar OR with WhatsApp URLs (which expire)
-        if (!forceUpdate) {
-          contactsQuery = contactsQuery.or('avatar_url.is.null,avatar_url.eq.,avatar_url.like.%pps.whatsapp.net%');
-        }
-      } else {
-        // Fallback to original logic if no active conversations
-        contactsQuery = supabase
-          .from('contacts')
-          .select('id, name, phone, avatar_url, company_id')
-          .not('phone', 'is', null)
-          .neq('phone', '');
-        
-        if (companyId) {
-          contactsQuery = contactsQuery.eq('company_id', companyId);
-        } else if (instance.company_id) {
-          contactsQuery = contactsQuery.eq('company_id', instance.company_id);
-        }
-        
-        if (!forceUpdate) {
-          contactsQuery = contactsQuery.or('avatar_url.is.null,avatar_url.eq.,avatar_url.like.%pps.whatsapp.net%');
-        }
-        
-        contactsQuery = contactsQuery.limit(50);
+      // Only get contacts without avatar or with expired WhatsApp URLs
+      if (!forceUpdate) {
+        contactsQuery = contactsQuery.or('avatar_url.is.null,avatar_url.eq.,avatar_url.like.%pps.whatsapp.net%');
       }
+      // STRICT LIMIT
+      contactsQuery = contactsQuery.limit(MAX_CONTACTS_PER_RUN);
     }
 
     const { data: contacts, error: contactsError } = await contactsQuery;
 
     if (contactsError) {
-      return new Response(JSON.stringify({ error: 'Failed to fetch contacts', details: contactsError }), {
+      return new Response(JSON.stringify({ error: 'Failed to fetch contacts' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    console.log(`📋 Found ${contacts?.length || 0} contacts to sync`);
+    console.log(`📋 Processing ${contacts?.length || 0} contacts (max: ${MAX_CONTACTS_PER_RUN})`);
 
     const results = {
       total: contacts?.length || 0,
       updated: 0,
       failed: 0,
       skipped: 0,
-      details: [] as any[],
     };
 
-    // Process contacts
+    // Process contacts ONE BY ONE with cleanup
     for (const contact of contacts || []) {
       try {
         const phone = contact.phone?.replace(/\D/g, '');
         
         if (!phone || phone.length < 10) {
-          console.log(`⏭️ Skipping ${contact.name}: invalid phone`);
           results.skipped++;
           continue;
         }
 
-        // Skip if already has a Supabase storage URL (not WhatsApp URL)
-        if (contact.avatar_url && 
-            !contact.avatar_url.includes('pps.whatsapp.net') && 
-            contact.avatar_url.includes('supabase') &&
-            !forceUpdate) {
-          console.log(`⏭️ Skipping ${contact.name}: already has stored avatar`);
+        // Skip if already has stored URL
+        if (contact.avatar_url?.includes('supabase') && !forceUpdate) {
           results.skipped++;
           continue;
         }
 
-        console.log(`📷 Fetching picture for ${contact.name} (${phone})...`);
-
-        // Format phone for WhatsApp (ensure country code)
+        // Format phone
         let formattedPhone = phone;
         if (!phone.startsWith('55') && phone.length <= 11) {
           formattedPhone = `55${phone}`;
         }
 
-        // Fetch profile picture from Evolution API using the authorized instance
-        const apiUrl = `${evolutionUrl}/chat/fetchProfilePictureUrl/${instance.instance_name}`;
-        console.log(`🔗 Calling: ${apiUrl} with number: ${formattedPhone}`);
-        
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': evolutionKey,
-          },
-          body: JSON.stringify({ number: formattedPhone }),
-        });
+        console.log(`📷 ${contact.name} (${formattedPhone})...`);
 
-        const responseText = await response.text();
-        console.log(`📡 Response for ${contact.name}: ${response.status} - ${responseText.substring(0, 200)}`);
+        // Fetch profile picture URL
+        const response = await fetch(
+          `${evolutionUrl}/chat/fetchProfilePictureUrl/${instance.instance_name}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': evolutionKey,
+            },
+            body: JSON.stringify({ number: formattedPhone }),
+          }
+        );
 
         if (!response.ok) {
-          console.log(`⚠️ Failed for ${contact.name}: ${response.status}`);
+          console.log(`⚠️ API error: ${response.status}`);
           results.failed++;
-          results.details.push({ id: contact.id, name: contact.name, status: 'failed', reason: `HTTP ${response.status}` });
           continue;
         }
 
-        let data;
-        try {
-          data = JSON.parse(responseText);
-        } catch {
-          console.log(`⚠️ Invalid JSON for ${contact.name}`);
-          results.failed++;
-          continue;
-        }
-        
-        const pictureUrl = data.profilePictureUrl || data.pictureUrl || data.url || data.picture;
+        const data = await response.json();
+        const pictureUrl = data.profilePictureUrl || data.pictureUrl || data.url;
 
         if (!pictureUrl) {
-          console.log(`📷 No picture for ${contact.name} - Response: ${JSON.stringify(data)}`);
+          console.log(`📷 No picture available`);
           results.skipped++;
-          results.details.push({ id: contact.id, name: contact.name, status: 'skipped', reason: 'No picture available' });
           continue;
         }
 
-        // Download and upload to Supabase Storage
+        // Download and upload
         const storedUrl = await downloadAndUploadImage(supabase, pictureUrl, contact.id);
         
         if (!storedUrl) {
-          console.log(`⚠️ Failed to store image for ${contact.name}`);
           results.failed++;
-          results.details.push({ id: contact.id, name: contact.name, status: 'failed', reason: 'Failed to store image' });
           continue;
         }
 
-        // Update contact with stored avatar URL
+        // Update contact
         const { error: updateError } = await supabase
           .from('contacts')
           .update({ 
@@ -320,26 +251,22 @@ serve(async (req) => {
           .eq('id', contact.id);
 
         if (updateError) {
-          console.error(`❌ Error updating ${contact.name}:`, updateError);
           results.failed++;
-          results.details.push({ id: contact.id, name: contact.name, status: 'failed', reason: updateError.message });
         } else {
-          console.log(`✅ Updated ${contact.name} with stored URL`);
+          console.log(`✅ Updated ${contact.name}`);
           results.updated++;
-          results.details.push({ id: contact.id, name: contact.name, status: 'updated', avatar_url: storedUrl });
         }
 
-        // Small delay to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 300));
+        // Delay between contacts
+        await new Promise(resolve => setTimeout(resolve, 500));
 
       } catch (error) {
-        console.error(`❌ Error processing ${contact.name}:`, error);
+        console.error(`❌ Error:`, error);
         results.failed++;
-        results.details.push({ id: contact.id, name: contact.name, status: 'failed', reason: String(error) });
       }
     }
 
-    console.log(`✅ Sync complete: ${results.updated} updated, ${results.failed} failed, ${results.skipped} skipped`);
+    console.log(`✅ Done: ${results.updated} updated, ${results.failed} failed, ${results.skipped} skipped`);
 
     return new Response(JSON.stringify(results), {
       status: 200,
