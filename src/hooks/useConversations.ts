@@ -159,10 +159,16 @@ export const useConversations = () => {
 
       // CRITICAL: Sort by last message time (most recent first)
       newConversations.sort((a, b) => {
-        const aTime = a.lastMessage?.created_at || a.updated_at;
-        const bTime = b.lastMessage?.created_at || b.updated_at;
-        return new Date(bTime).getTime() - new Date(aTime).getTime();
+        // Priorizar lastMessage.created_at, depois updated_at
+        const aTime = a.lastMessage?.created_at || a.updated_at || a.created_at;
+        const bTime = b.lastMessage?.created_at || b.updated_at || b.created_at;
+        const diff = new Date(bTime).getTime() - new Date(aTime).getTime();
+        return diff;
       });
+      
+      console.log('📋 Sorted conversations:', newConversations.slice(0, 5).map(c => 
+        `${c.contact?.name}: ${c.lastMessage?.created_at || c.updated_at}`
+      ));
 
       // Detect new conversations for notifications
       const currentIds = new Set(newConversations.map(c => c.id));

@@ -303,47 +303,82 @@ async function syncMessages(
   stats: any
 ): Promise<number> {
   try {
-    // Fetch last 100 messages for comprehensive sync
-    const messagesResponse = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': evolutionApiKey
-      },
-      body: JSON.stringify({
-        where: { key: { remoteJid } },
-        limit: 100
-      })
-    });
-
-    if (!messagesResponse.ok) return 0;
-
-    const apiData = await messagesResponse.json();
+    // Try multiple endpoints to ensure we get messages
     let messageList: any[] = [];
     
-    if (Array.isArray(apiData)) {
-      messageList = apiData;
-    } else if (apiData.messages?.records) {
-      messageList = apiData.messages.records;
-    } else if (apiData.messages) {
-      messageList = apiData.messages;
-    } else if (apiData.records) {
-      messageList = apiData.records;
+    // Method 1: findMessages with remoteJid filter
+    try {
+      const resp1 = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': evolutionApiKey
+        },
+        body: JSON.stringify({
+          where: { key: { remoteJid } },
+          limit: 100
+        })
+      });
+      
+      if (resp1.ok) {
+        const data = await resp1.json();
+        if (Array.isArray(data)) messageList = data;
+        else if (data.messages?.records) messageList = data.messages.records;
+        else if (data.messages) messageList = data.messages;
+        else if (data.records) messageList = data.records;
+      }
+    } catch (e) {
+      // Silently continue to next method
+    }
+    
+    // Method 2: Try alternate endpoint format if first failed
+    if (messageList.length === 0) {
+      try {
+        const resp2 = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': evolutionApiKey
+          },
+          body: JSON.stringify({
+            remoteJid,
+            limit: 100
+          })
+        });
+        
+        if (resp2.ok) {
+          const data = await resp2.json();
+          if (Array.isArray(data)) messageList = data;
+          else if (data.messages) messageList = Array.isArray(data.messages) ? data.messages : [];
+        }
+      } catch (e) {
+        // Continue
+      }
     }
 
     if (messageList.length === 0) return 0;
 
-    // Get existing message IDs for this conversation
+    // Get existing messages - check by BOTH external_id AND content+timestamp combo
     const { data: existingMessages } = await supabase
       .from('messages')
-      .select('metadata')
-      .eq('conversation_id', conversationId);
+      .select('id, content, created_at, metadata')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: false })
+      .limit(200);
 
-    const existingIds = new Set<string>();
+    // Build multiple sets for deduplication
+    const existingExternalIds = new Set<string>();
+    const existingContentTimestamps = new Set<string>();
+    
     for (const msg of existingMessages || []) {
-      if (msg.metadata?.external_id) existingIds.add(msg.metadata.external_id);
-      if (msg.metadata?.message_id) existingIds.add(msg.metadata.message_id);
-      if (msg.metadata?.messageId) existingIds.add(msg.metadata.messageId);
+      // Check all possible external ID fields
+      const extId = msg.metadata?.external_id || msg.metadata?.message_id || msg.metadata?.messageId;
+      if (extId) existingExternalIds.add(extId);
+      
+      // Also check by content + approximate timestamp (within 5 seconds)
+      const ts = new Date(msg.created_at).getTime();
+      const contentKey = `${msg.content?.substring(0, 50)}|${Math.floor(ts / 5000)}`;
+      existingContentTimestamps.add(contentKey);
     }
 
     const newMessages = [];
@@ -352,20 +387,28 @@ async function syncMessages(
       const key = apiMsg.key || {};
       const messageId = key.id || apiMsg.id || apiMsg.messageId;
       
-      if (!messageId || existingIds.has(messageId)) continue;
+      // Skip if we have this external ID
+      if (messageId && existingExternalIds.has(messageId)) continue;
 
       const content = extractContent(apiMsg);
       if (!content) continue;
 
-      // Parse timestamp correctly
+      // Parse timestamp
       const ts = Number(apiMsg.messageTimestamp || 0);
       let timestamp: string;
+      let timestampMs: number;
+      
       if (ts > 0) {
-        const timestampMs = ts > 1e12 ? ts : ts * 1000;
+        timestampMs = ts > 1e12 ? ts : ts * 1000;
         timestamp = new Date(timestampMs).toISOString();
       } else {
+        timestampMs = Date.now();
         timestamp = new Date().toISOString();
       }
+
+      // Skip if we have this content+timestamp combo (duplicate check)
+      const contentKey = `${content.substring(0, 50)}|${Math.floor(timestampMs / 5000)}`;
+      if (existingContentTimestamps.has(contentKey)) continue;
 
       newMessages.push({
         conversation_id: conversationId,
@@ -379,16 +422,21 @@ async function syncMessages(
           remoteJid,
           fromMe: key.fromMe || false,
           instanceName,
-          syncImported: true
+          syncImported: true,
+          syncVersion: 'v7'
         }
       });
 
-      existingIds.add(messageId);
+      // Add to sets to prevent duplicates in same batch
+      if (messageId) existingExternalIds.add(messageId);
+      existingContentTimestamps.add(contentKey);
     }
 
     if (newMessages.length > 0) {
-      // Insert in batches to avoid issues
-      const batchSize = 50;
+      console.log(`  📥 Importing ${newMessages.length} new messages for ${remoteJid.split('@')[0]}`);
+      
+      // Insert in smaller batches
+      const batchSize = 25;
       let inserted = 0;
       
       for (let i = 0; i < newMessages.length; i += batchSize) {
@@ -397,7 +445,7 @@ async function syncMessages(
         if (!error) {
           inserted += batch.length;
         } else {
-          console.error('❌ Batch insert error:', error.message);
+          console.error(`  ❌ Insert error: ${error.message}`);
         }
       }
       
@@ -407,6 +455,7 @@ async function syncMessages(
 
     return 0;
   } catch (err: any) {
+    console.error(`  ❌ Sync error for ${remoteJid}: ${err.message}`);
     stats.errors.push(`Sync error: ${err.message}`);
     return 0;
   }
