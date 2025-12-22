@@ -107,6 +107,13 @@ serve(async (req) => {
       return new Response('Instance not allowed', { status: 200, headers: corsHeaders });
     }
 
+    // FILTRO: Ignorar status@broadcast (Stories do WhatsApp)
+    const remoteJid = webhook.data?.key?.remoteJid || webhook.data?.remoteJid || '';
+    if (remoteJid === 'status@broadcast' || remoteJid.includes('status@broadcast')) {
+      console.log(`⛔ Ignorando status@broadcast (Stories). Não é conversa real.`);
+      return new Response('Status broadcast ignored', { status: 200, headers: corsHeaders });
+    }
+
     console.log(`✅ Processando instância autorizada: ${webhook.instance}`);
 
     // Process based on event type - normalize to uppercase and handle various formats
