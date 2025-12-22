@@ -117,9 +117,10 @@ serve(async (req) => {
     // NÃO usar lidJid - ele não funciona para enviar!
     
     if (isGroupJid(remoteJid)) {
-      // GRUPOS: usar o remoteJid diretamente (formato @g.us funciona!)
-      recipientJid = remoteJid;
-      console.log(`📤 Sending to GROUP: ${recipientJid}`);
+      // GRUPOS: Evolution API aceita formato com @g.us OU apenas o ID
+      // Testar ambos formatos
+      recipientJid = remoteJid; // Manter o formato completo primeiro
+      console.log(`📤 V8 Sending to GROUP: ${recipientJid}`);
     } else if (contactPhone && isValidPhone(contactPhone)) {
       // Se temos telefone numérico válido, usar formato tradicional
       recipientJid = `${contactPhone}@s.whatsapp.net`;
@@ -297,43 +298,56 @@ serve(async (req) => {
       }
     } else {
       // Enviar apenas texto com identificação do atendente
-      const textPayload = {
-        number: recipientJid,
-        text: formattedMessage,
-      };
+      const isGroupMessage = isGroupJid(recipientJid);
       
-      console.log('📤 V7 - Sending text to Evolution API:', {
-        endpoint: `${evolutionUrl}/message/sendText/${instance.instance_name}`,
-        payload: textPayload
-      });
+      // Para grupos, tentar múltiplos formatos
+      const formatsToTry = isGroupMessage 
+        ? [
+            recipientJid,                                    // 120363421810878254@g.us
+            recipientJid.replace('@g.us', ''),               // 120363421810878254
+            `${recipientJid.replace('@g.us', '')}@g.us`,     // redundante mas garante formato
+          ]
+        : [recipientJid];
       
-      response = await fetch(`${evolutionUrl}/message/sendText/${instance.instance_name}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': evolutionKey,
-        },
-        body: JSON.stringify(textPayload),
-      });
+      let lastError = '';
+      let success = false;
       
-      const responseText = await response.text();
-      console.log('📥 V7 - Evolution API response:', response.status, responseText);
-      
-      // Parse response back for error handling
-      if (!response.ok) {
-        // Create a new response with the same body for downstream handling
-        response = new Response(responseText, { 
-          status: response.status, 
-          headers: response.headers 
+      for (const numberFormat of formatsToTry) {
+        const textPayload = {
+          number: numberFormat,
+          text: formattedMessage,
+        };
+        
+        console.log(`📤 V8 - Trying format: ${numberFormat}`);
+        
+        response = await fetch(`${evolutionUrl}/message/sendText/${instance.instance_name}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': evolutionKey,
+          },
+          body: JSON.stringify(textPayload),
         });
-      } else {
-        // Success - return early
-        console.log('✅ WhatsApp message sent successfully');
-        return new Response(
-          JSON.stringify({ success: true }), 
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        
+        const responseText = await response.text();
+        console.log(`📥 V8 - Response for ${numberFormat}:`, response.status, responseText);
+        
+        if (response.ok) {
+          console.log('✅ WhatsApp message sent successfully');
+          return new Response(
+            JSON.stringify({ success: true, format: numberFormat }), 
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        
+        lastError = responseText;
+        
+        // Se não for grupo, não tentar outros formatos
+        if (!isGroupMessage) break;
       }
+      
+      // Todos os formatos falharam
+      response = new Response(lastError, { status: 400 });
     }
 
     // Handle failed messages with retry queue
