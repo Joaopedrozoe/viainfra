@@ -10,7 +10,9 @@ import { ConversationStorage } from "@/lib/conversation-storage";
 import { useConversations } from "@/hooks/useConversations";
 import { useInternalChat } from "@/hooks/useInternalChat";
 import { useTypingIndicator } from "@/hooks/useTypingIndicator";
-import { Users } from "lucide-react";
+import { Users, RefreshCw, CheckCircle2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 interface ConversationListProps {
   onSelectConversation: (id: string) => void;
@@ -33,7 +35,8 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     return ConversationStorage.getResolvedConversations();
   });
   const { previewConversations } = usePreviewConversation();
-  const { conversations: supabaseConversations, loading: supabaseLoading, refetch, clearNewMessageFlag } = useConversations();
+  const { conversations: supabaseConversations, loading: supabaseLoading, refetch, forceSync, lastSyncTime, clearNewMessageFlag } = useConversations();
+  const [isSyncing, setIsSyncing] = useState(false);
   const { conversations: internalConversations } = useInternalChat();
   
   // Get conversation IDs for typing indicator
@@ -269,6 +272,20 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     );
   }
 
+  // Handle force sync
+  const handleForceSync = async () => {
+    setIsSyncing(true);
+    toast.info("Sincronizando com WhatsApp...");
+    try {
+      await forceSync();
+      toast.success("Sincronização concluída!");
+    } catch (err) {
+      toast.error("Erro na sincronização");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       <SearchHeader 
@@ -279,6 +296,31 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         selectedDepartment={selectedDepartment}
         onDepartmentChange={setSelectedDepartment} 
       />
+      
+      {/* Sync status bar */}
+      <div className="px-3 py-1.5 flex items-center justify-between text-xs border-b bg-muted/30">
+        <div className="flex items-center gap-1.5 text-muted-foreground">
+          {lastSyncTime ? (
+            <>
+              <CheckCircle2 className="h-3 w-3 text-green-500" />
+              <span>Sincronizado: {lastSyncTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+            </>
+          ) : (
+            <span>Carregando...</span>
+          )}
+        </div>
+        <Button 
+          variant="ghost" 
+          size="sm" 
+          className="h-6 px-2 text-xs"
+          onClick={handleForceSync}
+          disabled={isSyncing}
+        >
+          <RefreshCw className={`h-3 w-3 mr-1 ${isSyncing ? 'animate-spin' : ''}`} />
+          {isSyncing ? 'Sincronizando...' : 'Sincronizar'}
+        </Button>
+      </div>
+      
       <Tabs value={activeTab} onValueChange={setActiveTab as (value: string) => void} className="px-2 pt-2">
         <TabsList className="w-full flex flex-wrap gap-1 h-auto p-1 bg-muted/50">
           <TabsTrigger value="all" className="text-xs px-2 py-1 h-7 flex-shrink-0">

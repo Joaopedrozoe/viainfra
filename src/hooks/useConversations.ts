@@ -27,7 +27,7 @@ export interface Conversation {
     sender_type: 'user' | 'agent' | 'bot';
     created_at: string;
   };
-  hasNewMessage?: boolean; // Flag para indicar nova mensagem
+  hasNewMessage?: boolean;
 }
 
 export const useConversations = () => {
@@ -35,36 +35,34 @@ export const useConversations = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  
   const fetchTimeoutRef = useRef<NodeJS.Timeout>();
   const lastFetchRef = useRef<number>(0);
   const previousConversationsRef = useRef<Set<string>>(new Set());
-  const previousMessagesRef = useRef<Map<string, string>>(new Map()); // conversation_id -> last_message_id
   const { notifyNewConversation, notifyNewMessage, playNotificationSound } = useNotifications();
   const isFetchingRef = useRef(false);
   const mountedRef = useRef(true);
-  const newMessageConvsRef = useRef<Set<string>>(new Set()); // Conversas com novas mensagens
 
-  const fetchConversations = useCallback(async (debounce = false, silent = false) => {
+  // Core fetch function - no debounce, always fresh data
+  const fetchConversations = useCallback(async (silent = false) => {
     if (!company?.id || !mountedRef.current) {
       setLoading(false);
       return;
     }
 
-    // Prevent concurrent fetches only when already fetching
+    // Prevent concurrent fetches
     if (isFetchingRef.current) {
-      console.log('⏭️ Skipping - already fetching');
       return;
     }
 
     try {
       isFetchingRef.current = true;
-      // Nunca mostrar loading em updates para evitar flicker
-      if (!debounce && !silent && mountedRef.current) setLoading(true);
+      if (!silent && mountedRef.current) setLoading(true);
       setError(null);
       lastFetchRef.current = Date.now();
       
-      // Fetch conversations with contacts - without all messages (too heavy)
-      // IMPORTANTE: Excluir status@broadcast (Stories) da lista de conversas
+      // Fetch conversations with contacts
       const { data: convData, error: convError } = await supabase
         .from('conversations')
         .select(`
@@ -90,49 +88,40 @@ export const useConversations = () => {
         .eq('company_id', company.id)
         .neq('metadata->>remoteJid', 'status@broadcast')
         .order('updated_at', { ascending: false })
-        .limit(100); // Limit to most recent 100 for performance
+        .limit(200);
 
       if (!mountedRef.current) return;
 
-      console.log('📊 Conversations fetched:', convData?.length || 0, 'First 3:', convData?.slice(0, 3)?.map(c => ({
-        id: c.id,
-        name: (c.contacts as any)?.name,
-        status: c.status,
-        updated_at: c.updated_at
-      })));
-
       if (convError) {
-        console.error('Supabase query error:', convError);
+        console.error('❌ Fetch error:', convError);
         setError(convError as Error);
         setLoading(false);
         isFetchingRef.current = false;
         return;
       }
 
-      // Fetch last message for each conversation individually (avoids 1000 row limit)
+      // Fetch last message for EACH conversation in parallel batches
       const conversationIds = (convData || []).map(c => c.id);
-      
-      let lastMessages: Record<string, any> = {};
+      const lastMessages: Record<string, any> = {};
       
       if (conversationIds.length > 0) {
-        // Fetch last message for EACH conversation individually
-        // This avoids the 1000 row limit issue when there are many messages
-        const lastMessagePromises = conversationIds.map(async (convId) => {
-          const { data } = await supabase
-            .from('messages')
-            .select('id, conversation_id, content, sender_type, created_at, metadata')
-            .eq('conversation_id', convId)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          return data;
-        });
+        const batchSize = 30;
         
-        // Execute all queries in parallel (batched)
-        const batchSize = 20;
-        for (let i = 0; i < lastMessagePromises.length; i += batchSize) {
-          const batch = lastMessagePromises.slice(i, i + batchSize);
-          const results = await Promise.all(batch);
+        for (let i = 0; i < conversationIds.length; i += batchSize) {
+          const batch = conversationIds.slice(i, i + batchSize);
+          
+          const promises = batch.map(async (convId) => {
+            const { data } = await supabase
+              .from('messages')
+              .select('id, conversation_id, content, sender_type, created_at')
+              .eq('conversation_id', convId)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            return data;
+          });
+          
+          const results = await Promise.all(promises);
           
           if (!mountedRef.current) return;
           
@@ -144,8 +133,8 @@ export const useConversations = () => {
         }
       }
 
+      // Build conversation list
       const newConversations = (convData || [])
-        // Filtrar conversas de status@broadcast (tanto pelo metadata da conversa quanto do contato)
         .filter(conv => {
           const convRemoteJid = (conv.metadata as any)?.remoteJid;
           const contactRemoteJid = (conv.contacts as any)?.metadata?.remoteJid;
@@ -168,18 +157,17 @@ export const useConversations = () => {
           };
         });
 
-      // Sort by lastMessage.created_at (most recent first), fallback to updated_at
+      // CRITICAL: Sort by last message time (most recent first)
       newConversations.sort((a, b) => {
         const aTime = a.lastMessage?.created_at || a.updated_at;
         const bTime = b.lastMessage?.created_at || b.updated_at;
         return new Date(bTime).getTime() - new Date(aTime).getTime();
       });
 
-      // Verificar novas conversas para notificação
+      // Detect new conversations for notifications
       const currentIds = new Set(newConversations.map(c => c.id));
       const previousIds = previousConversationsRef.current;
       
-      // Detectar novas conversas (IDs que não existiam antes) - only if we had previous data
       if (previousIds.size > 0) {
         newConversations.forEach(conv => {
           if (!previousIds.has(conv.id)) {
@@ -190,11 +178,11 @@ export const useConversations = () => {
         });
       }
       
-      // Atualizar referência de IDs anteriores
       previousConversationsRef.current = currentIds;
 
       if (mountedRef.current) {
         setConversations(newConversations);
+        setLastSyncTime(new Date());
       }
     } catch (err) {
       console.warn('Error fetching conversations:', err);
@@ -205,47 +193,26 @@ export const useConversations = () => {
     }
   }, [company?.id, notifyNewConversation]);
 
-  // Limpar flag de nova mensagem após visualização
-  const clearNewMessageFlag = useCallback((conversationId: string) => {
-    newMessageConvsRef.current.delete(conversationId);
-    setConversations(prev => 
-      prev.map(conv => 
-        conv.id === conversationId ? { ...conv, hasNewMessage: false } : conv
-      )
-    );
-  }, []);
-
-  // Optimistic update for messages - atualiza UI instantaneamente
+  // Handle new message - optimistic update
   const handleNewMessage = useCallback((payload: any) => {
     const newMsg = payload.new as any;
     if (!newMsg?.conversation_id) return;
     
-    console.log('📨 New message received - instant update:', newMsg.conversation_id);
+    console.log('📨 New message:', newMsg.content?.substring(0, 30));
     
-    // Verificar se é uma mensagem do contato (não do agente/bot)
     const isContactMessage = newMsg.sender_type === 'user';
     
-    // Marcar como nova mensagem para animação
-    if (isContactMessage) {
-      newMessageConvsRef.current.add(newMsg.conversation_id);
-    }
-    
-    // Atualização otimista: atualiza o estado local imediatamente
     setConversations(prev => {
       const conversation = prev.find(c => c.id === newMsg.conversation_id);
       
-      // Se a conversa não existe localmente, fazer fetch imediato
       if (!conversation) {
-        console.log('📭 Conversation not found locally, fetching...');
-        // Fetch immediately without debounce
-        fetchConversations(false, true);
+        // New conversation - fetch all
+        fetchConversations(true);
         return prev;
       }
       
-      const contactName = conversation?.contact?.name || 'Cliente';
-      
-      // Notificar nova mensagem se for do contato
       if (isContactMessage) {
+        const contactName = conversation.contact?.name || 'Cliente';
         notifyNewMessage(contactName, newMsg.content);
         playNotificationSound();
       }
@@ -261,7 +228,7 @@ export const useConversations = () => {
               created_at: newMsg.created_at,
             },
             updated_at: newMsg.created_at,
-            hasNewMessage: isContactMessage, // Flag de nova mensagem
+            hasNewMessage: isContactMessage,
           };
         }
         return conv;
@@ -276,19 +243,27 @@ export const useConversations = () => {
     });
   }, [fetchConversations, notifyNewMessage, playNotificationSound]);
 
+  // Clear new message flag
+  const clearNewMessageFlag = useCallback((conversationId: string) => {
+    setConversations(prev => 
+      prev.map(conv => 
+        conv.id === conversationId ? { ...conv, hasNewMessage: false } : conv
+      )
+    );
+  }, []);
+
+  // Setup realtime subscriptions and polling
   useEffect(() => {
     mountedRef.current = true;
     
-    // Fetch inicial
-    fetchConversations(false, false);
+    // Initial fetch
+    fetchConversations(false);
 
-    // Real-time subscriptions com reconexão automática
     if (company?.id) {
-      console.log('📡 Setting up real-time subscriptions for company:', company.id);
+      console.log('📡 Setting up realtime for company:', company.id);
       
-      const channelId = `inbox-${company.id}-${Date.now()}`;
+      const channelId = `inbox-v2-${company.id}-${Date.now()}`;
       
-      // Canal unificado para conversas e mensagens - com filtro por company
       const realtimeChannel = supabase
         .channel(channelId)
         .on(
@@ -302,24 +277,7 @@ export const useConversations = () => {
             const newData = payload.new as any;
             if (newData?.company_id === company.id || payload.eventType === 'DELETE') {
               console.log('📬 Conversation change:', payload.eventType);
-              
-              // Atualização otimista para novas conversas
-              if (payload.eventType === 'INSERT' && newData) {
-                setConversations(prev => {
-                  // Check if already exists
-                  if (prev.some(c => c.id === newData.id)) return prev;
-                  
-                  const newConv: Conversation = {
-                    ...newData,
-                    status: newData.status as 'open' | 'resolved' | 'pending',
-                    metadata: newData.metadata || {},
-                    archived: newData.archived || false,
-                  };
-                  return [newConv, ...prev];
-                });
-              }
-              
-              fetchConversations(true, true);
+              fetchConversations(true);
             }
           }
         )
@@ -340,37 +298,26 @@ export const useConversations = () => {
             table: 'messages',
           },
           () => {
-            console.log('📝 Message updated');
-            fetchConversations(true, true);
+            fetchConversations(true);
           }
         )
         .subscribe((status) => {
-          console.log('📡 Realtime subscription:', status);
+          console.log('📡 Realtime:', status);
           if (status === 'SUBSCRIBED') {
-            console.log('✅ Real-time connected - fetching latest data');
-            fetchConversations(false, true);
-          }
-          if (status === 'CHANNEL_ERROR') {
-            console.error('❌ Real-time error - will retry');
-            setTimeout(() => {
-              if (mountedRef.current) {
-                fetchConversations(false, true);
-              }
-            }, 2000);
+            fetchConversations(true);
           }
         });
 
-      // Heartbeat mais frequente: a cada 5s para manter sincronização
-      const heartbeatInterval = setInterval(() => {
+      // Polling every 10 seconds for robustness
+      const pollInterval = setInterval(() => {
         if (mountedRef.current) {
-          console.log('💓 Heartbeat - syncing...');
-          fetchConversations(false, true);
+          fetchConversations(true);
         }
-      }, 5000);
+      }, 10000);
 
       return () => {
         mountedRef.current = false;
-        clearInterval(heartbeatInterval);
+        clearInterval(pollInterval);
         if (fetchTimeoutRef.current) {
           clearTimeout(fetchTimeoutRef.current);
         }
@@ -391,10 +338,9 @@ export const useConversations = () => {
         .eq('id', conversationId);
 
       if (error) throw error;
-
-      await fetchConversations();
+      await fetchConversations(true);
     } catch (err) {
-      console.error('Error updating conversation status:', err);
+      console.error('Error updating status:', err);
       throw err;
     }
   };
@@ -410,19 +356,41 @@ export const useConversations = () => {
         });
 
       if (error) throw error;
-
-      await fetchConversations();
+      await fetchConversations(true);
     } catch (err) {
       console.error('Error sending message:', err);
       throw err;
     }
   };
 
+  // Force sync with edge function
+  const forceSync = useCallback(async () => {
+    try {
+      console.log('🔄 Forcing sync via edge function...');
+      const { data, error } = await supabase.functions.invoke('realtime-sync', {
+        body: {}
+      });
+      
+      if (error) {
+        console.error('Sync error:', error);
+      } else {
+        console.log('✅ Sync complete:', data);
+      }
+      
+      // Refresh local data
+      await fetchConversations(false);
+    } catch (err) {
+      console.error('Force sync error:', err);
+    }
+  }, [fetchConversations]);
+
   return {
     conversations,
     loading,
     error,
+    lastSyncTime,
     refetch: fetchConversations,
+    forceSync,
     updateConversationStatus,
     sendMessage,
     clearNewMessageFlag,
