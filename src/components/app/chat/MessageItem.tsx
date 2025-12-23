@@ -29,6 +29,46 @@ const formatMessageTimestamp = (dateString: string) => {
   }
 };
 
+// Padrões de placeholder de mídia
+const MEDIA_PLACEHOLDERS = ['[Imagem]', '[Áudio]', '[Áudio de voz]', '[Vídeo]', '[Documento', '[Sticker]', '[Mídia]'];
+
+// Verifica se o conteúdo é apenas um placeholder de mídia (com ou sem nome de participante de grupo)
+const isMediaPlaceholder = (content: string): boolean => {
+  if (!content) return false;
+  // Mensagem direta: "[Imagem]" ou "[Áudio de voz]"
+  if (MEDIA_PLACEHOLDERS.some(p => content.startsWith(p))) return true;
+  // Mensagem de grupo: "*NomeParticipante*:\n[Imagem]"
+  const groupMatch = content.match(/^\*[^*]+\*:\n(\[.+\])$/);
+  if (groupMatch && MEDIA_PLACEHOLDERS.some(p => groupMatch[1].startsWith(p))) return true;
+  return false;
+};
+
+// Extrai apenas o placeholder de mídia do conteúdo
+const extractMediaPlaceholder = (content: string): string => {
+  if (!content) return '[Mídia não disponível]';
+  // Mensagem direta
+  if (content.startsWith('[')) return content;
+  // Mensagem de grupo
+  const groupMatch = content.match(/^\*([^*]+)\*:\n(\[.+\])$/);
+  if (groupMatch) return `${groupMatch[1]}: ${groupMatch[2]}`;
+  return content;
+};
+
+// Formata conteúdo da mensagem, removendo placeholder de mídia se attachment existe
+const formatMessageContent = (content: string, hasAttachment: boolean): string => {
+  if (!hasAttachment) return content;
+  // Se tem attachment, remover o placeholder de mídia
+  // Mensagem de grupo: manter só o nome do participante
+  const groupMatch = content.match(/^\*([^*]+)\*:\n(\[.+\])$/);
+  if (groupMatch) {
+    return `*${groupMatch[1]}*:`;
+  }
+  // Mensagem direta com caption: pode ter texto + placeholder
+  const directMatch = content.match(/^(\[.+\])$/);
+  if (directMatch) return ''; // Só placeholder, remover
+  return content;
+};
+
 const DeliveryStatusIcon = ({ status, isAgentMessage }: { status?: MessageDeliveryStatus; isAgentMessage: boolean }) => {
   if (!isAgentMessage) return null;
   
@@ -298,12 +338,12 @@ export const MessageItem = memo(({ message }: MessageItemProps) => {
           effectiveStatus === 'failed' && isAgentMessage && "ring-2 ring-destructive/50"
         )}
       >
-        {/* Texto da mensagem */}
-        {message.content && !message.content.startsWith('[') && (
-          <div className="whitespace-pre-wrap">{message.content}</div>
+        {/* Texto da mensagem - exibir se não for apenas placeholder de mídia */}
+        {message.content && !isMediaPlaceholder(message.content) && (
+          <div className="whitespace-pre-wrap">{formatMessageContent(message.content, !!attachment)}</div>
         )}
         
-        {/* Anexo */}
+        {/* Anexo com mídia real */}
         {attachment && (
           <>
             {attachment.type === 'image' && (
@@ -321,9 +361,12 @@ export const MessageItem = memo(({ message }: MessageItemProps) => {
           </>
         )}
         
-        {/* Placeholder para mídia sem URL */}
-        {!attachment && message.content.startsWith('[') && (
-          <div className="text-sm opacity-70 italic">{message.content}</div>
+        {/* Placeholder para mídia sem URL - mensagens antigas sem attachment */}
+        {!attachment && isMediaPlaceholder(message.content) && (
+          <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg text-muted-foreground">
+            <FileText size={20} />
+            <span className="text-sm italic">{extractMediaPlaceholder(message.content)}</span>
+          </div>
         )}
         
         {/* Timestamp e status de entrega */}
