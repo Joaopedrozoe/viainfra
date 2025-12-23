@@ -98,9 +98,10 @@ serve(async (req) => {
           return tsB - tsA;
         });
 
-        // Process top 150 chats (more comprehensive)
-        const recentChats = allChats.slice(0, 150);
-        console.log(`📋 Processing ${recentChats.length} recent chats`);
+        // Process ALL chats to ensure parity with WhatsApp Web
+        // Previously limited to 150, now processing all for complete sync
+        const recentChats = allChats;
+        console.log(`📋 Processing ALL ${recentChats.length} chats for complete WhatsApp parity`);
 
         // Get existing data for this company
         const { data: existingContacts } = await supabase
@@ -158,12 +159,13 @@ serve(async (req) => {
             conversation = convByPhone.get(phone);
           }
 
-          // Create new if not found
-          if (!conversation && (phone || isGroup)) {
+          // Create new if not found - INCLUDE @lid contacts for WhatsApp parity
+          if (!conversation) {
             const validPhone = phone && /^\d{10,15}$/.test(phone);
             
-            if (validPhone || isGroup) {
-              console.log(`➕ Creating: ${contactName}`);
+            // Create for: valid phone numbers, groups, OR @lid contacts (new!)
+            if (validPhone || isGroup || isLid) {
+              console.log(`➕ Creating: ${contactName} (${isLid ? 'LID' : isGroup ? 'GROUP' : 'PHONE'})`);
               
               let contact = contactByPhone.get(phone || '') || contactByName.get(cleanName);
               
@@ -174,7 +176,13 @@ serve(async (req) => {
                     name: contactName,
                     phone: phone || null,
                     company_id: companyId,
-                    metadata: { remoteJid, isGroup, syncCreated: true }
+                    metadata: { 
+                      remoteJid, 
+                      isGroup, 
+                      isLid,
+                      syncCreated: true,
+                      createdAt: new Date().toISOString()
+                    }
                   })
                   .select()
                   .single();
@@ -183,6 +191,7 @@ serve(async (req) => {
                   contact = newContact;
                   stats.contactsCreated++;
                   if (phone) contactByPhone.set(phone, contact);
+                  contactByName.set(cleanName, contact);
                 } else if (contactErr) {
                   console.log(`⚠️ Contact error: ${contactErr.message}`);
                   continue;
@@ -202,7 +211,9 @@ serve(async (req) => {
                       remoteJid,
                       instanceName,
                       isGroup,
-                      syncCreated: true
+                      isLid,
+                      syncCreated: true,
+                      createdAt: new Date().toISOString()
                     }
                   })
                   .select('*, contacts(*)')
