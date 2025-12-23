@@ -147,3 +147,6 @@ verify_jwt = false
 
 [functions.repair-group-media]
 verify_jwt = false
+
+[functions.diagnose-sync-gaps]
+verify_jwt = false
