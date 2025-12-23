@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { Message, MessageDeliveryStatus } from "./types";
 import { format, isThisYear } from "date-fns";
@@ -107,69 +107,145 @@ const DeliveryStatusIcon = ({ status, isAgentMessage }: { status?: MessageDelive
 const ImageAttachment = ({ url, alt }: { url: string; alt?: string }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+
+  const handleError = () => {
+    if (retryCount < 2) {
+      // Retry with cache-busting parameter
+      setRetryCount(prev => prev + 1);
+    } else {
+      setIsLoading(false);
+      setError(true);
+    }
+  };
+
+  // Add cache-busting on retry
+  const imageUrl = retryCount > 0 ? `${url}?retry=${retryCount}` : url;
 
   return (
     <div className="mt-2 rounded-lg overflow-hidden">
       {isLoading && !error && (
-        <div className="w-full h-48 bg-gray-200 animate-pulse rounded-lg" />
+        <div className="w-full h-48 bg-muted animate-pulse rounded-lg flex items-center justify-center">
+          <span className="text-muted-foreground text-sm">Carregando imagem...</span>
+        </div>
       )}
       {error ? (
-        <div className="w-full h-32 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 text-sm">
-          Erro ao carregar imagem
-        </div>
+        <a 
+          href={url} 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="w-full h-32 bg-muted rounded-lg flex flex-col items-center justify-center text-muted-foreground text-sm hover:bg-muted/80 transition-colors cursor-pointer"
+        >
+          <FileText size={24} className="mb-2" />
+          <span>Clique para abrir imagem</span>
+        </a>
       ) : (
         <img
-          src={url}
+          src={imageUrl}
           alt={alt || "Imagem"}
           className={cn(
             "max-w-full max-h-64 rounded-lg cursor-pointer hover:opacity-90 transition-opacity",
             isLoading && "hidden"
           )}
           onLoad={() => setIsLoading(false)}
-          onError={() => {
-            setIsLoading(false);
-            setError(true);
-          }}
+          onError={handleError}
           onClick={() => window.open(url, '_blank')}
+          crossOrigin="anonymous"
         />
       )}
     </div>
   );
 };
 
-const VideoAttachment = ({ url }: { url: string }) => {
+const VideoAttachment = ({ url, mimeType }: { url: string; mimeType?: string }) => {
+  const [error, setError] = useState(false);
+
+  if (error) {
+    return (
+      <a 
+        href={url} 
+        target="_blank" 
+        rel="noopener noreferrer"
+        className="mt-2 flex items-center gap-2 p-3 bg-muted rounded-lg hover:bg-muted/80 transition-colors"
+      >
+        <Play size={20} className="text-muted-foreground" />
+        <span className="flex-1 text-sm">Clique para abrir vídeo</span>
+        <Download size={18} className="text-muted-foreground" />
+      </a>
+    );
+  }
+
   return (
     <div className="mt-2 rounded-lg overflow-hidden">
       <video
         src={url}
         controls
-        className="max-w-full max-h-64 rounded-lg"
+        className="max-w-full max-h-64 rounded-lg bg-black"
         preload="metadata"
-      />
+        onError={() => setError(true)}
+      >
+        <source src={url} type={mimeType || 'video/mp4'} />
+        Seu navegador não suporta vídeo.
+      </video>
     </div>
   );
 };
 
-const AudioAttachment = ({ url }: { url: string }) => {
+const AudioAttachment = ({ url, mimeType }: { url: string; mimeType?: string }) => {
   const [isPlaying, setIsPlaying] = useState(false);
+  const [error, setError] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  // Handle audio play/pause
+  const togglePlay = () => {
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play().catch(() => setError(true));
+      }
+    }
+  };
+
+  if (error) {
+    return (
+      <a 
+        href={url} 
+        target="_blank" 
+        rel="noopener noreferrer"
+        className="mt-2 flex items-center gap-2 p-3 bg-muted rounded-lg hover:bg-muted/80 transition-colors"
+      >
+        <Volume2 size={20} className="text-muted-foreground" />
+        <span className="flex-1 text-sm">Clique para baixar áudio</span>
+        <Download size={18} className="text-muted-foreground" />
+      </a>
+    );
+  }
 
   return (
-    <div className="mt-2 flex items-center gap-2 p-2 bg-black/5 rounded-lg">
+    <div className="mt-2 flex items-center gap-2 p-2 bg-muted/50 rounded-lg">
       <button
-        onClick={() => setIsPlaying(!isPlaying)}
-        className="p-2 rounded-full bg-white/50 hover:bg-white/80 transition-colors"
+        onClick={togglePlay}
+        className="p-2 rounded-full bg-background hover:bg-background/80 transition-colors"
       >
         {isPlaying ? <Pause size={16} /> : <Play size={16} />}
       </button>
-      <Volume2 size={16} className="text-gray-500" />
+      <Volume2 size={16} className="text-muted-foreground" />
       <audio
+        ref={audioRef}
         src={url}
-        className="flex-1"
+        className="flex-1 h-8"
         controls
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
         onEnded={() => setIsPlaying(false)}
-      />
+        onError={() => setError(true)}
+        preload="metadata"
+      >
+        {/* Fallback source with explicit mime type for better compatibility */}
+        <source src={url} type={mimeType || 'audio/ogg'} />
+        Seu navegador não suporta áudio.
+      </audio>
     </div>
   );
 };
@@ -218,8 +294,8 @@ export const MessageItem = memo(({ message }: MessageItemProps) => {
           "max-w-[70%] p-3 rounded-lg relative",
           isAgentMessage
             ? "bg-viainfra-primary text-white rounded-tr-none"
-            : "bg-white border border-gray-200 rounded-tl-none",
-          effectiveStatus === 'failed' && isAgentMessage && "ring-2 ring-red-400/50"
+            : "bg-card border border-border rounded-tl-none",
+          effectiveStatus === 'failed' && isAgentMessage && "ring-2 ring-destructive/50"
         )}
       >
         {/* Texto da mensagem */}
@@ -234,10 +310,10 @@ export const MessageItem = memo(({ message }: MessageItemProps) => {
               <ImageAttachment url={attachment.url} alt={attachment.filename} />
             )}
             {attachment.type === 'video' && (
-              <VideoAttachment url={attachment.url} />
+              <VideoAttachment url={attachment.url} mimeType={attachment.mimeType} />
             )}
             {attachment.type === 'audio' && (
-              <AudioAttachment url={attachment.url} />
+              <AudioAttachment url={attachment.url} mimeType={attachment.mimeType} />
             )}
             {attachment.type === 'document' && (
               <DocumentAttachment url={attachment.url} filename={attachment.filename} />
@@ -253,7 +329,7 @@ export const MessageItem = memo(({ message }: MessageItemProps) => {
         {/* Timestamp e status de entrega */}
         <div className={cn(
           "text-xs mt-1 flex items-center justify-end gap-0.5",
-          isAgentMessage ? "text-white/70" : "text-gray-500"
+          isAgentMessage ? "text-white/70" : "text-muted-foreground"
         )}>
           <span>{formattedTimestamp}</span>
           <DeliveryStatusIcon status={effectiveStatus} isAgentMessage={isAgentMessage} />
