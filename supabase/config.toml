@@ -171,3 +171,9 @@ verify_jwt = false
 
 [functions.resolve-lid-phone]
 verify_jwt = false
+
+[functions.fix-all-lid-phones]
+verify_jwt = false
+
+[functions.search-lid-phones]
+verify_jwt = false
