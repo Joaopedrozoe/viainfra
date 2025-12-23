@@ -126,6 +126,7 @@ serve(async (req) => {
 
         const convByJid = new Map<string, any>();
         const convByPhone = new Map<string, any>();
+        const convByContactPhone = new Map<string, any>();
         
         for (const conv of existingConvs || []) {
           const jid = conv.metadata?.remoteJid;
@@ -135,6 +136,10 @@ serve(async (req) => {
             if (phone && /^\d+$/.test(phone)) {
               convByPhone.set(phone, conv);
             }
+          }
+          // Also map by contact phone for fallback lookup
+          if (conv.contacts?.phone) {
+            convByContactPhone.set(conv.contacts.phone, conv);
           }
         }
 
@@ -156,10 +161,24 @@ serve(async (req) => {
           let conversation = convByJid.get(remoteJid);
           
           if (!conversation && phone) {
-            conversation = convByPhone.get(phone);
+            conversation = convByPhone.get(phone) || convByContactPhone.get(phone);
           }
 
-          // Create new if not found - INCLUDE @lid contacts for WhatsApp parity
+          // If conversation found but missing remoteJid in metadata, update it
+          if (conversation && !conversation.metadata?.remoteJid) {
+            await supabase
+              .from('conversations')
+              .update({ 
+                metadata: { 
+                  ...conversation.metadata, 
+                  remoteJid, 
+                  instanceName,
+                  fixedBySync: true 
+                } 
+              })
+              .eq('id', conversation.id);
+            conversation.metadata = { ...conversation.metadata, remoteJid };
+          }
           if (!conversation) {
             const validPhone = phone && /^\d{10,15}$/.test(phone);
             

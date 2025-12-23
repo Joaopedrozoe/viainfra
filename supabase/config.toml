@@ -189,3 +189,6 @@ verify_jwt = false
 
 [functions.force-send-group]
 verify_jwt = false
+
+[functions.force-sync-contacts]
+verify_jwt = false
