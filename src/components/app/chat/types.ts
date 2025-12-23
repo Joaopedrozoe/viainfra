@@ -16,6 +16,9 @@ export interface Message {
   attachment?: Attachment;
   deliveryStatus?: MessageDeliveryStatus;
   whatsappMessageId?: string;
+  // Campos para mídia indisponível
+  mediaUnavailable?: boolean;
+  mediaType?: 'image' | 'video' | 'audio' | 'document';
 }
 
 export interface ChatWindowProps {

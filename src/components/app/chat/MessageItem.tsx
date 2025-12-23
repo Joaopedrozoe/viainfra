@@ -361,8 +361,25 @@ export const MessageItem = memo(({ message }: MessageItemProps) => {
           </>
         )}
         
-        {/* Placeholder para mídia sem URL - mensagens antigas sem attachment */}
-        {!attachment && isMediaPlaceholder(message.content) && (
+        {/* Mídia marcada como indisponível pelo script de reparo */}
+        {message.mediaUnavailable && !attachment && (
+          <div className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-600 dark:text-amber-400">
+            <AlertCircle size={18} />
+            <div className="flex-1">
+              <span className="text-sm font-medium">Mídia expirada</span>
+              <p className="text-xs opacity-70">
+                {message.mediaType === 'image' && 'Imagem não disponível'}
+                {message.mediaType === 'audio' && 'Áudio não disponível'}
+                {message.mediaType === 'video' && 'Vídeo não disponível'}
+                {message.mediaType === 'document' && 'Documento não disponível'}
+                {!message.mediaType && 'Mídia não disponível'}
+              </p>
+            </div>
+          </div>
+        )}
+        
+        {/* Placeholder para mídia sem URL - mensagens antigas sem attachment e não processadas */}
+        {!attachment && !message.mediaUnavailable && isMediaPlaceholder(message.content) && (
           <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg text-muted-foreground">
             <FileText size={20} />
             <span className="text-sm italic">{extractMediaPlaceholder(message.content)}</span>

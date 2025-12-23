@@ -48,6 +48,9 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
       attachment,
       deliveryStatus,
       whatsappMessageId: msg.metadata?.whatsappMessageId,
+      // Campos para mídia indisponível (marcada pelo script de reparo)
+      mediaUnavailable: msg.metadata?.mediaUnavailable || false,
+      mediaType: msg.metadata?.mediaType,
     };
   }, []);
 
