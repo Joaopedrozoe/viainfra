@@ -186,3 +186,6 @@ verify_jwt = false
 
 [functions.retry-group-messages]
 verify_jwt = false
+
+[functions.force-send-group]
+verify_jwt = false

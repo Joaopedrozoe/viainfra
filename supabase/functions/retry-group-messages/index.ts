@@ -127,27 +127,30 @@ serve(async (req) => {
           .update({ status: 'processing' })
           .eq('id', msg.id);
 
-        // Usar a nova estratégia de envio para grupos
-        const groupPayload = {
-          number: groupJid,
-          options: {
-            delay: 1500,
-            presence: 'composing'
-          },
-          textMessage: {
-            text: msg.content
-          }
-        };
+        // Estratégia para grupos: presença primeiro, depois sendText
+        console.log('Passo 1: Enviando presença composing...');
+        
+        await fetch(`${evolutionUrl}/chat/updatePresence/${instanceName}`, {
+          method: 'POST',
+          headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ number: groupJid, presence: 'composing' })
+        });
 
-        console.log('Payload:', JSON.stringify(groupPayload));
+        // Aguardar 2 segundos
+        await new Promise(r => setTimeout(r, 2000));
 
-        const response = await fetch(`${evolutionUrl}/message/sendMessage/${instanceName}`, {
+        console.log('Passo 2: Enviando mensagem com sendText...');
+        const response = await fetch(`${evolutionUrl}/message/sendText/${instanceName}`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'apikey': evolutionKey,
           },
-          body: JSON.stringify(groupPayload),
+          body: JSON.stringify({
+            number: groupJid,
+            text: msg.content,
+            delay: 1500
+          }),
         });
 
         const responseText = await response.text();
