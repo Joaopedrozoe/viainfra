@@ -1,6 +1,6 @@
 
 import { memo, useState, useEffect } from "react";
-import { ArrowLeft, MoreVertical, User, X, ArrowRightLeft, Bot, BotOff } from "lucide-react";
+import { ArrowLeft, MoreVertical, User, X, ArrowRightLeft, Bot, BotOff, RotateCcw, History, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChannelIcon } from "../conversation/ChannelIcon";
 import { Channel } from "@/types/conversation";
@@ -16,6 +16,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
@@ -25,9 +26,12 @@ interface ChatHeaderProps {
   channel: Channel;
   className?: string;
   conversationId?: string;
+  conversationStatus?: string;
   onViewContactDetails?: () => void;
   onBackToList?: () => void;
   onEndConversation?: () => void;
+  onReopenConversation?: () => void;
+  onForceLoadHistory?: () => void;
 }
 
 export const ChatHeader = memo(({ 
@@ -36,9 +40,12 @@ export const ChatHeader = memo(({
   channel, 
   className, 
   conversationId,
+  conversationStatus,
   onViewContactDetails,
   onBackToList,
-  onEndConversation
+  onEndConversation,
+  onReopenConversation,
+  onForceLoadHistory
 }: ChatHeaderProps) => {
   const isMobile = useIsMobile();
   const { departments, getDepartmentByUser } = useDepartments();
@@ -218,7 +225,26 @@ export const ChatHeader = memo(({
               </>
             )}
           </DropdownMenuItem>
-          {onEndConversation && (
+          
+          <DropdownMenuSeparator />
+          
+          {/* Forçar carregamento de histórico */}
+          {onForceLoadHistory && (
+            <DropdownMenuItem onClick={onForceLoadHistory}>
+              <History className="mr-2 h-4 w-4" />
+              Carregar Histórico Completo
+            </DropdownMenuItem>
+          )}
+          
+          {/* Reabrir conversa resolvida */}
+          {onReopenConversation && conversationStatus === 'resolved' && (
+            <DropdownMenuItem onClick={onReopenConversation}>
+              <RotateCcw className="mr-2 h-4 w-4 text-green-600" />
+              Reabrir Conversa
+            </DropdownMenuItem>
+          )}
+          
+          {onEndConversation && conversationStatus !== 'resolved' && (
             <DropdownMenuItem 
               onClick={onEndConversation}
               className="text-destructive"
