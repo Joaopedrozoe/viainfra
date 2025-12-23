@@ -168,3 +168,6 @@ verify_jwt = false
 
 [functions.sync-missing-yago-flavia]
 verify_jwt = false
+
+[functions.resolve-lid-phone]
+verify_jwt = false
