@@ -795,24 +795,10 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         console.log(`✅ Created new group conversation: ${groupConversation.id}`);
       }
       
-      // Salvar mensagem do grupo
-      const { error: msgError } = await supabase
-        .from('messages')
-        .insert({
-          conversation_id: groupConversation.id,
-          sender_type: 'user',
-          content: `*${participantName}*:\n${messageContent}`,
-          metadata: {
-            external_id: message.key.id,
-            sender_name: participantName,
-            isGroup: true,
-            groupId: groupId
-          }
-        });
+      // Salvar mensagem do grupo COM processamento de mídia
+      const savedGroupMsg = await saveGroupMessage(supabase, groupConversation.id, message, messageContent, participantName, groupId, webhook.instance);
       
-      if (msgError) {
-        console.error('Error saving group message:', msgError);
-      } else {
+      if (savedGroupMsg) {
         console.log(`✅ Group message saved for conversation ${groupConversation.id}`);
       }
       
@@ -1578,6 +1564,93 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
   }
 
   console.log('Message saved successfully with ID:', data.id);
+  return data;
+}
+
+// ============================================================
+// SAVE GROUP MESSAGE - COM PROCESSAMENTO DE MÍDIA
+// ============================================================
+async function saveGroupMessage(supabase: any, conversationId: string, message: EvolutionMessage, content: string, participantName: string, groupId: string, instanceName: string) {
+  const externalId = message.key.id;
+  
+  // Check for duplicate
+  const alreadyProcessed = await isMessageAlreadyProcessed(supabase, externalId);
+  if (alreadyProcessed) {
+    console.log(`⚠️ Group message ${externalId} already processed`);
+    return null;
+  }
+  
+  // Extract attachment if any - CRITICAL: This was missing in groups!
+  let attachment = extractAttachment(message);
+  
+  if (attachment && attachment.url) {
+    console.log('📎 [GROUP] Attachment detected:', attachment.type, attachment.url);
+    
+    const storageUrl = await downloadAndUploadMedia(supabase, attachment, message, conversationId, instanceName);
+    
+    if (storageUrl) {
+      attachment = {
+        ...attachment,
+        url: storageUrl,
+      };
+      console.log('✅ [GROUP] Attachment URL replaced with Supabase Storage URL');
+    } else {
+      console.log('⚠️ [GROUP] Could not upload media, keeping original URL');
+    }
+  }
+  
+  const messageMetadata: Record<string, any> = { 
+    external_id: externalId,
+    sender_name: participantName,
+    isGroup: true,
+    groupId: groupId
+  };
+  
+  // CRITICAL: Include attachment in metadata for groups
+  if (attachment) {
+    messageMetadata.attachment = attachment;
+    console.log('📎 [GROUP] Attachment added to metadata:', attachment.type);
+  }
+  
+  const messageData = {
+    conversation_id: conversationId,
+    content: `*${participantName}*:\n${content}`,
+    sender_type: 'user',
+    metadata: messageMetadata,
+    created_at: message.messageTimestamp 
+      ? new Date(message.messageTimestamp * 1000).toISOString() 
+      : new Date().toISOString()
+  };
+  
+  console.log('📥 [GROUP] Saving group message with data:', JSON.stringify({
+    ...messageData,
+    metadata: {
+      ...messageMetadata,
+      attachment: attachment ? `${attachment.type} (${attachment.url?.substring(0, 50)}...)` : null
+    }
+  }, null, 2));
+  
+  const { data, error } = await supabase
+    .from('messages')
+    .insert(messageData)
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === '23505') {
+      console.log('⚠️ [GROUP] Duplicate message detected by constraint.');
+      return null;
+    }
+    console.error('❌ [GROUP] Error saving message:', error);
+    throw error;
+  }
+  
+  if (!data) {
+    console.error('❌ [GROUP] Message insert returned no data');
+    throw new Error('Failed to save group message');
+  }
+
+  console.log('✅ [GROUP] Message saved successfully with ID:', data.id);
   return data;
 }
 
