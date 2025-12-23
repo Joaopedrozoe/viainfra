@@ -136,10 +136,10 @@ serve(async (req) => {
       }
     }
 
-    // Also delete empty @lid conversations that have no messages and no matching phone contact
-    console.log('\n🔍 Buscando conversas @lid vazias sem duplicata...');
+    // DELETE ALL empty conversations (no messages) - they pollute the inbox
+    console.log('\n🔍 Buscando TODAS as conversas vazias para deletar...');
     
-    const { data: emptyLidConvs } = await supabase
+    const { data: allConvs } = await supabase
       .from('conversations')
       .select(`
         id, 
@@ -148,14 +148,14 @@ serve(async (req) => {
         contacts(id, name, metadata)
       `)
       .eq('company_id', companyId)
-      .eq('channel', 'whatsapp')
-      .gte('created_at', '2025-12-23T16:40:00Z');
+      .eq('channel', 'whatsapp');
 
     let emptyCount = 0;
-    for (const conv of emptyLidConvs || []) {
-      const jid = conv.metadata?.remoteJid;
-      if (!jid || !jid.includes('@lid')) continue;
+    let deletedCount = 0;
+    const emptyConvIds: string[] = [];
+    const orphanContactIds: string[] = [];
 
+    for (const conv of allConvs || []) {
       // Check if has messages
       const { count } = await supabase
         .from('messages')
@@ -164,19 +164,62 @@ serve(async (req) => {
 
       if (count === 0) {
         emptyCount++;
-        console.log(`  📭 Conversa vazia: ${(conv.contacts as any)?.name || jid}`);
-        
-        if (!dryRun) {
-          // Move to far past to push to bottom of list
-          await supabase
-            .from('conversations')
-            .update({ updated_at: '2020-01-01T00:00:00Z' })
-            .eq('id', conv.id);
+        const contactName = (conv.contacts as any)?.name || conv.metadata?.remoteJid || 'Unknown';
+        console.log(`  📭 Conversa vazia: ${contactName}`);
+        emptyConvIds.push(conv.id);
+        if (conv.contact_id) {
+          orphanContactIds.push(conv.contact_id);
         }
       }
     }
 
-    console.log(`\n📊 ${emptyCount} conversas @lid vazias encontradas`);
+    console.log(`\n📊 ${emptyCount} conversas vazias encontradas`);
+
+    if (!dryRun && emptyConvIds.length > 0) {
+      console.log('\n🗑️ Deletando conversas vazias...');
+      
+      // Delete conversations in batches
+      for (const convId of emptyConvIds) {
+        const { error } = await supabase
+          .from('conversations')
+          .delete()
+          .eq('id', convId);
+        
+        if (!error) {
+          deletedCount++;
+        } else {
+          console.log(`  ⚠️ Erro deletando conversa: ${error.message}`);
+        }
+      }
+      
+      console.log(`  ✅ ${deletedCount} conversas vazias deletadas`);
+      
+      // Also clean up orphaned contacts (contacts with no conversations)
+      console.log('\n🧹 Limpando contatos órfãos...');
+      let orphansDeleted = 0;
+      
+      for (const contactId of orphanContactIds) {
+        // Check if contact has other conversations
+        const { count: convCount } = await supabase
+          .from('conversations')
+          .select('id', { count: 'exact', head: true })
+          .eq('contact_id', contactId);
+        
+        if (convCount === 0) {
+          const { error } = await supabase
+            .from('contacts')
+            .delete()
+            .eq('id', contactId);
+          
+          if (!error) orphansDeleted++;
+        }
+      }
+      
+      console.log(`  ✅ ${orphansDeleted} contatos órfãos removidos`);
+      stats.contactsDeleted += orphansDeleted;
+    }
+    
+    stats.conversationsDeleted += deletedCount;
 
     return new Response(JSON.stringify({
       success: true,
