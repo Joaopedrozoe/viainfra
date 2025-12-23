@@ -88,8 +88,10 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
 
   const loadConversationData = async () => {
     try {
-      // Buscar conversa com mensagens e contato
-      const { data: conversation, error } = await supabase
+      console.log('📥 [LOAD] Carregando conversa:', conversationId);
+      
+      // QUERY 1: Buscar dados da conversa e contato (sem mensagens)
+      const { data: conversation, error: convError } = await supabase
         .from('conversations')
         .select(`
           *,
@@ -99,96 +101,107 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             phone,
             email,
             avatar_url
-          ),
-          messages (
-            id,
-            content,
-            sender_type,
-            created_at,
-            metadata
           )
         `)
         .eq('id', conversationId)
         .single();
 
-      if (error) {
-        console.error('Erro ao carregar conversa:', error);
+      if (convError) {
+        console.error('❌ Erro ao carregar conversa:', convError);
+        setIsLoading(false);
         return;
       }
 
-      if (conversation) {
-        // Marcar mensagens como lidas ao abrir a conversa
-        const unreadMessages = (conversation.messages || [])
-          .filter((msg: any) => msg.sender_type !== 'agent' && !msg.metadata?.read);
+      // Definir nome e avatar do contato primeiro para UI responsiva
+      if (conversation?.contacts) {
+        setContactName(conversation.contacts.name || 'Cliente Web');
+        setContactAvatar(conversation.contacts.avatar_url || null);
+      }
+      setConversationChannel(conversation?.channel as Channel || 'web');
+
+      // QUERY 2: Buscar TODAS as mensagens separadamente com query dedicada
+      // Isso evita o limite de 1000 registros do join embutido
+      console.log('📥 [LOAD] Buscando mensagens...');
+      const { data: allMessages, error: msgError } = await supabase
+        .from('messages')
+        .select('id, content, sender_type, created_at, metadata, sender_id')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true });
+
+      if (msgError) {
+        console.error('❌ Erro ao carregar mensagens:', msgError);
+        setIsLoading(false);
+        return;
+      }
+
+      console.log(`✅ [LOAD] ${allMessages?.length || 0} mensagens carregadas`);
+
+      // Marcar mensagens como lidas
+      if (allMessages && allMessages.length > 0) {
+        const unreadMessages = allMessages.filter(
+          (msg: any) => msg.sender_type !== 'agent' && !msg.metadata?.read
+        );
         
         if (unreadMessages.length > 0) {
-          // Atualizar metadata das mensagens para marcar como lidas
+          // Batch update para performance
+          const unreadIds = unreadMessages.map((m: any) => m.id);
+          console.log(`📖 Marcando ${unreadIds.length} mensagens como lidas`);
+          
+          // Update em lote
           for (const msg of unreadMessages) {
             const currentMetadata = (typeof msg.metadata === 'object' && msg.metadata !== null) 
               ? msg.metadata 
               : {};
             await supabase
               .from('messages')
-              .update({ 
-                metadata: { ...currentMetadata, read: true } 
-              })
+              .update({ metadata: { ...currentMetadata, read: true } })
               .eq('id', msg.id);
           }
         }
-
-        // Mapear mensagens removendo duplicatas por ID
-        const seenIds = new Set<string>();
-        const mappedMessages: Message[] = (conversation.messages || [])
-          .sort((a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
-          .filter((msg: any) => {
-            if (seenIds.has(msg.id)) {
-              console.log('Mensagem duplicada removida no carregamento:', msg.id);
-              return false;
-            }
-            seenIds.add(msg.id);
-            return true;
-          })
-          .map((msg: any) => {
-            // Extrair attachment do metadata se existir
-            const attachmentData = msg.metadata?.attachment;
-            const attachment: Attachment | undefined = attachmentData ? {
-              type: attachmentData.type,
-              url: attachmentData.url,
-              filename: attachmentData.filename,
-              mimeType: attachmentData.mimeType,
-            } : undefined;
-
-            // Mapear status de entrega do WhatsApp
-            let deliveryStatus: Message['deliveryStatus'] = undefined;
-            if (msg.sender_type === 'agent' && msg.metadata?.whatsappStatus) {
-              deliveryStatus = msg.metadata.whatsappStatus as Message['deliveryStatus'];
-            }
-
-            return {
-              id: msg.id,
-              content: msg.content,
-              sender: msg.sender_type === 'user' ? 'user' : msg.sender_type === 'agent' ? 'agent' : 'bot',
-              timestamp: msg.created_at,
-              attachment,
-              deliveryStatus,
-              whatsappMessageId: msg.metadata?.whatsappMessageId,
-            };
-          });
-
-        console.log('Mensagens carregadas:', mappedMessages.length);
-        setMessages(mappedMessages);
-        
-        // Definir nome e avatar do contato
-        if (conversation.contacts) {
-          setContactName(conversation.contacts.name || 'Cliente Web');
-          setContactAvatar(conversation.contacts.avatar_url || null);
-        }
-
-        // Definir canal
-        setConversationChannel(conversation.channel as Channel || 'web');
       }
+
+      // Mapear mensagens removendo duplicatas por ID
+      const seenIds = new Set<string>();
+      const mappedMessages: Message[] = (allMessages || [])
+        .filter((msg: any) => {
+          if (seenIds.has(msg.id)) {
+            console.log('⚠️ Mensagem duplicada removida:', msg.id);
+            return false;
+          }
+          seenIds.add(msg.id);
+          return true;
+        })
+        .map((msg: any) => {
+          // Extrair attachment do metadata se existir
+          const attachmentData = msg.metadata?.attachment;
+          const attachment: Attachment | undefined = attachmentData ? {
+            type: attachmentData.type,
+            url: attachmentData.url,
+            filename: attachmentData.filename,
+            mimeType: attachmentData.mimeType,
+          } : undefined;
+
+          // Mapear status de entrega do WhatsApp
+          let deliveryStatus: Message['deliveryStatus'] = undefined;
+          if (msg.sender_type === 'agent' && msg.metadata?.whatsappStatus) {
+            deliveryStatus = msg.metadata.whatsappStatus as Message['deliveryStatus'];
+          }
+
+          return {
+            id: msg.id,
+            content: msg.content,
+            sender: msg.sender_type === 'user' ? 'user' : msg.sender_type === 'agent' ? 'agent' : 'bot',
+            timestamp: msg.created_at,
+            attachment,
+            deliveryStatus,
+            whatsappMessageId: msg.metadata?.whatsappMessageId,
+          };
+        });
+
+      console.log(`✅ [LOAD] Histórico completo: ${mappedMessages.length} mensagens únicas`);
+      setMessages(mappedMessages);
     } catch (error) {
-      console.error('Erro ao carregar dados da conversa:', error);
+      console.error('💥 Erro ao carregar dados da conversa:', error);
     } finally {
       setIsLoading(false);
     }
