@@ -1,5 +1,12 @@
 project_id = "xxojpfhnkxpbznbmhmua"
 
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
 [functions.full-whatsapp-sync]
 verify_jwt = false
 
@@ -11,13 +18,6 @@ verify_jwt = false
 
 [functions.deep-search-phone]
 verify_jwt = false
-
-[api]
-enabled = true
-port = 54321
-schemas = ["public", "graphql_public"]
-extra_search_path = ["public", "extensions"]
-max_rows = 1000
 
 [functions.aggressive-sync]
 verify_jwt = false
@@ -179,4 +179,10 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.sync-conversation-history]
+verify_jwt = false
+
+[functions.diagnose-group-membership]
+verify_jwt = false
+
+[functions.retry-group-messages]
 verify_jwt = false
