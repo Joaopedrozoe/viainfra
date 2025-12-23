@@ -9,6 +9,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
+import { useInfiniteMessages } from "@/hooks/useInfiniteMessages";
+import { Loader2 } from "lucide-react";
 
 const getFileType = (file: File): Attachment['type'] => {
   if (file.type.startsWith('image/')) return 'image';
@@ -18,28 +20,44 @@ const getFileType = (file: File): Attachment['type'] => {
 };
 
 export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: ChatWindowProps) => {
-  const [messages, setMessages] = useState<Message[]>([]);
   const [contactName, setContactName] = useState<string>("");
   const [contactAvatar, setContactAvatar] = useState<string | null>(null);
   const [conversationChannel, setConversationChannel] = useState<Channel>("web");
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingConversation, setIsLoadingConversation] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { profile } = useAuth();
   const previousConversationIdRef = useRef<string | null>(null);
+  const previousScrollHeightRef = useRef<number>(0);
   
+  // Hook para infinite scroll de mensagens
+  const {
+    messages,
+    isLoading: isLoadingMessages,
+    isLoadingMore,
+    hasMore,
+    totalCount,
+    loadInitialMessages,
+    loadMoreMessages,
+    addMessage,
+    updateMessage,
+    replaceTemporaryMessage,
+  } = useInfiniteMessages(conversationId);
+  
+  // Carregar dados da conversa quando mudar
   useEffect(() => {
     if (conversationId) {
       // Reset states when conversation changes to avoid glitches
       if (previousConversationIdRef.current !== conversationId) {
-        setIsLoading(true);
-        setMessages([]);
+        setIsLoadingConversation(true);
         setContactName("");
         setContactAvatar(null);
         previousConversationIdRef.current = conversationId;
       }
       
       loadConversationData();
+      loadInitialMessages();
       
       // Configurar subscription para novas mensagens em tempo real
       const channel = supabase
@@ -65,17 +83,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
               attachment: attachmentData,
             };
             
-            // Update imediato sem re-render desnecessário
-            setMessages(prev => {
-              // Evitar duplicatas verificando se a mensagem já existe (incluindo temporárias)
-              if (prev.some(msg => msg.id === mappedMessage.id || (msg.id.startsWith('temp-') && msg.content === mappedMessage.content))) {
-                // Substituir mensagem temporária pela real se existir
-                return prev.map(msg => 
-                  msg.id.startsWith('temp-') && msg.content === mappedMessage.content ? mappedMessage : msg
-                );
-              }
-              return [...prev, mappedMessage];
-            });
+            // Usar hook para substituir temporária ou adicionar
+            replaceTemporaryMessage(newMessage.content, mappedMessage);
           }
         )
         .subscribe();
@@ -84,13 +93,13 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         supabase.removeChannel(channel);
       };
     }
-  }, [conversationId]);
+  }, [conversationId, loadInitialMessages, replaceTemporaryMessage]);
 
+  // Carregar dados da conversa (contato, canal) - sem mensagens
   const loadConversationData = async () => {
     try {
-      console.log('📥 [LOAD] Carregando conversa:', conversationId);
+      console.log('📥 [LOAD] Carregando dados da conversa:', conversationId);
       
-      // QUERY 1: Buscar dados da conversa e contato (sem mensagens)
       const { data: conversation, error: convError } = await supabase
         .from('conversations')
         .select(`
@@ -104,116 +113,61 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           )
         `)
         .eq('id', conversationId)
-        .single();
+        .maybeSingle();
 
       if (convError) {
         console.error('❌ Erro ao carregar conversa:', convError);
-        setIsLoading(false);
+        setIsLoadingConversation(false);
         return;
       }
 
-      // Definir nome e avatar do contato primeiro para UI responsiva
+      // Definir nome e avatar do contato
       if (conversation?.contacts) {
         setContactName(conversation.contacts.name || 'Cliente Web');
         setContactAvatar(conversation.contacts.avatar_url || null);
       }
       setConversationChannel(conversation?.channel as Channel || 'web');
-
-      // QUERY 2: Buscar TODAS as mensagens separadamente com query dedicada
-      // Isso evita o limite de 1000 registros do join embutido
-      console.log('📥 [LOAD] Buscando mensagens...');
-      const { data: allMessages, error: msgError } = await supabase
-        .from('messages')
-        .select('id, content, sender_type, created_at, metadata, sender_id')
-        .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true });
-
-      if (msgError) {
-        console.error('❌ Erro ao carregar mensagens:', msgError);
-        setIsLoading(false);
-        return;
-      }
-
-      console.log(`✅ [LOAD] ${allMessages?.length || 0} mensagens carregadas`);
-
-      // Marcar mensagens como lidas
-      if (allMessages && allMessages.length > 0) {
-        const unreadMessages = allMessages.filter(
-          (msg: any) => msg.sender_type !== 'agent' && !msg.metadata?.read
-        );
-        
-        if (unreadMessages.length > 0) {
-          // Batch update para performance
-          const unreadIds = unreadMessages.map((m: any) => m.id);
-          console.log(`📖 Marcando ${unreadIds.length} mensagens como lidas`);
-          
-          // Update em lote
-          for (const msg of unreadMessages) {
-            const currentMetadata = (typeof msg.metadata === 'object' && msg.metadata !== null) 
-              ? msg.metadata 
-              : {};
-            await supabase
-              .from('messages')
-              .update({ metadata: { ...currentMetadata, read: true } })
-              .eq('id', msg.id);
-          }
-        }
-      }
-
-      // Mapear mensagens removendo duplicatas por ID
-      const seenIds = new Set<string>();
-      const mappedMessages: Message[] = (allMessages || [])
-        .filter((msg: any) => {
-          if (seenIds.has(msg.id)) {
-            console.log('⚠️ Mensagem duplicada removida:', msg.id);
-            return false;
-          }
-          seenIds.add(msg.id);
-          return true;
-        })
-        .map((msg: any) => {
-          // Extrair attachment do metadata se existir
-          const attachmentData = msg.metadata?.attachment;
-          const attachment: Attachment | undefined = attachmentData ? {
-            type: attachmentData.type,
-            url: attachmentData.url,
-            filename: attachmentData.filename,
-            mimeType: attachmentData.mimeType,
-          } : undefined;
-
-          // Mapear status de entrega do WhatsApp
-          let deliveryStatus: Message['deliveryStatus'] = undefined;
-          if (msg.sender_type === 'agent' && msg.metadata?.whatsappStatus) {
-            deliveryStatus = msg.metadata.whatsappStatus as Message['deliveryStatus'];
-          }
-
-          return {
-            id: msg.id,
-            content: msg.content,
-            sender: msg.sender_type === 'user' ? 'user' : msg.sender_type === 'agent' ? 'agent' : 'bot',
-            timestamp: msg.created_at,
-            attachment,
-            deliveryStatus,
-            whatsappMessageId: msg.metadata?.whatsappMessageId,
-          };
-        });
-
-      console.log(`✅ [LOAD] Histórico completo: ${mappedMessages.length} mensagens únicas`);
-      setMessages(mappedMessages);
     } catch (error) {
       console.error('💥 Erro ao carregar dados da conversa:', error);
     } finally {
-      setIsLoading(false);
+      setIsLoadingConversation(false);
     }
   };
   
+  // Scroll para o final quando novas mensagens chegam
   useEffect(() => {
     // Scroll instantâneo para nova mensagem com requestAnimationFrame
     requestAnimationFrame(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     });
-  }, [messages]);
-  
+  }, [messages.length]);
+
+  // Infinite scroll: detectar quando o usuário rola para cima
+  const handleScroll = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container || isLoadingMore || !hasMore) return;
+
+    // Se estiver perto do topo (100px), carregar mais mensagens
+    if (container.scrollTop < 100) {
+      // Guardar altura atual para manter posição após carregar
+      previousScrollHeightRef.current = container.scrollHeight;
+      loadMoreMessages();
+    }
+  }, [isLoadingMore, hasMore, loadMoreMessages]);
+
+  // Restaurar posição do scroll após carregar mensagens antigas
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (container && previousScrollHeightRef.current > 0 && !isLoadingMore) {
+      const newScrollHeight = container.scrollHeight;
+      const scrollDiff = newScrollHeight - previousScrollHeightRef.current;
+      if (scrollDiff > 0) {
+        container.scrollTop = scrollDiff;
+      }
+      previousScrollHeightRef.current = 0;
+    }
+  }, [messages, isLoadingMore]);
+
   const handleSendMessage = useCallback(async (content: string, file?: File) => {
     console.log('🚀 [SEND] Iniciando envio de mensagem:', { conversationId, content, hasFile: !!file });
     
@@ -290,7 +244,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         timestamp: new Date().toISOString()
       };
       
-      setMessages(prev => [...prev, tempMessage]);
+      addMessage(tempMessage);
 
       // CRITICAL: Buscar canal da conversa DIRETAMENTE do banco para garantir que está atualizado
       const { data: conversationData, error: convError } = await supabase
@@ -348,24 +302,22 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
 
       if (error) {
         console.error('❌ Erro ao inserir mensagem:', error);
-        setMessages(prev => prev.filter(msg => msg.id !== tempId));
+        // Remover mensagem temporária (usando updateMessage para marcar como falha)
+        updateMessage(tempId, { deliveryStatus: 'failed' });
         return;
       }
 
       if (data) {
         // Substituir mensagem temporária pela real (ainda com status 'sending')
-        setMessages(prev => prev.map(msg => 
-          msg.id === tempId 
-            ? {
-                id: data.id,
-                content: data.content,
-                sender: 'agent' as const,
-                timestamp: data.created_at,
-                attachment: attachmentData,
-                deliveryStatus: currentChannel === 'whatsapp' ? 'sending' : undefined,
-              }
-            : msg
-        ));
+        const realMessage: Message = {
+          id: data.id,
+          content: data.content,
+          sender: 'agent' as const,
+          timestamp: data.created_at,
+          attachment: attachmentData,
+          deliveryStatus: currentChannel === 'whatsapp' ? 'sending' : undefined,
+        };
+        replaceTemporaryMessage(messageContent, realMessage);
 
         // GARANTIR envio via WhatsApp se o canal for whatsapp
         if (currentChannel === 'whatsapp') {
@@ -404,11 +356,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
               });
               
               // Atualizar status para failed localmente
-              setMessages(prev => prev.map(msg => 
-                msg.id === data.id 
-                  ? { ...msg, deliveryStatus: 'failed' as const }
-                  : msg
-              ));
+              updateMessage(data.id, { deliveryStatus: 'failed' });
               
               // Mostrar toast de erro
               toast.error('Falha ao enviar via WhatsApp. A mensagem será reenviada automaticamente.', {
@@ -424,15 +372,10 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
               });
               
               // Atualizar status para sent localmente
-              setMessages(prev => prev.map(msg => 
-                msg.id === data.id 
-                  ? { 
-                      ...msg, 
-                      deliveryStatus: 'sent' as const,
-                      whatsappMessageId: response?.messageId
-                    }
-                  : msg
-              ));
+              updateMessage(data.id, { 
+                deliveryStatus: 'sent', 
+                whatsappMessageId: response?.messageId 
+              });
             }
           } catch (whatsappError) {
             console.error('💥 [WhatsApp] Exceção ao chamar função:', {
@@ -443,11 +386,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             });
             
             // Atualizar status para failed localmente
-            setMessages(prev => prev.map(msg => 
-              msg.id === data.id 
-                ? { ...msg, deliveryStatus: 'failed' as const }
-                : msg
-            ));
+            updateMessage(data.id, { deliveryStatus: 'failed' });
             
             toast.error('Erro ao enviar via WhatsApp. Será reenviada automaticamente.');
           }
@@ -495,6 +434,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   }
 
   // Show loading skeleton while data loads
+  const isLoading = isLoadingConversation || isLoadingMessages;
+  
   if (isLoading) {
     return (
       <div className="flex flex-col h-full w-full overflow-hidden">
@@ -525,8 +466,29 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         onBackToList={handleBackToList}
         onEndConversation={onEndConversation ? () => onEndConversation(conversationId) : undefined}
       />
-      <div className="flex-1 overflow-y-auto bg-gray-50/50 p-4 scroll-smooth">
+      <div 
+        ref={messagesContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto bg-muted/30 p-4 scroll-smooth"
+      >
         <div className="space-y-3">
+          {/* Indicador de carregamento de mensagens antigas */}
+          {isLoadingMore && (
+            <div className="flex items-center justify-center py-3">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Carregando histórico...</span>
+            </div>
+          )}
+          
+          {/* Indicador de que há mais mensagens */}
+          {hasMore && !isLoadingMore && (
+            <div className="flex items-center justify-center py-2">
+              <span className="text-xs text-muted-foreground">
+                ↑ Role para cima para ver mensagens antigas ({totalCount} total)
+              </span>
+            </div>
+          )}
+          
           {messages.map((message, index) => {
             const isLastMessage = index === messages.length - 1;
             const isNewMessage = isLastMessage && message.sender === 'user';
