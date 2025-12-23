@@ -144,3 +144,6 @@ verify_jwt = false
 
 [functions.process-message-queue]
 verify_jwt = false
+
+[functions.repair-group-media]
+verify_jwt = false
