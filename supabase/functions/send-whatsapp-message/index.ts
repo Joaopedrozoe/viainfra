@@ -262,9 +262,9 @@ serve(async (req) => {
     let sendResult: SendResult;
 
     if (attachment) {
-      sendResult = await sendMediaMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, attachment, formattedMessage, agent_name);
+      sendResult = await sendMediaMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, attachment, formattedMessage, agent_name, isGroup);
     } else {
-      sendResult = await sendTextMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, formattedMessage, isGroupJid(recipientJid));
+      sendResult = await sendTextMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, formattedMessage, isGroup);
     }
 
     // Se enviou com sucesso, atualizar metadata da mensagem com o messageId
@@ -368,6 +368,8 @@ serve(async (req) => {
 });
 
 // Função auxiliar para enviar mensagem de texto
+// Para GRUPOS: usa /message/sendMessage com options (delay + presence)
+// Para INDIVIDUAIS: usa /message/sendText padrão
 async function sendTextMessage(
   evolutionUrl: string,
   evolutionKey: string,
@@ -376,51 +378,138 @@ async function sendTextMessage(
   text: string,
   isGroup: boolean
 ): Promise<SendResult> {
-  const formatsToTry = isGroup 
-    ? [recipientJid, recipientJid.replace('@g.us', '')]
-    : [recipientJid];
-  
-  let lastError = '';
-  
-  for (const numberFormat of formatsToTry) {
-    console.log(`[send-whatsapp] Trying format: ${numberFormat}`);
+  console.log(`[send-whatsapp] sendTextMessage - isGroup: ${isGroup}, recipient: ${recipientJid}`);
+
+  // ===== ESTRATÉGIA PARA GRUPOS =====
+  // Usar /message/sendMessage com delay e presence para garantir entrega
+  if (isGroup) {
+    console.log('[send-whatsapp] 🎯 Usando estratégia específica para GRUPO');
     
+    // Técnica 1: Enviar com sendMessage genérico (mais confiável para grupos)
+    const groupPayload = {
+      number: recipientJid,
+      options: {
+        delay: 1500,
+        presence: 'composing'
+      },
+      textMessage: {
+        text: text
+      }
+    };
+
+    console.log('[send-whatsapp] Group payload:', JSON.stringify(groupPayload));
+
     try {
-      const response = await fetch(`${evolutionUrl}/message/sendText/${instanceName}`, {
+      const response = await fetch(`${evolutionUrl}/message/sendMessage/${instanceName}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': evolutionKey,
+        },
+        body: JSON.stringify(groupPayload),
+      });
+
+      const responseText = await response.text();
+      console.log(`[send-whatsapp] Group sendMessage response: ${response.status}`, responseText);
+
+      if (response.ok) {
+        try {
+          const responseData = JSON.parse(responseText);
+          const messageId = responseData?.key?.id || responseData?.messageId || responseData?.id;
+          console.log('[send-whatsapp] ✅ Grupo: mensagem enviada com sucesso!');
+          return { success: true, messageId };
+        } catch {
+          return { success: true };
+        }
+      }
+
+      // Se sendMessage falhou, tentar sendText com presença antes
+      console.log('[send-whatsapp] ⚠️ sendMessage falhou, tentando técnica 2: presença + sendText');
+      
+      // Enviar presença composing
+      await fetch(`${evolutionUrl}/chat/updatePresence/${instanceName}`, {
+        method: 'POST',
+        headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number: recipientJid, presence: 'composing' })
+      });
+      
+      // Aguardar 1.5s
+      await new Promise(r => setTimeout(r, 1500));
+      
+      // Tentar sendText
+      const sendTextResp = await fetch(`${evolutionUrl}/message/sendText/${instanceName}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'apikey': evolutionKey,
         },
         body: JSON.stringify({
-          number: numberFormat,
+          number: recipientJid,
           text: text,
+          delay: 1200
         }),
       });
-      
-      const responseText = await response.text();
-      console.log(`[send-whatsapp] Response for ${numberFormat}:`, response.status, responseText);
-      
-      if (response.ok) {
+
+      const sendTextResult = await sendTextResp.text();
+      console.log(`[send-whatsapp] sendText after presence: ${sendTextResp.status}`, sendTextResult);
+
+      if (sendTextResp.ok) {
         try {
-          const responseData = JSON.parse(responseText);
-          // Extrair messageId da resposta da Evolution API
+          const responseData = JSON.parse(sendTextResult);
           const messageId = responseData?.key?.id || responseData?.messageId || responseData?.id;
+          console.log('[send-whatsapp] ✅ Grupo: mensagem enviada via técnica 2!');
           return { success: true, messageId };
         } catch {
           return { success: true };
         }
       }
-      
-      lastError = responseText;
-      
-      if (!isGroup) break;
-    } catch (error) {
-      lastError = error.message;
+
+      // Se ainda falhou, retornar erro com detalhes
+      return { 
+        success: false, 
+        error: `Falha ao enviar para grupo. Resposta: ${sendTextResult}` 
+      };
+
+    } catch (error: any) {
+      console.error('[send-whatsapp] Group send error:', error);
+      return { success: false, error: error.message };
     }
   }
+
+  // ===== ESTRATÉGIA PARA INDIVIDUAIS =====
+  // Usar sendText padrão
+  console.log('[send-whatsapp] 👤 Enviando para chat individual');
   
-  return { success: false, error: lastError };
+  try {
+    const response = await fetch(`${evolutionUrl}/message/sendText/${instanceName}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': evolutionKey,
+      },
+      body: JSON.stringify({
+        number: recipientJid,
+        text: text,
+      }),
+    });
+    
+    const responseText = await response.text();
+    console.log(`[send-whatsapp] Individual response: ${response.status}`, responseText);
+    
+    if (response.ok) {
+      try {
+        const responseData = JSON.parse(responseText);
+        const messageId = responseData?.key?.id || responseData?.messageId || responseData?.id;
+        return { success: true, messageId };
+      } catch {
+        return { success: true };
+      }
+    }
+    
+    return { success: false, error: responseText };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
 }
 
 // Função auxiliar para enviar mídia
@@ -431,15 +520,22 @@ async function sendMediaMessage(
   recipientJid: string,
   attachment: Attachment,
   caption: string | undefined,
-  agentName: string
+  agentName: string,
+  isGroup: boolean
 ): Promise<SendResult> {
   const mediaCaption = caption 
     ? `*${agentName || 'Atendente'}*\n${caption}`
     : `*${agentName || 'Atendente'}*`;
 
+  console.log(`[send-whatsapp] sendMediaMessage - isGroup: ${isGroup}, type: ${attachment.type}`);
+
+  // Para grupos, adicionar delay e presence
+  const baseOptions = isGroup ? { delay: 1500, presence: 'composing' } : {};
+
   let endpoint = '';
   let body: Record<string, any> = {
     number: recipientJid,
+    ...baseOptions
   };
 
   switch (attachment.type) {
@@ -461,12 +557,22 @@ async function sendMediaMessage(
       break;
     default:
       endpoint = `/message/sendText/${instanceName}`;
-      body = { number: recipientJid, text: caption || '[Arquivo]' };
+      body = { number: recipientJid, text: caption || '[Arquivo]', ...(isGroup ? { delay: 1500 } : {}) };
   }
 
   console.log('[send-whatsapp] Media request:', endpoint, JSON.stringify(body));
 
   try {
+    // Para grupos, enviar presença antes
+    if (isGroup) {
+      await fetch(`${evolutionUrl}/chat/updatePresence/${instanceName}`, {
+        method: 'POST',
+        headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number: recipientJid, presence: 'composing' })
+      });
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
     const response = await fetch(`${evolutionUrl}${endpoint}`, {
       method: 'POST',
       headers: {
@@ -477,6 +583,7 @@ async function sendMediaMessage(
     });
 
     const responseText = await response.text();
+    console.log(`[send-whatsapp] Media response: ${response.status}`, responseText);
 
     if (response.ok) {
       try {
@@ -491,11 +598,11 @@ async function sendMediaMessage(
     // Fallback: se mídia falhou e temos texto, tentar enviar só texto
     if (caption) {
       console.warn('[send-whatsapp] Media failed, trying text-only fallback');
-      return await sendTextMessage(evolutionUrl, evolutionKey, instanceName, recipientJid, caption, false);
+      return await sendTextMessage(evolutionUrl, evolutionKey, instanceName, recipientJid, caption, isGroup);
     }
 
     return { success: false, error: responseText };
-  } catch (error) {
+  } catch (error: any) {
     return { success: false, error: error.message };
   }
 }
