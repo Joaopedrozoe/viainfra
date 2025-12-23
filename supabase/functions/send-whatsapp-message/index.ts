@@ -13,13 +13,20 @@ interface Attachment {
   mimeType?: string;
 }
 
+interface SendResult {
+  success: boolean;
+  messageId?: string;
+  error?: string;
+  queued?: boolean;
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
-  console.log('Send WhatsApp message request received');
+  console.log('[send-whatsapp] Request received');
 
   try {
     const supabase = createClient(
@@ -27,11 +34,11 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { conversation_id, message_content, attachment, agent_name } = await req.json();
+    const { conversation_id, message_content, attachment, agent_name, message_id } = await req.json();
 
     if (!conversation_id || (!message_content && !attachment)) {
       return new Response(
-        JSON.stringify({ error: 'Missing required fields (need message_content or attachment)' }), 
+        JSON.stringify({ success: false, error: 'Missing required fields (need message_content or attachment)' }), 
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -41,7 +48,9 @@ serve(async (req) => {
       ? `*${agent_name || 'Atendente'}*\n${message_content}`
       : message_content;
 
-    console.log('Sending WhatsApp message for conversation:', conversation_id, {
+    console.log('[send-whatsapp] Processing:', {
+      conversation_id,
+      message_id,
       hasText: !!message_content,
       hasAttachment: !!attachment,
       attachmentType: attachment?.type,
@@ -56,43 +65,36 @@ serve(async (req) => {
       .single();
 
     if (convError || !conversation) {
-      console.error('Error fetching conversation:', convError);
+      console.error('[send-whatsapp] Error fetching conversation:', convError);
       return new Response(
-        JSON.stringify({ error: 'Conversation not found' }), 
+        JSON.stringify({ success: false, error: 'Conversation not found' }), 
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     // Verificar se é canal WhatsApp
     if (conversation.channel !== 'whatsapp') {
-      console.log('Not a WhatsApp conversation, skipping');
+      console.log('[send-whatsapp] Not a WhatsApp conversation, skipping');
       return new Response(
         JSON.stringify({ success: true, skipped: true, reason: 'Not WhatsApp' }), 
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Determinar o destinatário: usar telefone se disponível, senão usar remoteJid
-    // IMPORTANTE: lidJid NÃO funciona para enviar mensagens, apenas para receber!
-    // GRUPOS: remoteJid termina com @g.us - usar diretamente!
+    // Determinar o destinatário
     let recipientJid: string;
     
-    // Helper para verificar se é número de telefone válido
     const isValidPhone = (value: string) => {
       if (!value) return false;
-      // Telefone válido: apenas dígitos, 10-15 caracteres
       return /^\d{10,15}$/.test(value);
     };
     
-    // Helper para extrair número de um JID
     const extractPhoneFromJid = (jid: string) => {
       if (!jid) return null;
-      // Extrair número antes do @
       const match = jid.match(/^(\d+)@/);
       return match ? match[1] : null;
     };
     
-    // Helper para verificar se é grupo
     const isGroupJid = (jid: string) => {
       return jid && jid.includes('@g.us');
     };
@@ -101,62 +103,46 @@ serve(async (req) => {
     const remoteJid = conversation.metadata?.remoteJid;
     const isGroup = conversation.metadata?.isGroup || isGroupJid(remoteJid);
     
-    console.log('🔍 DEBUG V6 - Recipient resolution:', {
+    console.log('[send-whatsapp] Recipient resolution:', {
       contactPhone,
       remoteJid,
-      isGroup,
-      isGroupJidCheck: isGroupJid(remoteJid),
-      metadataIsGroup: conversation.metadata?.isGroup
+      isGroup
     });
     
-    // Prioridade para ENVIAR mensagens:
-    // 1. GRUPOS: usar remoteJid diretamente (formato @g.us)
-    // 2. Telefone numérico válido do contato
-    // 3. remoteJid no formato @s.whatsapp.net (número real)
-    // 4. Número extraído do remoteJid
-    // NÃO usar lidJid - ele não funciona para enviar!
-    
     if (isGroupJid(remoteJid)) {
-      // GRUPOS: Evolution API aceita formato com @g.us OU apenas o ID
-      // Testar ambos formatos
-      recipientJid = remoteJid; // Manter o formato completo primeiro
-      console.log(`📤 V8 Sending to GROUP: ${recipientJid}`);
-    } else if (contactPhone && isValidPhone(contactPhone)) {
-      // Se temos telefone numérico válido, usar formato tradicional
-      recipientJid = `${contactPhone}@s.whatsapp.net`;
-      console.log(`Using contact phone: ${contactPhone} -> ${recipientJid}`);
-    } else if (remoteJid && remoteJid.includes('@s.whatsapp.net')) {
-      // remoteJid já está no formato correto
       recipientJid = remoteJid;
-      console.log(`Using remoteJid directly: ${recipientJid}`);
+      console.log(`[send-whatsapp] Sending to GROUP: ${recipientJid}`);
+    } else if (contactPhone && isValidPhone(contactPhone)) {
+      recipientJid = `${contactPhone}@s.whatsapp.net`;
+      console.log(`[send-whatsapp] Using contact phone: ${contactPhone}`);
+    } else if (remoteJid && remoteJid.includes('@s.whatsapp.net')) {
+      recipientJid = remoteJid;
+      console.log(`[send-whatsapp] Using remoteJid: ${recipientJid}`);
     } else if (remoteJid) {
-      // Tentar extrair número do remoteJid
       const extractedPhone = extractPhoneFromJid(remoteJid);
       if (extractedPhone && isValidPhone(extractedPhone)) {
         recipientJid = `${extractedPhone}@s.whatsapp.net`;
-        console.log(`Extracted phone from remoteJid: ${extractedPhone} -> ${recipientJid}`);
+        console.log(`[send-whatsapp] Extracted phone: ${extractedPhone}`);
       } else {
-        console.error('remoteJid is not in valid format for sending:', remoteJid);
+        console.error('[send-whatsapp] Invalid remoteJid for sending:', remoteJid);
         return new Response(
-          JSON.stringify({ error: 'No valid WhatsApp phone number found (lidJid cannot be used for sending)' }), 
+          JSON.stringify({ success: false, error: 'No valid WhatsApp phone number found' }), 
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
     } else {
-      console.error('No valid phone or remoteJid found for this conversation');
+      console.error('[send-whatsapp] No valid phone or remoteJid found');
       return new Response(
-        JSON.stringify({ error: 'No valid WhatsApp identifier found' }), 
+        JSON.stringify({ success: false, error: 'No valid WhatsApp identifier found' }), 
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Buscar instância WhatsApp conectada (status 'open' = conectada)
-    // Instâncias autorizadas por nome
+    // Buscar instância WhatsApp conectada
     const AUTHORIZED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL'];
     
-    console.log('Buscando instância WhatsApp para company_id:', conversation.company_id);
+    console.log('[send-whatsapp] Searching for instance, company_id:', conversation.company_id);
     
-    // Primeiro tenta buscar instância autorizada por nome
     let { data: instance, error: instanceError } = await supabase
       .from('whatsapp_instances')
       .select('instance_name, status, company_id, phone_number')
@@ -167,9 +153,8 @@ serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    // Se não encontrar instância da empresa, buscar qualquer instância autorizada conectada
     if (!instance) {
-      console.log('Nenhuma instância encontrada para a empresa, buscando instância autorizada...');
+      console.log('[send-whatsapp] No instance for company, searching any authorized...');
       const { data: authorizedInstance, error: authError } = await supabase
         .from('whatsapp_instances')
         .select('instance_name, status, company_id, phone_number')
@@ -183,224 +168,314 @@ serve(async (req) => {
       instanceError = authError;
     }
     
-    // Log de segurança - verificar se é instância autorizada
     if (instance && !AUTHORIZED_INSTANCES.includes(instance.instance_name)) {
-      console.error('⚠️ SEGURANÇA: Instância não autorizada bloqueada:', instance.instance_name);
+      console.error('[send-whatsapp] SECURITY: Unauthorized instance blocked:', instance.instance_name);
       return new Response(
-        JSON.stringify({ error: 'Instância WhatsApp não autorizada' }), 
+        JSON.stringify({ success: false, error: 'Unauthorized WhatsApp instance' }), 
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
     if (instanceError || !instance) {
-      console.error('Error fetching WhatsApp instance:', instanceError);
-      console.error('Instance data:', instance);
+      console.error('[send-whatsapp] Error fetching instance:', instanceError);
+      
+      // Add to retry queue
+      await addToRetryQueue(supabase, {
+        conversation_id,
+        contactPhone: conversation.contacts?.phone || recipientJid.replace('@s.whatsapp.net', ''),
+        instanceName: 'PENDING',
+        content: formattedMessage || '',
+        messageType: attachment ? attachment.type : 'text',
+        mediaUrl: attachment?.url,
+        errorMessage: 'No connected WhatsApp instance found'
+      });
+      
       return new Response(
-        JSON.stringify({ error: 'No connected WhatsApp instance found', details: instanceError }), 
+        JSON.stringify({ success: false, error: 'No connected WhatsApp instance found', queued: true }), 
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('Instância WhatsApp encontrada:', instance.instance_name, 'Status:', instance.status);
-    console.log(`Sending message to ${recipientJid} via instance ${instance.instance_name}`);
+    console.log('[send-whatsapp] Using instance:', instance.instance_name);
 
     // Enviar mensagem via Evolution API
     const evolutionUrl = Deno.env.get('EVOLUTION_API_URL') ?? '';
     const evolutionKey = Deno.env.get('EVOLUTION_API_KEY') ?? '';
 
-    let response: Response;
+    let sendResult: SendResult;
 
-    // Se temos um anexo, enviar mídia
     if (attachment) {
-      const attachmentData = attachment as Attachment;
-      console.log('📎 Sending media message:', attachmentData.type, attachmentData.url);
-
-      let endpoint = '';
-      let body: Record<string, any> = {
-        number: recipientJid,
-      };
-
-      // Formatar caption com nome do atendente para mídias
-      const mediaCaption = message_content 
-        ? `*${agent_name || 'Atendente'}*\n${message_content}`
-        : `*${agent_name || 'Atendente'}*`;
-
-      switch (attachmentData.type) {
-        case 'image':
-          endpoint = `/message/sendMedia/${instance.instance_name}`;
-          body = {
-            ...body,
-            mediatype: 'image',
-            media: attachmentData.url,
-            caption: mediaCaption,
-          };
-          break;
-        case 'video':
-          endpoint = `/message/sendMedia/${instance.instance_name}`;
-          body = {
-            ...body,
-            mediatype: 'video',
-            media: attachmentData.url,
-            caption: mediaCaption,
-          };
-          break;
-        case 'audio':
-          endpoint = `/message/sendWhatsAppAudio/${instance.instance_name}`;
-          body = {
-            ...body,
-            audio: attachmentData.url,
-          };
-          break;
-        case 'document':
-          endpoint = `/message/sendMedia/${instance.instance_name}`;
-          body = {
-            ...body,
-            mediatype: 'document',
-            media: attachmentData.url,
-            fileName: attachmentData.filename || 'document',
-            caption: mediaCaption,
-          };
-          break;
-        default:
-          // Fallback to text
-          endpoint = `/message/sendText/${instance.instance_name}`;
-          body = {
-            number: recipientJid,
-            text: formattedMessage || '[Arquivo]',
-          };
-      }
-
-      console.log('📤 Evolution API request:', endpoint, JSON.stringify(body));
-
-      response = await fetch(`${evolutionUrl}${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': evolutionKey,
-        },
-        body: JSON.stringify(body),
-      });
-
-      // Se falhar com mídia e temos texto, tentar enviar só o texto
-      if (!response.ok && message_content) {
-        console.warn('⚠️ Media send failed, trying text-only fallback');
-        response = await fetch(`${evolutionUrl}/message/sendText/${instance.instance_name}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': evolutionKey,
-          },
-          body: JSON.stringify({
-            number: recipientJid,
-            text: formattedMessage,
-          }),
-        });
-      }
+      sendResult = await sendMediaMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, attachment, formattedMessage, agent_name);
     } else {
-      // Enviar apenas texto com identificação do atendente
-      const isGroupMessage = isGroupJid(recipientJid);
-      
-      // Para grupos, tentar múltiplos formatos
-      const formatsToTry = isGroupMessage 
-        ? [
-            recipientJid,                                    // 120363421810878254@g.us
-            recipientJid.replace('@g.us', ''),               // 120363421810878254
-            `${recipientJid.replace('@g.us', '')}@g.us`,     // redundante mas garante formato
-          ]
-        : [recipientJid];
-      
-      let lastError = '';
-      let success = false;
-      
-      for (const numberFormat of formatsToTry) {
-        const textPayload = {
-          number: numberFormat,
-          text: formattedMessage,
-        };
-        
-        console.log(`📤 V8 - Trying format: ${numberFormat}`);
-        
-        response = await fetch(`${evolutionUrl}/message/sendText/${instance.instance_name}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': evolutionKey,
-          },
-          body: JSON.stringify(textPayload),
-        });
-        
-        const responseText = await response.text();
-        console.log(`📥 V8 - Response for ${numberFormat}:`, response.status, responseText);
-        
-        if (response.ok) {
-          console.log('✅ WhatsApp message sent successfully');
-          return new Response(
-            JSON.stringify({ success: true, format: numberFormat }), 
-            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-          );
-        }
-        
-        lastError = responseText;
-        
-        // Se não for grupo, não tentar outros formatos
-        if (!isGroupMessage) break;
-      }
-      
-      // Todos os formatos falharam
-      response = new Response(lastError, { status: 400 });
+      sendResult = await sendTextMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, formattedMessage, isGroupJid(recipientJid));
     }
 
-    // Handle failed messages with retry queue
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Evolution API error:', response.status, errorText);
+    // Se enviou com sucesso, atualizar metadata da mensagem com o messageId
+    if (sendResult.success && sendResult.messageId && message_id) {
+      console.log('[send-whatsapp] Updating message metadata with messageId:', sendResult.messageId);
       
-      // Add to retry queue
-      const contactPhone = conversation.contacts?.phone || recipientJid.replace('@s.whatsapp.net', '');
-      const { error: queueError } = await supabase
-        .from('message_queue')
-        .insert({
-          conversation_id,
-          contact_phone: contactPhone,
-          instance_name: instance.instance_name,
-          content: formattedMessage || '',
-          message_type: attachment ? attachment.type : 'text',
-          media_url: attachment?.url || null,
-          status: 'failed',
-          retry_count: 1,
-          error_message: errorText.substring(0, 500),
-          scheduled_at: new Date(Date.now() + 60000).toISOString() // Retry in 1 minute
-        });
+      // Buscar metadata atual
+      const { data: currentMessage } = await supabase
+        .from('messages')
+        .select('metadata')
+        .eq('id', message_id)
+        .single();
       
-      if (queueError) {
-        console.error('Error adding to retry queue:', queueError);
+      const currentMetadata = (currentMessage?.metadata as Record<string, any>) || {};
+      
+      // Atualizar com o messageId da Evolution API
+      const { error: updateError } = await supabase
+        .from('messages')
+        .update({
+          metadata: {
+            ...currentMetadata,
+            whatsappMessageId: sendResult.messageId,
+            whatsappSentAt: new Date().toISOString(),
+            whatsappStatus: 'sent'
+          }
+        })
+        .eq('id', message_id);
+      
+      if (updateError) {
+        console.error('[send-whatsapp] Error updating message metadata:', updateError);
       } else {
-        console.log('📥 Message added to retry queue');
+        console.log('[send-whatsapp] Message metadata updated successfully');
+      }
+    }
+
+    // Se falhou, adicionar à fila de retry
+    if (!sendResult.success) {
+      console.error('[send-whatsapp] Send failed:', sendResult.error);
+      
+      await addToRetryQueue(supabase, {
+        conversation_id,
+        contactPhone: conversation.contacts?.phone || recipientJid.replace('@s.whatsapp.net', ''),
+        instanceName: instance.instance_name,
+        content: formattedMessage || '',
+        messageType: attachment ? attachment.type : 'text',
+        mediaUrl: attachment?.url,
+        errorMessage: sendResult.error || 'Unknown error'
+      });
+      
+      // Atualizar status de erro na mensagem
+      if (message_id) {
+        const { data: currentMessage } = await supabase
+          .from('messages')
+          .select('metadata')
+          .eq('id', message_id)
+          .single();
+        
+        const currentMetadata = (currentMessage?.metadata as Record<string, any>) || {};
+        
+        await supabase
+          .from('messages')
+          .update({
+            metadata: {
+              ...currentMetadata,
+              whatsappStatus: 'failed',
+              whatsappError: sendResult.error,
+              whatsappFailedAt: new Date().toISOString()
+            }
+          })
+          .eq('id', message_id);
       }
       
       return new Response(
         JSON.stringify({ 
-          error: 'Failed to send WhatsApp message', 
-          details: errorText,
-          queued: !queueError,
-          message: queueError ? 'Message not queued' : 'Message queued for retry'
+          success: false, 
+          error: sendResult.error,
+          queued: true,
+          message: 'Message queued for retry'
         }), 
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('✅ WhatsApp message sent successfully');
+    console.log('[send-whatsapp] Message sent successfully, messageId:', sendResult.messageId);
 
     return new Response(
-      JSON.stringify({ success: true }), 
+      JSON.stringify({ 
+        success: true, 
+        messageId: sendResult.messageId 
+      }), 
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
-    console.error('Error sending WhatsApp message:', error);
+    console.error('[send-whatsapp] Error:', error);
     return new Response(
-      JSON.stringify({ error: 'Internal server error', details: error.message }), 
+      JSON.stringify({ success: false, error: 'Internal server error', details: error.message }), 
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });
+
+// Função auxiliar para enviar mensagem de texto
+async function sendTextMessage(
+  evolutionUrl: string,
+  evolutionKey: string,
+  instanceName: string,
+  recipientJid: string,
+  text: string,
+  isGroup: boolean
+): Promise<SendResult> {
+  const formatsToTry = isGroup 
+    ? [recipientJid, recipientJid.replace('@g.us', '')]
+    : [recipientJid];
+  
+  let lastError = '';
+  
+  for (const numberFormat of formatsToTry) {
+    console.log(`[send-whatsapp] Trying format: ${numberFormat}`);
+    
+    try {
+      const response = await fetch(`${evolutionUrl}/message/sendText/${instanceName}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': evolutionKey,
+        },
+        body: JSON.stringify({
+          number: numberFormat,
+          text: text,
+        }),
+      });
+      
+      const responseText = await response.text();
+      console.log(`[send-whatsapp] Response for ${numberFormat}:`, response.status, responseText);
+      
+      if (response.ok) {
+        try {
+          const responseData = JSON.parse(responseText);
+          // Extrair messageId da resposta da Evolution API
+          const messageId = responseData?.key?.id || responseData?.messageId || responseData?.id;
+          return { success: true, messageId };
+        } catch {
+          return { success: true };
+        }
+      }
+      
+      lastError = responseText;
+      
+      if (!isGroup) break;
+    } catch (error) {
+      lastError = error.message;
+    }
+  }
+  
+  return { success: false, error: lastError };
+}
+
+// Função auxiliar para enviar mídia
+async function sendMediaMessage(
+  evolutionUrl: string,
+  evolutionKey: string,
+  instanceName: string,
+  recipientJid: string,
+  attachment: Attachment,
+  caption: string | undefined,
+  agentName: string
+): Promise<SendResult> {
+  const mediaCaption = caption 
+    ? `*${agentName || 'Atendente'}*\n${caption}`
+    : `*${agentName || 'Atendente'}*`;
+
+  let endpoint = '';
+  let body: Record<string, any> = {
+    number: recipientJid,
+  };
+
+  switch (attachment.type) {
+    case 'image':
+      endpoint = `/message/sendMedia/${instanceName}`;
+      body = { ...body, mediatype: 'image', media: attachment.url, caption: mediaCaption };
+      break;
+    case 'video':
+      endpoint = `/message/sendMedia/${instanceName}`;
+      body = { ...body, mediatype: 'video', media: attachment.url, caption: mediaCaption };
+      break;
+    case 'audio':
+      endpoint = `/message/sendWhatsAppAudio/${instanceName}`;
+      body = { ...body, audio: attachment.url };
+      break;
+    case 'document':
+      endpoint = `/message/sendMedia/${instanceName}`;
+      body = { ...body, mediatype: 'document', media: attachment.url, fileName: attachment.filename || 'document', caption: mediaCaption };
+      break;
+    default:
+      endpoint = `/message/sendText/${instanceName}`;
+      body = { number: recipientJid, text: caption || '[Arquivo]' };
+  }
+
+  console.log('[send-whatsapp] Media request:', endpoint, JSON.stringify(body));
+
+  try {
+    const response = await fetch(`${evolutionUrl}${endpoint}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': evolutionKey,
+      },
+      body: JSON.stringify(body),
+    });
+
+    const responseText = await response.text();
+
+    if (response.ok) {
+      try {
+        const responseData = JSON.parse(responseText);
+        const messageId = responseData?.key?.id || responseData?.messageId || responseData?.id;
+        return { success: true, messageId };
+      } catch {
+        return { success: true };
+      }
+    }
+
+    // Fallback: se mídia falhou e temos texto, tentar enviar só texto
+    if (caption) {
+      console.warn('[send-whatsapp] Media failed, trying text-only fallback');
+      return await sendTextMessage(evolutionUrl, evolutionKey, instanceName, recipientJid, caption, false);
+    }
+
+    return { success: false, error: responseText };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+// Função auxiliar para adicionar à fila de retry
+async function addToRetryQueue(
+  supabase: any,
+  params: {
+    conversation_id: string;
+    contactPhone: string;
+    instanceName: string;
+    content: string;
+    messageType: string;
+    mediaUrl?: string;
+    errorMessage: string;
+  }
+) {
+  console.log('[send-whatsapp] Adding to retry queue');
+  
+  const { error: queueError } = await supabase
+    .from('message_queue')
+    .insert({
+      conversation_id: params.conversation_id,
+      contact_phone: params.contactPhone,
+      instance_name: params.instanceName,
+      content: params.content,
+      message_type: params.messageType,
+      media_url: params.mediaUrl || null,
+      status: 'pending',
+      retry_count: 0,
+      error_message: params.errorMessage.substring(0, 500),
+      scheduled_at: new Date(Date.now() + 60000).toISOString() // Retry in 1 minute
+    });
+  
+  if (queueError) {
+    console.error('[send-whatsapp] Error adding to retry queue:', queueError);
+  } else {
+    console.log('[send-whatsapp] Message added to retry queue');
+  }
+}
