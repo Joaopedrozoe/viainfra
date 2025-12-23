@@ -103,15 +103,23 @@ serve(async (req) => {
       return jid && jid.includes('@lid');
     };
     
+    const isBroadcastJid = (jid: string) => {
+      return jid && jid.includes('@broadcast');
+    };
+    
     const contactPhone = conversation.contacts?.phone;
     const remoteJid = conversation.metadata?.remoteJid;
+    const resolvedPhone = conversation.metadata?.resolvedPhone;
     const isGroup = conversation.metadata?.isGroup || isGroupJid(remoteJid);
+    const isBroadcast = conversation.metadata?.isBroadcast || isBroadcastJid(remoteJid);
     const isLid = isLidJid(remoteJid);
     
     console.log('[send-whatsapp] Recipient resolution:', {
       contactPhone,
       remoteJid,
+      resolvedPhone,
       isGroup,
+      isBroadcast,
       isLid
     });
     
@@ -120,22 +128,53 @@ serve(async (req) => {
       recipientJid = remoteJid;
       console.log(`[send-whatsapp] Sending to GROUP: ${recipientJid}`);
     } 
-    // PRIORIDADE 2: Se é LID, usar remoteJid diretamente (LID é identificador do WhatsApp)
-    else if (isLid) {
+    // PRIORIDADE 2: Se é broadcast, usar remoteJid diretamente
+    else if (isBroadcastJid(remoteJid)) {
       recipientJid = remoteJid;
-      console.log(`[send-whatsapp] Sending to LID: ${recipientJid}`);
+      console.log(`[send-whatsapp] Sending to BROADCAST: ${recipientJid}`);
     }
     // PRIORIDADE 3: Se tem telefone válido no contato
     else if (contactPhone && isValidPhone(contactPhone)) {
       recipientJid = `${contactPhone}@s.whatsapp.net`;
       console.log(`[send-whatsapp] Using contact phone: ${contactPhone}`);
     } 
-    // PRIORIDADE 4: Se remoteJid é formato s.whatsapp.net
+    // PRIORIDADE 4: Se tem telefone resolvido no metadata
+    else if (resolvedPhone && isValidPhone(resolvedPhone)) {
+      recipientJid = `${resolvedPhone}@s.whatsapp.net`;
+      console.log(`[send-whatsapp] Using resolved phone: ${resolvedPhone}`);
+    }
+    // PRIORIDADE 5: Se remoteJid é formato s.whatsapp.net
     else if (remoteJid && remoteJid.includes('@s.whatsapp.net')) {
       recipientJid = remoteJid;
       console.log(`[send-whatsapp] Using remoteJid: ${recipientJid}`);
     } 
-    // PRIORIDADE 5: Tentar extrair telefone do remoteJid
+    // PRIORIDADE 6: Se é LID, buscar no lid_phone_mapping
+    else if (isLid) {
+      const lidId = extractPhoneFromJid(remoteJid);
+      console.log(`[send-whatsapp] Looking up LID phone mapping for: ${lidId}`);
+      
+      const { data: lidMapping } = await supabase
+        .from('lid_phone_mapping')
+        .select('phone')
+        .eq('lid', lidId)
+        .maybeSingle();
+      
+      if (lidMapping?.phone && isValidPhone(lidMapping.phone)) {
+        recipientJid = `${lidMapping.phone}@s.whatsapp.net`;
+        console.log(`[send-whatsapp] Found LID mapping: ${lidMapping.phone}`);
+      } else {
+        console.error('[send-whatsapp] LID contact without phone mapping:', remoteJid);
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: 'Este contato usa LID e não tem telefone cadastrado. Peça o número ao contato.',
+            isLidWithoutPhone: true
+          }), 
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+    // PRIORIDADE 7: Tentar extrair telefone do remoteJid
     else if (remoteJid) {
       const extractedPhone = extractPhoneFromJid(remoteJid);
       if (extractedPhone && isValidPhone(extractedPhone)) {
