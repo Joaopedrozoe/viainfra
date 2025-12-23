@@ -99,26 +99,44 @@ serve(async (req) => {
       return jid && jid.includes('@g.us');
     };
     
+    const isLidJid = (jid: string) => {
+      return jid && jid.includes('@lid');
+    };
+    
     const contactPhone = conversation.contacts?.phone;
     const remoteJid = conversation.metadata?.remoteJid;
     const isGroup = conversation.metadata?.isGroup || isGroupJid(remoteJid);
+    const isLid = isLidJid(remoteJid);
     
     console.log('[send-whatsapp] Recipient resolution:', {
       contactPhone,
       remoteJid,
-      isGroup
+      isGroup,
+      isLid
     });
     
+    // PRIORIDADE 1: Se é grupo, usar remoteJid diretamente
     if (isGroupJid(remoteJid)) {
       recipientJid = remoteJid;
       console.log(`[send-whatsapp] Sending to GROUP: ${recipientJid}`);
-    } else if (contactPhone && isValidPhone(contactPhone)) {
+    } 
+    // PRIORIDADE 2: Se é LID, usar remoteJid diretamente (LID é identificador do WhatsApp)
+    else if (isLid) {
+      recipientJid = remoteJid;
+      console.log(`[send-whatsapp] Sending to LID: ${recipientJid}`);
+    }
+    // PRIORIDADE 3: Se tem telefone válido no contato
+    else if (contactPhone && isValidPhone(contactPhone)) {
       recipientJid = `${contactPhone}@s.whatsapp.net`;
       console.log(`[send-whatsapp] Using contact phone: ${contactPhone}`);
-    } else if (remoteJid && remoteJid.includes('@s.whatsapp.net')) {
+    } 
+    // PRIORIDADE 4: Se remoteJid é formato s.whatsapp.net
+    else if (remoteJid && remoteJid.includes('@s.whatsapp.net')) {
       recipientJid = remoteJid;
       console.log(`[send-whatsapp] Using remoteJid: ${recipientJid}`);
-    } else if (remoteJid) {
+    } 
+    // PRIORIDADE 5: Tentar extrair telefone do remoteJid
+    else if (remoteJid) {
       const extractedPhone = extractPhoneFromJid(remoteJid);
       if (extractedPhone && isValidPhone(extractedPhone)) {
         recipientJid = `${extractedPhone}@s.whatsapp.net`;
