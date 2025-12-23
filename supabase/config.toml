@@ -165,3 +165,6 @@ verify_jwt = false
 
 [functions.search-chats]
 verify_jwt = false
+
+[functions.sync-missing-yago-flavia]
+verify_jwt = false
