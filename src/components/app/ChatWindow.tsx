@@ -23,7 +23,9 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   const [contactName, setContactName] = useState<string>("");
   const [contactAvatar, setContactAvatar] = useState<string | null>(null);
   const [conversationChannel, setConversationChannel] = useState<Channel>("web");
+  const [conversationStatus, setConversationStatus] = useState<string>("open");
   const [isLoadingConversation, setIsLoadingConversation] = useState(true);
+  const [isSyncingHistory, setIsSyncingHistory] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -127,6 +129,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         setContactAvatar(conversation.contacts.avatar_url || null);
       }
       setConversationChannel(conversation?.channel as Channel || 'web');
+      setConversationStatus(conversation?.status || 'open');
     } catch (error) {
       console.error('💥 Erro ao carregar dados da conversa:', error);
     } finally {
@@ -422,6 +425,55 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     }
   }, [navigate, onBack]);
 
+  // Reabrir conversa resolvida
+  const handleReopenConversation = useCallback(async () => {
+    if (!conversationId) return;
+    
+    try {
+      const { error } = await supabase
+        .from('conversations')
+        .update({ status: 'open' })
+        .eq('id', conversationId);
+      
+      if (error) throw error;
+      
+      setConversationStatus('open');
+      toast.success('Conversa reaberta com sucesso');
+    } catch (error) {
+      console.error('Erro ao reabrir conversa:', error);
+      toast.error('Erro ao reabrir conversa');
+    }
+  }, [conversationId]);
+
+  // Forçar carregamento de histórico via Evolution API
+  const handleForceLoadHistory = useCallback(async () => {
+    if (!conversationId || isSyncingHistory) return;
+    
+    setIsSyncingHistory(true);
+    toast.info('Buscando histórico completo...', { duration: 2000 });
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-conversation-history', {
+        body: { conversationId, limit: 200 }
+      });
+      
+      if (error) throw error;
+      
+      if (data?.synced > 0) {
+        toast.success(`${data.synced} mensagens antigas recuperadas!`);
+        // Recarregar mensagens
+        loadInitialMessages();
+      } else {
+        toast.info('Nenhuma mensagem nova encontrada');
+      }
+    } catch (error) {
+      console.error('Erro ao sincronizar histórico:', error);
+      toast.error('Erro ao buscar histórico');
+    } finally {
+      setIsSyncingHistory(false);
+    }
+  }, [conversationId, isSyncingHistory, loadInitialMessages]);
+
   if (!conversationId) {
     return (
       <div className="flex-1 flex items-center justify-center bg-muted p-4">
@@ -462,9 +514,12 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         avatar={contactAvatar}
         channel={conversationChannel} 
         conversationId={conversationId}
+        conversationStatus={conversationStatus}
         onViewContactDetails={handleViewContactDetails}
         onBackToList={handleBackToList}
         onEndConversation={onEndConversation ? () => onEndConversation(conversationId) : undefined}
+        onReopenConversation={handleReopenConversation}
+        onForceLoadHistory={handleForceLoadHistory}
       />
       <div 
         ref={messagesContainerRef}

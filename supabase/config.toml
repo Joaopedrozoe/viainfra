@@ -177,3 +177,6 @@ verify_jwt = false
 
 [functions.search-lid-phones]
 verify_jwt = false
+
+[functions.sync-conversation-history]
+verify_jwt = false
