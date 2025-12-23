@@ -156,3 +156,12 @@ verify_jwt = false
 
 [functions.cleanup-lid-duplicates]
 verify_jwt = false
+
+[functions.find-missing-contacts]
+verify_jwt = false
+
+[functions.list-all-chats]
+verify_jwt = false
+
+[functions.search-chats]
+verify_jwt = false
