@@ -243,11 +243,12 @@ serve(async (req) => {
         }
 
         // CRITICAL: Update conversation timestamps based on latest message
+        // ONLY update if the latest message timestamp is DIFFERENT from current updated_at
         console.log('⏰ Updating conversation timestamps...');
         
         const { data: allConvs } = await supabase
           .from('conversations')
-          .select('id')
+          .select('id, updated_at')
           .eq('company_id', companyId)
           .eq('channel', 'whatsapp');
 
@@ -262,12 +263,19 @@ serve(async (req) => {
             .maybeSingle();
 
           if (latestMsg) {
-            const { error: updateErr } = await supabase
-              .from('conversations')
-              .update({ updated_at: latestMsg.created_at })
-              .eq('id', conv.id);
-              
-            if (!updateErr) updatedCount++;
+            // Only update if timestamps don't match (prevents constant updates)
+            const msgTime = new Date(latestMsg.created_at).getTime();
+            const convTime = new Date(conv.updated_at).getTime();
+            
+            // Update only if message is newer than current updated_at
+            if (msgTime > convTime || Math.abs(msgTime - convTime) > 1000) {
+              const { error: updateErr } = await supabase
+                .from('conversations')
+                .update({ updated_at: latestMsg.created_at })
+                .eq('id', conv.id);
+                
+              if (!updateErr) updatedCount++;
+            }
           }
         }
         
