@@ -1,5 +1,8 @@
 project_id = "xxojpfhnkxpbznbmhmua"
 
+[functions.full-whatsapp-sync]
+verify_jwt = false
+
 [functions.sync-flavio]
 verify_jwt = false
 
