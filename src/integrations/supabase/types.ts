@@ -391,6 +391,54 @@ export type Database = {
           },
         ]
       }
+      lid_phone_mapping: {
+        Row: {
+          company_id: string | null
+          contact_id: string | null
+          created_at: string
+          id: string
+          instance_name: string | null
+          lid: string
+          phone: string
+          updated_at: string
+        }
+        Insert: {
+          company_id?: string | null
+          contact_id?: string | null
+          created_at?: string
+          id?: string
+          instance_name?: string | null
+          lid: string
+          phone: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string | null
+          contact_id?: string | null
+          created_at?: string
+          id?: string
+          instance_name?: string | null
+          lid?: string
+          phone?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lid_phone_mapping_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lid_phone_mapping_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       message_queue: {
         Row: {
           contact_phone: string

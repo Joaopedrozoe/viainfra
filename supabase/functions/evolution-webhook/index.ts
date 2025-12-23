@@ -448,27 +448,88 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     
     // ============================================================
     // PROCESSAMENTO DE MENSAGENS @LID
-    // IMPORTANTE: @lid NÃO tem número de telefone real
-    // Bot NUNCA pode responder para @lid pois a API Evolution
-    // exige o campo "number" que não existe para @lid
+    // IMPORTANTE: @lid NÃO tem número de telefone real diretamente
+    // Mas DEVEMOS vincular ao contato existente usando a tabela lid_phone_mapping
+    // para evitar duplicação de conversas
     // ============================================================
     if (isLidFormat) {
       const lidId = remoteJid.replace('@lid', '');
       console.log(`📱 Mensagem @lid recebida: LID=${lidId}, Nome=${contactName}`);
-      console.log(`🚫 @lid NÃO tem número real - BOT DESABILITADO para este contato`);
       
-      // MARCAR PARA NÃO ACIONAR BOT - @lid não tem número para envio
+      // MARCAR PARA NÃO ACIONAR BOT - @lid não tem número para envio direto
       (message as any)._skipBot = true;
       
-      // Buscar conversa existente
-      let existingLidConv = null;
+      // Obter company_id da instância
+      const { data: instanceData } = await supabase
+        .from('whatsapp_instances')
+        .select('company_id')
+        .eq('instance_name', webhook.instance)
+        .maybeSingle();
       
-      // Busca 1: Pelo remoteJid exato
+      const companyId = instanceData?.company_id;
+      
+      if (!companyId) {
+        console.error('❌ Não foi possível determinar company_id para @lid');
+        continue;
+      }
+      
+      // ============================================================
+      // NOVA LÓGICA: Buscar mapeamento LID -> telefone na tabela dedicada
+      // ============================================================
+      const { data: lidMapping } = await supabase
+        .from('lid_phone_mapping')
+        .select('phone, contact_id')
+        .eq('lid', lidId)
+        .eq('company_id', companyId)
+        .maybeSingle();
+      
+      if (lidMapping && lidMapping.contact_id) {
+        console.log(`✅ LID mapeado para telefone: ${lidMapping.phone} (contact: ${lidMapping.contact_id})`);
+        
+        // Buscar conversa do contato mapeado
+        const { data: mappedConv } = await supabase
+          .from('conversations')
+          .select('*, contacts(*)')
+          .eq('contact_id', lidMapping.contact_id)
+          .eq('channel', 'whatsapp')
+          .in('status', ['open', 'pending'])
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        
+        if (mappedConv) {
+          console.log(`✅ Conversa encontrada via mapeamento LID: ${mappedConv.id}`);
+          
+          // Atualizar lidJid no metadata da conversa
+          await supabase
+            .from('conversations')
+            .update({ 
+              metadata: { ...mappedConv.metadata, lidJid: remoteJid },
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', mappedConv.id);
+          
+          // Salvar mensagem na conversa existente
+          await saveMessage(supabase, mappedConv.id, message, messageContent, lidMapping.phone, webhook.instance);
+          console.log(`✅ Mensagem @lid salva na conversa correta (via mapeamento).`);
+          continue;
+        }
+      }
+      
+      // ============================================================
+      // BUSCA PROGRESSIVA: Tentar vincular ao contato existente
+      // ============================================================
+      let existingLidConv = null;
+      let linkedContactId = null;
+      let linkedPhone = null;
+      
+      // Busca 1: Pelo remoteJid exato (conversa @lid já existente)
       const { data: convByJid } = await supabase
         .from('conversations')
         .select('*, contacts(*)')
         .eq('metadata->>remoteJid', remoteJid)
         .eq('channel', 'whatsapp')
+        .eq('company_id', companyId)
         .limit(1)
         .maybeSingle();
       
@@ -484,6 +545,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
           .select('*, contacts(*)')
           .eq('metadata->>lidJid', remoteJid)
           .eq('channel', 'whatsapp')
+          .eq('company_id', companyId)
           .limit(1)
           .maybeSingle();
         
@@ -493,20 +555,70 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         }
       }
       
-      // Busca 3: Pelo nome do pushName
+      // Busca 3: NOVA - Pelo nome EXATO do pushName em contatos COM telefone
+      // Isso evita criar duplicatas quando o nome corresponde exatamente
       if (!existingLidConv && contactName && contactName !== 'Sem Nome') {
-        const { data: convByName } = await supabase
-          .from('conversations')
-          .select('*, contacts(*)')
-          .eq('channel', 'whatsapp')
-          .ilike('contacts.name', contactName)
+        // Buscar contato COM telefone que tenha o mesmo nome
+        const { data: contactByName } = await supabase
+          .from('contacts')
+          .select('id, phone, name')
+          .eq('company_id', companyId)
+          .ilike('name', contactName)
+          .not('phone', 'is', null)
+          .order('updated_at', { ascending: false })
           .limit(1)
           .maybeSingle();
         
-        if (convByName && convByName.contacts?.phone) {
-          existingLidConv = convByName;
-          console.log(`✅ Conversa encontrada por nome: ${existingLidConv.id} - ${existingLidConv.contacts?.name}`);
+        if (contactByName && contactByName.phone) {
+          console.log(`✅ Contato encontrado por nome: ${contactByName.name} (${contactByName.phone})`);
+          linkedContactId = contactByName.id;
+          linkedPhone = contactByName.phone;
           
+          // Buscar conversa deste contato
+          const { data: convOfContact } = await supabase
+            .from('conversations')
+            .select('*, contacts(*)')
+            .eq('contact_id', contactByName.id)
+            .eq('channel', 'whatsapp')
+            .in('status', ['open', 'pending', 'resolved'])
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          
+          if (convOfContact) {
+            existingLidConv = convOfContact;
+            console.log(`✅ Conversa encontrada por nome do contato: ${existingLidConv.id}`);
+            
+            // CRIAR MAPEAMENTO para futuras mensagens
+            await supabase
+              .from('lid_phone_mapping')
+              .upsert({
+                lid: lidId,
+                phone: linkedPhone,
+                contact_id: linkedContactId,
+                company_id: companyId,
+                instance_name: webhook.instance
+              }, { onConflict: 'lid,company_id' });
+            
+            console.log(`✅ Mapeamento LID->telefone criado: ${lidId} -> ${linkedPhone}`);
+          }
+        }
+      }
+      
+      if (existingLidConv) {
+        // Reabrir se necessário
+        if (existingLidConv.status === 'resolved' || existingLidConv.status === 'closed') {
+          await supabase
+            .from('conversations')
+            .update({ 
+              status: 'open',
+              archived: false,
+              metadata: { ...existingLidConv.metadata, lidJid: remoteJid },
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', existingLidConv.id);
+          console.log(`🔄 Conversa reaberta: ${existingLidConv.id}`);
+        } else {
           // Atualizar o lidJid para facilitar buscas futuras
           await supabase
             .from('conversations')
@@ -516,9 +628,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
             })
             .eq('id', existingLidConv.id);
         }
-      }
-      
-      if (existingLidConv) {
+        
         // Atualizar nome do contato se mudou
         if (existingLidConv.contacts && existingLidConv.contacts.name !== contactName && contactName !== 'Sem Nome') {
           await supabase
@@ -529,29 +639,19 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         }
         
         // Salvar mensagem na conversa existente
-        await saveMessage(supabase, existingLidConv.id, message, messageContent, lidId, webhook.instance);
+        const phoneForMsg = linkedPhone || existingLidConv.contacts?.phone || lidId;
+        await saveMessage(supabase, existingLidConv.id, message, messageContent, phoneForMsg, webhook.instance);
         
-        // BOT NUNCA SERÁ ACIONADO PARA @lid - não temos número para enviar
-        console.log(`✅ Mensagem @lid salva. Bot DESABILITADO (sem número real).`);
+        console.log(`✅ Mensagem @lid salva na conversa existente.`);
         continue;
       }
       
-      // Não existe conversa para esse LID - criar nova (SEM BOT)
-      console.log(`📱 @lid sem conversa existente - criando nova conversa para LID ${lidId}`);
-      
-      // Obter company_id da instância
-      const { data: companyData } = await supabase
-        .from('whatsapp_instances')
-        .select('company_id')
-        .eq('instance_name', webhook.instance)
-        .single();
-      
-      const companyId = companyData?.company_id;
-      
-      if (!companyId) {
-        console.error('❌ Não foi possível determinar company_id para criar contato @lid');
-        continue;
-      }
+      // ============================================================
+      // ÚLTIMA OPÇÃO: Criar nova conversa para esse LID
+      // Isso só deve acontecer se realmente não encontramos nenhum match
+      // ============================================================
+      console.log(`⚠️ @lid sem conversa existente - criando nova conversa para LID ${lidId}`);
+      console.log(`⚠️ ATENÇÃO: Isso pode indicar um contato novo ou falha no matching`);
       
       // Criar novo contato específico para esse LID (SEM TELEFONE)
       const { data: newContact, error: createError } = await supabase
@@ -564,7 +664,6 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
             lidId: lidId,
             isLidContact: true 
           }
-          // NÃO TEM PHONE - @lid não é número real
         })
         .select()
         .single();
@@ -584,7 +683,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
           channel: 'whatsapp',
           status: 'open',
           company_id: companyId,
-          bot_active: false, // BOT SEMPRE DESABILITADO PARA @lid
+          bot_active: false,
           metadata: { 
             remoteJid: remoteJid,
             lidJid: remoteJid,
@@ -606,9 +705,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       
       // Salvar mensagem
       await saveMessage(supabase, newConv.id, message, messageContent, lidId, webhook.instance);
-      
-      // BOT NUNCA SERÁ ACIONADO
-      console.log(`✅ Mensagem @lid salva. Bot DESABILITADO permanentemente.`);
+      console.log(`✅ Mensagem @lid salva.`);
       continue;
     }
     
