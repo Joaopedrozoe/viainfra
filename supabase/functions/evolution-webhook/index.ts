@@ -517,6 +517,134 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       }
       
       // ============================================================
+      // NOVA BUSCA: Tentar resolver LID via Evolution API
+      // ============================================================
+      let resolvedPhone = null;
+      try {
+        const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL');
+        const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
+        
+        if (evolutionApiUrl && evolutionApiKey) {
+          console.log(`🔍 Tentando resolver LID via Evolution API...`);
+          
+          // Buscar contatos na Evolution API
+          const contactsResponse = await fetch(`${evolutionApiUrl}/chat/findContacts/${webhook.instance}`, {
+            method: 'POST',
+            headers: {
+              'apikey': evolutionApiKey,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ where: { id: remoteJid } })
+          });
+          
+          if (contactsResponse.ok) {
+            const contactsData = await contactsResponse.json();
+            const contacts = Array.isArray(contactsData) ? contactsData : (contactsData?.contacts || contactsData?.data || []);
+            
+            // Procurar contato que tenha número de telefone
+            for (const c of contacts) {
+              const cId = c.id || c.remoteJid || '';
+              if (cId.includes(lidId)) {
+                // Tentar extrair telefone do pushName ou de outro campo
+                const possiblePhone = c.number || c.phone || 
+                  (c.id && !c.id.includes('@lid') ? c.id.replace(/@.*/, '') : null);
+                
+                if (possiblePhone && /^\d{10,15}$/.test(possiblePhone)) {
+                  resolvedPhone = possiblePhone;
+                  console.log(`✅ Telefone resolvido via Evolution API: ${resolvedPhone}`);
+                  break;
+                }
+              }
+            }
+            
+            // Se não encontrou, tentar buscar pelo nome
+            if (!resolvedPhone && contactName && contactName !== 'Sem Nome') {
+              for (const c of contacts) {
+                const cName = (c.pushName || c.name || '').toLowerCase();
+                if (cName === contactName.toLowerCase()) {
+                  const possiblePhone = c.number || c.phone || 
+                    (c.id && !c.id.includes('@lid') ? c.id.replace(/@.*/, '') : null);
+                  
+                  if (possiblePhone && /^\d{10,15}$/.test(possiblePhone)) {
+                    resolvedPhone = possiblePhone;
+                    console.log(`✅ Telefone resolvido por nome via Evolution API: ${resolvedPhone}`);
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (apiError) {
+        console.log(`⚠️ Erro ao buscar LID na Evolution API: ${apiError.message}`);
+      }
+      
+      // Se resolvemos o telefone, criar o mapeamento e buscar conversa
+      if (resolvedPhone) {
+        // Buscar contato existente com este telefone
+        const { data: existingContact } = await supabase
+          .from('contacts')
+          .select('id')
+          .eq('phone', resolvedPhone)
+          .eq('company_id', companyId)
+          .maybeSingle();
+        
+        if (existingContact) {
+          // Criar mapeamento
+          await supabase
+            .from('lid_phone_mapping')
+            .upsert({
+              lid: lidId,
+              phone: resolvedPhone,
+              contact_id: existingContact.id,
+              company_id: companyId,
+              instance_name: webhook.instance
+            }, { onConflict: 'lid,company_id' });
+          
+          console.log(`✅ Mapeamento LID->telefone criado: ${lidId} -> ${resolvedPhone}`);
+          
+          // Buscar conversa do contato
+          const { data: resolvedConv } = await supabase
+            .from('conversations')
+            .select('*, contacts(*)')
+            .eq('contact_id', existingContact.id)
+            .eq('channel', 'whatsapp')
+            .in('status', ['open', 'pending', 'resolved'])
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          
+          if (resolvedConv) {
+            // Reabrir se necessário
+            if (resolvedConv.status === 'resolved' || resolvedConv.status === 'closed') {
+              await supabase
+                .from('conversations')
+                .update({ 
+                  status: 'open',
+                  archived: false,
+                  metadata: { ...resolvedConv.metadata, lidJid: remoteJid },
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', resolvedConv.id);
+              console.log(`🔄 Conversa reaberta via resolução de LID: ${resolvedConv.id}`);
+            } else {
+              await supabase
+                .from('conversations')
+                .update({ 
+                  metadata: { ...resolvedConv.metadata, lidJid: remoteJid },
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', resolvedConv.id);
+            }
+            
+            await saveMessage(supabase, resolvedConv.id, message, messageContent, resolvedPhone, webhook.instance);
+            console.log(`✅ Mensagem @lid salva na conversa correta (via resolução Evolution API).`);
+            continue;
+          }
+        }
+      }
+      
+      // ============================================================
       // BUSCA PROGRESSIVA: Tentar vincular ao contato existente
       // ============================================================
       let existingLidConv = null;
@@ -555,7 +683,38 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         }
       }
       
-      // Busca 3: NOVA - Pelo nome EXATO do pushName em contatos COM telefone
+      // Busca 3: Pelo lidId no metadata do contato
+      if (!existingLidConv) {
+        const { data: contactByLidId } = await supabase
+          .from('contacts')
+          .select('id, phone, name')
+          .eq('company_id', companyId)
+          .contains('metadata', { lidId: lidId })
+          .maybeSingle();
+        
+        if (contactByLidId) {
+          console.log(`✅ Contato encontrado por lidId no metadata: ${contactByLidId.name}`);
+          
+          const { data: convOfLidContact } = await supabase
+            .from('conversations')
+            .select('*, contacts(*)')
+            .eq('contact_id', contactByLidId.id)
+            .eq('channel', 'whatsapp')
+            .in('status', ['open', 'pending', 'resolved'])
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          
+          if (convOfLidContact) {
+            existingLidConv = convOfLidContact;
+            linkedContactId = contactByLidId.id;
+            linkedPhone = contactByLidId.phone;
+            console.log(`✅ Conversa encontrada por lidId: ${existingLidConv.id}`);
+          }
+        }
+      }
+      
+      // Busca 4: Pelo nome EXATO do pushName em contatos COM telefone
       // Isso evita criar duplicatas quando o nome corresponde exatamente
       if (!existingLidConv && contactName && contactName !== 'Sem Nome') {
         // Buscar contato COM telefone que tenha o mesmo nome
