@@ -158,12 +158,20 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
               mimeType: attachmentData.mimeType,
             } : undefined;
 
+            // Mapear status de entrega do WhatsApp
+            let deliveryStatus: Message['deliveryStatus'] = undefined;
+            if (msg.sender_type === 'agent' && msg.metadata?.whatsappStatus) {
+              deliveryStatus = msg.metadata.whatsappStatus as Message['deliveryStatus'];
+            }
+
             return {
               id: msg.id,
               content: msg.content,
               sender: msg.sender_type === 'user' ? 'user' : msg.sender_type === 'agent' ? 'agent' : 'bot',
               timestamp: msg.created_at,
               attachment,
+              deliveryStatus,
+              whatsappMessageId: msg.metadata?.whatsappMessageId,
             };
           });
 
@@ -332,7 +340,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       }
 
       if (data) {
-        // Substituir mensagem temporária pela real
+        // Substituir mensagem temporária pela real (ainda com status 'sending')
         setMessages(prev => prev.map(msg => 
           msg.id === tempId 
             ? {
@@ -341,6 +349,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
                 sender: 'agent' as const,
                 timestamp: data.created_at,
                 attachment: attachmentData,
+                deliveryStatus: currentChannel === 'whatsapp' ? 'sending' : undefined,
               }
             : msg
         ));
@@ -362,6 +371,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
               {
                 body: {
                   conversation_id: conversationId,
+                  message_id: data.id, // Passar ID da mensagem para atualizar metadata
                   message_content: content || undefined,
                   attachment: attachmentData,
                   agent_name: profile?.name || 'Atendente',
@@ -371,29 +381,62 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
 
             const duration = Date.now() - startTime;
 
-            if (whatsappError) {
+            if (whatsappError || !response?.success) {
               console.error('❌ [WhatsApp] Erro ao enviar:', {
                 error: whatsappError,
+                response,
                 duration: `${duration}ms`,
                 conversationId,
                 messageId: data.id
+              });
+              
+              // Atualizar status para failed localmente
+              setMessages(prev => prev.map(msg => 
+                msg.id === data.id 
+                  ? { ...msg, deliveryStatus: 'failed' as const }
+                  : msg
+              ));
+              
+              // Mostrar toast de erro
+              toast.error('Falha ao enviar via WhatsApp. A mensagem será reenviada automaticamente.', {
+                description: response?.queued ? 'Adicionada à fila de retry' : undefined,
               });
             } else {
               console.log('✅ [WhatsApp] Mensagem enviada com sucesso!', {
                 duration: `${duration}ms`,
                 response,
                 conversationId,
-                messageId: data.id
+                messageId: data.id,
+                whatsappMessageId: response?.messageId
               });
+              
+              // Atualizar status para sent localmente
+              setMessages(prev => prev.map(msg => 
+                msg.id === data.id 
+                  ? { 
+                      ...msg, 
+                      deliveryStatus: 'sent' as const,
+                      whatsappMessageId: response?.messageId
+                    }
+                  : msg
+              ));
             }
           } catch (whatsappError) {
             console.error('💥 [WhatsApp] Exceção ao chamar função:', {
               error: whatsappError,
               message: whatsappError instanceof Error ? whatsappError.message : 'Unknown error',
-              stack: whatsappError instanceof Error ? whatsappError.stack : undefined,
               conversationId,
               messageId: data.id
             });
+            
+            // Atualizar status para failed localmente
+            setMessages(prev => prev.map(msg => 
+              msg.id === data.id 
+                ? { ...msg, deliveryStatus: 'failed' as const }
+                : msg
+            ));
+            
+            toast.error('Erro ao enviar via WhatsApp. Será reenviada automaticamente.');
           }
         } else {
           console.log('ℹ️ [Chat] Canal não é WhatsApp, pulando envio via Evolution API', {

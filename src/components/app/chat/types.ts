@@ -6,12 +6,16 @@ export interface Attachment {
   size?: number;
 }
 
+export type MessageDeliveryStatus = 'sending' | 'sent' | 'delivered' | 'failed';
+
 export interface Message {
   id: string;
   content: string;
   sender: "user" | "agent" | "bot";
   timestamp: string;
   attachment?: Attachment;
+  deliveryStatus?: MessageDeliveryStatus;
+  whatsappMessageId?: string;
 }
 
 export interface ChatWindowProps {

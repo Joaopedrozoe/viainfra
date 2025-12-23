@@ -1,10 +1,10 @@
-
 import { memo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { Message } from "./types";
+import { Message, MessageDeliveryStatus } from "./types";
 import { format, isThisYear } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { FileText, Download, Play, Pause, Volume2 } from "lucide-react";
+import { FileText, Download, Play, Pause, Volume2, Check, CheckCheck, Clock, AlertCircle, Loader2 } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type MessageItemProps = {
   message: Message;
@@ -15,7 +15,6 @@ const formatMessageTimestamp = (dateString: string) => {
     if (!dateString) return '';
     const date = new Date(dateString);
     
-    // Check if date is valid
     if (isNaN(date.getTime())) {
       return '';
     }
@@ -27,6 +26,81 @@ const formatMessageTimestamp = (dateString: string) => {
     return format(date, "dd/MM/yyyy, HH:mm", { locale: ptBR });
   } catch {
     return '';
+  }
+};
+
+const DeliveryStatusIcon = ({ status, isAgentMessage }: { status?: MessageDeliveryStatus; isAgentMessage: boolean }) => {
+  if (!isAgentMessage) return null;
+  
+  const iconClass = "w-3.5 h-3.5 inline-block ml-1";
+  
+  switch (status) {
+    case 'sending':
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Loader2 className={cn(iconClass, "animate-spin text-white/60")} />
+            </TooltipTrigger>
+            <TooltipContent side="left" className="text-xs">
+              Enviando...
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    case 'sent':
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Check className={cn(iconClass, "text-white/80")} />
+            </TooltipTrigger>
+            <TooltipContent side="left" className="text-xs">
+              Enviado via WhatsApp
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    case 'delivered':
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <CheckCheck className={cn(iconClass, "text-white")} />
+            </TooltipTrigger>
+            <TooltipContent side="left" className="text-xs">
+              Entregue
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    case 'failed':
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <AlertCircle className={cn(iconClass, "text-red-300")} />
+            </TooltipTrigger>
+            <TooltipContent side="left" className="text-xs bg-destructive text-destructive-foreground">
+              Falha no envio - será reenviada automaticamente
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    default:
+      // Mensagem sem status (ainda não confirmada via WhatsApp)
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Clock className={cn(iconClass, "text-white/50")} />
+            </TooltipTrigger>
+            <TooltipContent side="left" className="text-xs">
+              Aguardando confirmação
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
   }
 };
 
@@ -118,27 +192,34 @@ const DocumentAttachment = ({ url, filename }: { url: string; filename?: string 
 };
 
 export const MessageItem = memo(({ message }: MessageItemProps) => {
-  // Guard against invalid message
   if (!message || !message.timestamp) {
     return null;
   }
   
   const formattedTimestamp = formatMessageTimestamp(message.timestamp);
-  const { attachment } = message;
+  const { attachment, deliveryStatus } = message;
+  const isAgentMessage = message.sender === 'agent';
+  const isTempMessage = message.id.startsWith('temp-');
+  
+  // Determinar status efetivo
+  const effectiveStatus: MessageDeliveryStatus | undefined = isTempMessage 
+    ? 'sending' 
+    : deliveryStatus;
   
   return (
     <div
       className={cn(
         "flex",
-        message.sender === "agent" ? "justify-end" : "justify-start"
+        isAgentMessage ? "justify-end" : "justify-start"
       )}
     >
       <div
         className={cn(
-          "max-w-[70%] p-3 rounded-lg",
-          message.sender === "agent"
+          "max-w-[70%] p-3 rounded-lg relative",
+          isAgentMessage
             ? "bg-viainfra-primary text-white rounded-tr-none"
-            : "bg-white border border-gray-200 rounded-tl-none"
+            : "bg-white border border-gray-200 rounded-tl-none",
+          effectiveStatus === 'failed' && isAgentMessage && "ring-2 ring-red-400/50"
         )}
       >
         {/* Texto da mensagem */}
@@ -169,11 +250,13 @@ export const MessageItem = memo(({ message }: MessageItemProps) => {
           <div className="text-sm opacity-70 italic">{message.content}</div>
         )}
         
+        {/* Timestamp e status de entrega */}
         <div className={cn(
-          "text-xs mt-1 text-right",
-          message.sender === "agent" ? "text-white/70" : "text-gray-500"
+          "text-xs mt-1 flex items-center justify-end gap-0.5",
+          isAgentMessage ? "text-white/70" : "text-gray-500"
         )}>
-          {formattedTimestamp}
+          <span>{formattedTimestamp}</span>
+          <DeliveryStatusIcon status={effectiveStatus} isAgentMessage={isAgentMessage} />
         </div>
       </div>
     </div>
