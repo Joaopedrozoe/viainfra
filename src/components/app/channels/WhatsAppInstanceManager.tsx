@@ -8,9 +8,10 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useWhatsAppInstances } from '@/hooks/useWhatsAppInstances';
-import { Loader2, QrCode, Trash2, RefreshCw, CheckCircle2, XCircle, AlertCircle, Plus, Smartphone, Bot, Download, Image } from 'lucide-react';
+import { Loader2, QrCode, Trash2, RefreshCw, CheckCircle2, XCircle, AlertCircle, Plus, Smartphone, Bot, Download, Image, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { ImportProgressModal, ImportProgress } from './ImportProgressModal';
+import { WHATSAPP_INSTANCE_PREFIX, isValidWhatsAppInstance } from '@/lib/whatsapp-rules';
 
 const initialProgress: ImportProgress = {
   status: 'idle',
@@ -49,29 +50,10 @@ export const WhatsAppInstanceManager = () => {
     setBotStatus(savedStatus);
   }, [instances]);
 
-  // Filtrar instâncias e ocultar instâncias específicas
-  const HIDDEN_INSTANCES = ['TESTE', 'TINFO', 'tinfo', 'JUNIORCORRETOR', 'juniorcorretor', 'teste', 'VIAINFRA', 'VIAINFRA2', 'viainfra', 'viainfra2', 'TESTE CONEXÃO AUTONOMA', 'Via Infra ', 'Via Infra', 'OFICIAL', 'TINFO - 35'];
-  
-  // Instâncias que devem sempre ser mostradas (mesmo desconectadas)
-  const ALWAYS_SHOW_INSTANCES = ['VIAINFRAOFICIAL', 'TESTE2'];
-  
+  // REGRA MESTRA: O hook já filtra apenas instâncias com "VIAINFRA" no nome
+  // Aqui apenas mostramos todas as instâncias válidas independente do status
   const connectedInstances = useMemo(() => {
-    return instances.filter(instance => {
-      // Ocultar instâncias específicas
-      if (HIDDEN_INSTANCES.includes(instance.instance_name)) {
-        return false;
-      }
-      
-      // Sempre mostrar instâncias prioritárias
-      if (ALWAYS_SHOW_INSTANCES.includes(instance.instance_name)) {
-        return true;
-      }
-      
-      const status = instance.status?.toLowerCase();
-      const connectionState = instance.connection_state?.toLowerCase();
-      return status === 'open' || status === 'connected' || 
-             connectionState === 'open' || connectionState === 'connected';
-    });
+    return instances; // Já filtradas pelo hook useWhatsAppInstances
   }, [instances]);
 
   const handleCreateInstance = async () => {
@@ -296,19 +278,31 @@ export const WhatsAppInstanceManager = () => {
             <Card className="mb-4 border-dashed">
               <CardContent className="pt-4">
                 <div className="space-y-4">
+                  <Alert className="border-primary/50 bg-primary/5">
+                    <Info className="w-4 h-4" />
+                    <AlertDescription className="text-sm">
+                      <strong>Regra:</strong> O nome da instância deve conter <code className="bg-muted px-1 rounded">{WHATSAPP_INSTANCE_PREFIX}</code> para ser válida.
+                    </AlertDescription>
+                  </Alert>
+                  
                   <div>
                     <Label htmlFor="instanceName">Nome da Instância *</Label>
                     <Input
                       id="instanceName"
-                      placeholder="ex: minha-empresa"
+                      placeholder={`ex: ${WHATSAPP_INSTANCE_PREFIX}-SUPORTE`}
                       value={newInstanceName}
                       onChange={(e) => setNewInstanceName(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleCreateInstance()}
                       className="mt-1"
                     />
                     <p className="text-xs text-muted-foreground mt-1">
-                      Use apenas letras, números e hífens
+                      Use apenas letras, números e hífens. Deve conter "{WHATSAPP_INSTANCE_PREFIX}".
                     </p>
+                    {newInstanceName && !isValidWhatsAppInstance(newInstanceName) && (
+                      <p className="text-xs text-destructive mt-1">
+                        ⚠️ Nome inválido. Deve conter "{WHATSAPP_INSTANCE_PREFIX}".
+                      </p>
+                    )}
                   </div>
                   
                   <div>
@@ -327,7 +321,7 @@ export const WhatsAppInstanceManager = () => {
                   <div className="flex gap-2">
                     <Button 
                       onClick={handleCreateInstance} 
-                      disabled={creating || !newInstanceName.trim()}
+                      disabled={creating || !newInstanceName.trim() || !isValidWhatsAppInstance(newInstanceName)}
                       className="flex-1"
                     >
                       {creating ? (
