@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { isValidWhatsAppInstance, filterValidInstances, getInvalidInstanceMessage } from '@/lib/whatsapp-rules';
 
 const SUPABASE_URL = 'https://xxojpfhnkxpbznbmhmua.supabase.co';
 
@@ -40,8 +41,13 @@ export interface DiagnosticProblem {
 }
 
 export const useWhatsAppInstances = () => {
-  const [instances, setInstances] = useState<WhatsAppInstance[]>([]);
+  const [allInstances, setAllInstances] = useState<WhatsAppInstance[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // REGRA MESTRA: Apenas instâncias com "VIAINFRA" no nome são visíveis
+  const instances = useMemo(() => {
+    return filterValidInstances(allInstances);
+  }, [allInstances]);
 
   const loadInstances = async () => {
     try {
@@ -51,7 +57,7 @@ export const useWhatsAppInstances = () => {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setInstances(data || []);
+      setAllInstances(data || []);
     } catch (error: any) {
       console.error('Error loading WhatsApp instances:', error);
       toast.error('Erro ao carregar instâncias do WhatsApp');
@@ -84,6 +90,13 @@ export const useWhatsAppInstances = () => {
   }, []);
 
   const createInstance = async (instanceName: string, channel: string = 'baileys') => {
+    // REGRA MESTRA: Validar nome da instância antes de criar
+    if (!isValidWhatsAppInstance(instanceName)) {
+      const errorMsg = getInvalidInstanceMessage(instanceName);
+      toast.error(errorMsg);
+      throw new Error(errorMsg);
+    }
+
     try {
       const response = await fetch(
         `${SUPABASE_URL}/functions/v1/evolution-instance/create`,
