@@ -196,7 +196,8 @@ serve(async (req) => {
     }
 
     // Buscar instância WhatsApp conectada
-    const AUTHORIZED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL'];
+    // Apenas instâncias autorizadas com prefixo VIAINFRA
+    const AUTHORIZED_INSTANCES = ['VIAINFRAOFICIAL'];
     
     console.log('[send-whatsapp] Searching for instance, company_id:', conversation.company_id);
     
@@ -368,7 +369,7 @@ serve(async (req) => {
 });
 
 // Função auxiliar para enviar mensagem de texto
-// Para GRUPOS: envia presença primeiro, depois sendText com delay
+// Para GRUPOS: estratégia robusta com múltiplas tentativas
 // Para INDIVIDUAIS: usa /message/sendText padrão
 async function sendTextMessage(
   evolutionUrl: string,
@@ -380,28 +381,54 @@ async function sendTextMessage(
 ): Promise<SendResult> {
   console.log(`[send-whatsapp] sendTextMessage - isGroup: ${isGroup}, recipient: ${recipientJid}`);
 
-  // ===== ESTRATÉGIA PARA GRUPOS =====
-  // 1. Enviar presença "composing" primeiro para forçar sessão
-  // 2. Aguardar um pouco
-  // 3. Enviar mensagem com delay
+  // ===== ESTRATÉGIA ROBUSTA PARA GRUPOS =====
+  // Baseada no que funciona no force-send-group
   if (isGroup) {
-    console.log('[send-whatsapp] 🎯 Usando estratégia específica para GRUPO');
+    console.log('[send-whatsapp] 🎯 Usando estratégia ROBUSTA para GRUPO');
     
     try {
-      // Passo 1: Enviar presença "composing"
-      console.log('[send-whatsapp] Passo 1: Enviando presença composing...');
-      const presenceResp = await fetch(`${evolutionUrl}/chat/updatePresence/${instanceName}`, {
+      // PASSO 1: Forçar refresh do grupo específico para limpar cache
+      console.log('[send-whatsapp] Passo 1: Buscando participantes do grupo para forçar cache...');
+      try {
+        const participantsResp = await fetch(
+          `${evolutionUrl}/group/participants/${instanceName}?groupJid=${recipientJid}`,
+          { headers: { 'apikey': evolutionKey } }
+        );
+        console.log(`[send-whatsapp] Participantes: ${participantsResp.status}`);
+        
+        // Verificar se temos acesso ao grupo
+        if (!participantsResp.ok) {
+          console.warn('[send-whatsapp] ⚠️ Não foi possível acessar participantes do grupo');
+        }
+      } catch (e) {
+        console.warn('[send-whatsapp] Falha ao buscar participantes (continuando):', e);
+      }
+
+      // PASSO 2: Enviar presença "available" primeiro
+      console.log('[send-whatsapp] Passo 2: Enviando presença available...');
+      await fetch(`${evolutionUrl}/chat/updatePresence/${instanceName}`, {
+        method: 'POST',
+        headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number: recipientJid, presence: 'available' })
+      });
+
+      // Aguardar para sessão estabilizar
+      await new Promise(r => setTimeout(r, 1500));
+
+      // PASSO 3: Enviar presença "composing"
+      console.log('[send-whatsapp] Passo 3: Enviando presença composing...');
+      const composingResp = await fetch(`${evolutionUrl}/chat/updatePresence/${instanceName}`, {
         method: 'POST',
         headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({ number: recipientJid, presence: 'composing' })
       });
-      console.log(`[send-whatsapp] Presença: ${presenceResp.status}`);
+      console.log(`[send-whatsapp] Presença composing: ${composingResp.status}`);
 
-      // Passo 2: Aguardar 2 segundos para sessão estabelecer
+      // Aguardar para simular digitação
       await new Promise(r => setTimeout(r, 2000));
 
-      // Passo 3: Enviar mensagem com sendText e delay
-      console.log('[send-whatsapp] Passo 2: Enviando mensagem com sendText...');
+      // PASSO 4: Enviar mensagem com sendText e delay
+      console.log('[send-whatsapp] Passo 4: Enviando mensagem com sendText...');
       const response = await fetch(`${evolutionUrl}/message/sendText/${instanceName}`, {
         method: 'POST',
         headers: {
@@ -411,7 +438,7 @@ async function sendTextMessage(
         body: JSON.stringify({
           number: recipientJid,
           text: text,
-          delay: 1500
+          delay: 2000
         }),
       });
 
@@ -429,10 +456,54 @@ async function sendTextMessage(
         }
       }
 
-      // Se ainda falhou, retornar erro com detalhes
+      // PASSO 5 (fallback): Se falhou, tentar marcar chat como unread e reenviar
+      console.log('[send-whatsapp] Passo 5: Tentando fallback com markChatUnread...');
+      
+      try {
+        await fetch(`${evolutionUrl}/chat/markChatUnread/${instanceName}`, {
+          method: 'POST',
+          headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ number: recipientJid })
+        });
+        
+        await new Promise(r => setTimeout(r, 2000));
+
+        // Reenviar após mark unread
+        console.log('[send-whatsapp] Tentando reenvio após markChatUnread...');
+        const retryResp = await fetch(`${evolutionUrl}/message/sendText/${instanceName}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': evolutionKey,
+          },
+          body: JSON.stringify({
+            number: recipientJid,
+            text: text,
+            delay: 2000
+          }),
+        });
+
+        const retryText = await retryResp.text();
+        console.log(`[send-whatsapp] Retry response: ${retryResp.status}`, retryText);
+
+        if (retryResp.ok) {
+          try {
+            const retryData = JSON.parse(retryText);
+            const messageId = retryData?.key?.id || retryData?.messageId || retryData?.id;
+            console.log('[send-whatsapp] ✅ Grupo: mensagem enviada com sucesso após fallback!');
+            return { success: true, messageId };
+          } catch {
+            return { success: true };
+          }
+        }
+      } catch (fallbackError) {
+        console.warn('[send-whatsapp] Fallback também falhou:', fallbackError);
+      }
+
+      // Todas as tentativas falharam
       return { 
         success: false, 
-        error: `Falha ao enviar para grupo. Resposta: ${responseText}`
+        error: `Falha ao enviar para grupo após múltiplas tentativas. Última resposta: ${responseText}`
       };
 
     } catch (error: any) {
