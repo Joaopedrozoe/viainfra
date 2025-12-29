@@ -11,7 +11,7 @@ const AUTHORIZED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'JUNIORCORRETOR'];
 const BUCKET_NAME = 'profile-pictures';
 
 // LIMIT: Maximum contacts per run to avoid memory issues
-const MAX_CONTACTS_PER_RUN = 5;
+const MAX_CONTACTS_PER_RUN = 50;
 
 // Helper to download image and upload to storage
 async function downloadAndUploadImage(
