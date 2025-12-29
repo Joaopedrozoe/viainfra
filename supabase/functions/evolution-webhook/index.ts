@@ -456,7 +456,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     // ============================================================
     if (isLidFormat) {
       const lidId = remoteJid.replace('@lid', '');
-      console.log(`📱 Mensagem @lid recebida: LID=${lidId}, Nome=${contactName}`);
+      console.log(`📱 Mensagem @lid recebida: LID=${lidId}, Nome=${contactName}, fromMe=${message.key.fromMe}`);
       
       // MARCAR PARA NÃO ACIONAR BOT - @lid não tem número para envio direto
       (message as any)._skipBot = true;
@@ -476,7 +476,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       }
       
       // ============================================================
-      // NOVA LÓGICA: Buscar mapeamento LID -> telefone na tabela dedicada
+      // BUSCA PRIORITÁRIA 1: Mapeamento LID -> telefone na tabela dedicada
       // ============================================================
       const { data: lidMapping } = await supabase
         .from('lid_phone_mapping')
@@ -488,13 +488,13 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       if (lidMapping && lidMapping.contact_id) {
         console.log(`✅ LID mapeado para telefone: ${lidMapping.phone} (contact: ${lidMapping.contact_id})`);
         
-        // Buscar conversa do contato mapeado
+        // Buscar conversa do contato mapeado - incluindo resolved para reabrir
         const { data: mappedConv } = await supabase
           .from('conversations')
           .select('*, contacts(*)')
           .eq('contact_id', lidMapping.contact_id)
           .eq('channel', 'whatsapp')
-          .in('status', ['open', 'pending'])
+          .in('status', ['open', 'pending', 'resolved'])
           .order('updated_at', { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -502,19 +502,175 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         if (mappedConv) {
           console.log(`✅ Conversa encontrada via mapeamento LID: ${mappedConv.id}`);
           
-          // Atualizar lidJid no metadata da conversa
-          await supabase
-            .from('conversations')
-            .update({ 
-              metadata: { ...mappedConv.metadata, lidJid: remoteJid },
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', mappedConv.id);
+          // Reabrir se necessário
+          if (mappedConv.status === 'resolved' || mappedConv.archived) {
+            await supabase
+              .from('conversations')
+              .update({ 
+                status: 'open',
+                archived: false,
+                metadata: { ...mappedConv.metadata, lidJid: remoteJid },
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', mappedConv.id);
+            console.log(`🔄 Conversa reaberta via mapeamento LID: ${mappedConv.id}`);
+          } else {
+            // Atualizar lidJid no metadata da conversa
+            await supabase
+              .from('conversations')
+              .update({ 
+                metadata: { ...mappedConv.metadata, lidJid: remoteJid },
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', mappedConv.id);
+          }
           
           // Salvar mensagem na conversa existente
           await saveMessage(supabase, mappedConv.id, message, messageContent, lidMapping.phone, webhook.instance, (message as any)._isOutgoing);
           console.log(`✅ Mensagem @lid salva na conversa correta (via mapeamento).`);
           continue;
+        }
+      }
+      
+      // ============================================================
+      // BUSCA PRIORITÁRIA 2: Se é mensagem ENVIADA (fromMe), buscar conversa
+      // ativa recente com qualquer contato para evitar criar @lid falso
+      // ============================================================
+      if (message.key.fromMe && contactName && contactName !== 'Sem Nome') {
+        console.log(`🔍 Mensagem ENVIADA para @lid - buscando contato por nome: ${contactName}`);
+        
+        // Buscar contato COM telefone pelo nome exato
+        const { data: contactByName } = await supabase
+          .from('contacts')
+          .select('id, phone, name')
+          .eq('company_id', companyId)
+          .ilike('name', contactName)
+          .not('phone', 'is', null)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        
+        if (contactByName && contactByName.phone) {
+          console.log(`✅ Contato encontrado por nome para msg enviada: ${contactByName.name} (${contactByName.phone})`);
+          
+          // Criar mapeamento LID -> telefone
+          await supabase
+            .from('lid_phone_mapping')
+            .upsert({
+              lid: lidId,
+              phone: contactByName.phone,
+              contact_id: contactByName.id,
+              company_id: companyId,
+              instance_name: webhook.instance
+            }, { onConflict: 'lid,company_id' });
+          
+          console.log(`✅ Mapeamento LID->telefone criado: ${lidId} -> ${contactByName.phone}`);
+          
+          // Buscar conversa do contato
+          const { data: convByName } = await supabase
+            .from('conversations')
+            .select('*, contacts(*)')
+            .eq('contact_id', contactByName.id)
+            .eq('channel', 'whatsapp')
+            .in('status', ['open', 'pending', 'resolved'])
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          
+          if (convByName) {
+            console.log(`✅ Conversa encontrada via nome para msg enviada: ${convByName.id}`);
+            
+            // Reabrir se necessário
+            if (convByName.status === 'resolved' || convByName.archived) {
+              await supabase
+                .from('conversations')
+                .update({ 
+                  status: 'open',
+                  archived: false,
+                  metadata: { ...convByName.metadata, lidJid: remoteJid },
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', convByName.id);
+            } else {
+              await supabase
+                .from('conversations')
+                .update({ 
+                  metadata: { ...convByName.metadata, lidJid: remoteJid },
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', convByName.id);
+            }
+            
+            await saveMessage(supabase, convByName.id, message, messageContent, contactByName.phone, webhook.instance, true);
+            console.log(`✅ Mensagem enviada @lid salva na conversa correta via nome.`);
+            continue;
+          }
+        }
+        
+        // Buscar também por nome parcial (sem considerar emojis, etc)
+        const cleanName = contactName.replace(/[^\w\s]/gi, '').trim();
+        if (cleanName.length >= 3 && cleanName !== contactName) {
+          const { data: contactByPartialName } = await supabase
+            .from('contacts')
+            .select('id, phone, name')
+            .eq('company_id', companyId)
+            .ilike('name', `%${cleanName}%`)
+            .not('phone', 'is', null)
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          
+          if (contactByPartialName && contactByPartialName.phone) {
+            console.log(`✅ Contato encontrado por nome parcial: ${contactByPartialName.name} (${contactByPartialName.phone})`);
+            
+            // Criar mapeamento
+            await supabase
+              .from('lid_phone_mapping')
+              .upsert({
+                lid: lidId,
+                phone: contactByPartialName.phone,
+                contact_id: contactByPartialName.id,
+                company_id: companyId,
+                instance_name: webhook.instance
+              }, { onConflict: 'lid,company_id' });
+            
+            // Buscar conversa
+            const { data: convByPartialName } = await supabase
+              .from('conversations')
+              .select('*, contacts(*)')
+              .eq('contact_id', contactByPartialName.id)
+              .eq('channel', 'whatsapp')
+              .in('status', ['open', 'pending', 'resolved'])
+              .order('updated_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            
+            if (convByPartialName) {
+              if (convByPartialName.status === 'resolved' || convByPartialName.archived) {
+                await supabase
+                  .from('conversations')
+                  .update({ 
+                    status: 'open',
+                    archived: false,
+                    metadata: { ...convByPartialName.metadata, lidJid: remoteJid },
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq('id', convByPartialName.id);
+              } else {
+                await supabase
+                  .from('conversations')
+                  .update({ 
+                    metadata: { ...convByPartialName.metadata, lidJid: remoteJid },
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq('id', convByPartialName.id);
+              }
+              
+              await saveMessage(supabase, convByPartialName.id, message, messageContent, contactByPartialName.phone, webhook.instance, true);
+              console.log(`✅ Mensagem enviada @lid salva via nome parcial: ${convByPartialName.id}`);
+              continue;
+            }
+          }
         }
       }
       
