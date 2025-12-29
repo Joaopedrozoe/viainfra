@@ -410,10 +410,12 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     
     console.log('Message key:', JSON.stringify(message.key));
     
-    // Skip messages sent by us
+    // Processar mensagens enviadas (fromMe) - SALVAR mas não acionar bot
     if (message.key.fromMe) {
-      console.log('Skipping outgoing message');
-      continue;
+      console.log('📤 Mensagem ENVIADA detectada - será salva como agent');
+      (message as any)._skipBot = true;
+      (message as any)._isOutgoing = true;
+      // NÃO usar continue - processar e salvar a mensagem normalmente
     }
 
     // Processar grupos - salvar mensagens mas não acionar bot
@@ -510,7 +512,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
             .eq('id', mappedConv.id);
           
           // Salvar mensagem na conversa existente
-          await saveMessage(supabase, mappedConv.id, message, messageContent, lidMapping.phone, webhook.instance);
+          await saveMessage(supabase, mappedConv.id, message, messageContent, lidMapping.phone, webhook.instance, (message as any)._isOutgoing);
           console.log(`✅ Mensagem @lid salva na conversa correta (via mapeamento).`);
           continue;
         }
@@ -637,7 +639,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
                 .eq('id', resolvedConv.id);
             }
             
-            await saveMessage(supabase, resolvedConv.id, message, messageContent, resolvedPhone, webhook.instance);
+            await saveMessage(supabase, resolvedConv.id, message, messageContent, resolvedPhone, webhook.instance, (message as any)._isOutgoing);
             console.log(`✅ Mensagem @lid salva na conversa correta (via resolução Evolution API).`);
             continue;
           }
@@ -799,7 +801,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         
         // Salvar mensagem na conversa existente
         const phoneForMsg = linkedPhone || existingLidConv.contacts?.phone || lidId;
-        await saveMessage(supabase, existingLidConv.id, message, messageContent, phoneForMsg, webhook.instance);
+        await saveMessage(supabase, existingLidConv.id, message, messageContent, phoneForMsg, webhook.instance, (message as any)._isOutgoing);
         
         console.log(`✅ Mensagem @lid salva na conversa existente.`);
         continue;
@@ -863,7 +865,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       console.log(`✅ Nova conversa @lid criada: ${newConv.id} - BOT DESABILITADO`);
       
       // Salvar mensagem
-      await saveMessage(supabase, newConv.id, message, messageContent, lidId, webhook.instance);
+      await saveMessage(supabase, newConv.id, message, messageContent, lidId, webhook.instance, (message as any)._isOutgoing);
       console.log(`✅ Mensagem @lid salva.`);
       continue;
     }
@@ -1003,7 +1005,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     const conversation = await getOrCreateConversation(supabase, contact.id, contactPhone, contactName, remoteJid, webhook.instance);
     
     // Save message - returns null if duplicate
-    const savedMessage = await saveMessage(supabase, conversation.id, message, messageContent, contactPhone, webhook.instance);
+    const savedMessage = await saveMessage(supabase, conversation.id, message, messageContent, contactPhone, webhook.instance, (message as any)._isOutgoing);
     
     // PROTEÇÃO: Se a mensagem foi duplicada, não aciona o bot
     if (!savedMessage) {
@@ -1657,7 +1659,7 @@ function getExtensionFromMimeType(mimeType: string): string {
   return mimeToExt[mimeType] || 'bin';
 }
 
-async function saveMessage(supabase: any, conversationId: string, message: EvolutionMessage, content: string, phoneNumber: string, instanceName: string) {
+async function saveMessage(supabase: any, conversationId: string, message: EvolutionMessage, content: string, phoneNumber: string, instanceName: string, isOutgoing: boolean = false) {
   const externalId = message.key.id;
   
   // Check for duplicate
@@ -1692,10 +1694,13 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
     messageMetadata.attachment = attachment;
   }
   
+  // CORREÇÃO: Definir sender_type baseado em fromMe/isOutgoing
+  const senderType = isOutgoing || message.key.fromMe ? 'agent' : 'user';
+  
   const messageData = {
     conversation_id: conversationId,
     content: content,
-    sender_type: 'user',
+    sender_type: senderType,
     metadata: messageMetadata,
     created_at: new Date(message.messageTimestamp * 1000).toISOString()
   };
