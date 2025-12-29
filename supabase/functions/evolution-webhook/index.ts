@@ -803,40 +803,46 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       }
       
       // ============================================================
-      // BUSCA PROGRESSIVA: Tentar vincular ao contato existente
+      // BUSCA PROGRESSIVA COM PROTEÇÃO ANTI-DUPLICATA
+      // Busca TODAS as conversas com este LID e usa a mais antiga (primeira criada)
       // ============================================================
       let existingLidConv = null;
       let linkedContactId = null;
       let linkedPhone = null;
       
-      // Busca 1: Pelo remoteJid exato (conversa @lid já existente)
-      const { data: convByJid } = await supabase
+      // Busca TODAS as conversas com este remoteJid para detectar duplicatas
+      const { data: allConvsByJid } = await supabase
         .from('conversations')
         .select('*, contacts(*)')
         .eq('metadata->>remoteJid', remoteJid)
         .eq('channel', 'whatsapp')
         .eq('company_id', companyId)
-        .limit(1)
-        .maybeSingle();
+        .order('created_at', { ascending: true }); // Mais antiga primeiro
       
-      if (convByJid) {
-        existingLidConv = convByJid;
-        console.log(`✅ Conversa encontrada por remoteJid: ${existingLidConv.id}`);
+      if (allConvsByJid && allConvsByJid.length > 0) {
+        // Usar a conversa MAIS ANTIGA (primeira criada) - as outras são duplicatas
+        existingLidConv = allConvsByJid[0];
+        console.log(`✅ Conversa encontrada por remoteJid: ${existingLidConv.id} (de ${allConvsByJid.length} encontradas)`);
+        
+        // Se há duplicatas, logar para futuro cleanup
+        if (allConvsByJid.length > 1) {
+          console.warn(`⚠️ DUPLICATAS DETECTADAS: ${allConvsByJid.length} conversas com mesmo LID ${lidId}`);
+          console.warn(`⚠️ IDs duplicados: ${allConvsByJid.slice(1).map((c: any) => c.id).join(', ')}`);
+        }
       }
       
       // Busca 2: Pelo lidJid no metadata
       if (!existingLidConv) {
-        const { data: convByLidJid } = await supabase
+        const { data: allConvsByLidJid } = await supabase
           .from('conversations')
           .select('*, contacts(*)')
           .eq('metadata->>lidJid', remoteJid)
           .eq('channel', 'whatsapp')
           .eq('company_id', companyId)
-          .limit(1)
-          .maybeSingle();
+          .order('created_at', { ascending: true });
         
-        if (convByLidJid) {
-          existingLidConv = convByLidJid;
+        if (allConvsByLidJid && allConvsByLidJid.length > 0) {
+          existingLidConv = allConvsByLidJid[0];
           console.log(`✅ Conversa encontrada por lidJid: ${existingLidConv.id}`);
         }
       }
@@ -859,7 +865,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
             .eq('contact_id', contactByLidId.id)
             .eq('channel', 'whatsapp')
             .in('status', ['open', 'pending', 'resolved'])
-            .order('updated_at', { ascending: false })
+            .order('created_at', { ascending: true })
             .limit(1)
             .maybeSingle();
           
@@ -965,10 +971,26 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       
       // ============================================================
       // ÚLTIMA OPÇÃO: Criar nova conversa para esse LID
-      // Isso só deve acontecer se realmente não encontramos nenhum match
+      // COM PROTEÇÃO ANTI-RACE-CONDITION
       // ============================================================
-      console.log(`⚠️ @lid sem conversa existente - criando nova conversa para LID ${lidId}`);
+      console.log(`⚠️ @lid sem conversa existente - tentando criar nova conversa para LID ${lidId}`);
       console.log(`⚠️ ATENÇÃO: Isso pode indicar um contato novo ou falha no matching`);
+      
+      // PROTEÇÃO: Verificar NOVAMENTE antes de criar (anti-race-condition)
+      const { data: lastCheckConv } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('metadata->>remoteJid', remoteJid)
+        .eq('channel', 'whatsapp')
+        .eq('company_id', companyId)
+        .limit(1)
+        .maybeSingle();
+      
+      if (lastCheckConv) {
+        console.log(`⚠️ RACE CONDITION EVITADA: Conversa ${lastCheckConv.id} foi criada por outro processo`);
+        await saveMessage(supabase, lastCheckConv.id, message, messageContent, lidId, webhook.instance, (message as any)._isOutgoing);
+        continue;
+      }
       
       // Criar novo contato específico para esse LID (SEM TELEFONE)
       const { data: newContact, error: createError } = await supabase
@@ -992,6 +1014,22 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       
       console.log(`✅ Novo contato @lid criado: ${newContact.id} - ${contactName}`);
       
+      // PROTEÇÃO FINAL: Verificar mais uma vez antes de criar conversa
+      const { data: finalCheck } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('metadata->>remoteJid', remoteJid)
+        .eq('channel', 'whatsapp')
+        .eq('company_id', companyId)
+        .limit(1)
+        .maybeSingle();
+      
+      if (finalCheck) {
+        console.log(`⚠️ RACE CONDITION EVITADA (final): Conversa ${finalCheck.id} já existe`);
+        await saveMessage(supabase, finalCheck.id, message, messageContent, lidId, webhook.instance, (message as any)._isOutgoing);
+        continue;
+      }
+      
       // Criar nova conversa para esse LID com BOT DESABILITADO
       const { data: newConv, error: convError } = await supabase
         .from('conversations')
@@ -1014,6 +1052,22 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         .single();
       
       if (convError) {
+        // Se erro de constraint, buscar a conversa que já existe
+        if (convError.code === '23505') {
+          console.log(`⚠️ Conversa já existe (constraint) - buscando...`);
+          const { data: existingConv } = await supabase
+            .from('conversations')
+            .select('id')
+            .eq('metadata->>remoteJid', remoteJid)
+            .eq('channel', 'whatsapp')
+            .limit(1)
+            .maybeSingle();
+          
+          if (existingConv) {
+            await saveMessage(supabase, existingConv.id, message, messageContent, lidId, webhook.instance, (message as any)._isOutgoing);
+            continue;
+          }
+        }
         console.error('❌ Erro ao criar conversa @lid:', convError);
         continue;
       }
