@@ -112,20 +112,26 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
       let displayName = 'Sem identificação';
       if (conv.contact) {
         const { name, phone, email } = conv.contact;
-        // Se nome não é "Visitante", use o nome
-        if (name && name !== 'Visitante') {
+        // Reject invalid names that look like message IDs
+        const isInvalidName = name && (
+          /^(cmj|wamid|BAE|msg)[a-zA-Z0-9]+$/i.test(name) ||
+          /^[a-fA-F0-9]{20,}$/.test(name)
+        );
+        
+        // Se nome é válido e não é "Visitante", use o nome
+        if (name && name !== 'Visitante' && !isInvalidName) {
           displayName = name;
         }
         // Senão, tente usar o telefone
-        else if (phone) {
+        else if (phone && /^\d{10,15}$/.test(phone)) {
           displayName = phone;
         }
         // Por último, tente o email
         else if (email) {
           displayName = email;
         }
-        // Se ainda for "Visitante" mas tem telefone, mostre o telefone
-        else if (name === 'Visitante' && phone) {
+        // Se nome é inválido mas tem telefone, use telefone
+        else if (isInvalidName && phone) {
           displayName = phone;
         }
       }
@@ -133,11 +139,23 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
       // Find if this conversation has new message flag from hook
       const hasNewMsg = (conv as any).hasNewMessage || false;
       
+      // Filter out conversations with invalid JIDs in metadata
+      const remoteJid = (conv.metadata as any)?.remoteJid || '';
+      const isInvalidJid = /^(cmj|wamid|BAE|msg)[a-zA-Z0-9]+$/i.test(remoteJid) ||
+                           (remoteJid && !remoteJid.includes('@'));
+      
+      if (isInvalidJid) {
+        return null; // Will be filtered out below
+      }
+      
+      // NEVER show "Nova conversa" if there's no message - hide these instead
+      const hasValidPreview = lastMessage?.content && lastMessage.content.length > 0;
+      
       return {
         id: conv.id,
         name: displayName,
         channel: conv.channel as Channel,
-        preview: lastMessage?.content || 'Nova conversa',
+        preview: hasValidPreview ? lastMessage.content : (conv.status === 'open' ? 'Aguardando mensagem...' : 'Sem mensagens'),
         time: formatConversationTime(lastActivityTime),
         unread: conv.status === 'open' || conv.status === 'pending' ? 1 : 0,
         avatar: conv.contact?.avatar_url,
@@ -145,9 +163,10 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         status: conv.status,
         archived: (conv as any).archived || false,
         lastActivityTimestamp: new Date(lastActivityTime).getTime(),
-        hasNewMessage: hasNewMsg
-      } as Conversation & { is_preview: boolean; status?: string; archived?: boolean; lastActivityTimestamp?: number; hasNewMessage?: boolean };
-    });
+        hasNewMessage: hasNewMsg,
+        hasMessages: !!lastMessage
+      } as Conversation & { is_preview: boolean; status?: string; archived?: boolean; lastActivityTimestamp?: number; hasNewMessage?: boolean; hasMessages?: boolean };
+    }).filter(Boolean); // Remove null entries (invalid JIDs)
     
     // Combine both lists
     const combined = [...processedSupabaseConversations, ...processedPreviewConversations];
@@ -216,7 +235,13 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     } else if (activeTab === "resolved") {
       result = result.filter((conversation) => (conversation as any).status === 'resolved' && !(conversation as any).archived);
     } else if (activeTab === "all") {
-      result = result.filter((conversation) => (conversation as any).status !== 'resolved' && !(conversation as any).archived);
+      // Filter out resolved, archived AND empty conversations without messages
+      result = result.filter((conversation) => {
+        const isResolved = (conversation as any).status === 'resolved';
+        const isArchived = (conversation as any).archived;
+        const hasMessages = (conversation as any).hasMessages !== false; // Default true for backward compat
+        return !isResolved && !isArchived && hasMessages;
+      });
     }
 
     logger.debug('Final filtered conversations:', result.length);

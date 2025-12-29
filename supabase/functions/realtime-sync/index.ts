@@ -151,15 +151,24 @@ serve(async (req) => {
           if (!remoteJid) continue;
           if (remoteJid === 'status@broadcast') continue;
 
-          // CRITICAL: Validate JID format - MUST have valid WhatsApp suffix
-          // This prevents creating contacts from message IDs (cmja..., wamid..., etc.)
-          const isValidJid = remoteJid.includes('@s.whatsapp.net') || 
-                             remoteJid.includes('@g.us') || 
-                             remoteJid.includes('@lid') ||
-                             remoteJid.includes('@c.us');
+          // CRITICAL: Validate JID format with STRICT regex patterns
+          // Only accept real WhatsApp JID formats, reject ALL message IDs
+          const VALID_JID_PATTERNS = [
+            /^\d{10,15}@s\.whatsapp\.net$/,  // Contato individual padrão
+            /^\d+-\d+@g\.us$/,               // Grupo (formato: id-timestamp@g.us)
+            /^\d+@g\.us$/,                   // Grupo alternativo
+            /^[a-zA-Z0-9]+@lid$/,            // LID (contato sem número visível)
+            /^\d{10,15}@c\.us$/              // Formato antigo
+          ];
           
-          if (!isValidJid) {
-            console.log(`⚠️ Ignorando JID inválido (não é contato): ${remoteJid.substring(0, 30)}...`);
+          const isValidJid = VALID_JID_PATTERNS.some(pattern => pattern.test(remoteJid));
+          
+          // Additional check: reject if remoteJid looks like a message ID
+          const looksLikeMessageId = /^(cmj|wamid|BAE|msg|3EB)[a-zA-Z0-9]{10,}$/i.test(remoteJid) ||
+                                     /^[a-fA-F0-9]{20,}$/.test(remoteJid);
+          
+          if (!isValidJid || looksLikeMessageId) {
+            console.log(`⚠️ Ignorando JID inválido: ${remoteJid.substring(0, 30)}...`);
             continue;
           }
 

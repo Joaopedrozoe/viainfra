@@ -133,12 +133,26 @@ export const useConversations = () => {
         }
       }
 
-      // Build conversation list
+      // Build conversation list - filter out invalid JIDs
       const newConversations = (convData || [])
         .filter(conv => {
           const convRemoteJid = (conv.metadata as any)?.remoteJid;
           const contactRemoteJid = (conv.contacts as any)?.metadata?.remoteJid;
-          return convRemoteJid !== 'status@broadcast' && contactRemoteJid !== 'status@broadcast';
+          
+          // Skip status broadcasts
+          if (convRemoteJid === 'status@broadcast' || contactRemoteJid === 'status@broadcast') {
+            return false;
+          }
+          
+          // Skip invalid JIDs (message IDs, etc.)
+          if (convRemoteJid && (
+            /^(cmj|wamid|BAE|msg|3EB)[a-zA-Z0-9]+$/i.test(convRemoteJid) ||
+            !convRemoteJid.includes('@')
+          )) {
+            return false;
+          }
+          
+          return true;
         })
         .map(conv => {
           const lastMsg = lastMessages[conv.id];
