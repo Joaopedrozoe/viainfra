@@ -180,9 +180,24 @@ export const useConversations = () => {
         return diff;
       });
       
-      console.log('📋 Sorted conversations:', newConversations.slice(0, 5).map(c => 
-        `${c.contact?.name}: ${c.lastMessage?.created_at || c.updated_at}`
+      console.log('📋 Sorted conversations:', newConversations.slice(0, 10).map(c => 
+        `${c.contact?.name || 'NO_CONTACT'}: lastMsg=${!!c.lastMessage}, status=${c.status}, archived=${c.archived}`
       ));
+      
+      // DEBUG: Check for Yago specifically
+      const yagoConvs = newConversations.filter(c => c.contact?.name?.toLowerCase().includes('yago'));
+      if (yagoConvs.length > 0) {
+        console.log('🎯 YAGO FOUND:', yagoConvs.map(c => ({
+          id: c.id,
+          name: c.contact?.name,
+          status: c.status,
+          archived: c.archived,
+          hasLastMessage: !!c.lastMessage,
+          lastMsgContent: c.lastMessage?.content?.substring(0, 30)
+        })));
+      } else {
+        console.log('❌ YAGO NOT FOUND in', newConversations.length, 'conversations');
+      }
 
       // Detect new conversations for notifications
       const currentIds = new Set(newConversations.map(c => c.id));
