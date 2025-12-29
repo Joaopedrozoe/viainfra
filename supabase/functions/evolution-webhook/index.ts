@@ -1214,6 +1214,9 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     // Get or create conversation
     const conversation = await getOrCreateConversation(supabase, contact.id, contactPhone, contactName, remoteJid, webhook.instance);
     
+    // Verificar se é uma reação - reações NÃO devem atualizar updated_at
+    const isReaction = isReactionMessage(message);
+    
     // Save message - returns null if duplicate
     const savedMessage = await saveMessage(supabase, conversation.id, message, messageContent, contactPhone, webhook.instance, (message as any)._isOutgoing);
     
@@ -1221,6 +1224,16 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     if (!savedMessage) {
       console.log('⚠️ Mensagem duplicada - ignorando trigger do bot');
       continue;
+    }
+    
+    // Atualizar updated_at APENAS se NÃO for reação
+    if (!isReaction) {
+      await supabase
+        .from('conversations')
+        .update({ updated_at: new Date(message.messageTimestamp * 1000).toISOString() })
+        .eq('id', conversation.id);
+    } else {
+      console.log('⚡ Reação detectada - NÃO atualizando timestamp da conversa');
     }
 
     // PROTEÇÃO: Não acionar bot para mensagens antigas
@@ -1683,12 +1696,9 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
         .eq('id', existingConversation.id);
       
       existingConversation.status = 'open';
-    } else {
-      await supabase
-        .from('conversations')
-        .update({ updated_at: new Date().toISOString() })
-        .eq('id', existingConversation.id);
     }
+    // NOTA: Não atualizar updated_at aqui - será feito em processNewMessage
+    // exceto para reações que NÃO devem atualizar o timestamp
     
     return existingConversation;
   }
@@ -2572,6 +2582,14 @@ function extractPhoneNumber(remoteJid: string): string {
 function extractMessageContent(message: EvolutionMessage): string {
   const msgContent = message.message;
   
+  // Tratar reações (emoji reactions)
+  if ((msgContent as any).reactionMessage) {
+    const reaction = (msgContent as any).reactionMessage;
+    const emoji = reaction.text || '👍';
+    const quotedText = reaction.key?.id ? 'mensagem' : 'mensagem';
+    return `Reagiu com ${emoji}`;
+  }
+  
   if (msgContent.conversation) {
     return msgContent.conversation;
   }
@@ -2609,6 +2627,11 @@ function extractMessageContent(message: EvolutionMessage): string {
   }
   
   return '[Mensagem não suportada]';
+}
+
+// Verificar se a mensagem é uma reação
+function isReactionMessage(message: EvolutionMessage): boolean {
+  return !!(message.message as any)?.reactionMessage;
 }
 
 function extractAttachment(message: EvolutionMessage): Attachment | null {
