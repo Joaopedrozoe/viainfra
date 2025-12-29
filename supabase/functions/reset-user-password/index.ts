@@ -14,8 +14,12 @@ serve(async (req) => {
   try {
     const { email, password, newEmail } = await req.json();
 
-    if (!email || !password) {
-      throw new Error('Email and password are required');
+    if (!email) {
+      throw new Error('Email is required');
+    }
+
+    if (!password && !newEmail) {
+      throw new Error('Either password or newEmail is required');
     }
 
     // Initialize Supabase Admin Client with service role key
@@ -43,8 +47,11 @@ serve(async (req) => {
       throw new Error(`User with email ${email} not found`);
     }
 
-    // Update user password and email if provided
-    const updatePayload: any = { password };
+    // Update user password and/or email
+    const updatePayload: any = {};
+    if (password) {
+      updatePayload.password = password;
+    }
     if (newEmail) {
       updatePayload.email = newEmail;
     }
@@ -53,6 +60,22 @@ serve(async (req) => {
       user.id,
       updatePayload
     );
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    // Also update profiles table if email changed
+    if (newEmail) {
+      const { error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .update({ email: newEmail })
+        .eq('user_id', user.id);
+      
+      if (profileError) {
+        console.error('Failed to update profile email:', profileError);
+      }
+    }
 
     if (updateError) {
       throw updateError;
