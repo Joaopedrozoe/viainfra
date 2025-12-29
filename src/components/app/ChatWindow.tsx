@@ -361,9 +361,15 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
               // Atualizar status para failed localmente
               updateMessage(data.id, { deliveryStatus: 'failed' });
               
-              // Mostrar toast de erro
-              toast.error('Falha ao enviar via WhatsApp. A mensagem será reenviada automaticamente.', {
-                description: response?.queued ? 'Adicionada à fila de retry' : undefined,
+              // Mensagem de erro específica para grupos
+              const isGroupError = response?.error?.includes('grupo') || response?.error?.includes('@g.us');
+              const errorMsg = isGroupError
+                ? 'Falha ao enviar para o grupo. Será reenviada automaticamente.'
+                : 'Falha ao enviar via WhatsApp. Será reenviada automaticamente.';
+              
+              toast.error(errorMsg, {
+                description: response?.queued ? 'Adicionada à fila de retry' : response?.error?.substring(0, 100),
+                duration: 5000,
               });
             } else {
               console.log('✅ [WhatsApp] Mensagem enviada com sucesso!', {
@@ -379,6 +385,12 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
                 deliveryStatus: 'sent', 
                 whatsappMessageId: response?.messageId 
               });
+              
+              // Toast de sucesso para grupos (feedback positivo importante)
+              if (response?.messageId) {
+                // Silencioso para mensagens normais, mas pode ser útil para debug
+                console.log('✅ [WhatsApp] MessageId confirmado:', response.messageId);
+              }
             }
           } catch (whatsappError) {
             console.error('💥 [WhatsApp] Exceção ao chamar função:', {
@@ -391,7 +403,9 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             // Atualizar status para failed localmente
             updateMessage(data.id, { deliveryStatus: 'failed' });
             
-            toast.error('Erro ao enviar via WhatsApp. Será reenviada automaticamente.');
+            toast.error('Erro ao enviar via WhatsApp. Será reenviada automaticamente.', {
+              duration: 5000,
+            });
           }
         } else {
           console.log('ℹ️ [Chat] Canal não é WhatsApp, pulando envio via Evolution API', {
