@@ -205,30 +205,106 @@ serve(async (req) => {
 
         console.log(`📷 ${contact.name} (${formattedPhone})...`);
 
-        // Fetch profile picture URL
-        const response = await fetch(
-          `${evolutionUrl}/chat/fetchProfilePictureUrl/${instance.instance_name}`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'apikey': evolutionKey,
-            },
-            body: JSON.stringify({ number: formattedPhone }),
-          }
-        );
+        let pictureUrl: string | null = null;
+        
+        // Try METHOD 1: fetchProfilePictureUrl
+        try {
+          console.log(`🔍 Method 1: fetchProfilePictureUrl`);
+          const response1 = await fetch(
+            `${evolutionUrl}/chat/fetchProfilePictureUrl/${instance.instance_name}`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'apikey': evolutionKey,
+              },
+              body: JSON.stringify({ number: formattedPhone }),
+            }
+          );
 
-        if (!response.ok) {
-          console.log(`⚠️ API error: ${response.status}`);
-          results.failed++;
-          continue;
+          if (response1.ok) {
+            const data1 = await response1.json();
+            pictureUrl = data1.profilePictureUrl || data1.pictureUrl || data1.url || data1.picture;
+            if (pictureUrl) {
+              console.log(`✅ Method 1 success: ${pictureUrl.substring(0, 60)}...`);
+            }
+          }
+        } catch (e) {
+          console.log(`⚠️ Method 1 failed: ${e}`);
+        }
+        
+        // Try METHOD 2: getProfilePictureUrl (different endpoint)
+        if (!pictureUrl) {
+          try {
+            console.log(`🔍 Method 2: getProfilePictureUrl`);
+            const jid = `${formattedPhone}@s.whatsapp.net`;
+            const response2 = await fetch(
+              `${evolutionUrl}/chat/getProfilePictureUrl/${instance.instance_name}`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'apikey': evolutionKey,
+                },
+                body: JSON.stringify({ jid }),
+              }
+            );
+
+            if (response2.ok) {
+              const data2 = await response2.json();
+              pictureUrl = data2.profilePictureUrl || data2.pictureUrl || data2.url || data2.picture || data2.imgUrl;
+              if (pictureUrl) {
+                console.log(`✅ Method 2 success: ${pictureUrl.substring(0, 60)}...`);
+              }
+            }
+          } catch (e) {
+            console.log(`⚠️ Method 2 failed: ${e}`);
+          }
+        }
+        
+        // Try METHOD 3: fetchContacts - busca contatos salvos no WhatsApp
+        if (!pictureUrl) {
+          try {
+            console.log(`🔍 Method 3: fetchContacts`);
+            const response3 = await fetch(
+              `${evolutionUrl}/chat/fetchContacts/${instance.instance_name}`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'apikey': evolutionKey,
+                },
+                body: JSON.stringify({}),
+              }
+            );
+
+            if (response3.ok) {
+              const data3 = await response3.json();
+              // fetchContacts returns array of contacts
+              const contacts = Array.isArray(data3) ? data3 : [];
+              const jid = `${formattedPhone}@s.whatsapp.net`;
+              const contactData = contacts.find((c: any) => c.id === jid || c.jid === jid || c.wuid === jid);
+              console.log(`📋 Method 3: Found ${contacts.length} contacts, searching for ${jid}`);
+              
+              if (contactData) {
+                console.log(`📋 Method 3 contact data: ${JSON.stringify(contactData).substring(0, 300)}`);
+                pictureUrl = contactData.profilePicUrl || contactData.profilePictureUrl || 
+                            contactData.profilePicThumb || contactData.pictureUrl || 
+                            contactData.imgUrl || contactData.photo;
+                if (pictureUrl) {
+                  console.log(`✅ Method 3 success: ${pictureUrl.substring(0, 60)}...`);
+                }
+              } else {
+                console.log(`⚠️ Method 3: Contact not found in list`);
+              }
+            }
+          } catch (e) {
+            console.log(`⚠️ Method 3 failed: ${e}`);
+          }
         }
 
-        const data = await response.json();
-        const pictureUrl = data.profilePictureUrl || data.pictureUrl || data.url;
-
         if (!pictureUrl) {
-          console.log(`📷 No picture available`);
+          console.log(`📷 No picture available from any method`);
           results.skipped++;
           continue;
         }
