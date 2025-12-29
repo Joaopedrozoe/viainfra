@@ -151,10 +151,33 @@ serve(async (req) => {
           if (!remoteJid) continue;
           if (remoteJid === 'status@broadcast') continue;
 
+          // CRITICAL: Validate JID format - MUST have valid WhatsApp suffix
+          // This prevents creating contacts from message IDs (cmja..., wamid..., etc.)
+          const isValidJid = remoteJid.includes('@s.whatsapp.net') || 
+                             remoteJid.includes('@g.us') || 
+                             remoteJid.includes('@lid') ||
+                             remoteJid.includes('@c.us');
+          
+          if (!isValidJid) {
+            console.log(`⚠️ Ignorando JID inválido (não é contato): ${remoteJid.substring(0, 30)}...`);
+            continue;
+          }
+
           const isGroup = remoteJid.includes('@g.us');
           const isLid = remoteJid.includes('@lid');
           const phone = (isLid || isGroup) ? null : remoteJid.split('@')[0];
-          const contactName = chat.name || chat.pushName || chat.notify || phone || remoteJid;
+          
+          // Additional validation: reject message IDs used as contact names
+          const rawContactName = chat.name || chat.pushName || chat.notify || phone || remoteJid;
+          
+          // Skip if name looks like a message ID (cmja..., wamid..., long hex strings)
+          if (/^(cmja|wamid|msg|BAE)[a-zA-Z0-9]{10,}$/i.test(rawContactName) ||
+              /^[a-fA-F0-9]{20,}$/.test(rawContactName)) {
+            console.log(`⚠️ Ignorando nome inválido (parece ID de mensagem): ${rawContactName.substring(0, 30)}...`);
+            continue;
+          }
+          
+          const contactName = rawContactName;
           const cleanName = contactName.toLowerCase().trim();
 
           // Find or create conversation
