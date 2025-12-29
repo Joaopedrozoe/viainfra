@@ -305,10 +305,13 @@ serve(async (req) => {
 
         let updatedCount = 0;
         for (const conv of allConvs || []) {
+          // Buscar última mensagem que NÃO seja uma reação
+          // Reações começam com "Reagiu com" - não devem afetar ordenação
           const { data: latestMsg } = await supabase
             .from('messages')
-            .select('created_at')
+            .select('created_at, content')
             .eq('conversation_id', conv.id)
+            .not('content', 'like', 'Reagiu com %')
             .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle();
