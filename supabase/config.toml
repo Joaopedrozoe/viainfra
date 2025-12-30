@@ -1,5 +1,8 @@
 project_id = "xxojpfhnkxpbznbmhmua"
 
+[functions.fetch-specific-avatars]
+verify_jwt = false
+
 [api]
 enabled = true
 port = 54321
