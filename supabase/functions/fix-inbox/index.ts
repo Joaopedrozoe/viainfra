@@ -17,7 +17,8 @@ serve(async (req) => {
       instanceName, 
       deleteWrongConversations = [], 
       forceUpdateJids = [],
-      importLidToConversation = null // { lidJid: "xxx@lid", targetConversationId: "uuid" }
+      importLidToConversation = null, // { lidJid: "xxx@lid", targetConversationId: "uuid" }
+      createLidMapping = null // { lid: "123456", phone: "5511999999999" }
     } = body;
     
     if (!instanceName) {
@@ -166,7 +167,71 @@ serve(async (req) => {
       }
     }
 
-    // Step 3b: Force sync specific JIDs
+    // Step 3b: Create LID mapping
+    if (createLidMapping) {
+      const { lid, phone } = createLidMapping;
+      console.log(`\n🔗 Creating LID mapping: ${lid} -> ${phone}`);
+      
+      try {
+        // Buscar contato com esse telefone
+        const { data: contact } = await supabase
+          .from('contacts')
+          .select('id, name')
+          .eq('phone', phone)
+          .eq('company_id', companyId)
+          .maybeSingle();
+        
+        if (contact) {
+          // Criar ou atualizar mapeamento
+          const { error } = await supabase
+            .from('lid_phone_mapping')
+            .upsert({
+              lid,
+              phone,
+              contact_id: contact.id,
+              company_id: companyId,
+              instance_name: instanceName
+            }, { onConflict: 'lid,company_id' });
+          
+          if (!error) {
+            console.log(`   ✅ LID mapping created: ${lid} -> ${phone} (${contact.name})`);
+            results.synced.push({ 
+              action: 'lid_mapping_created', 
+              lid, 
+              phone, 
+              contactId: contact.id,
+              contactName: contact.name 
+            });
+            
+            // Também atualizar qualquer conversa existente com esse LID
+            const lidJid = `${lid}@lid`;
+            const { data: lidConvs } = await supabase
+              .from('conversations')
+              .select('id, metadata')
+              .eq('metadata->>remoteJid', lidJid)
+              .eq('company_id', companyId);
+            
+            if (lidConvs && lidConvs.length > 0) {
+              console.log(`   📝 Found ${lidConvs.length} conversations with this LID`);
+              // Marcar para merge futuro
+              results.debug.push({ 
+                lidConversations: lidConvs.map(c => c.id),
+                message: 'These LID conversations may need to be merged with the main contact conversation'
+              });
+            }
+          } else {
+            results.errors.push({ lid, phone, error: String(error) });
+          }
+        } else {
+          results.errors.push({ lid, phone, error: 'Contact not found with this phone' });
+        }
+      } catch (e) {
+        console.error(`   ❌ LID mapping error: ${e}`);
+        results.errors.push({ lid, phone, error: String(e) });
+      }
+    }
+
+    // Step 3c: Force sync specific JIDs
     for (const jid of forceUpdateJids) {
       try {
         console.log(`\n🔄 Syncing: ${jid}`);
