@@ -22,7 +22,8 @@ serve(async (req) => {
       updateContact = null, // { contactId: "uuid", name: "New Name" }
       fixConversationRemoteJid = null, // { conversationId: "uuid", phone: "5511999999999" }
       deleteMessages = [], // Array of message IDs to delete
-      fetchContactName = null // { contactId: "uuid", phone: "5511999999999" } - fetches name from WhatsApp
+      fetchContactName = null, // { contactId: "uuid", phone: "5511999999999" } - fetches name from WhatsApp
+      insertMessages = [] // Array of { conversationId, content, senderType, createdAt }
     } = body;
     
     // Allow some operations without instanceName
@@ -49,6 +50,34 @@ serve(async (req) => {
         console.log(`   ✅ Message deleted`);
       }
     }
+    
+    // Insert messages directly
+    for (const msg of insertMessages) {
+      const { conversationId, content, senderType, createdAt } = msg;
+      console.log(`📝 Inserting message to ${conversationId}: ${content.substring(0, 50)}...`);
+      
+      const { error } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: conversationId,
+          content,
+          sender_type: senderType,
+          created_at: createdAt || new Date().toISOString()
+        });
+      
+      if (error) {
+        results.errors.push({ action: 'insertMessage', error: error.message });
+      } else {
+        results.synced.push({ action: 'insertMessage', conversationId, content: content.substring(0, 50) });
+      }
+      
+      // Update conversation timestamp
+      await supabase
+        .from('conversations')
+        .update({ updated_at: createdAt || new Date().toISOString() })
+        .eq('id', conversationId);
+    }
+    
     // Quick update contact name
     if (updateContact) {
       const { contactId, name } = updateContact;
@@ -232,14 +261,14 @@ serve(async (req) => {
     }
     
     if (!instanceName) {
-      // Return early if only running updateContact, fixConversationRemoteJid, or fetchContactName
-      if (updateContact || fixConversationRemoteJid || fetchContactName) {
+      // Return early if only running simple operations
+      if (updateContact || fixConversationRemoteJid || fetchContactName || insertMessages.length > 0 || deleteMessages.length > 0) {
         return new Response(JSON.stringify({ success: true, results }), { 
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         });
       }
       return new Response(JSON.stringify({ error: 'instanceName required' }), { 
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
