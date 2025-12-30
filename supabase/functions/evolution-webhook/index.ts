@@ -591,108 +591,101 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         if (contactName && contactName !== 'Sem Nome') {
           console.log(`🔍 Buscando contatos com telefone pelo nome: ${contactName}`);
           
-          const { data: contactsByName } = await supabase
+          // Normalizar nome para comparação
+          const normalizedName = contactName.toLowerCase().trim()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+          const firstName = normalizedName.split(/\s+/)[0] || '';
+          
+          // Buscar TODOS contatos com primeiro nome similar para detectar ambiguidade
+          const { data: allContacts } = await supabase
             .from('contacts')
             .select('id, phone, name')
             .eq('company_id', companyId)
-            .ilike('name', contactName)
             .not('phone', 'is', null)
             .order('updated_at', { ascending: false })
-            .limit(10);
+            .limit(100);
           
-          if (contactsByName && contactsByName.length > 0) {
-            console.log(`📋 Encontrados ${contactsByName.length} contatos com nome "${contactName}" e telefone`);
+          if (allContacts && allContacts.length > 0) {
+            // Filtrar contatos com primeiro nome similar
+            const contactsWithSimilarName = allContacts.filter(c => {
+              const cName = (c.name || '').toLowerCase().trim()
+                .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+              const cFirstName = cName.split(/\s+/)[0] || '';
+              return firstName && cFirstName && (
+                cFirstName === firstName ||
+                cFirstName.includes(firstName) ||
+                firstName.includes(cFirstName)
+              );
+            });
             
-            // Para cada contato, verificar se tem conversa com mensagens recentes
-            let bestMatch = null;
-            let bestMatchScore = 0;
+            console.log(`📊 Contatos com primeiro nome similar a "${firstName}": ${contactsWithSimilarName.length}`);
             
-            for (const contact of contactsByName) {
-              // Buscar conversa do contato
-              const { data: conv } = await supabase
-                .from('conversations')
-                .select('id, updated_at, status, metadata')
-                .eq('contact_id', contact.id)
-                .eq('channel', 'whatsapp')
-                .in('status', ['open', 'pending', 'resolved'])
-                .order('updated_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
+            // PROTEÇÃO: Se há MÚLTIPLOS contatos com nome similar, NÃO criar mapeamento
+            if (contactsWithSimilarName.length > 1) {
+              console.log(`⚠️ MÚLTIPLOS CONTATOS com nome similar - NÃO criando mapeamento para evitar erro`);
+              console.log(`⚠️ Contatos: ${contactsWithSimilarName.slice(0, 5).map(c => `${c.name} (${c.phone})`).join(', ')}`);
+              // Não fazer nada - deixar cair para a estratégia 3 ou falhar silenciosamente
+            } else {
+              // Apenas UM contato - seguro fazer match
+              const contactsByName = allContacts.filter(c => 
+                (c.name || '').toLowerCase().trim() === normalizedName
+              );
               
-              if (conv) {
-                // Calcular score: conversas mais recentes têm prioridade
-                const convUpdatedAt = new Date(conv.updated_at).getTime();
-                const now = Date.now();
-                const ageMinutes = (now - convUpdatedAt) / (1000 * 60);
+              if (contactsByName.length === 1) {
+                const contact = contactsByName[0];
+                console.log(`✅ ÚNICO contato com nome EXATO: ${contact.name} (${contact.phone})`);
                 
-                // Score baseado em quão recente é a conversa
-                let score = 0;
-                if (ageMinutes < 30) {
-                  score = 1000 - ageMinutes;
-                } else if (ageMinutes < 60) {
-                  score = 500;
-                } else if (ageMinutes < 1440) {
-                  score = 100;
-                } else {
-                  score = 10;
+                // Buscar conversa do contato
+                const { data: conv } = await supabase
+                  .from('conversations')
+                  .select('id, updated_at, status, metadata')
+                  .eq('contact_id', contact.id)
+                  .eq('channel', 'whatsapp')
+                  .in('status', ['open', 'pending', 'resolved'])
+                  .order('updated_at', { ascending: false })
+                  .limit(1)
+                  .maybeSingle();
+                
+                if (conv) {
+                  // Criar mapeamento LID -> telefone PERMANENTE (só com match único e exato)
+                  await supabase
+                    .from('lid_phone_mapping')
+                    .upsert({
+                      lid: lidId,
+                      phone: contact.phone,
+                      contact_id: contact.id,
+                      company_id: companyId,
+                      instance_name: webhook.instance
+                    }, { onConflict: 'lid,company_id' });
+                  
+                  console.log(`✅ Mapeamento LID->telefone criado (match único): ${lidId} -> ${contact.phone}`);
+                  
+                  // Atualizar conversa com lidJid
+                  const convMetadata = conv.metadata || {};
+                  await supabase
+                    .from('conversations')
+                    .update({ 
+                      status: conv.status === 'resolved' ? 'open' : conv.status,
+                      archived: false,
+                      metadata: { ...convMetadata, lidJid: remoteJid },
+                      updated_at: new Date().toISOString()
+                    })
+                    .eq('id', conv.id);
+                  
+                  await saveMessage(supabase, conv.id, message, messageContent, contact.phone, webhook.instance, true);
+                  console.log(`✅ Mensagem enviada @lid salva na conversa correta (match único).`);
+                  continue;
                 }
-                
-                // Bonus se a conversa já tem lidJid configurado
-                if (conv.metadata?.lidJid) {
-                  score += 50;
-                }
-                
-                // Bonus se conversa está open (não resolved)
-                if (conv.status === 'open' || conv.status === 'pending') {
-                  score += 200;
-                }
-                
-                console.log(`  - Contato ${contact.phone}: conv ${conv.id}, age ${Math.round(ageMinutes)}min, score ${score}`);
-                
-                if (score > bestMatchScore) {
-                  bestMatchScore = score;
-                  bestMatch = { contact, conv };
-                }
+              } else {
+                console.log(`⚠️ Nenhum contato com nome EXATO "${normalizedName}" - não criando mapeamento`);
               }
-            }
-            
-            if (bestMatch && bestMatchScore >= 50) { // Score mínimo baixo para mensagens enviadas
-              console.log(`✅ Melhor match: ${bestMatch.contact.phone} com score ${bestMatchScore}`);
-              
-              // Criar mapeamento LID -> telefone PERMANENTE
-              await supabase
-                .from('lid_phone_mapping')
-                .upsert({
-                  lid: lidId,
-                  phone: bestMatch.contact.phone,
-                  contact_id: bestMatch.contact.id,
-                  company_id: companyId,
-                  instance_name: webhook.instance
-                }, { onConflict: 'lid,company_id' });
-              
-              console.log(`✅ Mapeamento LID->telefone criado: ${lidId} -> ${bestMatch.contact.phone}`);
-              
-              // Atualizar conversa com lidJid
-              const convMetadata = bestMatch.conv.metadata || {};
-              await supabase
-                .from('conversations')
-                .update({ 
-                  status: bestMatch.conv.status === 'resolved' ? 'open' : bestMatch.conv.status,
-                  archived: false,
-                  metadata: { ...convMetadata, lidJid: remoteJid },
-                  updated_at: new Date().toISOString()
-                })
-                .eq('id', bestMatch.conv.id);
-              
-              await saveMessage(supabase, bestMatch.conv.id, message, messageContent, bestMatch.contact.phone, webhook.instance, true);
-              console.log(`✅ Mensagem enviada @lid salva na conversa correta via matching inteligente.`);
-              continue;
             }
           }
         }
         
         // ESTRATÉGIA 3: Se ainda não encontrou, buscar a conversa MAIS RECENTE 
         // que foi aberta/atualizada pelo agente (última atividade de agente)
+        // IMPORTANTE: NÃO criar mapeamento por nome parcial - muito arriscado
         console.log(`🔍 Tentando encontrar conversa por atividade recente de agente...`);
         
         const { data: recentAgentConvs } = await supabase
@@ -712,39 +705,67 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
           .order('updated_at', { ascending: false })
           .limit(20);
         
-        if (recentAgentConvs && recentAgentConvs.length > 0) {
-          // Verificar qual conversa teve mensagem de agente mais recente
-          for (const conv of recentAgentConvs) {
-            if (!conv.contacts?.phone) continue;
-            
-            // Verificar se nome do contato bate
-            const convContactName = conv.contacts?.name || '';
-            if (contactName && contactName !== 'Sem Nome' && 
-                convContactName.toLowerCase().includes(contactName.toLowerCase().substring(0, 5))) {
-              console.log(`✅ Conversa encontrada por nome parcial: ${conv.contacts.name} (${conv.contacts.phone})`);
+        if (recentAgentConvs && recentAgentConvs.length > 0 && contactName && contactName !== 'Sem Nome') {
+          // Normalizar nome para comparação
+          const normalizedMsgName = contactName.toLowerCase().trim()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+          
+          // PRIMEIRO: Verificar se há MÚLTIPLOS contatos com primeiro nome similar
+          const msgFirstName = normalizedMsgName.split(/\s+/)[0] || '';
+          
+          const convsWithSimilarFirstName = recentAgentConvs.filter(conv => {
+            if (!conv.contacts?.name) return false;
+            const convName = conv.contacts.name.toLowerCase().trim()
+              .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            const convFirstName = convName.split(/\s+/)[0] || '';
+            return msgFirstName && convFirstName && (
+              convFirstName === msgFirstName ||
+              convFirstName.includes(msgFirstName) ||
+              msgFirstName.includes(convFirstName)
+            );
+          });
+          
+          console.log(`📊 Conversas recentes com primeiro nome similar: ${convsWithSimilarFirstName.length}`);
+          
+          // Se há MÚLTIPLOS, NÃO criar mapeamento para evitar erro
+          if (convsWithSimilarFirstName.length > 1) {
+            console.log(`⚠️ MÚLTIPLAS CONVERSAS com nome similar - NÃO criando mapeamento`);
+            console.log(`⚠️ Conversas: ${convsWithSimilarFirstName.map(c => `${c.contacts?.name} (${c.contacts?.phone})`).join(', ')}`);
+          } else {
+            // Tentar encontrar conversa com nome EXATO
+            for (const conv of recentAgentConvs) {
+              if (!conv.contacts?.phone || !conv.contacts?.name) continue;
               
-              // Criar mapeamento
-              await supabase
-                .from('lid_phone_mapping')
-                .upsert({
-                  lid: lidId,
-                  phone: conv.contacts.phone,
-                  contact_id: conv.contact_id,
-                  company_id: companyId,
-                  instance_name: webhook.instance
-                }, { onConflict: 'lid,company_id' });
+              const normalizedConvName = conv.contacts.name.toLowerCase().trim()
+                .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
               
-              await supabase
-                .from('conversations')
-                .update({ 
-                  metadata: { ...conv.metadata, lidJid: remoteJid },
-                  updated_at: new Date().toISOString()
-                })
-                .eq('id', conv.id);
-              
-              await saveMessage(supabase, conv.id, message, messageContent, conv.contacts.phone, webhook.instance, true);
-              console.log(`✅ Mensagem enviada @lid salva via conversa recente.`);
-              continue;
+              // Exigir match EXATO
+              if (normalizedConvName === normalizedMsgName) {
+                console.log(`✅ Conversa encontrada por nome EXATO: ${conv.contacts.name} (${conv.contacts.phone})`);
+                
+                // Criar mapeamento (só com match exato)
+                await supabase
+                  .from('lid_phone_mapping')
+                  .upsert({
+                    lid: lidId,
+                    phone: conv.contacts.phone,
+                    contact_id: conv.contact_id,
+                    company_id: companyId,
+                    instance_name: webhook.instance
+                  }, { onConflict: 'lid,company_id' });
+                
+                await supabase
+                  .from('conversations')
+                  .update({ 
+                    metadata: { ...conv.metadata, lidJid: remoteJid },
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq('id', conv.id);
+                
+                await saveMessage(supabase, conv.id, message, messageContent, conv.contacts.phone, webhook.instance, true);
+                console.log(`✅ Mensagem enviada @lid salva via conversa recente (nome exato).`);
+                continue;
+              }
             }
           }
         }
@@ -963,14 +984,17 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       
       // ============================================================
       // Busca 4: Pelo nome do pushName em contatos COM telefone
-      // Estratégia melhorada: busca ILIKE + comparação parcial + scoring
+      // IMPORTANTE: Só criar mapeamento LID se match for ÚNICO e EXATO
+      // Para evitar confusão entre "Flavia Oliveira" e "Flávia Financeiro"
       // ============================================================
       if (!existingLidConv && contactName && contactName !== 'Sem Nome') {
         console.log(`🔍 Buscando contato por nome: "${contactName}"`);
         
-        // Normalizar nome para comparação
-        const normalizedContactName = contactName.toLowerCase().trim();
+        // Normalizar nome para comparação (remover acentos também)
+        const normalizedContactName = contactName.toLowerCase().trim()
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         const nameParts = normalizedContactName.split(/\s+/).filter(p => p.length > 2);
+        const firstName = nameParts[0] || '';
         
         // Buscar contatos COM telefone que possam corresponder
         const { data: potentialContacts } = await supabase
@@ -979,101 +1003,129 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
           .eq('company_id', companyId)
           .not('phone', 'is', null)
           .order('updated_at', { ascending: false })
-          .limit(50);
+          .limit(100);
         
         if (potentialContacts && potentialContacts.length > 0) {
-          let bestMatch = null;
-          let bestScore = 0;
+          // PRIMEIRO: Contar quantos contatos têm primeiro nome similar
+          const contactsWithSimilarFirstName = potentialContacts.filter(c => {
+            const cName = (c.name || '').toLowerCase().trim()
+              .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            const cFirstName = cName.split(/\s+/)[0] || '';
+            return firstName && cFirstName && (
+              cFirstName === firstName ||
+              cFirstName.includes(firstName) ||
+              firstName.includes(cFirstName)
+            );
+          });
           
-          for (const c of potentialContacts) {
-            const normalizedName = (c.name || '').toLowerCase().trim();
-            let score = 0;
+          console.log(`📊 Contatos com primeiro nome similar a "${firstName}": ${contactsWithSimilarFirstName.length}`);
+          
+          // Se há MÚLTIPLOS contatos com nome similar, NÃO criar mapeamento automático
+          // para evitar associação errada (ex: múltiplas "Flavia"s)
+          if (contactsWithSimilarFirstName.length > 1) {
+            console.log(`⚠️ MÚLTIPLOS CONTATOS com nome similar - NÃO criando mapeamento automático`);
+            console.log(`⚠️ Contatos: ${contactsWithSimilarFirstName.map(c => `${c.name} (${c.phone})`).join(', ')}`);
+            // NÃO criar mapeamento - deixar mensagem ir para nova conversa ou fallback
+          } else {
+            // Apenas UM contato - podemos fazer match seguro
+            let bestMatch = null;
+            let bestScore = 0;
             
-            // Match exato = 100 pontos
-            if (normalizedName === normalizedContactName) {
-              score = 100;
-            }
-            // Match case-insensitive contém = 50 pontos
-            else if (normalizedName.includes(normalizedContactName) || 
-                     normalizedContactName.includes(normalizedName)) {
-              score = 50;
-            }
-            // Match por partes do nome (primeiro nome + sobrenome) = 30-70 pontos
-            else {
-              const cNameParts = normalizedName.split(/\s+/).filter(p => p.length > 2);
-              let matchingParts = 0;
+            for (const c of potentialContacts) {
+              const normalizedName = (c.name || '').toLowerCase().trim()
+                .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+              let score = 0;
               
-              for (const part of nameParts) {
-                if (cNameParts.some(cp => cp.includes(part) || part.includes(cp))) {
-                  matchingParts++;
+              // Match exato = 100 pontos
+              if (normalizedName === normalizedContactName) {
+                score = 100;
+              }
+              // Match case-insensitive contém = 70 pontos (só se nome completo)
+              else if (normalizedName === normalizedContactName || 
+                       (normalizedContactName.length >= 10 && normalizedName.includes(normalizedContactName))) {
+                score = 70;
+              }
+              // Match de nome completo (primeiro + último) = 50-60 pontos
+              else {
+                const cNameParts = normalizedName.split(/\s+/).filter(p => p.length > 2);
+                let matchingParts = 0;
+                let totalParts = Math.max(nameParts.length, cNameParts.length);
+                
+                for (const part of nameParts) {
+                  if (cNameParts.some(cp => cp === part)) { // Match EXATO de cada parte
+                    matchingParts++;
+                  }
+                }
+                
+                // Só dar pontos se TODAS as partes batem
+                if (matchingParts === nameParts.length && matchingParts === cNameParts.length) {
+                  score = 60;
+                } else if (matchingParts >= 2 && matchingParts === nameParts.length) {
+                  score = 50;
                 }
               }
               
-              if (matchingParts > 0 && nameParts.length > 0) {
-                score = Math.min(30 + (matchingParts / nameParts.length) * 40, 70);
+              if (score > bestScore) {
+                bestScore = score;
+                bestMatch = c;
               }
             }
             
-            // Bonus se contato foi atualizado recentemente (ativo)
-            const lastUpdate = new Date(c.updated_at).getTime();
-            const ageHours = (Date.now() - lastUpdate) / (1000 * 60 * 60);
-            if (ageHours < 24) score += 10;
-            else if (ageHours < 72) score += 5;
-            
-            if (score > bestScore) {
-              bestScore = score;
-              bestMatch = c;
-            }
-          }
-          
-          // Aceitar match com score >= 40 (permitindo nomes parciais)
-          if (bestMatch && bestScore >= 40) {
-            console.log(`✅ Contato encontrado por nome fuzzy: "${bestMatch.name}" (score: ${bestScore}, phone: ${bestMatch.phone})`);
-            linkedContactId = bestMatch.id;
-            linkedPhone = bestMatch.phone;
-            
-            // Buscar conversa deste contato
-            const { data: convOfContact } = await supabase
-              .from('conversations')
-              .select('*, contacts(*)')
-              .eq('contact_id', bestMatch.id)
-              .eq('channel', 'whatsapp')
-              .in('status', ['open', 'pending', 'resolved'])
-              .order('updated_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-            
-            if (convOfContact) {
-              existingLidConv = convOfContact;
-              console.log(`✅ Conversa encontrada por nome fuzzy: ${existingLidConv.id}`);
+            // AUMENTADO: Aceitar match APENAS com score >= 90 (quase exato)
+            // Isso evita confusão entre nomes similares
+            if (bestMatch && bestScore >= 90) {
+              console.log(`✅ Contato encontrado por nome EXATO: "${bestMatch.name}" (score: ${bestScore}, phone: ${bestMatch.phone})`);
+              linkedContactId = bestMatch.id;
+              linkedPhone = bestMatch.phone;
               
-              // CRIAR MAPEAMENTO para futuras mensagens
-              await supabase
-                .from('lid_phone_mapping')
-                .upsert({
-                  lid: lidId,
-                  phone: linkedPhone,
-                  contact_id: linkedContactId,
-                  company_id: companyId,
-                  instance_name: webhook.instance
-                }, { onConflict: 'lid,company_id' });
+              // Buscar conversa deste contato
+              const { data: convOfContact } = await supabase
+                .from('conversations')
+                .select('*, contacts(*)')
+                .eq('contact_id', bestMatch.id)
+                .eq('channel', 'whatsapp')
+                .in('status', ['open', 'pending', 'resolved'])
+                .order('updated_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
               
-              console.log(`✅ Mapeamento LID->telefone criado: ${lidId} -> ${linkedPhone}`);
+              if (convOfContact) {
+                existingLidConv = convOfContact;
+                console.log(`✅ Conversa encontrada por nome EXATO: ${existingLidConv.id}`);
+                
+                // CRIAR MAPEAMENTO para futuras mensagens (só com match exato)
+                await supabase
+                  .from('lid_phone_mapping')
+                  .upsert({
+                    lid: lidId,
+                    phone: linkedPhone,
+                    contact_id: linkedContactId,
+                    company_id: companyId,
+                    instance_name: webhook.instance
+                  }, { onConflict: 'lid,company_id' });
+                
+                console.log(`✅ Mapeamento LID->telefone criado (match exato): ${lidId} -> ${linkedPhone}`);
+              }
+            } else {
+              console.log(`⚠️ Match insuficiente para "${contactName}" (score: ${bestScore}, requer 90+)`);
             }
-          } else {
-            console.log(`⚠️ Nenhum match forte o suficiente para "${contactName}" (melhor score: ${bestScore})`);
           }
         }
       }
       
       // ============================================================
       // Busca 5: Última conversa ATIVA com mensagem recente (fallback)
-      // Se ainda não achou, buscar conversas que tiveram atividade nos últimos 30 min
+      // IMPORTANTE: Só criar mapeamento se nome for EXATO (não parcial)
+      // Para evitar confusão entre "Flavia Oliveira" e "Flávia Financeiro"
       // ============================================================
       if (!existingLidConv && !message.key.fromMe && contactName && contactName !== 'Sem Nome') {
-        console.log(`🔍 Buscando conversa ativa recente...`);
+        console.log(`🔍 Buscando conversa ativa recente com nome EXATO...`);
         
         const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+        
+        // Normalizar nome para comparação
+        const normalizedMsgName = contactName.toLowerCase().trim()
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         
         const { data: recentActiveConvs } = await supabase
           .from('conversations')
@@ -1091,41 +1143,60 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
           .gte('updated_at', thirtyMinAgo)
           .not('contacts.phone', 'is', null)
           .order('updated_at', { ascending: false })
-          .limit(10);
+          .limit(20);
         
         if (recentActiveConvs && recentActiveConvs.length > 0) {
-          // Tentar encontrar uma conversa cujo nome tenha alguma semelhança
-          for (const conv of recentActiveConvs) {
-            if (!conv.contacts?.name) continue;
-            
-            const convContactName = conv.contacts.name.toLowerCase();
-            const msgContactName = contactName.toLowerCase();
-            
-            // Verificar se o primeiro nome bate (mínimo 3 caracteres)
-            const convFirstName = convContactName.split(/\s+/)[0];
-            const msgFirstName = msgContactName.split(/\s+/)[0];
-            
-            if (convFirstName.length >= 3 && msgFirstName.length >= 3 &&
-                (convFirstName.includes(msgFirstName) || msgFirstName.includes(convFirstName))) {
-              console.log(`✅ Conversa ativa recente encontrada: ${conv.contacts.name} (${conv.contacts.phone})`);
+          // PRIMEIRO: Verificar se há MÚLTIPLOS contatos com primeiro nome similar
+          const msgFirstName = normalizedMsgName.split(/\s+/)[0] || '';
+          
+          const convsWithSimilarFirstName = recentActiveConvs.filter(conv => {
+            if (!conv.contacts?.name) return false;
+            const convName = conv.contacts.name.toLowerCase().trim()
+              .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            const convFirstName = convName.split(/\s+/)[0] || '';
+            return msgFirstName && convFirstName && (
+              convFirstName === msgFirstName ||
+              convFirstName.includes(msgFirstName) ||
+              msgFirstName.includes(convFirstName)
+            );
+          });
+          
+          console.log(`📊 Conversas ativas com primeiro nome similar: ${convsWithSimilarFirstName.length}`);
+          
+          // Se há MÚLTIPLOS, NÃO criar mapeamento para evitar erro
+          if (convsWithSimilarFirstName.length > 1) {
+            console.log(`⚠️ MÚLTIPLAS CONVERSAS com nome similar - NÃO criando mapeamento`);
+            console.log(`⚠️ Conversas: ${convsWithSimilarFirstName.map(c => `${c.contacts?.name} (${c.contacts?.phone})`).join(', ')}`);
+          } else {
+            // Tentar encontrar conversa com nome EXATO
+            for (const conv of recentActiveConvs) {
+              if (!conv.contacts?.name) continue;
               
-              existingLidConv = conv;
-              linkedContactId = conv.contacts.id;
-              linkedPhone = conv.contacts.phone;
+              const normalizedConvName = conv.contacts.name.toLowerCase().trim()
+                .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
               
-              // Criar mapeamento
-              await supabase
-                .from('lid_phone_mapping')
-                .upsert({
-                  lid: lidId,
-                  phone: linkedPhone,
-                  contact_id: linkedContactId,
-                  company_id: companyId,
-                  instance_name: webhook.instance
-                }, { onConflict: 'lid,company_id' });
-              
-              console.log(`✅ Mapeamento LID->telefone criado via conversa ativa: ${lidId} -> ${linkedPhone}`);
-              break;
+              // Exigir match EXATO ou muito próximo (90%+ similaridade)
+              if (normalizedConvName === normalizedMsgName) {
+                console.log(`✅ Conversa ativa recente com nome EXATO: ${conv.contacts.name} (${conv.contacts.phone})`);
+                
+                existingLidConv = conv;
+                linkedContactId = conv.contacts.id;
+                linkedPhone = conv.contacts.phone;
+                
+                // Criar mapeamento (só com match exato)
+                await supabase
+                  .from('lid_phone_mapping')
+                  .upsert({
+                    lid: lidId,
+                    phone: linkedPhone,
+                    contact_id: linkedContactId,
+                    company_id: companyId,
+                    instance_name: webhook.instance
+                  }, { onConflict: 'lid,company_id' });
+                
+                console.log(`✅ Mapeamento LID->telefone criado via nome EXATO: ${lidId} -> ${linkedPhone}`);
+                break;
+              }
             }
           }
         }
