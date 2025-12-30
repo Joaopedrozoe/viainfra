@@ -19,12 +19,13 @@ serve(async (req) => {
       forceUpdateJids = [],
       importLidToConversation = null, // { lidJid: "xxx@lid", targetConversationId: "uuid" }
       createLidMapping = null, // { lid: "123456", phone: "5511999999999" }
-      updateContact = null, // { contactId: "uuid", name: "New Name" }
+      updateContact = null, // { contactId: "uuid", name: "New Name", phone: "xxx", avatarUrl: "xxx" }
       fixConversationRemoteJid = null, // { conversationId: "uuid", phone: "5511999999999" }
       deleteMessages = [], // Array of message IDs to delete
       fetchContactName = null, // { contactId: "uuid", phone: "5511999999999" } - fetches name from WhatsApp
       insertMessages = [], // Array of { conversationId, content, senderType, createdAt }
-      updateMessageTimestamps = [] // Array of { messageId, newCreatedAt }
+      updateMessageTimestamps = [], // Array of { messageId, newCreatedAt }
+      updateConversationContact = null // { conversationId: "uuid", newContactId: "uuid" }
     } = body;
     
     // Allow some operations without instanceName
@@ -110,21 +111,79 @@ serve(async (req) => {
       }
     }
     
-    // Quick update contact name
+    // Quick update contact (name, phone, avatar)
     if (updateContact) {
-      const { contactId, name } = updateContact;
-      console.log(`📝 Updating contact ${contactId} name to: ${name}`);
+      const { contactId, name, phone, avatarUrl } = updateContact;
+      console.log(`📝 Updating contact ${contactId}:`, { name, phone, avatarUrl });
+      
+      const updateData: Record<string, any> = { updated_at: new Date().toISOString() };
+      if (name) updateData.name = name;
+      if (phone) updateData.phone = phone;
+      if (avatarUrl) updateData.avatar_url = avatarUrl;
       
       const { error } = await supabase
         .from('contacts')
-        .update({ name, updated_at: new Date().toISOString() })
+        .update(updateData)
         .eq('id', contactId);
       
       if (error) {
         results.errors.push({ action: 'updateContact', error: error.message });
       } else {
-        results.synced.push({ action: 'updateContact', contactId, name });
-        console.log(`   ✅ Contact name updated`);
+        results.synced.push({ action: 'updateContact', contactId, ...updateData });
+        console.log(`   ✅ Contact updated`);
+      }
+    }
+    
+    // Update conversation contact_id
+    if (updateConversationContact) {
+      const { conversationId, newContactId } = updateConversationContact;
+      console.log(`🔄 Updating conversation ${conversationId} contact to: ${newContactId}`);
+      
+      // Get new contact info
+      const { data: newContact } = await supabase
+        .from('contacts')
+        .select('name, phone, avatar_url, metadata')
+        .eq('id', newContactId)
+        .single();
+      
+      if (newContact) {
+        // Update conversation with new contact and remoteJid
+        const newRemoteJid = newContact.metadata?.remoteJid || `${newContact.phone}@s.whatsapp.net`;
+        
+        const { data: conv } = await supabase
+          .from('conversations')
+          .select('metadata')
+          .eq('id', conversationId)
+          .single();
+        
+        const { error } = await supabase
+          .from('conversations')
+          .update({ 
+            contact_id: newContactId,
+            metadata: {
+              ...conv?.metadata,
+              remoteJid: newRemoteJid,
+              contactFixed: true,
+              fixedAt: new Date().toISOString()
+            },
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', conversationId);
+        
+        if (error) {
+          results.errors.push({ action: 'updateConversationContact', error: error.message });
+        } else {
+          results.synced.push({ 
+            action: 'updateConversationContact', 
+            conversationId, 
+            newContactId,
+            newContactName: newContact.name,
+            newPhone: newContact.phone
+          });
+          console.log(`   ✅ Conversation contact updated to ${newContact.name}`);
+        }
+      } else {
+        results.errors.push({ action: 'updateConversationContact', error: 'Contact not found' });
       }
     }
     
@@ -294,7 +353,7 @@ serve(async (req) => {
     
     if (!instanceName) {
       // Return early if only running simple operations
-      if (updateContact || fixConversationRemoteJid || fetchContactName || insertMessages.length > 0 || deleteMessages.length > 0 || updateMessageTimestamps.length > 0) {
+      if (updateContact || fixConversationRemoteJid || fetchContactName || insertMessages.length > 0 || deleteMessages.length > 0 || updateMessageTimestamps.length > 0 || updateConversationContact) {
         return new Response(JSON.stringify({ success: true, results }), { 
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         });
