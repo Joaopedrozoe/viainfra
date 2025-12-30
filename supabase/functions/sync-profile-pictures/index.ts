@@ -148,13 +148,13 @@ serve(async (req) => {
     // Build query - VERY LIMITED to avoid memory issues
     let contactsQuery = supabase
       .from('contacts')
-      .select('id, name, phone, avatar_url')
-      .not('phone', 'is', null)
-      .neq('phone', '');
+      .select('id, name, phone, avatar_url');
 
     if (contactId) {
       contactsQuery = contactsQuery.eq('id', contactId);
     } else {
+      // Only get contacts with phone numbers (unless specific contact)
+      contactsQuery = contactsQuery.not('phone', 'is', null).neq('phone', '');
       // Only get contacts without avatar or with expired WhatsApp URLs
       if (!forceUpdate) {
         contactsQuery = contactsQuery.or('avatar_url.is.null,avatar_url.eq.,avatar_url.like.%pps.whatsapp.net%');
@@ -172,21 +172,65 @@ serve(async (req) => {
       });
     }
 
-    console.log(`📋 Processing ${contacts?.length || 0} contacts (max: ${MAX_CONTACTS_PER_RUN})`);
+    // Process contacts and check for groups
+    let contactsToProcess: any[] = [];
+    
+    if (contactId) {
+      // When fetching specific contact, also check if it's a group
+      const { data: contactData } = await supabase
+        .from('contacts')
+        .select('id, name, phone, avatar_url')
+        .eq('id', contactId)
+        .single();
+      
+      if (contactData) {
+        // Try to find conversation with this contact to get the remoteJid
+        const { data: conversation } = await supabase
+          .from('conversations')
+          .select('id, metadata, contact_id')
+          .eq('contact_id', contactId)
+          .single();
+        
+        const remoteJid = conversation?.metadata?.remoteJid;
+        const isGroup = remoteJid && remoteJid.includes('@g.us');
+        
+        if (isGroup) {
+          console.log(`📱 Found group JID: ${remoteJid}`);
+          contactsToProcess = [{
+            ...contactData,
+            _groupJid: remoteJid
+          }];
+        } else if (contactData.phone) {
+          contactsToProcess = [contactData];
+        } else {
+          console.log(`⚠️ Contact has no phone and is not a group`);
+          contactsToProcess = [];
+        }
+      }
+    } else {
+      contactsToProcess = contacts || [];
+    }
+
+    console.log(`📋 Processing ${contactsToProcess.length} contacts (max: ${MAX_CONTACTS_PER_RUN})`);
 
     const results = {
-      total: contacts?.length || 0,
+      total: contactsToProcess.length,
       updated: 0,
       failed: 0,
       skipped: 0,
     };
 
     // Process contacts ONE BY ONE with cleanup
-    for (const contact of contacts || []) {
+    for (const contact of contactsToProcess) {
       try {
         const phone = contact.phone?.replace(/\D/g, '');
+        const groupJid = (contact as any)._groupJid as string | undefined;
         
-        if (!phone || phone.length < 10) {
+        // For groups, we need the groupJid
+        const isGroup = !!groupJid;
+        
+        if (!phone && !groupJid) {
+          console.log(`⏭️ Skipping ${contact.name}: no phone and no group JID`);
           results.skipped++;
           continue;
         }
@@ -197,109 +241,177 @@ serve(async (req) => {
           continue;
         }
 
-        // Format phone
-        let formattedPhone = phone;
-        if (!phone.startsWith('55') && phone.length <= 11) {
-          formattedPhone = `55${phone}`;
+        // Format phone for non-groups
+        let formattedPhone = phone || '';
+        if (!isGroup && phone) {
+          if (!phone.startsWith('55') && phone.length <= 11) {
+            formattedPhone = `55${phone}`;
+          }
         }
 
-        console.log(`📷 ${contact.name} (${formattedPhone})...`);
+        console.log(`📷 ${contact.name} (${isGroup ? 'GROUP: ' + groupJid : formattedPhone})...`);
 
         let pictureUrl: string | null = null;
         
-        // Try METHOD 1: fetchProfilePictureUrl
-        try {
-          console.log(`🔍 Method 1: fetchProfilePictureUrl`);
-          const response1 = await fetch(
-            `${evolutionUrl}/chat/fetchProfilePictureUrl/${instance.instance_name}`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'apikey': evolutionKey,
-              },
-              body: JSON.stringify({ number: formattedPhone }),
-            }
-          );
-
-          if (response1.ok) {
-            const data1 = await response1.json();
-            pictureUrl = data1.profilePictureUrl || data1.pictureUrl || data1.url || data1.picture;
-            if (pictureUrl) {
-              console.log(`✅ Method 1 success: ${pictureUrl.substring(0, 60)}...`);
-            }
-          }
-        } catch (e) {
-          console.log(`⚠️ Method 1 failed: ${e}`);
-        }
-        
-        // Try METHOD 2: getProfilePictureUrl (different endpoint)
-        if (!pictureUrl) {
+        // For groups, use group-specific methods
+        if (isGroup) {
+          // Try METHOD: fetchProfilePictureUrl with group JID
           try {
-            console.log(`🔍 Method 2: getProfilePictureUrl`);
-            const jid = `${formattedPhone}@s.whatsapp.net`;
-            const response2 = await fetch(
-              `${evolutionUrl}/chat/getProfilePictureUrl/${instance.instance_name}`,
+            console.log(`🔍 Group Method: fetchProfilePictureUrl with JID ${groupJid}`);
+            const response = await fetch(
+              `${evolutionUrl}/chat/fetchProfilePictureUrl/${instance.instance_name}`,
               {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
                   'apikey': evolutionKey,
                 },
-                body: JSON.stringify({ jid }),
+                body: JSON.stringify({ number: groupJid }),
               }
             );
 
-            if (response2.ok) {
-              const data2 = await response2.json();
-              pictureUrl = data2.profilePictureUrl || data2.pictureUrl || data2.url || data2.picture || data2.imgUrl;
+            if (response.ok) {
+              const data = await response.json();
+              console.log(`📋 Group response: ${JSON.stringify(data).substring(0, 300)}`);
+              pictureUrl = data.profilePictureUrl || data.pictureUrl || data.url || data.picture || data.imgUrl;
               if (pictureUrl) {
-                console.log(`✅ Method 2 success: ${pictureUrl.substring(0, 60)}...`);
+                console.log(`✅ Group method success: ${pictureUrl.substring(0, 60)}...`);
               }
             }
           } catch (e) {
-            console.log(`⚠️ Method 2 failed: ${e}`);
+            console.log(`⚠️ Group method failed: ${e}`);
           }
-        }
-        
-        // Try METHOD 3: fetchContacts - busca contatos salvos no WhatsApp
-        if (!pictureUrl) {
+          
+          // Try alternative: group/fetchAllGroups to get group picture
+          if (!pictureUrl) {
+            try {
+              console.log(`🔍 Group Method 2: fetchAllGroups`);
+              const response = await fetch(
+                `${evolutionUrl}/group/fetchAllGroups/${instance.instance_name}?getParticipants=false`,
+                {
+                  method: 'GET',
+                  headers: {
+                    'apikey': evolutionKey,
+                  },
+                }
+              );
+
+              if (response.ok) {
+                const groups = await response.json();
+                const groupData = Array.isArray(groups) 
+                  ? groups.find((g: any) => g.id === groupJid || g.jid === groupJid)
+                  : null;
+                
+                if (groupData) {
+                  console.log(`📋 Group data: ${JSON.stringify(groupData).substring(0, 300)}`);
+                  pictureUrl = groupData.pictureUrl || groupData.profilePictureUrl || 
+                              groupData.picture || groupData.imgUrl || groupData.photo;
+                  if (pictureUrl) {
+                    console.log(`✅ Group Method 2 success: ${pictureUrl.substring(0, 60)}...`);
+                  }
+                }
+              }
+            } catch (e) {
+              console.log(`⚠️ Group Method 2 failed: ${e}`);
+            }
+          }
+        } else {
+          // For individual contacts, use person-specific methods
+          
+          // Try METHOD 1: fetchProfilePictureUrl
           try {
-            console.log(`🔍 Method 3: fetchContacts`);
-            const response3 = await fetch(
-              `${evolutionUrl}/chat/fetchContacts/${instance.instance_name}`,
+            console.log(`🔍 Method 1: fetchProfilePictureUrl`);
+            const response1 = await fetch(
+              `${evolutionUrl}/chat/fetchProfilePictureUrl/${instance.instance_name}`,
               {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
                   'apikey': evolutionKey,
                 },
-                body: JSON.stringify({}),
+                body: JSON.stringify({ number: formattedPhone }),
               }
             );
 
-            if (response3.ok) {
-              const data3 = await response3.json();
-              // fetchContacts returns array of contacts
-              const contacts = Array.isArray(data3) ? data3 : [];
-              const jid = `${formattedPhone}@s.whatsapp.net`;
-              const contactData = contacts.find((c: any) => c.id === jid || c.jid === jid || c.wuid === jid);
-              console.log(`📋 Method 3: Found ${contacts.length} contacts, searching for ${jid}`);
-              
-              if (contactData) {
-                console.log(`📋 Method 3 contact data: ${JSON.stringify(contactData).substring(0, 300)}`);
-                pictureUrl = contactData.profilePicUrl || contactData.profilePictureUrl || 
-                            contactData.profilePicThumb || contactData.pictureUrl || 
-                            contactData.imgUrl || contactData.photo;
-                if (pictureUrl) {
-                  console.log(`✅ Method 3 success: ${pictureUrl.substring(0, 60)}...`);
-                }
-              } else {
-                console.log(`⚠️ Method 3: Contact not found in list`);
+            if (response1.ok) {
+              const data1 = await response1.json();
+              pictureUrl = data1.profilePictureUrl || data1.pictureUrl || data1.url || data1.picture;
+              if (pictureUrl) {
+                console.log(`✅ Method 1 success: ${pictureUrl.substring(0, 60)}...`);
               }
             }
           } catch (e) {
-            console.log(`⚠️ Method 3 failed: ${e}`);
+            console.log(`⚠️ Method 1 failed: ${e}`);
+          }
+          
+          // Try METHOD 2: getProfilePictureUrl (different endpoint)
+          if (!pictureUrl) {
+            try {
+              console.log(`🔍 Method 2: getProfilePictureUrl`);
+              const jid = `${formattedPhone}@s.whatsapp.net`;
+              const response2 = await fetch(
+                `${evolutionUrl}/chat/getProfilePictureUrl/${instance.instance_name}`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': evolutionKey,
+                  },
+                  body: JSON.stringify({ jid }),
+                }
+              );
+
+              if (response2.ok) {
+                const data2 = await response2.json();
+                pictureUrl = data2.profilePictureUrl || data2.pictureUrl || data2.url || data2.picture || data2.imgUrl;
+                if (pictureUrl) {
+                  console.log(`✅ Method 2 success: ${pictureUrl.substring(0, 60)}...`);
+                }
+              }
+            } catch (e) {
+              console.log(`⚠️ Method 2 failed: ${e}`);
+            }
+          }
+          
+          // Try METHOD 3: fetchContacts - busca contatos salvos no WhatsApp
+          if (!pictureUrl) {
+            try {
+              console.log(`🔍 Method 3: fetchContacts`);
+              const response3 = await fetch(
+                `${evolutionUrl}/chat/fetchContacts/${instance.instance_name}`,
+                {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': evolutionKey,
+                  },
+                  body: JSON.stringify({}),
+                }
+              );
+
+              if (response3.ok) {
+                const data3 = await response3.json();
+                // fetchContacts returns array of contacts
+                const contactsList = Array.isArray(data3) ? data3 : [];
+                const jid = `${formattedPhone}@s.whatsapp.net`;
+                const contactData = contactsList.find((c: any) => c.id === jid || c.jid === jid || c.wuid === jid);
+                console.log(`📋 Method 3: Found ${contactsList.length} contacts, searching for ${jid}`);
+                
+                if (contactData) {
+                  console.log(`📋 Method 3 contact data: ${JSON.stringify(contactData).substring(0, 300)}`);
+                  pictureUrl = contactData.profilePicUrl || contactData.profilePictureUrl || 
+                              contactData.profilePicThumb || contactData.pictureUrl || 
+                              contactData.imgUrl || contactData.photo;
+                  if (pictureUrl) {
+                    console.log(`✅ Method 3 success: ${pictureUrl.substring(0, 60)}...`);
+                  }
+                } else {
+                  console.log(`⚠️ Method 3: Contact not found in list`);
+                }
+              }
+            } catch (e) {
+              console.log(`⚠️ Method 3 failed: ${e}`);
+            }
           }
         }
 
