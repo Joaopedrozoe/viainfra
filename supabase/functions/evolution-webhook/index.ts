@@ -961,52 +961,172 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         }
       }
       
-      // Busca 4: Pelo nome EXATO do pushName em contatos COM telefone
-      // Isso evita criar duplicatas quando o nome corresponde exatamente
+      // ============================================================
+      // Busca 4: Pelo nome do pushName em contatos COM telefone
+      // Estratégia melhorada: busca ILIKE + comparação parcial + scoring
+      // ============================================================
       if (!existingLidConv && contactName && contactName !== 'Sem Nome') {
-        // Buscar contato COM telefone que tenha o mesmo nome
-        const { data: contactByName } = await supabase
+        console.log(`🔍 Buscando contato por nome: "${contactName}"`);
+        
+        // Normalizar nome para comparação
+        const normalizedContactName = contactName.toLowerCase().trim();
+        const nameParts = normalizedContactName.split(/\s+/).filter(p => p.length > 2);
+        
+        // Buscar contatos COM telefone que possam corresponder
+        const { data: potentialContacts } = await supabase
           .from('contacts')
-          .select('id, phone, name')
+          .select('id, phone, name, updated_at')
           .eq('company_id', companyId)
-          .ilike('name', contactName)
           .not('phone', 'is', null)
           .order('updated_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+          .limit(50);
         
-        if (contactByName && contactByName.phone) {
-          console.log(`✅ Contato encontrado por nome: ${contactByName.name} (${contactByName.phone})`);
-          linkedContactId = contactByName.id;
-          linkedPhone = contactByName.phone;
+        if (potentialContacts && potentialContacts.length > 0) {
+          let bestMatch = null;
+          let bestScore = 0;
           
-          // Buscar conversa deste contato
-          const { data: convOfContact } = await supabase
-            .from('conversations')
-            .select('*, contacts(*)')
-            .eq('contact_id', contactByName.id)
-            .eq('channel', 'whatsapp')
-            .in('status', ['open', 'pending', 'resolved'])
-            .order('updated_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+          for (const c of potentialContacts) {
+            const normalizedName = (c.name || '').toLowerCase().trim();
+            let score = 0;
+            
+            // Match exato = 100 pontos
+            if (normalizedName === normalizedContactName) {
+              score = 100;
+            }
+            // Match case-insensitive contém = 50 pontos
+            else if (normalizedName.includes(normalizedContactName) || 
+                     normalizedContactName.includes(normalizedName)) {
+              score = 50;
+            }
+            // Match por partes do nome (primeiro nome + sobrenome) = 30-70 pontos
+            else {
+              const cNameParts = normalizedName.split(/\s+/).filter(p => p.length > 2);
+              let matchingParts = 0;
+              
+              for (const part of nameParts) {
+                if (cNameParts.some(cp => cp.includes(part) || part.includes(cp))) {
+                  matchingParts++;
+                }
+              }
+              
+              if (matchingParts > 0 && nameParts.length > 0) {
+                score = Math.min(30 + (matchingParts / nameParts.length) * 40, 70);
+              }
+            }
+            
+            // Bonus se contato foi atualizado recentemente (ativo)
+            const lastUpdate = new Date(c.updated_at).getTime();
+            const ageHours = (Date.now() - lastUpdate) / (1000 * 60 * 60);
+            if (ageHours < 24) score += 10;
+            else if (ageHours < 72) score += 5;
+            
+            if (score > bestScore) {
+              bestScore = score;
+              bestMatch = c;
+            }
+          }
           
-          if (convOfContact) {
-            existingLidConv = convOfContact;
-            console.log(`✅ Conversa encontrada por nome do contato: ${existingLidConv.id}`);
+          // Aceitar match com score >= 40 (permitindo nomes parciais)
+          if (bestMatch && bestScore >= 40) {
+            console.log(`✅ Contato encontrado por nome fuzzy: "${bestMatch.name}" (score: ${bestScore}, phone: ${bestMatch.phone})`);
+            linkedContactId = bestMatch.id;
+            linkedPhone = bestMatch.phone;
             
-            // CRIAR MAPEAMENTO para futuras mensagens
-            await supabase
-              .from('lid_phone_mapping')
-              .upsert({
-                lid: lidId,
-                phone: linkedPhone,
-                contact_id: linkedContactId,
-                company_id: companyId,
-                instance_name: webhook.instance
-              }, { onConflict: 'lid,company_id' });
+            // Buscar conversa deste contato
+            const { data: convOfContact } = await supabase
+              .from('conversations')
+              .select('*, contacts(*)')
+              .eq('contact_id', bestMatch.id)
+              .eq('channel', 'whatsapp')
+              .in('status', ['open', 'pending', 'resolved'])
+              .order('updated_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
             
-            console.log(`✅ Mapeamento LID->telefone criado: ${lidId} -> ${linkedPhone}`);
+            if (convOfContact) {
+              existingLidConv = convOfContact;
+              console.log(`✅ Conversa encontrada por nome fuzzy: ${existingLidConv.id}`);
+              
+              // CRIAR MAPEAMENTO para futuras mensagens
+              await supabase
+                .from('lid_phone_mapping')
+                .upsert({
+                  lid: lidId,
+                  phone: linkedPhone,
+                  contact_id: linkedContactId,
+                  company_id: companyId,
+                  instance_name: webhook.instance
+                }, { onConflict: 'lid,company_id' });
+              
+              console.log(`✅ Mapeamento LID->telefone criado: ${lidId} -> ${linkedPhone}`);
+            }
+          } else {
+            console.log(`⚠️ Nenhum match forte o suficiente para "${contactName}" (melhor score: ${bestScore})`);
+          }
+        }
+      }
+      
+      // ============================================================
+      // Busca 5: Última conversa ATIVA com mensagem recente (fallback)
+      // Se ainda não achou, buscar conversas que tiveram atividade nos últimos 30 min
+      // ============================================================
+      if (!existingLidConv && !message.key.fromMe && contactName && contactName !== 'Sem Nome') {
+        console.log(`🔍 Buscando conversa ativa recente...`);
+        
+        const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+        
+        const { data: recentActiveConvs } = await supabase
+          .from('conversations')
+          .select(`
+            id,
+            contact_id,
+            status,
+            metadata,
+            updated_at,
+            contacts(id, phone, name)
+          `)
+          .eq('channel', 'whatsapp')
+          .eq('company_id', companyId)
+          .in('status', ['open', 'pending'])
+          .gte('updated_at', thirtyMinAgo)
+          .not('contacts.phone', 'is', null)
+          .order('updated_at', { ascending: false })
+          .limit(10);
+        
+        if (recentActiveConvs && recentActiveConvs.length > 0) {
+          // Tentar encontrar uma conversa cujo nome tenha alguma semelhança
+          for (const conv of recentActiveConvs) {
+            if (!conv.contacts?.name) continue;
+            
+            const convContactName = conv.contacts.name.toLowerCase();
+            const msgContactName = contactName.toLowerCase();
+            
+            // Verificar se o primeiro nome bate (mínimo 3 caracteres)
+            const convFirstName = convContactName.split(/\s+/)[0];
+            const msgFirstName = msgContactName.split(/\s+/)[0];
+            
+            if (convFirstName.length >= 3 && msgFirstName.length >= 3 &&
+                (convFirstName.includes(msgFirstName) || msgFirstName.includes(convFirstName))) {
+              console.log(`✅ Conversa ativa recente encontrada: ${conv.contacts.name} (${conv.contacts.phone})`);
+              
+              existingLidConv = conv;
+              linkedContactId = conv.contacts.id;
+              linkedPhone = conv.contacts.phone;
+              
+              // Criar mapeamento
+              await supabase
+                .from('lid_phone_mapping')
+                .upsert({
+                  lid: lidId,
+                  phone: linkedPhone,
+                  contact_id: linkedContactId,
+                  company_id: companyId,
+                  instance_name: webhook.instance
+                }, { onConflict: 'lid,company_id' });
+              
+              console.log(`✅ Mapeamento LID->telefone criado via conversa ativa: ${lidId} -> ${linkedPhone}`);
+              break;
+            }
           }
         }
       }
