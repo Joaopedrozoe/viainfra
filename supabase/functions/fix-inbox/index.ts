@@ -18,24 +18,94 @@ serve(async (req) => {
       deleteWrongConversations = [], 
       forceUpdateJids = [],
       importLidToConversation = null, // { lidJid: "xxx@lid", targetConversationId: "uuid" }
-      createLidMapping = null // { lid: "123456", phone: "5511999999999" }
+      createLidMapping = null, // { lid: "123456", phone: "5511999999999" }
+      updateContact = null, // { contactId: "uuid", name: "New Name" }
+      fixConversationRemoteJid = null // { conversationId: "uuid", phone: "5511999999999" }
     } = body;
     
+    // Allow some operations without instanceName
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+    
+    const results: any = { deleted: [], synced: [], errors: [], debug: [] };
+    
+    // Quick update contact name
+    if (updateContact) {
+      const { contactId, name } = updateContact;
+      console.log(`📝 Updating contact ${contactId} name to: ${name}`);
+      
+      const { error } = await supabase
+        .from('contacts')
+        .update({ name, updated_at: new Date().toISOString() })
+        .eq('id', contactId);
+      
+      if (error) {
+        results.errors.push({ action: 'updateContact', error: error.message });
+      } else {
+        results.synced.push({ action: 'updateContact', contactId, name });
+        console.log(`   ✅ Contact name updated`);
+      }
+    }
+    
+    // Fix conversation remoteJid (change from @lid to @s.whatsapp.net)
+    if (fixConversationRemoteJid) {
+      const { conversationId, phone } = fixConversationRemoteJid;
+      const newRemoteJid = `${phone}@s.whatsapp.net`;
+      console.log(`🔧 Fixing conversation ${conversationId} remoteJid to: ${newRemoteJid}`);
+      
+      // Get current metadata
+      const { data: conv } = await supabase
+        .from('conversations')
+        .select('metadata')
+        .eq('id', conversationId)
+        .maybeSingle();
+      
+      if (conv) {
+        const oldRemoteJid = conv.metadata?.remoteJid;
+        const newMetadata = {
+          ...conv.metadata,
+          remoteJid: newRemoteJid,
+          oldRemoteJid: oldRemoteJid // Keep old for reference
+        };
+        
+        const { error } = await supabase
+          .from('conversations')
+          .update({ 
+            metadata: newMetadata,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', conversationId);
+        
+        if (error) {
+          results.errors.push({ action: 'fixConversationRemoteJid', error: error.message });
+        } else {
+          results.synced.push({ 
+            action: 'fixConversationRemoteJid', 
+            conversationId, 
+            oldRemoteJid,
+            newRemoteJid 
+          });
+          console.log(`   ✅ Conversation remoteJid fixed`);
+        }
+      }
+    }
+    
     if (!instanceName) {
+      // Return early if only running updateContact or fixConversationRemoteJid
+      if (updateContact || fixConversationRemoteJid) {
+        return new Response(JSON.stringify({ success: true, results }), { 
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        });
+      }
       return new Response(JSON.stringify({ error: 'instanceName required' }), { 
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       });
     }
 
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
-
     const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL');
     const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
-
-    const results: any = { deleted: [], synced: [], errors: [], debug: [] };
 
     // Step 1: Delete wrong conversations
     for (const convId of deleteWrongConversations) {
