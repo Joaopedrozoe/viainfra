@@ -23,7 +23,8 @@ serve(async (req) => {
       fixConversationRemoteJid = null, // { conversationId: "uuid", phone: "5511999999999" }
       deleteMessages = [], // Array of message IDs to delete
       fetchContactName = null, // { contactId: "uuid", phone: "5511999999999" } - fetches name from WhatsApp
-      insertMessages = [] // Array of { conversationId, content, senderType, createdAt }
+      insertMessages = [], // Array of { conversationId, content, senderType, createdAt }
+      updateMessageTimestamps = [] // Array of { messageId, newCreatedAt }
     } = body;
     
     // Allow some operations without instanceName
@@ -76,6 +77,37 @@ serve(async (req) => {
         .from('conversations')
         .update({ updated_at: createdAt || new Date().toISOString() })
         .eq('id', conversationId);
+    }
+    
+    // Update message timestamps
+    for (const upd of updateMessageTimestamps) {
+      const { messageId, newCreatedAt } = upd;
+      console.log(`🕐 Updating message ${messageId} timestamp to: ${newCreatedAt}`);
+      
+      const { data: msgData } = await supabase
+        .from('messages')
+        .select('conversation_id')
+        .eq('id', messageId)
+        .single();
+      
+      const { error } = await supabase
+        .from('messages')
+        .update({ created_at: newCreatedAt })
+        .eq('id', messageId);
+      
+      if (error) {
+        results.errors.push({ action: 'updateTimestamp', messageId, error: error.message });
+      } else {
+        results.synced.push({ action: 'updateTimestamp', messageId, newCreatedAt });
+        
+        // Update conversation timestamp if this is the most recent message
+        if (msgData?.conversation_id) {
+          await supabase
+            .from('conversations')
+            .update({ updated_at: newCreatedAt })
+            .eq('id', msgData.conversation_id);
+        }
+      }
     }
     
     // Quick update contact name
@@ -262,7 +294,7 @@ serve(async (req) => {
     
     if (!instanceName) {
       // Return early if only running simple operations
-      if (updateContact || fixConversationRemoteJid || fetchContactName || insertMessages.length > 0 || deleteMessages.length > 0) {
+      if (updateContact || fixConversationRemoteJid || fetchContactName || insertMessages.length > 0 || deleteMessages.length > 0 || updateMessageTimestamps.length > 0) {
         return new Response(JSON.stringify({ success: true, results }), { 
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         });
