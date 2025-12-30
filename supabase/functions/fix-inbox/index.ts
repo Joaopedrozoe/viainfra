@@ -12,7 +12,13 @@ serve(async (req) => {
   }
 
   try {
-    const { instanceName, deleteWrongConversations = [], forceUpdateJids = [] } = await req.json();
+    const body = await req.json();
+    const { 
+      instanceName, 
+      deleteWrongConversations = [], 
+      forceUpdateJids = [],
+      importLidToConversation = null // { lidJid: "xxx@lid", targetConversationId: "uuid" }
+    } = body;
     
     if (!instanceName) {
       return new Response(JSON.stringify({ error: 'instanceName required' }), { 
@@ -57,40 +63,169 @@ serve(async (req) => {
 
     const companyId = instanceRecord.company_id;
 
-    // Step 3: Force sync specific JIDs
+    // Step 3a: Import LID messages to existing conversation
+    if (importLidToConversation) {
+      const { lidJid, targetConversationId } = importLidToConversation;
+      console.log(`\n📥 Importing messages from ${lidJid} to conversation ${targetConversationId}`);
+      
+      try {
+        // Buscar mensagens do LID na API
+        let messages: any[] = [];
+        let currentPage = 1;
+        const limit = 100;
+        let hasMore = true;
+        
+        while (hasMore && currentPage <= 10) {
+          const resp = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+            method: 'POST',
+            headers: { 'apikey': evolutionApiKey!, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              where: { key: { remoteJid: lidJid } },
+              limit: limit,
+              page: currentPage
+            })
+          });
+          
+          if (!resp.ok) break;
+          
+          const data = await resp.json();
+          let pageMessages: any[] = [];
+          
+          if (Array.isArray(data)) {
+            pageMessages = data;
+          } else if (data?.messages?.records && Array.isArray(data.messages.records)) {
+            pageMessages = data.messages.records;
+            hasMore = currentPage < (data.messages.pages || 1);
+          } else if (Array.isArray(data?.messages)) {
+            pageMessages = data.messages;
+          }
+          
+          if (pageMessages.length === 0) {
+            hasMore = false;
+          } else {
+            messages = [...messages, ...pageMessages];
+            currentPage++;
+          }
+        }
+        
+        console.log(`   📨 ${messages.length} messages from LID`);
+        
+        // Pegar mensagens existentes no target
+        const { data: existingMsgs } = await supabase
+          .from('messages')
+          .select('metadata, content, created_at')
+          .eq('conversation_id', targetConversationId);
+        
+        const existingIds = new Set((existingMsgs || []).map((m: any) => m.metadata?.messageId).filter(Boolean));
+        const existingContentTime = new Set((existingMsgs || []).map((m: any) => `${m.content}|${m.created_at}`));
+        
+        // Importar mensagens novas
+        let imported = 0;
+        let latestTimestamp = 0;
+        
+        for (const msg of messages) {
+          const messageId = msg.key?.id;
+          if (messageId && existingIds.has(messageId)) continue;
+          
+          const content = extractContent(msg);
+          if (!content) continue;
+          
+          const timestamp = msg.messageTimestamp ? Number(msg.messageTimestamp) * 1000 : Date.now();
+          const contentTimeKey = `${content}|${new Date(timestamp).toISOString()}`;
+          
+          // Skip se conteúdo + timestamp já existe
+          if (existingContentTime.has(contentTimeKey)) continue;
+          
+          if (timestamp > latestTimestamp) latestTimestamp = timestamp;
+          
+          const senderType = msg.key?.fromMe ? 'agent' : 'user';
+          
+          const { error } = await supabase.from('messages').insert({
+            conversation_id: targetConversationId,
+            sender_type: senderType,
+            content,
+            created_at: new Date(timestamp).toISOString(),
+            metadata: { messageId, remoteJid: lidJid, importedFromLid: true }
+          });
+          
+          if (!error) imported++;
+        }
+        
+        if (imported > 0 && latestTimestamp > 0) {
+          await supabase.from('conversations').update({
+            updated_at: new Date(latestTimestamp).toISOString()
+          }).eq('id', targetConversationId);
+        }
+        
+        results.synced.push({ lidJid, targetConversationId, imported });
+        console.log(`   ✅ Imported ${imported} messages from LID`);
+        
+      } catch (e) {
+        console.error(`   ❌ LID import error: ${e}`);
+        results.errors.push({ lidJid, error: String(e) });
+      }
+    }
+
+    // Step 3b: Force sync specific JIDs
     for (const jid of forceUpdateJids) {
       try {
         console.log(`\n🔄 Syncing: ${jid}`);
         
-        // Try multiple API formats
+        // Buscar todas as mensagens com paginação
         let messages: any[] = [];
+        let currentPage = 1;
+        const limit = 100;
+        let hasMore = true;
         
-        // Format 1: Standard findMessages
-        const resp1 = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
-          method: 'POST',
-          headers: { 'apikey': evolutionApiKey!, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            where: { key: { remoteJid: jid } },
-            limit: 100
-          })
-        });
-        
-        if (resp1.ok) {
-          const data = await resp1.json();
-          console.log(`   Format 1 response type: ${typeof data}, isArray: ${Array.isArray(data)}`);
+        while (hasMore && currentPage <= 10) { // Max 10 páginas = 1000 mensagens
+          const resp = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
+            method: 'POST',
+            headers: { 'apikey': evolutionApiKey!, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              where: { key: { remoteJid: jid } },
+              limit: limit,
+              page: currentPage
+            })
+          });
+          
+          if (!resp.ok) {
+            console.log(`   Page ${currentPage} failed: ${resp.status}`);
+            break;
+          }
+          
+          const data = await resp.json();
+          
+          let pageMessages: any[] = [];
           
           if (Array.isArray(data)) {
-            messages = data;
-          } else if (data?.messages && Array.isArray(data.messages)) {
-            messages = data.messages;
-          } else if (data && typeof data === 'object') {
-            // Maybe it's a single object or has different structure
-            results.debug.push({ jid, format1: Object.keys(data) });
+            pageMessages = data;
+          } else if (data?.messages) {
+            if (Array.isArray(data.messages)) {
+              pageMessages = data.messages;
+            } else if (data.messages?.records && Array.isArray(data.messages.records)) {
+              pageMessages = data.messages.records;
+              // Verificar se há mais páginas
+              const totalPages = data.messages.pages || 1;
+              hasMore = currentPage < totalPages;
+            }
+          } else if (data?.records && Array.isArray(data.records)) {
+            pageMessages = data.records;
+          }
+          
+          if (pageMessages.length === 0) {
+            hasMore = false;
+          } else {
+            messages = [...messages, ...pageMessages];
+            console.log(`   Page ${currentPage}: ${pageMessages.length} messages (total: ${messages.length})`);
+            currentPage++;
           }
         }
+        
+        console.log(`   📨 Total: ${messages.length} messages from API`);
 
-        // Format 2: Alternative with number parameter
+        // Format 2: Alternative if paged fetch failed
         if (messages.length === 0) {
+          console.log(`   Trying alternative format...`);
           const phoneMatch = jid.match(/^(\d+)@/);
           if (phoneMatch) {
             const resp2 = await fetch(`${evolutionApiUrl}/chat/findMessages/${instanceName}`, {
@@ -107,14 +242,15 @@ serve(async (req) => {
               const data2 = await resp2.json();
               if (Array.isArray(data2)) {
                 messages = data2;
-              } else if (data2?.messages) {
+              } else if (data2?.messages?.records) {
+                messages = data2.messages.records;
+              } else if (Array.isArray(data2?.messages)) {
                 messages = data2.messages;
               }
+              console.log(`   Alt format: ${messages.length} messages`);
             }
           }
         }
-
-        console.log(`   📨 ${messages.length} messages from API`);
 
         if (messages.length === 0) {
           results.errors.push({ jid, error: 'No messages from API' });
