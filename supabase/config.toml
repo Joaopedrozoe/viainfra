@@ -3,6 +3,15 @@ project_id = "xxojpfhnkxpbznbmhmua"
 [functions.fetch-specific-avatars]
 verify_jwt = false
 
+[functions.test-group-send-simple]
+verify_jwt = false
+
+[functions.list-all-groups]
+verify_jwt = false
+
+[functions.diagnose-groups]
+verify_jwt = false
+
 [api]
 enabled = true
 port = 54321
