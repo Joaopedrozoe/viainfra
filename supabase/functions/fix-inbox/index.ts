@@ -21,7 +21,8 @@ serve(async (req) => {
       createLidMapping = null, // { lid: "123456", phone: "5511999999999" }
       updateContact = null, // { contactId: "uuid", name: "New Name" }
       fixConversationRemoteJid = null, // { conversationId: "uuid", phone: "5511999999999" }
-      deleteMessages = [] // Array of message IDs to delete
+      deleteMessages = [], // Array of message IDs to delete
+      fetchContactName = null // { contactId: "uuid", phone: "5511999999999" } - fetches name from WhatsApp
     } = body;
     
     // Allow some operations without instanceName
@@ -109,9 +110,60 @@ serve(async (req) => {
       }
     }
     
+    // Fetch contact name from WhatsApp API and update
+    if (fetchContactName) {
+      const { contactId, phone } = fetchContactName;
+      console.log(`🔍 Fetching contact name for ${phone} (${contactId})`);
+      
+      const evolutionUrl = Deno.env.get('EVOLUTION_API_URL');
+      const evolutionKey = Deno.env.get('EVOLUTION_API_KEY');
+      
+      if (evolutionUrl && evolutionKey) {
+        try {
+          // Try to get contact info via findChats
+          const chatsResp = await fetch(`${evolutionUrl}/chat/findChats/VIAINFRAOFICIAL`, {
+            method: 'POST',
+            headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ where: { id: `${phone}@s.whatsapp.net` } })
+          });
+          
+          if (chatsResp.ok) {
+            const chats = await chatsResp.json();
+            console.log(`   📋 Found ${chats?.length || 0} chats`);
+            
+            if (chats?.length > 0) {
+              const chat = chats[0];
+              const contactName = chat.name || chat.pushName || chat.contact?.name;
+              
+              if (contactName && contactName !== phone && !contactName.includes('@')) {
+                console.log(`   ✅ Found name: ${contactName}`);
+                
+                // Update contact
+                const { error } = await supabase
+                  .from('contacts')
+                  .update({ name: contactName, updated_at: new Date().toISOString() })
+                  .eq('id', contactId);
+                
+                if (error) {
+                  results.errors.push({ action: 'fetchContactName', error: error.message });
+                } else {
+                  results.synced.push({ action: 'fetchContactName', contactId, name: contactName });
+                }
+              } else {
+                console.log(`   ⚠️ No valid name found in chat`);
+                results.debug.push({ action: 'fetchContactName', chat });
+              }
+            }
+          }
+        } catch (e) {
+          results.errors.push({ action: 'fetchContactName', error: String(e) });
+        }
+      }
+    }
+    
     if (!instanceName) {
-      // Return early if only running updateContact or fixConversationRemoteJid
-      if (updateContact || fixConversationRemoteJid) {
+      // Return early if only running updateContact, fixConversationRemoteJid, or fetchContactName
+      if (updateContact || fixConversationRemoteJid || fetchContactName) {
         return new Response(JSON.stringify({ success: true, results }), { 
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         });
