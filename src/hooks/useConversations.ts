@@ -3,6 +3,18 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/auth';
 import { useNotifications } from './useNotifications';
 
+// Helper function to detect if a message is a reaction (should not affect ordering)
+const isReactionMessage = (content: string | null | undefined): boolean => {
+  if (!content) return false;
+  const trimmed = content.trim();
+  // Patterns for reaction messages
+  return (
+    trimmed.startsWith('Reagiu com') ||
+    /^\*[^*]+\*:\s*Reagiu com/.test(trimmed) || // "*Via Infra*: Reagiu com 👍"
+    /^Reagiu\s+(a\s+)?.+\s+com\s/.test(trimmed)
+  );
+};
+
 export interface Conversation {
   id: string;
   company_id: string;
@@ -22,6 +34,13 @@ export interface Conversation {
     avatar_url?: string;
   };
   lastMessage?: {
+    id: string;
+    content: string;
+    sender_type: 'user' | 'agent' | 'bot';
+    created_at: string;
+  };
+  // Last non-reaction message for sorting purposes
+  lastRealMessage?: {
     id: string;
     content: string;
     sender_type: 'user' | 'agent' | 'bot';
@@ -101,8 +120,10 @@ export const useConversations = () => {
       }
 
       // Fetch last message for EACH conversation in parallel batches
+      // Also fetch the last REAL (non-reaction) message for sorting
       const conversationIds = (convData || []).map(c => c.id);
       const lastMessages: Record<string, any> = {};
+      const lastRealMessages: Record<string, any> = {};
       
       if (conversationIds.length > 0) {
         const batchSize = 30;
@@ -111,23 +132,28 @@ export const useConversations = () => {
           const batch = conversationIds.slice(i, i + batchSize);
           
           const promises = batch.map(async (convId) => {
+            // Fetch last 5 messages to find both the last message and last real message
             const { data } = await supabase
               .from('messages')
               .select('id, conversation_id, content, sender_type, created_at')
               .eq('conversation_id', convId)
               .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-            return data;
+              .limit(5);
+            return { convId, messages: data || [] };
           });
           
           const results = await Promise.all(promises);
           
           if (!mountedRef.current) return;
           
-          for (const msg of results) {
-            if (msg?.conversation_id) {
-              lastMessages[msg.conversation_id] = msg;
+          for (const { convId, messages } of results) {
+            if (messages.length > 0) {
+              // Last message (for display)
+              lastMessages[convId] = messages[0];
+              
+              // Last REAL message (for sorting) - skip reactions
+              const realMessage = messages.find(m => !isReactionMessage(m.content));
+              lastRealMessages[convId] = realMessage || messages[0];
             }
           }
         }
@@ -156,6 +182,7 @@ export const useConversations = () => {
         })
         .map(conv => {
           const lastMsg = lastMessages[conv.id];
+          const lastRealMsg = lastRealMessages[conv.id];
           return {
             ...conv,
             status: conv.status as 'open' | 'resolved' | 'pending',
@@ -168,14 +195,21 @@ export const useConversations = () => {
               sender_type: lastMsg.sender_type as 'user' | 'agent' | 'bot',
               created_at: lastMsg.created_at
             } : undefined,
+            // Last real message for sorting (excludes reactions)
+            lastRealMessage: lastRealMsg ? {
+              id: lastRealMsg.id,
+              content: lastRealMsg.content,
+              sender_type: lastRealMsg.sender_type as 'user' | 'agent' | 'bot',
+              created_at: lastRealMsg.created_at
+            } : undefined,
           };
         });
 
-      // CRITICAL: Sort by last message time (most recent first)
+      // CRITICAL: Sort by last REAL message time (excludes reactions)
       newConversations.sort((a, b) => {
-        // Priorizar lastMessage.created_at, depois updated_at
-        const aTime = a.lastMessage?.created_at || a.updated_at || a.created_at;
-        const bTime = b.lastMessage?.created_at || b.updated_at || b.created_at;
+        // Use lastRealMessage for sorting (ignores reactions)
+        const aTime = a.lastRealMessage?.created_at || a.lastMessage?.created_at || a.updated_at || a.created_at;
+        const bTime = b.lastRealMessage?.created_at || b.lastMessage?.created_at || b.updated_at || b.created_at;
         const diff = new Date(bTime).getTime() - new Date(aTime).getTime();
         return diff;
       });
@@ -236,6 +270,7 @@ export const useConversations = () => {
     console.log('📨 New message:', newMsg.content?.substring(0, 30));
     
     const isContactMessage = newMsg.sender_type === 'user';
+    const isReaction = isReactionMessage(newMsg.content);
     
     setConversations(prev => {
       const conversation = prev.find(c => c.id === newMsg.conversation_id);
@@ -246,7 +281,8 @@ export const useConversations = () => {
         return prev;
       }
       
-      if (isContactMessage) {
+      // Only notify for real messages, not reactions
+      if (isContactMessage && !isReaction) {
         const contactName = conversation.contact?.name || 'Cliente';
         notifyNewMessage(contactName, newMsg.content);
         playNotificationSound();
@@ -254,25 +290,30 @@ export const useConversations = () => {
       
       const updated = prev.map(conv => {
         if (conv.id === newMsg.conversation_id) {
+          const newLastMessage = {
+            id: newMsg.id,
+            content: newMsg.content,
+            sender_type: newMsg.sender_type,
+            created_at: newMsg.created_at,
+          };
+          
           return {
             ...conv,
-            lastMessage: {
-              id: newMsg.id,
-              content: newMsg.content,
-              sender_type: newMsg.sender_type,
-              created_at: newMsg.created_at,
-            },
-            updated_at: newMsg.created_at,
-            hasNewMessage: isContactMessage,
+            lastMessage: newLastMessage,
+            // Only update lastRealMessage if this is NOT a reaction
+            lastRealMessage: isReaction ? conv.lastRealMessage : newLastMessage,
+            // Only update updated_at if NOT a reaction (prevents re-ordering)
+            updated_at: isReaction ? conv.updated_at : newMsg.created_at,
+            hasNewMessage: isContactMessage && !isReaction,
           };
         }
         return conv;
       });
       
-      // Re-sort by last message time
+      // Re-sort by last REAL message time (excludes reactions)
       return updated.sort((a, b) => {
-        const aTime = a.lastMessage?.created_at || a.updated_at;
-        const bTime = b.lastMessage?.created_at || b.updated_at;
+        const aTime = a.lastRealMessage?.created_at || a.lastMessage?.created_at || a.updated_at;
+        const bTime = b.lastRealMessage?.created_at || b.lastMessage?.created_at || b.updated_at;
         return new Date(bTime).getTime() - new Date(aTime).getTime();
       });
     });

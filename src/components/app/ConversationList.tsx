@@ -104,9 +104,11 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     const processedSupabaseConversations = supabaseConversations.map(conv => {
       // Use lastMessage from hook instead of messages array
       const lastMessage = conv.lastMessage;
+      // Use lastRealMessage for sorting (excludes reactions)
+      const lastRealMessage = (conv as any).lastRealMessage || lastMessage;
       
-      // Use last message time if available, otherwise fall back to updated_at
-      const lastActivityTime = lastMessage?.created_at || conv.updated_at;
+      // Use last REAL message time for sorting (excludes reactions)
+      const lastActivityTime = lastRealMessage?.created_at || lastMessage?.created_at || conv.updated_at;
       
       // Use contact name, phone, or email for display
       let displayName = 'Sem identificação';
