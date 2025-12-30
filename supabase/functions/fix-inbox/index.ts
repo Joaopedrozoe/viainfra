@@ -119,44 +119,114 @@ serve(async (req) => {
       const evolutionKey = Deno.env.get('EVOLUTION_API_KEY');
       
       if (evolutionUrl && evolutionKey) {
+        let foundName: string | null = null;
+        const remoteJid = `${phone}@s.whatsapp.net`;
+        
+        // METHOD 1: Try findContacts - returns contacts SAVED in the phone's address book
         try {
-          // Try to get contact info via findChats
-          const chatsResp = await fetch(`${evolutionUrl}/chat/findChats/VIAINFRAOFICIAL`, {
+          console.log(`   🔍 Method 1: findContacts (saved contacts)`);
+          const contactsResp = await fetch(`${evolutionUrl}/chat/findContacts/VIAINFRAOFICIAL`, {
             method: 'POST',
             headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ where: { id: `${phone}@s.whatsapp.net` } })
+            body: JSON.stringify({ where: { remoteJid } })
           });
           
-          if (chatsResp.ok) {
-            const chats = await chatsResp.json();
-            console.log(`   📋 Found ${chats?.length || 0} chats`);
+          if (contactsResp.ok) {
+            const contacts = await contactsResp.json();
+            console.log(`   📋 Method 1: Found ${contacts?.length || 0} contacts`);
             
-            if (chats?.length > 0) {
-              const chat = chats[0];
-              const contactName = chat.name || chat.pushName || chat.contact?.name;
-              
-              if (contactName && contactName !== phone && !contactName.includes('@')) {
-                console.log(`   ✅ Found name: ${contactName}`);
-                
-                // Update contact
-                const { error } = await supabase
-                  .from('contacts')
-                  .update({ name: contactName, updated_at: new Date().toISOString() })
-                  .eq('id', contactId);
-                
-                if (error) {
-                  results.errors.push({ action: 'fetchContactName', error: error.message });
-                } else {
-                  results.synced.push({ action: 'fetchContactName', contactId, name: contactName });
-                }
+            if (contacts?.length > 0) {
+              const contact = contacts[0];
+              // savedName is the name saved in the phone's address book
+              const savedName = contact.name || contact.savedName || contact.displayName;
+              if (savedName && savedName !== phone && !savedName.includes('@')) {
+                foundName = savedName;
+                console.log(`   ✅ Method 1: Found saved name: ${savedName}`);
               } else {
-                console.log(`   ⚠️ No valid name found in chat`);
-                results.debug.push({ action: 'fetchContactName', chat });
+                console.log(`   📋 Method 1 contact data: ${JSON.stringify(contact).substring(0, 500)}`);
               }
             }
           }
         } catch (e) {
-          results.errors.push({ action: 'fetchContactName', error: String(e) });
+          console.log(`   ❌ Method 1 error: ${e}`);
+        }
+        
+        // METHOD 2: Try fetchContacts - fetches all contacts from the device
+        if (!foundName) {
+          try {
+            console.log(`   🔍 Method 2: fetchContacts (device contacts)`);
+            const fetchResp = await fetch(`${evolutionUrl}/chat/fetchContacts/VIAINFRAOFICIAL`, {
+              method: 'POST',
+              headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
+              body: JSON.stringify({})
+            });
+            
+            if (fetchResp.ok) {
+              const allContacts = await fetchResp.json();
+              const contactsList = Array.isArray(allContacts) ? allContacts : [];
+              console.log(`   📋 Method 2: Total ${contactsList.length} contacts`);
+              
+              const matchedContact = contactsList.find((c: any) => 
+                c.id === remoteJid || c.jid === remoteJid || c.wuid === remoteJid || c.remoteJid === remoteJid
+              );
+              
+              if (matchedContact) {
+                const savedName = matchedContact.name || matchedContact.savedName || matchedContact.displayName || matchedContact.pushName;
+                console.log(`   📋 Method 2 matched: ${JSON.stringify(matchedContact).substring(0, 500)}`);
+                if (savedName && savedName !== phone && !savedName.includes('@')) {
+                  foundName = savedName;
+                  console.log(`   ✅ Method 2: Found name: ${savedName}`);
+                }
+              }
+            }
+          } catch (e) {
+            console.log(`   ❌ Method 2 error: ${e}`);
+          }
+        }
+        
+        // METHOD 3: Try findChats - WhatsApp profile name (fallback)
+        if (!foundName) {
+          try {
+            console.log(`   🔍 Method 3: findChats (WhatsApp profile)`);
+            const chatsResp = await fetch(`${evolutionUrl}/chat/findChats/VIAINFRAOFICIAL`, {
+              method: 'POST',
+              headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ where: { id: remoteJid } })
+            });
+            
+            if (chatsResp.ok) {
+              const chats = await chatsResp.json();
+              console.log(`   📋 Method 3: Found ${chats?.length || 0} chats`);
+              
+              if (chats?.length > 0) {
+                const chat = chats[0];
+                const profileName = chat.name || chat.pushName || chat.contact?.name;
+                console.log(`   📋 Method 3 chat: ${JSON.stringify(chat).substring(0, 500)}`);
+                if (profileName && profileName !== phone && !profileName.includes('@')) {
+                  foundName = profileName;
+                  console.log(`   ✅ Method 3: Found profile name: ${profileName}`);
+                }
+              }
+            }
+          } catch (e) {
+            console.log(`   ❌ Method 3 error: ${e}`);
+          }
+        }
+        
+        // Update contact if name found
+        if (foundName) {
+          const { error } = await supabase
+            .from('contacts')
+            .update({ name: foundName, updated_at: new Date().toISOString() })
+            .eq('id', contactId);
+          
+          if (error) {
+            results.errors.push({ action: 'fetchContactName', error: error.message });
+          } else {
+            results.synced.push({ action: 'fetchContactName', contactId, name: foundName });
+          }
+        } else {
+          results.debug.push({ action: 'fetchContactName', message: 'No name found in any method', phone });
         }
       }
     }
