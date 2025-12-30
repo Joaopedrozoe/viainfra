@@ -1,5 +1,17 @@
 project_id = "xxojpfhnkxpbznbmhmua"
 
+[functions.final-group-test]
+verify_jwt = false
+
+[functions.debug-group-send-v3]
+verify_jwt = false
+
+[functions.debug-group-send-v2]
+verify_jwt = false
+
+[functions.debug-group-send]
+verify_jwt = false
+
 [functions.fetch-specific-avatars]
 verify_jwt = false
 
