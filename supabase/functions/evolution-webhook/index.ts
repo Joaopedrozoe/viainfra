@@ -417,11 +417,31 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       (message as any)._isOutgoing = true;
       // NÃO usar continue - processar e salvar a mensagem normalmente
     }
+    // ============================================================
+    // CORREÇÃO CRÍTICA: Reações devem usar o remoteJid da mensagem ORIGINAL
+    // O reactionMessage.key.remoteJid indica onde a mensagem reagida está
+    // ============================================================
+    const reactionMsg = (message.message as any)?.reactionMessage;
+    let effectiveRemoteJid = message.key.remoteJid;
+    
+    if (reactionMsg?.key?.remoteJid) {
+      const originalRemoteJid = reactionMsg.key.remoteJid;
+      console.log(`⚡ REAÇÃO detectada: remoteJid original=${message.key.remoteJid}, mensagem original=${originalRemoteJid}`);
+      
+      // A reação deve ir para a conversa onde a mensagem original está
+      // Se a mensagem original é de um grupo, a reação deve ir para o grupo
+      if (originalRemoteJid.includes('@g.us') && !message.key.remoteJid.includes('@g.us')) {
+        console.log(`⚡ Corrigindo remoteJid: ${message.key.remoteJid} -> ${originalRemoteJid} (grupo)`);
+        effectiveRemoteJid = originalRemoteJid;
+        // Atualizar o key da mensagem para o grupo
+        message.key.remoteJid = originalRemoteJid;
+      }
+    }
 
     // Processar grupos - salvar mensagens mas não acionar bot
-    const isGroupMessage = message.key.remoteJid.includes('@g.us');
+    const isGroupMessage = effectiveRemoteJid.includes('@g.us');
     if (isGroupMessage) {
-      console.log(`📢 Mensagem de GRUPO recebida: ${message.key.remoteJid}`);
+      console.log(`📢 Mensagem de GRUPO recebida: ${effectiveRemoteJid}`);
       (message as any)._skipBot = true; // Grupos NUNCA acionam bot
       (message as any)._isGroup = true;
     }
@@ -443,7 +463,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       }
     }
 
-    const remoteJid = message.key.remoteJid;
+    const remoteJid = effectiveRemoteJid;
     const isLidFormat = remoteJid.includes('@lid');
     const messageContent = extractMessageContent(message);
     const contactName = message.pushName || 'Sem Nome';

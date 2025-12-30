@@ -20,7 +20,8 @@ serve(async (req) => {
       importLidToConversation = null, // { lidJid: "xxx@lid", targetConversationId: "uuid" }
       createLidMapping = null, // { lid: "123456", phone: "5511999999999" }
       updateContact = null, // { contactId: "uuid", name: "New Name" }
-      fixConversationRemoteJid = null // { conversationId: "uuid", phone: "5511999999999" }
+      fixConversationRemoteJid = null, // { conversationId: "uuid", phone: "5511999999999" }
+      deleteMessages = [] // Array of message IDs to delete
     } = body;
     
     // Allow some operations without instanceName
@@ -31,6 +32,22 @@ serve(async (req) => {
     
     const results: any = { deleted: [], synced: [], errors: [], debug: [] };
     
+    // Delete specific messages
+    for (const msgId of deleteMessages) {
+      console.log(`🗑️ Deleting message: ${msgId}`);
+      
+      const { error } = await supabase
+        .from('messages')
+        .delete()
+        .eq('id', msgId);
+      
+      if (error) {
+        results.errors.push({ action: 'deleteMessage', id: msgId, error: error.message });
+      } else {
+        results.deleted.push({ action: 'deleteMessage', id: msgId });
+        console.log(`   ✅ Message deleted`);
+      }
+    }
     // Quick update contact name
     if (updateContact) {
       const { contactId, name } = updateContact;
