@@ -411,9 +411,9 @@ async function sendTextMessage(
       console.log('[send-whatsapp] Passo 3: Aguardando 2s');
       await new Promise(r => setTimeout(r, 2000));
       
-      // PASSO 4: sendText padrão (formato simples)
+      // PASSO 4: Tentar sendText primeiro, fallback para sendMessage
       console.log('[send-whatsapp] Passo 4: sendText');
-      const response = await fetch(`${evolutionUrl}/message/sendText/${instanceName}`, {
+      let response = await fetch(`${evolutionUrl}/message/sendText/${instanceName}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': evolutionKey },
         body: JSON.stringify({
@@ -422,8 +422,23 @@ async function sendTextMessage(
         })
       });
 
-      const responseText = await response.text();
+      let responseText = await response.text();
       console.log(`[send-whatsapp] sendText: ${response.status}`, responseText);
+
+      // Se sendText falhar com 400, tentar sendMessage (formato alternativo)
+      if (!response.ok && response.status === 400) {
+        console.log('[send-whatsapp] Passo 4b: Fallback sendMessage');
+        response = await fetch(`${evolutionUrl}/message/sendMessage/${instanceName}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': evolutionKey },
+          body: JSON.stringify({
+            number: recipientJid,
+            textMessage: { text: text }
+          })
+        });
+        responseText = await response.text();
+        console.log(`[send-whatsapp] sendMessage: ${response.status}`, responseText);
+      }
 
       if (response.ok) {
         try {
