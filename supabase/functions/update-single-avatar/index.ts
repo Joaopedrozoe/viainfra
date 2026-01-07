@@ -69,33 +69,58 @@ serve(async (req) => {
     });
     
     const instances = await instancesResp.json();
-    console.log(`📱 Instâncias encontradas:`, JSON.stringify(instances.map((i: any) => ({
-      name: i.instance?.instanceName || i.instanceName,
-      state: i.instance?.state || i.state,
-      status: i.instance?.connectionStatus || i.connectionStatus
-    }))));
+    console.log(`📱 RAW Instâncias:`, JSON.stringify(instances));
     
-    // Verificar múltiplos formatos de estado
-    const connectedInstance = instances.find((i: any) => {
-      const state = i.instance?.state || i.state;
-      const connectionStatus = i.instance?.connectionStatus || i.connectionStatus;
-      return state === 'open' || connectionStatus === 'open' || state === 'connected';
-    });
+    // Extrair nome da instância de diferentes formatos possíveis
+    const getInstanceName = (inst: any): string | null => {
+      return inst.instance?.instanceName || 
+             inst.instanceName || 
+             inst.name || 
+             inst.instance?.name ||
+             (typeof inst === 'object' ? Object.keys(inst).find(k => k !== 'instance' && k !== 'state' && k !== 'status') : null);
+    };
+    
+    const getInstanceState = (inst: any): string => {
+      return inst.instance?.state || 
+             inst.state || 
+             inst.instance?.connectionStatus || 
+             inst.connectionStatus ||
+             inst.status ||
+             'unknown';
+    };
 
-    if (!connectedInstance) {
-      // Usar a primeira instância disponível se nenhuma estiver "open"
-      if (instances.length > 0) {
-        console.log('⚠️ Nenhuma instância "open", usando primeira disponível');
-      } else {
-        return new Response(
-          JSON.stringify({ error: 'Nenhuma instância WhatsApp encontrada' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+    // Encontrar instância conectada
+    let instanceName: string | null = null;
+    
+    for (const inst of instances) {
+      const name = getInstanceName(inst);
+      const state = getInstanceState(inst);
+      console.log(`  -> Instância: ${name}, estado: ${state}`);
+      
+      if (state === 'open' || state === 'connected') {
+        instanceName = name;
+        break;
+      }
+    }
+    
+    // Se nenhuma open, usar a primeira com nome válido
+    if (!instanceName && instances.length > 0) {
+      for (const inst of instances) {
+        const name = getInstanceName(inst);
+        if (name) {
+          instanceName = name;
+          break;
+        }
       }
     }
 
-    const instanceToUse = connectedInstance || instances[0];
-    const instanceName = instanceToUse.instance?.instanceName || instanceToUse.instanceName;
+    if (!instanceName) {
+      return new Response(
+        JSON.stringify({ error: 'Não foi possível identificar o nome da instância', rawInstances: instances }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
     console.log(`📱 Usando instância: ${instanceName}`);
 
     // Buscar foto de perfil
@@ -103,6 +128,7 @@ serve(async (req) => {
       ? contact.phone 
       : `${contact.phone}@s.whatsapp.net`;
 
+    console.log(`📸 Buscando foto para ${remoteJid}`);
     const profileResp = await fetch(
       `${evolutionApiUrl}/chat/fetchProfilePictureUrl/${instanceName}`,
       {
@@ -118,14 +144,15 @@ serve(async (req) => {
     const profileData = await profileResp.json();
     console.log('📸 Resposta da Evolution:', JSON.stringify(profileData));
 
-    const pictureUrl = profileData.profilePictureUrl || profileData.picture || profileData.imgUrl;
+    const pictureUrl = profileData.profilePictureUrl || profileData.picture || profileData.imgUrl || profileData.url;
 
     if (!pictureUrl) {
       return new Response(
         JSON.stringify({ 
           success: false, 
-          message: 'Contato não tem foto de perfil ou está com privacidade ativada',
-          contact: { id: contact.id, name: contact.name }
+          message: 'Foto não disponível na API',
+          contact: { id: contact.id, name: contact.name },
+          apiResponse: profileData
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
