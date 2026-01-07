@@ -386,26 +386,23 @@ async function sendTextMessage(
     console.log('[send-whatsapp] 🎯 Enviando para GRUPO com estratégia oficial');
     
     try {
-      // PASSO 1: findGroupInfos - força refresh dos metadados do grupo
-      console.log('[send-whatsapp] Passo 1: findGroupInfos');
-      const groupInfoResp = await fetch(`${evolutionUrl}/group/findGroupInfos/${instanceName}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': evolutionKey },
-        body: JSON.stringify({ groupJid: recipientJid })
-      });
-      console.log(`[send-whatsapp] findGroupInfos: ${groupInfoResp.status}`);
+      // PASSO 1: GET group/participants - força sync dos participantes (método GET)
+      console.log('[send-whatsapp] Passo 1: GET participants');
+      const participantsResp = await fetch(
+        `${evolutionUrl}/group/participants/${instanceName}?groupJid=${encodeURIComponent(recipientJid)}`,
+        { headers: { 'apikey': evolutionKey } }
+      );
+      console.log(`[send-whatsapp] participants: ${participantsResp.status}`);
       
-      // PASSO 2: sendPresence "composing" no formato v2 (com options)
-      console.log('[send-whatsapp] Passo 2: sendPresence composing (formato v2)');
+      // PASSO 2: sendPresence "composing" (formato simples, sem options)
+      console.log('[send-whatsapp] Passo 2: sendPresence composing');
       const presenceResp = await fetch(`${evolutionUrl}/chat/sendPresence/${instanceName}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': evolutionKey },
         body: JSON.stringify({
           number: recipientJid,
-          options: {
-            delay: 1200,
-            presence: 'composing'
-          }
+          presence: 'composing',
+          delay: 1200
         })
       });
       console.log(`[send-whatsapp] sendPresence: ${presenceResp.status}`);
