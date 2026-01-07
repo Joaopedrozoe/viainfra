@@ -1,6 +1,6 @@
 
-import { memo, useState, useEffect, useRef } from "react";
-import { ArrowLeft, MoreVertical, User, X, ArrowRightLeft, Bot, BotOff, RotateCcw, History, Loader2, Camera } from "lucide-react";
+import { memo, useState, useEffect } from "react";
+import { ArrowLeft, MoreVertical, User, X, ArrowRightLeft, Bot, BotOff, RotateCcw, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChannelIcon } from "../conversation/ChannelIcon";
 import { Channel } from "@/types/conversation";
@@ -26,14 +26,12 @@ interface ChatHeaderProps {
   channel: Channel;
   className?: string;
   conversationId?: string;
-  contactId?: string;
   conversationStatus?: string;
   onViewContactDetails?: () => void;
   onBackToList?: () => void;
   onEndConversation?: () => void;
   onReopenConversation?: () => void;
   onForceLoadHistory?: () => void;
-  onAvatarUpdated?: (newUrl: string) => void;
 }
 
 export const ChatHeader = memo(({ 
@@ -42,17 +40,13 @@ export const ChatHeader = memo(({
   channel, 
   className, 
   conversationId,
-  contactId,
   conversationStatus,
   onViewContactDetails,
   onBackToList,
   onEndConversation,
   onReopenConversation,
-  onForceLoadHistory,
-  onAvatarUpdated
+  onForceLoadHistory
 }: ChatHeaderProps) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const isMobile = useIsMobile();
   const { departments, getDepartmentByUser } = useDepartments();
   const [showTransferDialog, setShowTransferDialog] = useState(false);
@@ -149,39 +143,7 @@ export const ChatHeader = memo(({
     }
   };
 
-  // Upload de foto manual
-  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !contactId) return;
 
-    setIsUploadingPhoto(true);
-    try {
-      // Converter para base64
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        const base64 = e.target?.result as string;
-        
-        const { data, error } = await supabase.functions.invoke('set-contact-avatar', {
-          body: { contactId, imageBase64: base64 }
-        });
-
-        if (error) throw error;
-        
-        toast.success('Foto atualizada com sucesso!');
-        setImageError(false);
-        onAvatarUpdated?.(data.contact?.avatar_url);
-        
-        // Forçar reload da imagem
-        window.location.reload();
-      };
-      reader.readAsDataURL(file);
-    } catch (error) {
-      console.error('Erro ao fazer upload:', error);
-      toast.error('Erro ao atualizar foto');
-    } finally {
-      setIsUploadingPhoto(false);
-    }
-  };
 
   const handleTransferDepartment = () => {
     if (!selectedDepartment || !conversationId) return;
@@ -266,14 +228,8 @@ export const ChatHeader = memo(({
             )}
           </DropdownMenuItem>
           
-          {/* Upload de foto */}
-          {contactId && (
-            <DropdownMenuItem onClick={() => fileInputRef.current?.click()} disabled={isUploadingPhoto}>
-              <Camera className="mr-2 h-4 w-4" />
-              {isUploadingPhoto ? 'Enviando...' : 'Alterar Foto'}
-            </DropdownMenuItem>
-          )}
           
+
           <DropdownMenuSeparator />
           
           {/* Forçar carregamento de histórico */}
@@ -338,14 +294,6 @@ export const ChatHeader = memo(({
         </DialogContent>
       </Dialog>
 
-      {/* Hidden file input for photo upload */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={handlePhotoUpload}
-      />
     </div>
   );
 });

@@ -528,7 +528,6 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         avatar={contactAvatar}
         channel={conversationChannel} 
         conversationId={conversationId}
-        contactId={conversationId} // Use conversation ID to lookup contact
         conversationStatus={conversationStatus}
         onViewContactDetails={handleViewContactDetails}
         onBackToList={handleBackToList}
