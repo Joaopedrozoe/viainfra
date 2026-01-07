@@ -35,15 +35,9 @@ serve(async (req) => {
     // Contatos específicos para atualizar
     const targets = [
       { 
-        id: '50ca181f-4ca0-413c-84da-280275f960b2', 
-        name: 'VIAINFRA-O.M MANUTENÇÃO',
-        remoteJid: '120363419406852083@g.us',
-        isGroup: true
-      },
-      { 
-        id: 'dc555fea-79ca-4fb9-94c5-483e1b1e9ee3', 
-        name: 'Flávia Financeiro',
-        remoteJid: '5511971947986@s.whatsapp.net',
+        id: 'c73c1f27-be26-4c3c-84bb-8b99cfd2c64f', 
+        name: 'Rastreadores U P',
+        remoteJid: '5511950597875@s.whatsapp.net',
         isGroup: false
       }
     ];
