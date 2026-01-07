@@ -381,54 +381,30 @@ async function sendTextMessage(
 ): Promise<SendResult> {
   console.log(`[send-whatsapp] sendTextMessage - isGroup: ${isGroup}, recipient: ${recipientJid}`);
 
-  // ===== ESTRATÉGIA ROBUSTA PARA GRUPOS =====
-  // Baseada no que funciona no force-send-group
+  // ===== ESTRATÉGIA SIMPLIFICADA PARA GRUPOS =====
   if (isGroup) {
-    console.log('[send-whatsapp] 🎯 Usando estratégia ROBUSTA para GRUPO');
+    console.log('[send-whatsapp] 🎯 Enviando para GRUPO');
     
     try {
-      // PASSO 1: Forçar refresh do grupo específico para limpar cache
-      console.log('[send-whatsapp] Passo 1: Buscando participantes do grupo para forçar cache...');
+      // PASSO 1: Forçar sync do grupo buscando participantes
+      console.log('[send-whatsapp] Passo 1: Sincronizando grupo...');
       try {
-        const participantsResp = await fetch(
+        const syncResp = await fetch(
           `${evolutionUrl}/group/participants/${instanceName}?groupJid=${recipientJid}`,
           { headers: { 'apikey': evolutionKey } }
         );
-        console.log(`[send-whatsapp] Participantes: ${participantsResp.status}`);
+        console.log(`[send-whatsapp] Sync grupo: ${syncResp.status}`);
         
-        // Verificar se temos acesso ao grupo
-        if (!participantsResp.ok) {
-          console.warn('[send-whatsapp] ⚠️ Não foi possível acessar participantes do grupo');
+        if (syncResp.ok) {
+          // Pequeno delay para o sync completar
+          await new Promise(r => setTimeout(r, 500));
         }
       } catch (e) {
-        console.warn('[send-whatsapp] Falha ao buscar participantes (continuando):', e);
+        console.warn('[send-whatsapp] Falha ao sincronizar grupo (continuando):', e);
       }
 
-      // PASSO 2: Enviar presença "available" primeiro
-      console.log('[send-whatsapp] Passo 2: Enviando presença available...');
-      await fetch(`${evolutionUrl}/chat/updatePresence/${instanceName}`, {
-        method: 'POST',
-        headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ number: recipientJid, presence: 'available' })
-      });
-
-      // Aguardar para sessão estabilizar
-      await new Promise(r => setTimeout(r, 1500));
-
-      // PASSO 3: Enviar presença "composing"
-      console.log('[send-whatsapp] Passo 3: Enviando presença composing...');
-      const composingResp = await fetch(`${evolutionUrl}/chat/updatePresence/${instanceName}`, {
-        method: 'POST',
-        headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ number: recipientJid, presence: 'composing' })
-      });
-      console.log(`[send-whatsapp] Presença composing: ${composingResp.status}`);
-
-      // Aguardar para simular digitação
-      await new Promise(r => setTimeout(r, 2000));
-
-      // PASSO 4: Enviar mensagem com sendText e delay
-      console.log('[send-whatsapp] Passo 4: Enviando mensagem com sendText...');
+      // PASSO 2: Enviar com sendText
+      console.log('[send-whatsapp] Passo 2: Enviando mensagem...');
       const response = await fetch(`${evolutionUrl}/message/sendText/${instanceName}`, {
         method: 'POST',
         headers: {
@@ -438,76 +414,60 @@ async function sendTextMessage(
         body: JSON.stringify({
           number: recipientJid,
           text: text,
-          delay: 2000
+          delay: 1000,
+          linkPreview: false
         }),
       });
 
       const responseText = await response.text();
-      console.log(`[send-whatsapp] Group sendText response: ${response.status}`, responseText);
+      console.log(`[send-whatsapp] Resposta: ${response.status}`, responseText);
 
       if (response.ok) {
         try {
           const responseData = JSON.parse(responseText);
           const messageId = responseData?.key?.id || responseData?.messageId || responseData?.id;
-          console.log('[send-whatsapp] ✅ Grupo: mensagem enviada com sucesso!');
+          console.log('[send-whatsapp] ✅ Grupo: mensagem enviada!');
           return { success: true, messageId };
         } catch {
           return { success: true };
         }
       }
 
-      // PASSO 5 (fallback): Se falhou, tentar marcar chat como unread e reenviar
-      console.log('[send-whatsapp] Passo 5: Tentando fallback com markChatUnread...');
-      
-      try {
-        await fetch(`${evolutionUrl}/chat/markChatUnread/${instanceName}`, {
-          method: 'POST',
-          headers: { 'apikey': evolutionKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ number: recipientJid })
-        });
-        
-        await new Promise(r => setTimeout(r, 2000));
+      // PASSO 3: Se falhou, tentar sem delay
+      console.log('[send-whatsapp] Passo 3: Tentando sem delay...');
+      const retryResp = await fetch(`${evolutionUrl}/message/sendText/${instanceName}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': evolutionKey,
+        },
+        body: JSON.stringify({
+          number: recipientJid,
+          text: text
+        }),
+      });
 
-        // Reenviar após mark unread
-        console.log('[send-whatsapp] Tentando reenvio após markChatUnread...');
-        const retryResp = await fetch(`${evolutionUrl}/message/sendText/${instanceName}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': evolutionKey,
-          },
-          body: JSON.stringify({
-            number: recipientJid,
-            text: text,
-            delay: 2000
-          }),
-        });
+      const retryText = await retryResp.text();
+      console.log(`[send-whatsapp] Retry: ${retryResp.status}`, retryText);
 
-        const retryText = await retryResp.text();
-        console.log(`[send-whatsapp] Retry response: ${retryResp.status}`, retryText);
-
-        if (retryResp.ok) {
-          try {
-            const retryData = JSON.parse(retryText);
-            const messageId = retryData?.key?.id || retryData?.messageId || retryData?.id;
-            console.log('[send-whatsapp] ✅ Grupo: mensagem enviada com sucesso após fallback!');
-            return { success: true, messageId };
-          } catch {
-            return { success: true };
-          }
+      if (retryResp.ok) {
+        try {
+          const retryData = JSON.parse(retryText);
+          const messageId = retryData?.key?.id || retryData?.messageId || retryData?.id;
+          console.log('[send-whatsapp] ✅ Grupo: mensagem enviada após retry!');
+          return { success: true, messageId };
+        } catch {
+          return { success: true };
         }
-      } catch (fallbackError) {
-        console.warn('[send-whatsapp] Fallback também falhou:', fallbackError);
       }
 
-      // Todas as tentativas falharam
       return { 
         success: false, 
-        error: `Falha ao enviar para grupo após múltiplas tentativas. Última resposta: ${responseText}`
+        error: `Falha ao enviar para grupo: ${retryText}`
       };
 
     } catch (error: any) {
-      console.error('[send-whatsapp] Group send error:', error);
+      console.error('[send-whatsapp] Erro no grupo:', error);
       return { success: false, error: error.message };
     }
   }
