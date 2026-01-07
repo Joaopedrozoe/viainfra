@@ -60,24 +60,24 @@ serve(async (req) => {
       );
     }
 
-    console.log(`📷 Atualizando foto de ${contact.name} (${contact.phone})...`);
+    // Verificar se é grupo
+    const isGroup = contact.metadata?.isGroup === true || 
+                    contact.metadata?.remoteJid?.includes('@g.us');
+
+    console.log(`📷 Atualizando foto de ${contact.name} (${isGroup ? 'GRUPO' : contact.phone})...`);
 
     // Buscar instâncias conectadas
-    console.log(`🔍 Buscando instâncias em ${evolutionApiUrl}/instance/fetchInstances`);
     const instancesResp = await fetch(`${evolutionApiUrl}/instance/fetchInstances`, {
       headers: { 'apikey': evolutionApiKey }
     });
     
     const instances = await instancesResp.json();
-    console.log(`📱 RAW Instâncias:`, JSON.stringify(instances));
     
-    // Extrair nome da instância de diferentes formatos possíveis
     const getInstanceName = (inst: any): string | null => {
       return inst.instance?.instanceName || 
              inst.instanceName || 
              inst.name || 
-             inst.instance?.name ||
-             (typeof inst === 'object' ? Object.keys(inst).find(k => k !== 'instance' && k !== 'state' && k !== 'status') : null);
+             inst.instance?.name;
     };
     
     const getInstanceState = (inst: any): string => {
@@ -89,70 +89,139 @@ serve(async (req) => {
              'unknown';
     };
 
-    // Encontrar instância conectada
     let instanceName: string | null = null;
     
     for (const inst of instances) {
       const name = getInstanceName(inst);
       const state = getInstanceState(inst);
-      console.log(`  -> Instância: ${name}, estado: ${state}`);
-      
       if (state === 'open' || state === 'connected') {
         instanceName = name;
         break;
       }
     }
     
-    // Se nenhuma open, usar a primeira com nome válido
     if (!instanceName && instances.length > 0) {
-      for (const inst of instances) {
-        const name = getInstanceName(inst);
-        if (name) {
-          instanceName = name;
-          break;
-        }
-      }
+      instanceName = getInstanceName(instances[0]);
     }
 
     if (!instanceName) {
       return new Response(
-        JSON.stringify({ error: 'Não foi possível identificar o nome da instância', rawInstances: instances }),
+        JSON.stringify({ error: 'Nenhuma instância disponível' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
     
     console.log(`📱 Usando instância: ${instanceName}`);
 
-    // Buscar foto de perfil
-    const remoteJid = contact.phone.includes('@') 
-      ? contact.phone 
-      : `${contact.phone}@s.whatsapp.net`;
+    let pictureUrl: string | null = null;
 
-    console.log(`📸 Buscando foto para ${remoteJid}`);
-    const profileResp = await fetch(
-      `${evolutionApiUrl}/chat/fetchProfilePictureUrl/${instanceName}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': evolutionApiKey
-        },
-        body: JSON.stringify({ number: remoteJid })
+    if (isGroup) {
+      // Para grupos, usar o remoteJid do metadata
+      const groupJid = contact.metadata?.remoteJid;
+      if (!groupJid) {
+        return new Response(
+          JSON.stringify({ error: 'Grupo sem remoteJid no metadata', contact }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       }
-    );
 
-    const profileData = await profileResp.json();
-    console.log('📸 Resposta da Evolution:', JSON.stringify(profileData));
+      console.log(`📸 Buscando foto do grupo: ${groupJid}`);
+      
+      // Tentar fetchProfilePictureUrl primeiro
+      const profileResp = await fetch(
+        `${evolutionApiUrl}/chat/fetchProfilePictureUrl/${instanceName}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': evolutionApiKey
+          },
+          body: JSON.stringify({ number: groupJid })
+        }
+      );
 
-    const pictureUrl = profileData.profilePictureUrl || profileData.picture || profileData.imgUrl || profileData.url;
+      const profileData = await profileResp.json();
+      console.log('📸 Resposta fetchProfilePictureUrl:', JSON.stringify(profileData));
+      
+      pictureUrl = profileData.profilePictureUrl || profileData.picture || profileData.imgUrl || profileData.url;
+
+      // Se não funcionou, tentar findGroups
+      if (!pictureUrl) {
+        console.log('🔍 Tentando findGroups...');
+        const groupsResp = await fetch(
+          `${evolutionApiUrl}/group/findGroups/${instanceName}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': evolutionApiKey
+            },
+            body: JSON.stringify({ groupJid })
+          }
+        );
+        
+        const groupData = await groupsResp.json();
+        console.log('📸 Resposta findGroups:', JSON.stringify(groupData));
+        
+        if (groupData?.pictureUrl) {
+          pictureUrl = groupData.pictureUrl;
+        } else if (Array.isArray(groupData) && groupData.length > 0) {
+          pictureUrl = groupData[0]?.pictureUrl || groupData[0]?.profilePictureUrl;
+        }
+      }
+
+      // Última tentativa: fetchGroups
+      if (!pictureUrl) {
+        console.log('🔍 Tentando fetchGroups...');
+        const allGroupsResp = await fetch(
+          `${evolutionApiUrl}/group/fetchGroups/${instanceName}?getProfilePicture=true`,
+          {
+            headers: { 'apikey': evolutionApiKey }
+          }
+        );
+        
+        const allGroups = await allGroupsResp.json();
+        const targetGroup = Array.isArray(allGroups) 
+          ? allGroups.find((g: any) => g.id === groupJid || g.jid === groupJid)
+          : null;
+          
+        if (targetGroup) {
+          console.log('📸 Grupo encontrado:', JSON.stringify(targetGroup));
+          pictureUrl = targetGroup.pictureUrl || targetGroup.profilePictureUrl || targetGroup.picture;
+        }
+      }
+
+    } else {
+      // Para contatos normais
+      const remoteJid = contact.phone?.includes('@') 
+        ? contact.phone 
+        : `${contact.phone}@s.whatsapp.net`;
+
+      console.log(`📸 Buscando foto para ${remoteJid}`);
+      const profileResp = await fetch(
+        `${evolutionApiUrl}/chat/fetchProfilePictureUrl/${instanceName}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': evolutionApiKey
+          },
+          body: JSON.stringify({ number: remoteJid })
+        }
+      );
+
+      const profileData = await profileResp.json();
+      console.log('📸 Resposta da Evolution:', JSON.stringify(profileData));
+
+      pictureUrl = profileData.profilePictureUrl || profileData.picture || profileData.imgUrl || profileData.url;
+    }
 
     if (!pictureUrl) {
       return new Response(
         JSON.stringify({ 
           success: false, 
           message: 'Foto não disponível na API',
-          contact: { id: contact.id, name: contact.name },
-          apiResponse: profileData
+          contact: { id: contact.id, name: contact.name, isGroup }
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -221,6 +290,7 @@ serve(async (req) => {
           id: contact.id,
           name: contact.name,
           phone: contact.phone,
+          isGroup,
           oldAvatarUrl: contact.avatar_url,
           newAvatarUrl
         }
