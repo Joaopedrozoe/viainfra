@@ -983,18 +983,93 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       }
       
       // ============================================================
-      // Busca 4: Pelo nome do pushName em contatos COM telefone
-      // IMPORTANTE: Só criar mapeamento LID se match for ÚNICO e EXATO
-      // Para evitar confusão entre "Flavia Oliveira" e "Flávia Financeiro"
+      // Busca 4: Pelo pushName PARCIAL - busca contatos que CONTENHAM parte do nome
+      // Ex: "T Informatica" deve encontrar "Anthony Informatica" se for único
       // ============================================================
       if (!existingLidConv && contactName && contactName !== 'Sem Nome') {
-        console.log(`🔍 Buscando contato por nome: "${contactName}"`);
+        console.log(`🔍 Buscando contato por nome (busca flexível): "${contactName}"`);
         
-        // Normalizar nome para comparação (remover acentos também)
+        // NOVA ESTRATÉGIA: Buscar por partes do nome que não sejam iniciais
         const normalizedContactName = contactName.toLowerCase().trim()
           .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         const nameParts = normalizedContactName.split(/\s+/).filter(p => p.length > 2);
-        const firstName = nameParts[0] || '';
+        
+        // Se o nome tem partes (ex: "T Informatica" -> ["informatica"])
+        if (nameParts.length > 0) {
+          // Identificar partes significativas (não iniciais/letras soltas)
+          const significantParts = nameParts.filter(p => p.length >= 4);
+          
+          if (significantParts.length > 0) {
+            console.log(`🔍 Partes significativas do nome: ${significantParts.join(', ')}`);
+            
+            // Buscar contatos que contenham TODAS as partes significativas
+            const { data: matchingContacts } = await supabase
+              .from('contacts')
+              .select('id, phone, name, updated_at')
+              .eq('company_id', companyId)
+              .not('phone', 'is', null)
+              .order('updated_at', { ascending: false })
+              .limit(100);
+            
+            if (matchingContacts && matchingContacts.length > 0) {
+              // Filtrar contatos que contenham TODAS as partes significativas
+              const contactsWithAllParts = matchingContacts.filter(c => {
+                const cName = (c.name || '').toLowerCase().trim()
+                  .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                return significantParts.every(part => cName.includes(part));
+              });
+              
+              console.log(`📊 Contatos com partes significativas "${significantParts.join('+')}": ${contactsWithAllParts.length}`);
+              
+              // Se há EXATAMENTE UM contato, é match seguro
+              if (contactsWithAllParts.length === 1) {
+                const matchedContact = contactsWithAllParts[0];
+                console.log(`✅ MATCH ÚNICO por partes significativas: ${matchedContact.name} (${matchedContact.phone})`);
+                
+                linkedContactId = matchedContact.id;
+                linkedPhone = matchedContact.phone;
+                
+                // Buscar conversa deste contato
+                const { data: convOfPartialMatch } = await supabase
+                  .from('conversations')
+                  .select('*, contacts(*)')
+                  .eq('contact_id', matchedContact.id)
+                  .eq('channel', 'whatsapp')
+                  .in('status', ['open', 'pending', 'resolved'])
+                  .order('updated_at', { ascending: false })
+                  .limit(1)
+                  .maybeSingle();
+                
+                if (convOfPartialMatch) {
+                  existingLidConv = convOfPartialMatch;
+                  console.log(`✅ Conversa encontrada por match parcial: ${existingLidConv.id}`);
+                  
+                  // Criar mapeamento LID para futuras mensagens
+                  await supabase
+                    .from('lid_phone_mapping')
+                    .upsert({
+                      lid: lidId,
+                      phone: linkedPhone,
+                      contact_id: linkedContactId,
+                      company_id: companyId,
+                      instance_name: webhook.instance
+                    }, { onConflict: 'lid,company_id' });
+                  
+                  console.log(`✅ Mapeamento LID->telefone criado (match parcial): ${lidId} -> ${linkedPhone}`);
+                }
+              } else if (contactsWithAllParts.length > 1) {
+                console.log(`⚠️ MÚLTIPLOS CONTATOS com partes similares - tentando match exato`);
+              }
+            }
+          }
+        }
+        
+        // Se já encontramos conversa pelo match parcial, pular a busca antiga
+        if (existingLidConv) {
+          console.log(`✅ Já encontrado via match parcial - pulando busca antiga`);
+        } else {
+          // Busca por score (fallback se match parcial não funcionou)
+          const firstName = nameParts[0] || '';
         
         // Buscar contatos COM telefone que possam corresponder
         const { data: potentialContacts } = await supabase
@@ -1111,6 +1186,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
             }
           }
         }
+        } // fim do else da busca por score
       }
       
       // ============================================================
