@@ -52,6 +52,31 @@ const Inbox = () => {
     
     return () => clearInterval(autoRefreshInterval);
   }, [refetch, isSyncing]);
+
+  // Auto-sync de avatares a cada hora (verificar contatos sem foto ou desatualizados)
+  useEffect(() => {
+    const syncAvatars = async () => {
+      try {
+        console.log('📷 Auto-sync avatares iniciado...');
+        await supabase.functions.invoke('auto-sync-avatars', {
+          body: { mode: 'missing', limit: 20 }
+        });
+      } catch (err) {
+        console.error('Avatar sync error:', err);
+      }
+    };
+
+    // Sync inicial após 10 segundos
+    const initialTimeout = setTimeout(syncAvatars, 10000);
+    
+    // Sync periódico a cada hora
+    const avatarSyncInterval = setInterval(syncAvatars, 60 * 60 * 1000);
+    
+    return () => {
+      clearTimeout(initialTimeout);
+      clearInterval(avatarSyncInterval);
+    };
+  }, []);
   
   // Effect para tratar conversa vinda da URL (ex: /inbox?conversation=xxx)
   useEffect(() => {
@@ -140,14 +165,19 @@ const Inbox = () => {
         console.error('Error in realtime-sync:', err);
       }
       
-      // 2. Sincronizar fotos de perfil
+      // 2. Sincronizar fotos de perfil (contatos sem foto ou desatualizados)
       let photosUpdated = 0;
       try {
-        const { data: photoData } = await supabase.functions.invoke('sync-profile-pictures', {
-          body: { forceUpdate: false }
-        });
-        if (photoData?.updated) {
-          photosUpdated = photoData.updated;
+        const [photoData, avatarData] = await Promise.all([
+          supabase.functions.invoke('sync-profile-pictures', { body: { forceUpdate: false } }),
+          supabase.functions.invoke('auto-sync-avatars', { body: { mode: 'missing', limit: 30 } })
+        ]);
+        
+        if (photoData.data?.updated) {
+          photosUpdated += photoData.data.updated;
+        }
+        if (avatarData.data?.summary?.updated) {
+          photosUpdated += avatarData.data.summary.updated;
         }
       } catch (err) {
         console.error('Photo sync error:', err);
