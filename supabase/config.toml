@@ -6,6 +6,12 @@ verify_jwt = false
 [functions.auto-sync-avatars]
 verify_jwt = false
 
+[functions.fetch-group-photo]
+verify_jwt = false
+
+[functions.upload-contact-photo]
+verify_jwt = false
+
 [functions.final-group-test]
 verify_jwt = false
 
