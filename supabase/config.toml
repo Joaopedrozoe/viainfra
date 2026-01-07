@@ -1,5 +1,8 @@
 project_id = "xxojpfhnkxpbznbmhmua"
 
+[functions.update-single-avatar]
+verify_jwt = false
+
 [functions.final-group-test]
 verify_jwt = false
 
