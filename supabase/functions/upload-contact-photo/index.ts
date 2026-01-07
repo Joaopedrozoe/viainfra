@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
+import { decode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,11 +13,11 @@ serve(async (req) => {
   }
 
   try {
-    const { contactId, imageUrl } = await req.json();
+    const { contactId, imageUrl, imageBase64, contentType: providedContentType } = await req.json();
     
-    if (!contactId || !imageUrl) {
+    if (!contactId || (!imageUrl && !imageBase64)) {
       return new Response(
-        JSON.stringify({ error: 'contactId e imageUrl são obrigatórios' }),
+        JSON.stringify({ error: 'contactId e (imageUrl ou imageBase64) são obrigatórios' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -40,23 +41,33 @@ serve(async (req) => {
       );
     }
 
-    console.log(`📥 Baixando imagem para ${contact.name}: ${imageUrl}`);
+    let blob: Uint8Array;
+    let contentType = providedContentType || 'image/png';
 
-    // Baixar imagem
-    const imageResp = await fetch(imageUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0' }
-    });
+    if (imageBase64) {
+      // Decodificar base64
+      console.log(`📥 Processando imagem base64 para ${contact.name}`);
+      const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+      blob = decode(base64Data);
+    } else {
+      // Baixar imagem de URL
+      console.log(`📥 Baixando imagem para ${contact.name}: ${imageUrl}`);
+      
+      const imageResp = await fetch(imageUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0' }
+      });
 
-    if (!imageResp.ok) {
-      throw new Error(`Falha ao baixar imagem: ${imageResp.status}`);
+      if (!imageResp.ok) {
+        throw new Error(`Falha ao baixar imagem: ${imageResp.status}`);
+      }
+
+      contentType = imageResp.headers.get('content-type') || 'image/jpeg';
+      const imageBuffer = await imageResp.arrayBuffer();
+      blob = new Uint8Array(imageBuffer);
     }
 
-    const contentType = imageResp.headers.get('content-type') || 'image/jpeg';
-    const imageBuffer = await imageResp.arrayBuffer();
-    const blob = new Uint8Array(imageBuffer);
-
-    let extension = 'jpg';
-    if (contentType.includes('png')) extension = 'png';
+    let extension = 'png';
+    if (contentType.includes('jpeg') || contentType.includes('jpg')) extension = 'jpg';
     else if (contentType.includes('webp')) extension = 'webp';
 
     const fileName = `${contactId}.${extension}`;
