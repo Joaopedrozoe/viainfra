@@ -381,46 +381,52 @@ async function sendTextMessage(
 ): Promise<SendResult> {
   console.log(`[send-whatsapp] sendTextMessage - isGroup: ${isGroup}, recipient: ${recipientJid}`);
 
-  // ===== ESTRATÉGIA SIMPLIFICADA PARA GRUPOS =====
+  // ===== ESTRATÉGIA OFICIAL PARA GRUPOS =====
   if (isGroup) {
-    console.log('[send-whatsapp] 🎯 Enviando para GRUPO');
+    console.log('[send-whatsapp] 🎯 Enviando para GRUPO com estratégia oficial');
     
     try {
-      // PASSO 1: Forçar sync do grupo buscando participantes
-      console.log('[send-whatsapp] Passo 1: Sincronizando grupo...');
-      try {
-        const syncResp = await fetch(
-          `${evolutionUrl}/group/participants/${instanceName}?groupJid=${recipientJid}`,
-          { headers: { 'apikey': evolutionKey } }
-        );
-        console.log(`[send-whatsapp] Sync grupo: ${syncResp.status}`);
-        
-        if (syncResp.ok) {
-          // Pequeno delay para o sync completar
-          await new Promise(r => setTimeout(r, 500));
-        }
-      } catch (e) {
-        console.warn('[send-whatsapp] Falha ao sincronizar grupo (continuando):', e);
-      }
-
-      // PASSO 2: Enviar com sendText
-      console.log('[send-whatsapp] Passo 2: Enviando mensagem...');
-      const response = await fetch(`${evolutionUrl}/message/sendText/${instanceName}`, {
+      // PASSO 1: findGroupInfos - força refresh dos metadados do grupo
+      console.log('[send-whatsapp] Passo 1: findGroupInfos');
+      const groupInfoResp = await fetch(`${evolutionUrl}/group/findGroupInfos/${instanceName}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': evolutionKey,
-        },
+        headers: { 'Content-Type': 'application/json', 'apikey': evolutionKey },
+        body: JSON.stringify({ groupJid: recipientJid })
+      });
+      console.log(`[send-whatsapp] findGroupInfos: ${groupInfoResp.status}`);
+      
+      // PASSO 2: sendPresence "composing" no formato v2 (com options)
+      console.log('[send-whatsapp] Passo 2: sendPresence composing (formato v2)');
+      const presenceResp = await fetch(`${evolutionUrl}/chat/sendPresence/${instanceName}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': evolutionKey },
         body: JSON.stringify({
           number: recipientJid,
-          text: text,
-          delay: 1000,
-          linkPreview: false
-        }),
+          options: {
+            delay: 1200,
+            presence: 'composing'
+          }
+        })
+      });
+      console.log(`[send-whatsapp] sendPresence: ${presenceResp.status}`);
+      
+      // PASSO 3: Aguardar 2 segundos para sync de sessões
+      console.log('[send-whatsapp] Passo 3: Aguardando 2s');
+      await new Promise(r => setTimeout(r, 2000));
+      
+      // PASSO 4: sendText padrão (formato simples)
+      console.log('[send-whatsapp] Passo 4: sendText');
+      const response = await fetch(`${evolutionUrl}/message/sendText/${instanceName}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': evolutionKey },
+        body: JSON.stringify({
+          number: recipientJid,
+          text: text
+        })
       });
 
       const responseText = await response.text();
-      console.log(`[send-whatsapp] Resposta: ${response.status}`, responseText);
+      console.log(`[send-whatsapp] sendText: ${response.status}`, responseText);
 
       if (response.ok) {
         try {
@@ -433,38 +439,9 @@ async function sendTextMessage(
         }
       }
 
-      // PASSO 3: Se falhou, tentar sem delay
-      console.log('[send-whatsapp] Passo 3: Tentando sem delay...');
-      const retryResp = await fetch(`${evolutionUrl}/message/sendText/${instanceName}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': evolutionKey,
-        },
-        body: JSON.stringify({
-          number: recipientJid,
-          text: text
-        }),
-      });
-
-      const retryText = await retryResp.text();
-      console.log(`[send-whatsapp] Retry: ${retryResp.status}`, retryText);
-
-      if (retryResp.ok) {
-        try {
-          const retryData = JSON.parse(retryText);
-          const messageId = retryData?.key?.id || retryData?.messageId || retryData?.id;
-          console.log('[send-whatsapp] ✅ Grupo: mensagem enviada após retry!');
-          return { success: true, messageId };
-        } catch {
-          return { success: true };
-        }
-      }
-
-      return { 
-        success: false, 
-        error: `Falha ao enviar para grupo: ${retryText}`
-      };
+      // Log detalhado do erro
+      console.error('[send-whatsapp] ❌ Falha no envio para grupo:', responseText);
+      return { success: false, error: `Falha: ${responseText}` };
 
     } catch (error: any) {
       console.error('[send-whatsapp] Erro no grupo:', error);
