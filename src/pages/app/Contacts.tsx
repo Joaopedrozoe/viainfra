@@ -133,8 +133,13 @@ const Contacts = () => {
 
   const filteredContacts = useMemo(() => {
     return contacts.filter(contact => {
-      // Filtrar "Cliente Web" e "Sem contato"
-      if (contact.name === "Cliente Web" || contact.name === "Sem contato") {
+      // Filtrar "Cliente Web", "Sem Nome" e contatos sem telefone/email (exceto grupos)
+      if (contact.name === "Cliente Web" || contact.name === "Sem Nome" || contact.name === "Sem contato") {
+        return false;
+      }
+      
+      // Se não é grupo e não tem telefone nem email, não mostrar
+      if (!isGroup(contact) && !contact.phone && !contact.email) {
         return false;
       }
 
@@ -144,6 +149,7 @@ const Contacts = () => {
         const matchesQuery = 
           contact.name.toLowerCase().includes(query) ||
           contact.email?.toLowerCase().includes(query) ||
+          contact.phone?.toLowerCase().includes(query) ||
           contact.company?.toLowerCase().includes(query) ||
           contact.tags.some(tag => tag.toLowerCase().includes(query));
         
