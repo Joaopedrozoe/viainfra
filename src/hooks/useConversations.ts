@@ -183,6 +183,14 @@ export const useConversations = () => {
         .map(conv => {
           const lastMsg = lastMessages[conv.id];
           const lastRealMsg = lastRealMessages[conv.id];
+          
+          // Detectar se há mensagem não lida:
+          // - Última mensagem é do contato (user) e não é reação
+          // - Preservar hasNewMessage existente se já estava setado
+          const existingConv = conversations.find(c => c.id === conv.id);
+          const isLastFromContact = lastRealMsg?.sender_type === 'user' && 
+                                    !isReactionMessage(lastRealMsg?.content);
+          
           return {
             ...conv,
             status: conv.status as 'open' | 'resolved' | 'pending',
@@ -202,6 +210,8 @@ export const useConversations = () => {
               sender_type: lastRealMsg.sender_type as 'user' | 'agent' | 'bot',
               created_at: lastRealMsg.created_at
             } : undefined,
+            // Preservar hasNewMessage ou detectar baseado na última mensagem
+            hasNewMessage: existingConv?.hasNewMessage ?? isLastFromContact,
           };
         });
 
