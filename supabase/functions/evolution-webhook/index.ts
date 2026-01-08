@@ -1949,6 +1949,115 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
     return existingByRemoteJid;
   }
 
+  // ============================================================
+  // PRIORITY 3: Verificar lid_phone_mapping - pode já ter mapeamento
+  // Se existe mapeamento para este telefone, usar o contato existente
+  // ============================================================
+  if (normalizedPhone) {
+    const { data: lidMapping } = await supabase
+      .from('lid_phone_mapping')
+      .select('contact_id, lid')
+      .eq('phone', normalizedPhone)
+      .eq('company_id', companyId)
+      .maybeSingle();
+    
+    if (lidMapping && lidMapping.contact_id) {
+      const { data: mappedContact } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('id', lidMapping.contact_id)
+        .single();
+      
+      if (mappedContact) {
+        console.log(`✅ Found contact via lid_phone_mapping: ${mappedContact.name} (LID: ${lidMapping.lid})`);
+        
+        // Atualizar telefone e remoteJid se necessário
+        if (!mappedContact.phone || mappedContact.phone !== normalizedPhone) {
+          await supabase
+            .from('contacts')
+            .update({ 
+              phone: normalizedPhone,
+              metadata: { ...mappedContact.metadata, remoteJid: remoteJid },
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', mappedContact.id);
+          mappedContact.phone = normalizedPhone;
+        }
+        return mappedContact;
+      }
+    }
+  }
+
+  // ============================================================
+  // PRIORITY 4: Buscar contato LID sem telefone pelo NOME EXATO
+  // Se existe um contato LID com o mesmo nome, vincular o telefone a ele
+  // ============================================================
+  if (normalizedPhone && name && name !== 'Sem Nome') {
+    console.log(`🔍 Buscando contato LID sem telefone pelo nome: "${name}"`);
+    
+    // Normalizar nome para comparação
+    const normalizedName = name.toLowerCase().trim()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    
+    // Buscar contatos LID sem telefone
+    const { data: lidContacts } = await supabase
+      .from('contacts')
+      .select('*')
+      .eq('company_id', companyId)
+      .is('phone', null)
+      .contains('metadata', { isLidContact: true })
+      .limit(50);
+    
+    if (lidContacts && lidContacts.length > 0) {
+      // Filtrar por nome exato ou muito similar
+      const matchingLidContacts = lidContacts.filter((c: any) => {
+        const cName = (c.name || '').toLowerCase().trim()
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        return cName === normalizedName;
+      });
+      
+      // Se encontrou EXATAMENTE UM contato com nome igual, vincular o telefone
+      if (matchingLidContacts.length === 1) {
+        const lidContact = matchingLidContacts[0];
+        console.log(`✅ VINCULANDO telefone ${normalizedPhone} ao contato LID existente: ${lidContact.name} (${lidContact.id})`);
+        
+        // Atualizar o contato LID com o telefone real
+        await supabase
+          .from('contacts')
+          .update({ 
+            phone: normalizedPhone,
+            metadata: { 
+              ...lidContact.metadata, 
+              remoteJid: remoteJid,
+              isLidContact: false, // Não é mais só LID
+              phoneLinkedAt: new Date().toISOString()
+            },
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', lidContact.id);
+        
+        // Criar mapeamento LID -> telefone para futuras mensagens
+        if (lidContact.metadata?.lidId) {
+          await supabase
+            .from('lid_phone_mapping')
+            .upsert({
+              lid: lidContact.metadata.lidId,
+              phone: normalizedPhone,
+              contact_id: lidContact.id,
+              company_id: companyId,
+              instance_name: instanceName || 'VIAINFRAOFICIAL'
+            }, { onConflict: 'lid,company_id' });
+          console.log(`✅ Mapeamento LID->telefone criado: ${lidContact.metadata.lidId} -> ${normalizedPhone}`);
+        }
+        
+        lidContact.phone = normalizedPhone;
+        return lidContact;
+      } else if (matchingLidContacts.length > 1) {
+        console.log(`⚠️ MÚLTIPLOS contatos LID com mesmo nome "${name}" - NÃO vinculando automaticamente`);
+      }
+    }
+  }
+
   // Create new contact
   console.log(`➕ Creating new contact: ${name} (${normalizedPhone || 'no phone'})`);
   
