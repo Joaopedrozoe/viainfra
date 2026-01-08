@@ -166,7 +166,8 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         archived: (conv as any).archived || false,
         lastActivityTimestamp: new Date(lastActivityTime).getTime(),
         hasNewMessage: hasNewMsg,
-        hasMessages: !!lastMessage
+        // Conversas web sempre devem aparecer, mesmo sem mensagens carregadas ainda
+        hasMessages: !!lastMessage || conv.channel === 'web'
       } as Conversation & { is_preview: boolean; status?: string; archived?: boolean; lastActivityTimestamp?: number; hasNewMessage?: boolean; hasMessages?: boolean };
     }).filter(Boolean); // Remove null entries (invalid JIDs)
     
