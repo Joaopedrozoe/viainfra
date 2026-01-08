@@ -2089,8 +2089,24 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
   return newContact;
 }
 
+// Verifica se já checamos o avatar hoje (evita múltiplas verificações por dia)
+function wasAvatarCheckedToday(contact: any): boolean {
+  const lastChecked = contact.metadata?.avatar_last_checked;
+  if (!lastChecked) return false;
+  
+  const lastCheckTime = new Date(lastChecked).getTime();
+  const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+  
+  return lastCheckTime > oneDayAgo;
+}
+
 // Verifica se avatar precisa de atualização (desatualizado > 7 dias ou inexistente)
 function shouldUpdateAvatar(contact: any): boolean {
+  // OTIMIZAÇÃO: Se já verificamos hoje, pular
+  if (wasAvatarCheckedToday(contact)) {
+    return false;
+  }
+  
   // Se não tem avatar, precisa buscar
   if (!contact.avatar_url) return true;
   
@@ -2099,9 +2115,10 @@ function shouldUpdateAvatar(contact: any): boolean {
     return true;
   }
   
-  // Verificar se updated_at é antigo (> 7 dias)
-  if (contact.updated_at) {
-    const lastUpdate = new Date(contact.updated_at).getTime();
+  // Verificar se avatar é antigo (> 7 dias desde última atualização real)
+  const lastAvatarUpdate = contact.metadata?.avatar_updated_at || contact.updated_at;
+  if (lastAvatarUpdate) {
+    const lastUpdate = new Date(lastAvatarUpdate).getTime();
     const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
     if (lastUpdate < sevenDaysAgo) {
       return true;
@@ -2119,6 +2136,19 @@ async function updateContactProfilePicture(supabase: any, contact: any, instance
   if (!forceUpdate && !shouldUpdateAvatar(contact)) {
     return;
   }
+  
+  const now = new Date().toISOString();
+  
+  // SEMPRE marcar que verificamos hoje (mesmo que não atualize o avatar)
+  await supabase
+    .from('contacts')
+    .update({ 
+      metadata: { 
+        ...contact.metadata, 
+        avatar_last_checked: now 
+      }
+    })
+    .eq('id', contact.id);
   
   console.log(`📷 [Avatar Sync] Verificando foto de ${contact.name} (${contact.phone})...`);
   
@@ -2203,10 +2233,19 @@ async function updateContactProfilePicture(supabase: any, contact: any, instance
     
     const newAvatarUrl = `${urlData.publicUrl}?v=${Date.now()}`;
     
-    // Atualizar contato
+    // Atualizar contato com avatar E marcar data de atualização
+    const now = new Date().toISOString();
     const { error } = await supabase
       .from('contacts')
-      .update({ avatar_url: newAvatarUrl, updated_at: new Date().toISOString() })
+      .update({ 
+        avatar_url: newAvatarUrl, 
+        updated_at: now,
+        metadata: {
+          ...contact.metadata,
+          avatar_updated_at: now,
+          avatar_last_checked: now
+        }
+      })
       .eq('id', contact.id);
     
     if (error) {
