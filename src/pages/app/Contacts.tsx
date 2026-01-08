@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Search, Plus, Filter, Users, Mail, MessageSquare, Download, Trash2, Camera, RefreshCw } from "lucide-react";
+import { Search, Plus, Filter, Users, Mail, MessageSquare, Download, Trash2, Camera, RefreshCw, UsersRound } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useDemoMode } from "@/hooks/useDemoMode";
 
+// Helper to check if contact is a group
+const isGroup = (contact: Contact): boolean => {
+  const remoteJid = contact.metadata?.remoteJid || '';
+  return remoteJid.includes('@g.us') || contact.metadata?.isGroup === true;
+};
 const Contacts = () => {
   const { isDemoMode } = useDemoMode();
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -318,9 +323,9 @@ const Contacts = () => {
               {filteredContacts.length} contato{filteredContacts.length !== 1 ? 's' : ''}
             </span>
             <div className="flex items-center gap-4 text-xs">
-              <span>Total: {filteredContacts.length}</span>
-              <span>Com E-mail: {filteredContacts.filter(c => c.email).length}</span>
-              <span>Ativos: {filteredContacts.filter(c => c.status === "active").length}</span>
+              <span>Contatos: {filteredContacts.filter(c => !isGroup(c)).length}</span>
+              <span>Grupos: {filteredContacts.filter(c => isGroup(c)).length}</span>
+              <span>Com Telefone: {filteredContacts.filter(c => c.phone).length}</span>
             </div>
           </div>
         </div>
@@ -337,13 +342,13 @@ const Contacts = () => {
             ) : filteredContacts.length > 0 ? (
               <div className="space-y-2">
                 {filteredContacts.map((contact) => (
-                  <div key={contact.id} className="flex items-center gap-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors group">
+                  <div key={contact.id} className={`flex items-center gap-3 p-4 border rounded-lg hover:bg-muted/50 transition-colors group ${isGroup(contact) ? 'border-l-4 border-l-blue-500 bg-blue-50/30 dark:bg-blue-950/20' : ''}`}>
                     <div 
                       className="flex-1 cursor-pointer"
                       onClick={() => handleContactSelect(contact)}
                     >
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center overflow-hidden">
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center overflow-hidden ${isGroup(contact) ? 'bg-blue-500/20' : 'bg-primary/10'}`}>
                           {contact.avatar_url ? (
                             <img 
                               src={contact.avatar_url} 
@@ -351,9 +356,13 @@ const Contacts = () => {
                               className="w-full h-full object-cover"
                               onError={(e) => {
                                 e.currentTarget.style.display = 'none';
-                                e.currentTarget.parentElement!.innerHTML = `<span class="text-sm font-medium text-primary">${contact.name.charAt(0).toUpperCase()}</span>`;
+                                e.currentTarget.parentElement!.innerHTML = isGroup(contact) 
+                                  ? `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-600"><path d="M18 21a8 8 0 0 0-16 0"/><circle cx="10" cy="8" r="5"/><path d="M22 20c0-3.37-2-6.5-4-8a5 5 0 0 0-.45-8.3"/></svg>`
+                                  : `<span class="text-sm font-medium text-primary">${contact.name.charAt(0).toUpperCase()}</span>`;
                               }}
                             />
+                          ) : isGroup(contact) ? (
+                            <UsersRound className="h-5 w-5 text-blue-600" />
                           ) : (
                             <span className="text-sm font-medium text-primary">
                               {contact.name.charAt(0).toUpperCase()}
@@ -362,14 +371,24 @@ const Contacts = () => {
                         </div>
                         
                         <div className="flex-1">
-                          <div className="font-medium">{contact.name}</div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{contact.name}</span>
+                            {isGroup(contact) && (
+                              <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                                Grupo
+                              </Badge>
+                            )}
+                          </div>
                           <div className="text-sm text-muted-foreground">
-                            {contact.email || contact.phone || 'Sem contato'}
+                            {isGroup(contact) 
+                              ? 'Grupo do WhatsApp' 
+                              : (contact.email || contact.phone || 'Sem contato')
+                            }
                           </div>
                         </div>
                         
                         <div className="flex items-center gap-2">
-                          {contact.channel && (
+                          {contact.channel && !isGroup(contact) && (
                             <span className="text-xs bg-muted px-2 py-1 rounded">
                               {contact.channel}
                             </span>
