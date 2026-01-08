@@ -1476,6 +1476,9 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         console.log(`✅ Created new group contact: ${groupContact.name}`);
       }
       
+      // Agendar atualização de foto do grupo em background
+      scheduleGroupAvatarUpdate(supabase, groupContact, groupId, webhook.instance);
+
       // Buscar ou criar conversa para o grupo
       let groupConversation = null;
       
@@ -1545,9 +1548,9 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     // Get or create contact
     const contact = await getOrCreateContact(supabase, phoneNumber, contactName, remoteJid, webhook.instance);
     
-    // Update profile picture if missing for existing contacts
-    if (!contact.avatar_url && contact.phone && webhook.instance) {
-      updateContactProfilePicture(supabase, contact, webhook.instance);
+    // Agendar atualização de avatar em background (só se desatualizado)
+    if (contact.phone && webhook.instance) {
+      scheduleAvatarUpdate(supabase, contact, webhook.instance);
     }
     
     // Use contact's phone if available
@@ -2077,38 +2080,249 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
     throw error;
   }
 
-  // Fetch profile picture for new contact
+  // Agendar busca de avatar em background para novos contatos
   if (normalizedPhone && instanceName) {
-    const avatarUrl = await fetchProfilePicture(normalizedPhone, instanceName);
-    if (avatarUrl) {
-      await supabase
-        .from('contacts')
-        .update({ avatar_url: avatarUrl })
-        .eq('id', newContact.id);
-      newContact.avatar_url = avatarUrl;
-    }
+    scheduleAvatarUpdate(supabase, newContact, instanceName);
   }
 
   console.log('✅ Created new contact:', newContact.id);
   return newContact;
 }
 
-async function updateContactProfilePicture(supabase: any, contact: any, instanceName: string) {
-  if (!contact.phone || contact.avatar_url) return;
+// Verifica se avatar precisa de atualização (desatualizado > 7 dias ou inexistente)
+function shouldUpdateAvatar(contact: any): boolean {
+  // Se não tem avatar, precisa buscar
+  if (!contact.avatar_url) return true;
   
-  const avatarUrl = await fetchProfilePicture(contact.phone, instanceName);
-  if (avatarUrl) {
+  // Se avatar é placeholder ou inválido
+  if (contact.avatar_url.includes('placeholder') || contact.avatar_url.includes('default-avatar')) {
+    return true;
+  }
+  
+  // Verificar se updated_at é antigo (> 7 dias)
+  if (contact.updated_at) {
+    const lastUpdate = new Date(contact.updated_at).getTime();
+    const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+    if (lastUpdate < sevenDaysAgo) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+// Função para atualizar avatar de forma eficiente (roda em background)
+async function updateContactProfilePicture(supabase: any, contact: any, instanceName: string, forceUpdate: boolean = false) {
+  if (!contact.phone) return;
+  
+  // Verificar se precisa atualizar
+  if (!forceUpdate && !shouldUpdateAvatar(contact)) {
+    return;
+  }
+  
+  console.log(`📷 [Avatar Sync] Verificando foto de ${contact.name} (${contact.phone})...`);
+  
+  try {
+    const evolutionUrl = Deno.env.get('EVOLUTION_API_URL') || 'https://api.viainfra.chat';
+    const evolutionKey = Deno.env.get('EVOLUTION_API_KEY');
+    
+    if (!evolutionKey) {
+      console.log('⚠️ EVOLUTION_API_KEY not configured');
+      return;
+    }
+    
+    // Buscar URL da foto no Evolution API
+    const remoteJid = contact.phone.includes('@') ? contact.phone : `${contact.phone}@s.whatsapp.net`;
+    
+    const response = await fetch(`${evolutionUrl}/chat/fetchProfilePictureUrl/${instanceName}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': evolutionKey,
+      },
+      body: JSON.stringify({ number: remoteJid }),
+    });
+    
+    if (!response.ok) {
+      console.log(`⚠️ Foto não disponível para ${contact.name}: ${response.status}`);
+      return;
+    }
+    
+    const data = await response.json();
+    const pictureUrl = data.profilePictureUrl || data.pictureUrl || data.url;
+    
+    if (!pictureUrl) {
+      console.log(`📷 Sem foto de perfil para ${contact.name}`);
+      return;
+    }
+    
+    // Baixar a imagem
+    const imageResp = await fetch(pictureUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+    
+    if (!imageResp.ok) {
+      console.log(`⚠️ Falha ao baixar imagem: ${imageResp.status}`);
+      return;
+    }
+    
+    const contentType = imageResp.headers.get('content-type') || 'image/jpeg';
+    const imageBuffer = await imageResp.arrayBuffer();
+    const blob = new Uint8Array(imageBuffer);
+    
+    // Determinar extensão
+    let extension = 'jpg';
+    if (contentType.includes('png')) extension = 'png';
+    else if (contentType.includes('webp')) extension = 'webp';
+    
+    const fileName = `${contact.id}.${extension}`;
+    
+    // Upload para storage do Supabase
+    const { error: uploadError } = await supabase.storage
+      .from('profile-pictures')
+      .upload(fileName, blob, {
+        contentType,
+        upsert: true,
+      });
+    
+    if (uploadError) {
+      console.error(`❌ Erro upload avatar: ${uploadError.message}`);
+      // Fallback: usar URL direto
+      await supabase
+        .from('contacts')
+        .update({ avatar_url: pictureUrl, updated_at: new Date().toISOString() })
+        .eq('id', contact.id);
+      contact.avatar_url = pictureUrl;
+      return;
+    }
+    
+    // Obter URL pública
+    const { data: urlData } = supabase.storage
+      .from('profile-pictures')
+      .getPublicUrl(fileName);
+    
+    const newAvatarUrl = `${urlData.publicUrl}?v=${Date.now()}`;
+    
+    // Atualizar contato
     const { error } = await supabase
       .from('contacts')
-      .update({ avatar_url: avatarUrl, updated_at: new Date().toISOString() })
+      .update({ avatar_url: newAvatarUrl, updated_at: new Date().toISOString() })
       .eq('id', contact.id);
     
     if (error) {
       console.error('❌ Error updating contact avatar:', error);
     } else {
-      console.log(`✅ Profile picture updated for ${contact.name}`);
-      contact.avatar_url = avatarUrl;
+      console.log(`✅ Avatar atualizado: ${contact.name}`);
+      contact.avatar_url = newAvatarUrl;
     }
+  } catch (error) {
+    console.error(`❌ Erro ao atualizar avatar de ${contact.name}:`, error);
+  }
+}
+
+// Versão assíncrona que roda em background (não bloqueia webhook)
+function scheduleAvatarUpdate(supabase: any, contact: any, instanceName: string) {
+  if (!contact.phone || !shouldUpdateAvatar(contact)) return;
+  
+  // Usar EdgeRuntime.waitUntil se disponível, senão executar async sem await
+  if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
+    EdgeRuntime.waitUntil(updateContactProfilePicture(supabase, contact, instanceName));
+  } else {
+    // Executar em background sem bloquear
+    updateContactProfilePicture(supabase, contact, instanceName).catch(err => {
+      console.error('Background avatar update failed:', err);
+    });
+  }
+}
+
+// Atualiza foto de grupo em background
+async function updateGroupProfilePicture(supabase: any, contact: any, groupJid: string, instanceName: string) {
+  if (!shouldUpdateAvatar(contact)) return;
+  
+  console.log(`📷 [Group Avatar Sync] Verificando foto do grupo ${contact.name}...`);
+  
+  try {
+    const evolutionUrl = Deno.env.get('EVOLUTION_API_URL') || 'https://api.viainfra.chat';
+    const evolutionKey = Deno.env.get('EVOLUTION_API_KEY');
+    
+    if (!evolutionKey) return;
+    
+    // Tentar buscar foto do grupo
+    const response = await fetch(`${evolutionUrl}/chat/fetchProfilePictureUrl/${instanceName}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': evolutionKey,
+      },
+      body: JSON.stringify({ number: groupJid }),
+    });
+    
+    if (!response.ok) {
+      console.log(`⚠️ Foto do grupo não disponível: ${response.status}`);
+      return;
+    }
+    
+    const data = await response.json();
+    const pictureUrl = data.profilePictureUrl || data.pictureUrl || data.url;
+    
+    if (!pictureUrl) {
+      console.log(`📷 Sem foto para grupo ${contact.name}`);
+      return;
+    }
+    
+    // Baixar a imagem
+    const imageResp = await fetch(pictureUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+    
+    if (!imageResp.ok) return;
+    
+    const contentType = imageResp.headers.get('content-type') || 'image/jpeg';
+    const imageBuffer = await imageResp.arrayBuffer();
+    const blob = new Uint8Array(imageBuffer);
+    
+    let extension = 'jpg';
+    if (contentType.includes('png')) extension = 'png';
+    else if (contentType.includes('webp')) extension = 'webp';
+    
+    const fileName = `${contact.id}.${extension}`;
+    
+    // Upload para storage
+    const { error: uploadError } = await supabase.storage
+      .from('profile-pictures')
+      .upload(fileName, blob, { contentType, upsert: true });
+    
+    if (uploadError) {
+      // Fallback: usar URL direto
+      await supabase.from('contacts')
+        .update({ avatar_url: pictureUrl, updated_at: new Date().toISOString() })
+        .eq('id', contact.id);
+      return;
+    }
+    
+    const { data: urlData } = supabase.storage.from('profile-pictures').getPublicUrl(fileName);
+    const newAvatarUrl = `${urlData.publicUrl}?v=${Date.now()}`;
+    
+    await supabase.from('contacts')
+      .update({ avatar_url: newAvatarUrl, updated_at: new Date().toISOString() })
+      .eq('id', contact.id);
+    
+    console.log(`✅ Foto do grupo atualizada: ${contact.name}`);
+  } catch (error) {
+    console.error(`❌ Erro ao atualizar foto do grupo:`, error);
+  }
+}
+
+// Agendar atualização de foto de grupo em background
+function scheduleGroupAvatarUpdate(supabase: any, contact: any, groupJid: string, instanceName: string) {
+  if (!shouldUpdateAvatar(contact)) return;
+  
+  if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime.waitUntil) {
+    EdgeRuntime.waitUntil(updateGroupProfilePicture(supabase, contact, groupJid, instanceName));
+  } else {
+    updateGroupProfilePicture(supabase, contact, groupJid, instanceName).catch(err => {
+      console.error('Background group avatar update failed:', err);
+    });
   }
 }
 
