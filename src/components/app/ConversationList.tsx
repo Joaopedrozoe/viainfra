@@ -159,7 +159,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         channel: conv.channel as Channel,
         preview: hasValidPreview ? lastMessage.content : (conv.status === 'open' ? 'Aguardando mensagem...' : 'Sem mensagens'),
         time: formatConversationTime(lastActivityTime),
-        unread: conv.status === 'open' || conv.status === 'pending' ? 1 : 0,
+        unread: hasNewMsg ? 1 : 0,
         avatar: conv.contact?.avatar_url,
         is_preview: false,
         status: conv.status,
