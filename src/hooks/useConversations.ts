@@ -105,7 +105,8 @@ export const useConversations = () => {
           )
         `)
         .eq('company_id', company.id)
-        .neq('metadata->>remoteJid', 'status@broadcast')
+        // Filter out status broadcasts but allow web conversations (which don't have remoteJid)
+        .or('metadata->>remoteJid.is.null,metadata->>remoteJid.neq.status@broadcast')
         .order('updated_at', { ascending: false })
         .limit(200);
 
