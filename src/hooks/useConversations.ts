@@ -160,6 +160,15 @@ export const useConversations = () => {
       }
 
       // Build conversation list - filter out invalid JIDs
+      // DEBUG: Check raw data for web conversations
+      const rawWebConvs = (convData || []).filter(c => c.channel === 'web');
+      console.log('🔍 RAW web conversations from Supabase:', rawWebConvs.length, rawWebConvs.map(c => ({
+        id: c.id,
+        channel: c.channel,
+        contact: c.contacts,
+        metadata: c.metadata
+      })));
+
       const newConversations = (convData || [])
         .filter(conv => {
           const convRemoteJid = (conv.metadata as any)?.remoteJid;
@@ -170,8 +179,8 @@ export const useConversations = () => {
             return false;
           }
           
-          // Skip invalid JIDs (message IDs, etc.)
-          if (convRemoteJid && (
+          // Skip invalid JIDs (message IDs, etc.) - BUT NEVER filter web conversations
+          if (conv.channel !== 'web' && convRemoteJid && (
             /^(cmj|wamid|BAE|msg|3EB)[a-zA-Z0-9]+$/i.test(convRemoteJid) ||
             !convRemoteJid.includes('@')
           )) {
