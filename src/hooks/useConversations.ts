@@ -274,60 +274,72 @@ export const useConversations = () => {
     }
   }, [company?.id, notifyNewConversation]);
 
-  // Handle new message - optimistic update
+  // Handle new message - INSTANT optimistic update without refetch
   const handleNewMessage = useCallback((payload: any) => {
     const newMsg = payload.new as any;
     if (!newMsg?.conversation_id) return;
     
-    console.log('📨 New message:', newMsg.content?.substring(0, 30));
+    const timestamp = Date.now();
+    console.log(`⚡ [${timestamp}] NEW MESSAGE RECEIVED:`, {
+      id: newMsg.id,
+      content: newMsg.content?.substring(0, 30),
+      sender: newMsg.sender_type,
+      conversation: newMsg.conversation_id
+    });
     
     const isContactMessage = newMsg.sender_type === 'user';
     const isReaction = isReactionMessage(newMsg.content);
     
     setConversations(prev => {
-      const conversation = prev.find(c => c.id === newMsg.conversation_id);
+      const conversationIndex = prev.findIndex(c => c.id === newMsg.conversation_id);
       
-      if (!conversation) {
-        // New conversation - fetch all
-        fetchConversations(true);
+      if (conversationIndex === -1) {
+        // New conversation not in list - do a single fetch
+        console.log('⚡ Conversation not found, fetching...');
+        setTimeout(() => fetchConversations(true), 100);
         return prev;
       }
       
-      // Only notify for real messages, not reactions
+      const conversation = prev[conversationIndex];
+      
+      // Notify IMMEDIATELY for contact messages (not reactions)
       if (isContactMessage && !isReaction) {
         const contactName = conversation.contact?.name || 'Cliente';
         notifyNewMessage(contactName, newMsg.content);
         playNotificationSound();
       }
       
-      const updated = prev.map(conv => {
-        if (conv.id === newMsg.conversation_id) {
-          const newLastMessage = {
-            id: newMsg.id,
-            content: newMsg.content,
-            sender_type: newMsg.sender_type,
-            created_at: newMsg.created_at,
-          };
-          
-          return {
-            ...conv,
-            lastMessage: newLastMessage,
-            // Only update lastRealMessage if this is NOT a reaction
-            lastRealMessage: isReaction ? conv.lastRealMessage : newLastMessage,
-            // Only update updated_at if NOT a reaction (prevents re-ordering)
-            updated_at: isReaction ? conv.updated_at : newMsg.created_at,
-            hasNewMessage: isContactMessage && !isReaction,
-          };
-        }
-        return conv;
-      });
+      const newLastMessage = {
+        id: newMsg.id,
+        content: newMsg.content,
+        sender_type: newMsg.sender_type,
+        created_at: newMsg.created_at,
+      };
       
-      // Re-sort by last REAL message time (excludes reactions)
-      return updated.sort((a, b) => {
-        const aTime = a.lastRealMessage?.created_at || a.lastMessage?.created_at || a.updated_at;
-        const bTime = b.lastRealMessage?.created_at || b.lastMessage?.created_at || b.updated_at;
-        return new Date(bTime).getTime() - new Date(aTime).getTime();
-      });
+      const updatedConversation = {
+        ...conversation,
+        lastMessage: newLastMessage,
+        // Only update lastRealMessage if this is NOT a reaction
+        lastRealMessage: isReaction ? conversation.lastRealMessage : newLastMessage,
+        // Only update updated_at if NOT a reaction (prevents re-ordering)
+        updated_at: isReaction ? conversation.updated_at : newMsg.created_at,
+        hasNewMessage: isContactMessage && !isReaction,
+      };
+      
+      // Remove from current position and add to appropriate position
+      const updated = [...prev];
+      updated.splice(conversationIndex, 1);
+      
+      if (!isReaction) {
+        // Move to top for real messages
+        updated.unshift(updatedConversation);
+      } else {
+        // Keep in same position for reactions
+        updated.splice(conversationIndex, 0, updatedConversation);
+      }
+      
+      console.log(`⚡ [${Date.now() - timestamp}ms] UI updated for message`);
+      return updated;
     });
   }, [fetchConversations, notifyNewMessage, playNotificationSound]);
 
@@ -348,27 +360,51 @@ export const useConversations = () => {
     fetchConversations(false);
 
     if (company?.id) {
-      console.log('📡 Setting up realtime for company:', company.id);
+      console.log('📡 Setting up OPTIMIZED realtime for company:', company.id);
       
-      const channelId = `inbox-v2-${company.id}-${Date.now()}`;
+      // Use a stable channel ID (without timestamp) for better connection reuse
+      const channelId = `inbox-rt-${company.id}`;
       
       const realtimeChannel = supabase
-        .channel(channelId)
+        .channel(channelId, {
+          config: {
+            broadcast: { self: true },
+            presence: { key: company.id },
+          }
+        })
+        // OPTIMIZED: Filter conversations by company_id directly
         .on(
           'postgres_changes',
           {
-            event: '*',
+            event: 'INSERT',
             schema: 'public',
             table: 'conversations',
+            filter: `company_id=eq.${company.id}`
           },
           (payload) => {
-            const newData = payload.new as any;
-            if (newData?.company_id === company.id || payload.eventType === 'DELETE') {
-              console.log('📬 Conversation change:', payload.eventType);
-              fetchConversations(true);
-            }
+            console.log('⚡ NEW conversation (realtime):', payload.new);
+            // New conversation - add to list immediately
+            fetchConversations(true);
           }
         )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'conversations',
+            filter: `company_id=eq.${company.id}`
+          },
+          (payload) => {
+            const updated = payload.new as any;
+            console.log('⚡ UPDATED conversation (realtime):', updated.id);
+            // Update existing conversation in place
+            setConversations(prev => 
+              prev.map(c => c.id === updated.id ? { ...c, ...updated, status: updated.status } : c)
+            );
+          }
+        )
+        // OPTIMIZED: Listen to ALL message inserts (we filter in handleNewMessage)
         .on(
           'postgres_changes',
           {
@@ -376,32 +412,27 @@ export const useConversations = () => {
             schema: 'public',
             table: 'messages',
           },
-          handleNewMessage
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'messages',
-          },
-          () => {
-            fetchConversations(true);
+          (payload) => {
+            console.log('⚡ NEW message (realtime):', payload.new);
+            handleNewMessage(payload);
           }
         )
         .subscribe((status) => {
-          console.log('📡 Realtime:', status);
+          console.log('📡 Realtime status:', status);
           if (status === 'SUBSCRIBED') {
-            fetchConversations(true);
+            console.log('✅ Realtime CONNECTED - instant updates enabled');
+          } else if (status === 'CHANNEL_ERROR') {
+            console.error('❌ Realtime channel error - falling back to polling');
           }
         });
 
-      // Polling every 10 seconds for robustness
+      // REDUCED polling: 30 seconds instead of 10 (realtime is primary now)
       const pollInterval = setInterval(() => {
         if (mountedRef.current) {
+          console.log('🔄 Fallback poll (30s)');
           fetchConversations(true);
         }
-      }, 10000);
+      }, 30000);
 
       return () => {
         mountedRef.current = false;
