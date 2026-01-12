@@ -1342,16 +1342,35 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         continue;
       }
       
+      // ============================================================
+      // PROTEÇÃO: Não criar contato com nome igual ao LID/remoteJid
+      // Se o nome é um LID ou remoteJid, usar "Contato Desconhecido"
+      // ============================================================
+      const isLidName = contactName && (
+        contactName.includes('@lid') || 
+        contactName.includes('@s.whatsapp.net') ||
+        contactName.includes('@c.us') ||
+        contactName.includes('@g.us') ||
+        /^\d{10,20}$/.test(contactName) || // Só números
+        contactName === 'Sem Nome' ||
+        contactName === lidId
+      );
+      
+      const safeName = isLidName ? `Contato ${lidId.slice(-6)}` : contactName;
+      
+      console.log(`📝 Criando contato LID: nome original="${contactName}", nome seguro="${safeName}"`);
+      
       // Criar novo contato específico para esse LID (SEM TELEFONE)
       const { data: newContact, error: createError } = await supabase
         .from('contacts')
         .insert({
-          name: contactName || `Contato ${lidId.slice(-6)}`,
+          name: safeName,
           company_id: companyId,
           metadata: { 
             remoteJid: remoteJid, 
             lidId: lidId,
-            isLidContact: true 
+            isLidContact: true,
+            originalPushName: contactName // Guardar nome original para debug
           }
         })
         .select()
