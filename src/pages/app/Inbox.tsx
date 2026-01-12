@@ -41,17 +41,8 @@ const Inbox = () => {
   // Ativar notificações de mensagens
   useMessageNotifications();
   
-  // Auto-refresh a cada 30 segundos
-  useEffect(() => {
-    const autoRefreshInterval = setInterval(() => {
-      if (!isSyncing) {
-        console.log('🔄 Auto-refresh triggered (30s interval)');
-        refetch();
-      }
-    }, 30000);
-    
-    return () => clearInterval(autoRefreshInterval);
-  }, [refetch, isSyncing]);
+  // REMOVED: Auto-refresh redundante - useConversations já tem realtime + polling
+  // O realtime do Supabase é a fonte primária de updates agora
 
   // Auto-sync de avatares a cada hora (verificar contatos sem foto ou desatualizados)
   useEffect(() => {
