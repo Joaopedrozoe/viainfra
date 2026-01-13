@@ -350,24 +350,24 @@ export const MessageItem = memo(({
         isAgentMessage
           ? "bg-viainfra-primary text-white rounded-tr-none"
           : "bg-card border border-border rounded-tl-none",
-        effectiveStatus === 'failed' && isAgentMessage && "ring-2 ring-destructive/50",
-        isPinned && "ring-2 ring-amber-400/50 bg-amber-50/10",
-        isFavorite && "ring-2 ring-yellow-400/50"
+        effectiveStatus === 'failed' && isAgentMessage && "ring-2 ring-destructive/50"
       )}
     >
-      {/* Indicadores de fixada/favorita */}
-      <div className="absolute -top-2 -right-2 flex gap-1">
-        {isPinned && (
-          <div className="bg-amber-500 text-white p-1 rounded-full shadow-sm">
-            <Pin className="w-3 h-3" />
-          </div>
-        )}
-        {isFavorite && (
-          <div className="bg-yellow-500 text-white p-1 rounded-full shadow-sm">
-            <Star className="w-3 h-3" />
-          </div>
-        )}
-      </div>
+      {/* Indicadores de fixada/favorita - ícones discretos no canto */}
+      {(isPinned || isFavorite) && (
+        <div className="absolute -top-1.5 -right-1.5 flex gap-0.5">
+          {isPinned && (
+            <div className="bg-amber-500 text-white p-0.5 rounded-full shadow-sm" title="Mensagem fixada">
+              <Pin className="w-2.5 h-2.5" />
+            </div>
+          )}
+          {isFavorite && (
+            <div className="bg-yellow-500 text-white p-0.5 rounded-full shadow-sm" title="Mensagem favorita">
+              <Star className="w-2.5 h-2.5" />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Texto da mensagem - exibir se não for apenas placeholder de mídia */}
       {message.content && !isMediaPlaceholder(message.content) && (
