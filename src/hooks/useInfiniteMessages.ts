@@ -15,6 +15,7 @@ interface UseInfiniteMessagesReturn {
   addMessage: (message: Message) => void;
   updateMessage: (id: string, updates: Partial<Message>) => void;
   replaceTemporaryMessage: (tempContent: string, realMessage: Message) => void;
+  deleteMessage: (id: string) => void;
 }
 
 export function useInfiniteMessages(conversationId: string | null): UseInfiniteMessagesReturn {
@@ -225,6 +226,12 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
     });
   }, []);
 
+  const deleteMessage = useCallback((id: string) => {
+    setMessages(prev => prev.filter(msg => msg.id !== id));
+    seenIdsRef.current.delete(id);
+    setTotalCount(prev => Math.max(0, prev - 1));
+  }, []);
+
   return {
     messages,
     isLoading,
@@ -236,6 +243,7 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
     addMessage,
     updateMessage,
     replaceTemporaryMessage,
+    deleteMessage,
   };
 }
 
