@@ -2392,10 +2392,13 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
     .eq('id', contactId)
     .single();
 
-  console.log(`🔍 [getOrCreateConversation] ContactId: ${contactId}, Phone: ${phoneNumber}, RemoteJid: ${remoteJid}`);
+  const companyId = contact?.company_id;
+  console.log(`🔍 [getOrCreateConversation] ContactId: ${contactId}, Phone: ${phoneNumber}, RemoteJid: ${remoteJid}, CompanyId: ${companyId}`);
 
-  // Buscar conversa existente
-  const { data: existingConversation } = await supabase
+  // ============================================================
+  // PRIORITY 1: Buscar por contact_id
+  // ============================================================
+  const { data: existingByContact } = await supabase
     .from('conversations')
     .select('*')
     .eq('contact_id', contactId)
@@ -2404,10 +2407,10 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
     .limit(1)
     .maybeSingle();
 
-  if (existingConversation) {
-    console.log(`✅ Found existing conversation: ${existingConversation.id}`);
+  if (existingByContact) {
+    console.log(`✅ Found existing conversation by contact_id: ${existingByContact.id}`);
     
-    const needsReopen = existingConversation.status === 'resolved' || existingConversation.status === 'closed';
+    const needsReopen = existingByContact.status === 'resolved' || existingByContact.status === 'closed';
     
     if (needsReopen) {
       console.log('🔄 Reabrindo conversa resolvida...');
@@ -2419,23 +2422,128 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
           archived: false,
           updated_at: new Date().toISOString(),
           metadata: {
-            ...existingConversation.metadata,
+            ...existingByContact.metadata,
             remoteJid: remoteJid,
-            instanceName: instanceName || existingConversation.metadata?.instanceName
+            instanceName: instanceName || existingByContact.metadata?.instanceName
           }
         })
-        .eq('id', existingConversation.id);
+        .eq('id', existingByContact.id);
       
-      existingConversation.status = 'open';
+      existingByContact.status = 'open';
     }
-    // NOTA: Não atualizar updated_at aqui - será feito em processNewMessage
-    // exceto para reações que NÃO devem atualizar o timestamp
     
-    return existingConversation;
+    return existingByContact;
   }
 
-  // Create new conversation
-  console.log(`➕ Creating new conversation for contact: ${contactId}`);
+  // ============================================================
+  // PRIORITY 2: Buscar por remoteJid na mesma company (ANTI-DUPLICATA)
+  // Isso evita criar conversa duplicada se já existe uma para o mesmo remoteJid
+  // ============================================================
+  if (remoteJid && companyId) {
+    const { data: existingByRemoteJid } = await supabase
+      .from('conversations')
+      .select('*, contacts!conversations_contact_id_fkey(id, name, phone)')
+      .eq('metadata->>remoteJid', remoteJid)
+      .eq('channel', 'whatsapp')
+      .eq('company_id', companyId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingByRemoteJid) {
+      console.log(`✅ Found existing conversation by remoteJid: ${existingByRemoteJid.id} (contact: ${existingByRemoteJid.contacts?.name})`);
+      console.log(`⚠️ ANTI-DUPLICATA: Usando conversa existente ao invés de criar nova`);
+      
+      // Se o contato é diferente, atualizar para o contato correto (pode acontecer se houve merge)
+      if (existingByRemoteJid.contact_id !== contactId) {
+        console.log(`🔄 Atualizando contact_id de ${existingByRemoteJid.contact_id} para ${contactId}`);
+        await supabase
+          .from('conversations')
+          .update({ 
+            contact_id: contactId,
+            updated_at: new Date().toISOString(),
+            metadata: {
+              ...existingByRemoteJid.metadata,
+              previousContactId: existingByRemoteJid.contact_id,
+              contactMergedAt: new Date().toISOString()
+            }
+          })
+          .eq('id', existingByRemoteJid.id);
+        existingByRemoteJid.contact_id = contactId;
+      }
+      
+      const needsReopen = existingByRemoteJid.status === 'resolved' || existingByRemoteJid.status === 'closed';
+      
+      if (needsReopen) {
+        console.log('🔄 Reabrindo conversa resolvida...');
+        await supabase
+          .from('conversations')
+          .update({ 
+            status: 'open',
+            archived: false,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', existingByRemoteJid.id);
+        existingByRemoteJid.status = 'open';
+      }
+      
+      return existingByRemoteJid;
+    }
+  }
+
+  // ============================================================
+  // PRIORITY 3: Buscar por telefone (formato variável) na mesma company
+  // ============================================================
+  if (phoneNumber && companyId) {
+    // Tentar buscar conversa cujo contato tem o mesmo telefone
+    const { data: existingByPhone } = await supabase
+      .from('conversations')
+      .select('*, contacts!conversations_contact_id_fkey(id, name, phone)')
+      .eq('channel', 'whatsapp')
+      .eq('company_id', companyId)
+      .not('contacts.phone', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    
+    if (existingByPhone && existingByPhone.length > 0) {
+      // Buscar manualmente por telefone
+      const normalizedPhone = phoneNumber.replace(/\D/g, '');
+      const matchingConv = existingByPhone.find(c => {
+        if (!c.contacts?.phone) return false;
+        const contactPhone = c.contacts.phone.replace(/\D/g, '');
+        return contactPhone === normalizedPhone || 
+               contactPhone.endsWith(normalizedPhone) || 
+               normalizedPhone.endsWith(contactPhone);
+      });
+      
+      if (matchingConv) {
+        console.log(`✅ Found existing conversation by phone match: ${matchingConv.id} (contact: ${matchingConv.contacts?.name})`);
+        console.log(`⚠️ ANTI-DUPLICATA: Usando conversa do mesmo telefone`);
+        
+        // Atualizar remoteJid se necessário
+        if (matchingConv.metadata?.remoteJid !== remoteJid) {
+          await supabase
+            .from('conversations')
+            .update({ 
+              metadata: {
+                ...matchingConv.metadata,
+                remoteJid: remoteJid,
+                instanceName: instanceName || matchingConv.metadata?.instanceName
+              },
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', matchingConv.id);
+        }
+        
+        return matchingConv;
+      }
+    }
+  }
+
+  // ============================================================
+  // CREATE: Nenhuma conversa existente encontrada
+  // ============================================================
+  console.log(`➕ Creating new conversation for contact: ${contactId} (no existing found)`);
   
   const { data: newConversation, error: insertError } = await supabase
     .from('conversations')
@@ -2443,7 +2551,7 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
       contact_id: contactId,
       channel: 'whatsapp',
       status: 'open',
-      company_id: contact?.company_id,
+      company_id: companyId,
       bot_active: !!phoneNumber, // Bot only if we have a phone
       metadata: { 
         remoteJid: remoteJid,
@@ -2459,7 +2567,22 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
     if (insertError.code === '23505') {
       console.log('⚠️ Constraint violation - fetching existing...');
       
+      // Tentar buscar novamente por remoteJid
       const { data: fallbackConversation } = await supabase
+        .from('conversations')
+        .select('*')
+        .eq('metadata->>remoteJid', remoteJid)
+        .eq('channel', 'whatsapp')
+        .eq('company_id', companyId)
+        .limit(1)
+        .maybeSingle();
+      
+      if (fallbackConversation) {
+        return fallbackConversation;
+      }
+      
+      // Fallback por contact_id
+      const { data: fallbackByContact } = await supabase
         .from('conversations')
         .select('*')
         .eq('contact_id', contactId)
@@ -2467,8 +2590,8 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
         .limit(1)
         .maybeSingle();
       
-      if (fallbackConversation) {
-        return fallbackConversation;
+      if (fallbackByContact) {
+        return fallbackByContact;
       }
     }
     
