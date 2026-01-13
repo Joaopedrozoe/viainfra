@@ -355,14 +355,16 @@ export const useConversations = () => {
   // Setup realtime subscriptions and polling
   useEffect(() => {
     mountedRef.current = true;
+    let realtimeConnected = false;
+    let lastRealtimeEvent = Date.now();
     
     // Initial fetch
     fetchConversations(false);
 
     if (company?.id) {
-      console.log('📡 Setting up OPTIMIZED realtime for company:', company.id);
+      console.log('📡 Setting up ROBUST realtime for company:', company.id);
       
-      // Use a stable channel ID (without timestamp) for better connection reuse
+      // Use a stable channel ID for better connection reuse
       const channelId = `inbox-rt-${company.id}`;
       
       const realtimeChannel = supabase
@@ -372,7 +374,7 @@ export const useConversations = () => {
             presence: { key: company.id },
           }
         })
-        // OPTIMIZED: Filter conversations by company_id directly
+        // Listen to conversation INSERTS filtered by company
         .on(
           'postgres_changes',
           {
@@ -382,11 +384,12 @@ export const useConversations = () => {
             filter: `company_id=eq.${company.id}`
           },
           (payload) => {
+            lastRealtimeEvent = Date.now();
             console.log('⚡ NEW conversation (realtime):', payload.new);
-            // New conversation - add to list immediately
             fetchConversations(true);
           }
         )
+        // Listen to conversation UPDATES filtered by company
         .on(
           'postgres_changes',
           {
@@ -396,15 +399,32 @@ export const useConversations = () => {
             filter: `company_id=eq.${company.id}`
           },
           (payload) => {
+            lastRealtimeEvent = Date.now();
             const updated = payload.new as any;
             console.log('⚡ UPDATED conversation (realtime):', updated.id);
-            // Update existing conversation in place
-            setConversations(prev => 
-              prev.map(c => c.id === updated.id ? { ...c, ...updated, status: updated.status } : c)
-            );
+            // Update in place AND move to top if updated_at changed significantly
+            setConversations(prev => {
+              const index = prev.findIndex(c => c.id === updated.id);
+              if (index === -1) {
+                // Conversation not in list, fetch to add it
+                fetchConversations(true);
+                return prev;
+              }
+              const existing = prev[index];
+              const updatedConv = { ...existing, ...updated, status: updated.status };
+              const newList = [...prev];
+              newList.splice(index, 1);
+              // Move to top if updated_at is newer
+              if (new Date(updated.updated_at) > new Date(existing.updated_at)) {
+                newList.unshift(updatedConv);
+              } else {
+                newList.splice(index, 0, updatedConv);
+              }
+              return newList;
+            });
           }
         )
-        // OPTIMIZED: Listen to ALL message inserts (we filter in handleNewMessage)
+        // Listen to ALL message inserts - filter in handleNewMessage
         .on(
           'postgres_changes',
           {
@@ -413,6 +433,7 @@ export const useConversations = () => {
             table: 'messages',
           },
           (payload) => {
+            lastRealtimeEvent = Date.now();
             console.log('⚡ NEW message (realtime):', payload.new);
             handleNewMessage(payload);
           }
@@ -420,19 +441,30 @@ export const useConversations = () => {
         .subscribe((status) => {
           console.log('📡 Realtime status:', status);
           if (status === 'SUBSCRIBED') {
+            realtimeConnected = true;
             console.log('✅ Realtime CONNECTED - instant updates enabled');
-          } else if (status === 'CHANNEL_ERROR') {
-            console.error('❌ Realtime channel error - falling back to polling');
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            realtimeConnected = false;
+            console.error('❌ Realtime disconnected:', status);
           }
         });
 
-      // REDUCED polling: 30 seconds instead of 10 (realtime is primary now)
+      // Adaptive polling: faster when realtime seems down
       const pollInterval = setInterval(() => {
-        if (mountedRef.current) {
-          console.log('🔄 Fallback poll (30s)');
+        if (!mountedRef.current) return;
+        
+        const timeSinceLastEvent = Date.now() - lastRealtimeEvent;
+        const isRealtimeStale = timeSinceLastEvent > 60000; // 1 minute without events
+        
+        if (!realtimeConnected || isRealtimeStale) {
+          console.log('🔄 Fast poll (realtime may be down)');
+          fetchConversations(true);
+        } else {
+          // Occasional sync even when realtime works (every 30s)
+          console.log('🔄 Routine sync poll');
           fetchConversations(true);
         }
-      }, 30000);
+      }, 15000); // Poll every 15s (faster than before)
 
       return () => {
         mountedRef.current = false;
