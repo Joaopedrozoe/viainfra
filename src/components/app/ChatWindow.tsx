@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { useInfiniteMessages } from "@/hooks/useInfiniteMessages";
-import { Loader2 } from "lucide-react";
+import { Loader2, Pin } from "lucide-react";
 
 const getFileType = (file: File): Attachment['type'] => {
   if (file.type.startsWith('image/')) return 'image';
@@ -514,7 +514,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     setShowEditDialog(true);
   }, []);
 
-  // Salvar edição da mensagem
+  // Salvar edição da mensagem (local + WhatsApp se aplicável)
   const handleSaveEdit = useCallback(async (messageId: string, newContent: string) => {
     try {
       const editedAt = new Date().toISOString();
@@ -530,7 +530,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         ? currentMsg.metadata as Record<string, unknown>
         : {};
       
-      // Atualizar no banco
+      // Atualizar no banco local
       const { error } = await supabase
         .from('messages')
         .update({ 
@@ -543,12 +543,56 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       
       // Atualizar localmente
       updateMessage(messageId, { content: newContent, editedAt });
-      toast.success('Mensagem editada!');
+      
+      // Tentar editar no WhatsApp se for canal WhatsApp e tiver o messageId do WhatsApp
+      const whatsappMessageId = currentMetadata.whatsappMessageId || currentMetadata.messageId;
+      const remoteJid = currentMetadata.remoteJid;
+      
+      if (conversationChannel === 'whatsapp' && whatsappMessageId && remoteJid) {
+        try {
+          // Buscar instância da conversa
+          const { data: conversation } = await supabase
+            .from('conversations')
+            .select('metadata')
+            .eq('id', conversationId)
+            .single();
+          
+          const instanceName = (conversation?.metadata as Record<string, unknown>)?.instanceName;
+          
+          if (instanceName) {
+            const { data: editResult, error: editError } = await supabase.functions.invoke('send-whatsapp-message', {
+              body: {
+                action: 'updateMessage',
+                instanceName,
+                remoteJid,
+                messageId: whatsappMessageId,
+                newContent
+              }
+            });
+            
+            if (editError || !editResult?.success) {
+              console.warn('⚠️ Não foi possível editar no WhatsApp:', editError || editResult?.error);
+              toast.warning('Mensagem editada localmente. Edição no WhatsApp não disponível.', {
+                description: 'O WhatsApp pode limitar edição após 15 minutos'
+              });
+            } else {
+              toast.success('Mensagem editada no WhatsApp!');
+            }
+          } else {
+            toast.success('Mensagem editada!');
+          }
+        } catch (whatsappError) {
+          console.warn('⚠️ Erro ao editar no WhatsApp:', whatsappError);
+          toast.success('Mensagem editada localmente!');
+        }
+      } else {
+        toast.success('Mensagem editada!');
+      }
     } catch (error) {
       console.error('Erro ao editar mensagem:', error);
       toast.error('Erro ao editar mensagem');
     }
-  }, [updateMessage]);
+  }, [updateMessage, conversationChannel, conversationId]);
 
   // Toggle fixar/desafixar
   const handlePinMessage = useCallback(async (message: Message) => {
@@ -698,6 +742,36 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         onReopenConversation={handleReopenConversation}
         onForceLoadHistory={handleForceLoadHistory}
       />
+      
+      {/* Seção de mensagens fixadas */}
+      {messages.some(m => m.isPinned) && (
+        <div className="flex-shrink-0 border-b border-border bg-amber-50/50 dark:bg-amber-950/20 px-4 py-2">
+          <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400 mb-2">
+            <Pin className="w-3 h-3" />
+            <span className="font-medium">Mensagens Fixadas</span>
+          </div>
+          <div className="space-y-1 max-h-24 overflow-y-auto">
+            {messages.filter(m => m.isPinned).map(pinnedMsg => (
+              <div 
+                key={`pinned-${pinnedMsg.id}`}
+                className="text-xs p-2 bg-background/80 rounded border border-amber-200 dark:border-amber-800 truncate cursor-pointer hover:bg-background transition-colors"
+                onClick={() => {
+                  // Scroll to the pinned message
+                  const element = document.getElementById(`msg-${pinnedMsg.id}`);
+                  element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }}
+                title="Clique para ir até a mensagem"
+              >
+                <span className="text-muted-foreground">
+                  {pinnedMsg.sender === 'agent' ? 'Você: ' : 'Cliente: '}
+                </span>
+                {pinnedMsg.content?.substring(0, 100)}{pinnedMsg.content && pinnedMsg.content.length > 100 ? '...' : ''}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div 
         ref={messagesContainerRef}
         onScroll={handleScroll}
@@ -728,7 +802,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             
             return (
               <div 
-                key={message.id} 
+                key={message.id}
+                id={`msg-${message.id}`}
                 className={cn(
                   "transition-all duration-200",
                   isNewMessage && "animate-in fade-in-0 slide-in-from-bottom-3 duration-300",

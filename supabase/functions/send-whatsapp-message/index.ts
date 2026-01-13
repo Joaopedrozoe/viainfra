@@ -34,7 +34,14 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { conversation_id, message_content, attachment, agent_name, message_id } = await req.json();
+    const body = await req.json();
+    
+    // Handle message update action (edit message on WhatsApp)
+    if (body.action === 'updateMessage') {
+      return await handleUpdateMessage(body);
+    }
+    
+    const { conversation_id, message_content, attachment, agent_name, message_id } = body;
 
     if (!conversation_id || (!message_content && !attachment)) {
       return new Response(
@@ -626,5 +633,81 @@ async function addToRetryQueue(
     console.error('[send-whatsapp] Error adding to retry queue:', queueError);
   } else {
     console.log('[send-whatsapp] Message added to retry queue');
+  }
+}
+
+// Handle editing a message on WhatsApp
+async function handleUpdateMessage(body: {
+  instanceName: string;
+  remoteJid: string;
+  messageId: string;
+  newContent: string;
+}): Promise<Response> {
+  const { instanceName, remoteJid, messageId, newContent } = body;
+  
+  console.log('[send-whatsapp] handleUpdateMessage:', { instanceName, remoteJid, messageId, newContentLength: newContent?.length });
+  
+  if (!instanceName || !remoteJid || !messageId || !newContent) {
+    return new Response(
+      JSON.stringify({ success: false, error: 'Missing required fields for updateMessage' }),
+      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+  
+  const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL');
+  const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
+  
+  if (!evolutionApiUrl || !evolutionApiKey) {
+    return new Response(
+      JSON.stringify({ success: false, error: 'Evolution API not configured' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+  
+  try {
+    // Evolution API v2 endpoint for updating messages
+    const updateUrl = `${evolutionApiUrl}/chat/updateMessage/${instanceName}`;
+    
+    const updatePayload = {
+      number: remoteJid,
+      text: newContent,
+      key: {
+        remoteJid: remoteJid,
+        fromMe: true,
+        id: messageId
+      }
+    };
+    
+    console.log('[send-whatsapp] Calling Evolution API updateMessage:', updateUrl, updatePayload);
+    
+    const response = await fetch(updateUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': evolutionApiKey
+      },
+      body: JSON.stringify(updatePayload)
+    });
+    
+    const responseText = await response.text();
+    console.log('[send-whatsapp] Evolution API updateMessage response:', response.status, responseText);
+    
+    if (!response.ok) {
+      return new Response(
+        JSON.stringify({ success: false, error: `Evolution API error: ${responseText}` }),
+        { status: response.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    return new Response(
+      JSON.stringify({ success: true, message: 'Message updated on WhatsApp' }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  } catch (error) {
+    console.error('[send-whatsapp] Error updating message:', error);
+    return new Response(
+      JSON.stringify({ success: false, error: error.message || 'Unknown error' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
   }
 }
