@@ -3,6 +3,9 @@ import { ChatHeader } from "./chat/ChatHeader";
 import { MessageItem } from "./chat/MessageItem";
 import { ChatInput } from "./chat/ChatInput";
 import { Message, ChatWindowProps, Attachment } from "./chat/types";
+import { EditMessageDialog } from "./chat/EditMessageDialog";
+import { DeleteMessageDialog } from "./chat/DeleteMessageDialog";
+import { ForwardMessageModal } from "./chat/ForwardMessageModal";
 import { Channel } from "@/types/conversation";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -45,7 +48,16 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     addMessage,
     updateMessage,
     replaceTemporaryMessage,
+    deleteMessage,
   } = useInfiniteMessages(conversationId);
+  
+  // Estados para modais de ações
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+  const [deletingMessage, setDeletingMessage] = useState<Message | null>(null);
+  const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showForwardModal, setShowForwardModal] = useState(false);
   
   // Carregar dados da conversa quando mudar
   useEffect(() => {
@@ -488,6 +500,157 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     }
   }, [conversationId, isSyncingHistory, loadInitialMessages]);
 
+  // ========== HANDLERS DE AÇÕES NAS MENSAGENS ==========
+  
+  // Copiar texto da mensagem
+  const handleCopyMessage = useCallback((content: string) => {
+    navigator.clipboard.writeText(content);
+    toast.success('Mensagem copiada!');
+  }, []);
+
+  // Abrir dialog de edição
+  const handleEditMessage = useCallback((message: Message) => {
+    setEditingMessage(message);
+    setShowEditDialog(true);
+  }, []);
+
+  // Salvar edição da mensagem
+  const handleSaveEdit = useCallback(async (messageId: string, newContent: string) => {
+    try {
+      const editedAt = new Date().toISOString();
+      
+      // Buscar metadata atual
+      const { data: currentMsg } = await supabase
+        .from('messages')
+        .select('metadata')
+        .eq('id', messageId)
+        .single();
+      
+      const currentMetadata = (typeof currentMsg?.metadata === 'object' && currentMsg?.metadata !== null)
+        ? currentMsg.metadata as Record<string, unknown>
+        : {};
+      
+      // Atualizar no banco
+      const { error } = await supabase
+        .from('messages')
+        .update({ 
+          content: newContent,
+          metadata: { ...currentMetadata, editedAt }
+        })
+        .eq('id', messageId);
+      
+      if (error) throw error;
+      
+      // Atualizar localmente
+      updateMessage(messageId, { content: newContent, editedAt });
+      toast.success('Mensagem editada!');
+    } catch (error) {
+      console.error('Erro ao editar mensagem:', error);
+      toast.error('Erro ao editar mensagem');
+    }
+  }, [updateMessage]);
+
+  // Toggle fixar/desafixar
+  const handlePinMessage = useCallback(async (message: Message) => {
+    try {
+      const newPinned = !message.isPinned;
+      
+      // Buscar metadata atual
+      const { data: currentMsg } = await supabase
+        .from('messages')
+        .select('metadata')
+        .eq('id', message.id)
+        .single();
+      
+      const currentMetadata = (typeof currentMsg?.metadata === 'object' && currentMsg?.metadata !== null)
+        ? currentMsg.metadata as Record<string, unknown>
+        : {};
+      
+      // Atualizar no banco
+      const { error } = await supabase
+        .from('messages')
+        .update({ 
+          metadata: { ...currentMetadata, isPinned: newPinned }
+        })
+        .eq('id', message.id);
+      
+      if (error) throw error;
+      
+      // Atualizar localmente
+      updateMessage(message.id, { isPinned: newPinned });
+      toast.success(newPinned ? 'Mensagem fixada!' : 'Mensagem desafixada!');
+    } catch (error) {
+      console.error('Erro ao fixar mensagem:', error);
+      toast.error('Erro ao fixar mensagem');
+    }
+  }, [updateMessage]);
+
+  // Toggle favoritar/desfavoritar
+  const handleFavoriteMessage = useCallback(async (message: Message) => {
+    try {
+      const newFavorite = !message.isFavorite;
+      
+      // Buscar metadata atual
+      const { data: currentMsg } = await supabase
+        .from('messages')
+        .select('metadata')
+        .eq('id', message.id)
+        .single();
+      
+      const currentMetadata = (typeof currentMsg?.metadata === 'object' && currentMsg?.metadata !== null)
+        ? currentMsg.metadata as Record<string, unknown>
+        : {};
+      
+      // Atualizar no banco
+      const { error } = await supabase
+        .from('messages')
+        .update({ 
+          metadata: { ...currentMetadata, isFavorite: newFavorite }
+        })
+        .eq('id', message.id);
+      
+      if (error) throw error;
+      
+      // Atualizar localmente
+      updateMessage(message.id, { isFavorite: newFavorite });
+      toast.success(newFavorite ? 'Adicionado aos favoritos!' : 'Removido dos favoritos!');
+    } catch (error) {
+      console.error('Erro ao favoritar mensagem:', error);
+      toast.error('Erro ao favoritar mensagem');
+    }
+  }, [updateMessage]);
+
+  // Abrir modal de encaminhamento
+  const handleForwardMessage = useCallback((message: Message) => {
+    setForwardingMessage(message);
+    setShowForwardModal(true);
+  }, []);
+
+  // Abrir dialog de confirmação de exclusão
+  const handleDeleteMessageClick = useCallback((message: Message) => {
+    setDeletingMessage(message);
+    setShowDeleteDialog(true);
+  }, []);
+
+  // Confirmar exclusão da mensagem
+  const handleConfirmDelete = useCallback(async (messageId: string) => {
+    try {
+      const { error } = await supabase
+        .from('messages')
+        .delete()
+        .eq('id', messageId);
+      
+      if (error) throw error;
+      
+      // Remover localmente
+      deleteMessage(messageId);
+      toast.success('Mensagem apagada!');
+    } catch (error) {
+      console.error('Erro ao apagar mensagem:', error);
+      toast.error('Erro ao apagar mensagem');
+    }
+  }, [deleteMessage]);
+
   if (!conversationId) {
     return (
       <div className="flex-1 flex items-center justify-center bg-muted p-4">
@@ -573,7 +736,15 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
                   !isSentMessage && message.sender === 'agent' && isLastMessage && "animate-in fade-in-0 slide-in-from-bottom-2 duration-200"
                 )}
               >
-                <MessageItem message={message} />
+                <MessageItem 
+                  message={message}
+                  onCopy={handleCopyMessage}
+                  onEdit={handleEditMessage}
+                  onPin={handlePinMessage}
+                  onFavorite={handleFavoriteMessage}
+                  onForward={handleForwardMessage}
+                  onDelete={handleDeleteMessageClick}
+                />
               </div>
             );
           })}
@@ -583,6 +754,27 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       <div className="flex-shrink-0 border-t bg-background">
         <ChatInput onSendMessage={handleSendMessage} />
       </div>
+
+      {/* Modais de ações */}
+      <EditMessageDialog
+        message={editingMessage}
+        open={showEditDialog}
+        onOpenChange={setShowEditDialog}
+        onSave={handleSaveEdit}
+      />
+
+      <DeleteMessageDialog
+        message={deletingMessage}
+        open={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+        onConfirm={handleConfirmDelete}
+      />
+
+      <ForwardMessageModal
+        message={forwardingMessage}
+        open={showForwardModal}
+        onOpenChange={setShowForwardModal}
+      />
     </div>
   );
 });

@@ -19,6 +19,11 @@ export interface Message {
   // Campos para mídia indisponível
   mediaUnavailable?: boolean;
   mediaType?: 'image' | 'video' | 'audio' | 'document';
+  // Campos para ações de mensagem
+  isPinned?: boolean;
+  isFavorite?: boolean;
+  editedAt?: string;
+  isDeleted?: boolean;
 }
 
 export interface ChatWindowProps {

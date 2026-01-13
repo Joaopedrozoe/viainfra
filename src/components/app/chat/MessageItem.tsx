@@ -3,11 +3,18 @@ import { cn } from "@/lib/utils";
 import { Message, MessageDeliveryStatus } from "./types";
 import { format, isThisYear } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { FileText, Download, Play, Pause, Volume2, Check, CheckCheck, Clock, AlertCircle, Loader2 } from "lucide-react";
+import { FileText, Download, Play, Pause, Volume2, Check, CheckCheck, Clock, AlertCircle, Loader2, Pin, Star } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { MessageActions } from "./MessageActions";
 
-type MessageItemProps = {
+export type MessageItemProps = {
   message: Message;
+  onCopy?: (content: string) => void;
+  onEdit?: (message: Message) => void;
+  onPin?: (message: Message) => void;
+  onFavorite?: (message: Message) => void;
+  onForward?: (message: Message) => void;
+  onDelete?: (message: Message) => void;
 };
 
 const formatMessageTimestamp = (dateString: string) => {
@@ -307,7 +314,15 @@ const DocumentAttachment = ({ url, filename }: { url: string; filename?: string 
   );
 };
 
-export const MessageItem = memo(({ message }: MessageItemProps) => {
+export const MessageItem = memo(({ 
+  message,
+  onCopy,
+  onEdit,
+  onPin,
+  onFavorite,
+  onForward,
+  onDelete,
+}: MessageItemProps) => {
   if (!message || !message.timestamp) {
     return null;
   }
@@ -316,11 +331,103 @@ export const MessageItem = memo(({ message }: MessageItemProps) => {
   const { attachment, deliveryStatus } = message;
   const isAgentMessage = message.sender === 'agent';
   const isTempMessage = message.id.startsWith('temp-');
+  const isPinned = message.isPinned;
+  const isFavorite = message.isFavorite;
+  const isEdited = !!message.editedAt;
   
   // Determinar status efetivo
   const effectiveStatus: MessageDeliveryStatus | undefined = isTempMessage 
     ? 'sending' 
     : deliveryStatus;
+
+  // Se não houver handlers, renderizar sem ContextMenu
+  const hasActions = onCopy || onEdit || onPin || onFavorite || onForward || onDelete;
+
+  const messageBubble = (
+    <div
+      className={cn(
+        "max-w-[70%] p-3 rounded-lg relative group",
+        isAgentMessage
+          ? "bg-viainfra-primary text-white rounded-tr-none"
+          : "bg-card border border-border rounded-tl-none",
+        effectiveStatus === 'failed' && isAgentMessage && "ring-2 ring-destructive/50",
+        isPinned && "ring-2 ring-amber-400/50 bg-amber-50/10",
+        isFavorite && "ring-2 ring-yellow-400/50"
+      )}
+    >
+      {/* Indicadores de fixada/favorita */}
+      <div className="absolute -top-2 -right-2 flex gap-1">
+        {isPinned && (
+          <div className="bg-amber-500 text-white p-1 rounded-full shadow-sm">
+            <Pin className="w-3 h-3" />
+          </div>
+        )}
+        {isFavorite && (
+          <div className="bg-yellow-500 text-white p-1 rounded-full shadow-sm">
+            <Star className="w-3 h-3" />
+          </div>
+        )}
+      </div>
+
+      {/* Texto da mensagem - exibir se não for apenas placeholder de mídia */}
+      {message.content && !isMediaPlaceholder(message.content) && (
+        <div className="whitespace-pre-wrap">{formatMessageContent(message.content, !!attachment)}</div>
+      )}
+      
+      {/* Anexo com mídia real */}
+      {attachment && (
+        <>
+          {attachment.type === 'image' && (
+            <ImageAttachment url={attachment.url} alt={attachment.filename} />
+          )}
+          {attachment.type === 'video' && (
+            <VideoAttachment url={attachment.url} mimeType={attachment.mimeType} />
+          )}
+          {attachment.type === 'audio' && (
+            <AudioAttachment url={attachment.url} mimeType={attachment.mimeType} />
+          )}
+          {attachment.type === 'document' && (
+            <DocumentAttachment url={attachment.url} filename={attachment.filename} />
+          )}
+        </>
+      )}
+      
+      {/* Mídia marcada como indisponível pelo script de reparo */}
+      {message.mediaUnavailable && !attachment && (
+        <div className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-600 dark:text-amber-400">
+          <AlertCircle size={18} />
+          <div className="flex-1">
+            <span className="text-sm font-medium">Mídia expirada</span>
+            <p className="text-xs opacity-70">
+              {message.mediaType === 'image' && 'Imagem não disponível'}
+              {message.mediaType === 'audio' && 'Áudio não disponível'}
+              {message.mediaType === 'video' && 'Vídeo não disponível'}
+              {message.mediaType === 'document' && 'Documento não disponível'}
+              {!message.mediaType && 'Mídia não disponível'}
+            </p>
+          </div>
+        </div>
+      )}
+      
+      {/* Placeholder para mídia sem URL - mensagens antigas sem attachment e não processadas */}
+      {!attachment && !message.mediaUnavailable && isMediaPlaceholder(message.content) && (
+        <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg text-muted-foreground">
+          <FileText size={20} />
+          <span className="text-sm italic">{extractMediaPlaceholder(message.content)}</span>
+        </div>
+      )}
+      
+      {/* Timestamp e status de entrega */}
+      <div className={cn(
+        "text-xs mt-1 flex items-center justify-end gap-1",
+        isAgentMessage ? "text-white/70" : "text-muted-foreground"
+      )}>
+        {isEdited && <span className="italic">(editado)</span>}
+        <span>{formattedTimestamp}</span>
+        <DeliveryStatusIcon status={effectiveStatus} isAgentMessage={isAgentMessage} />
+      </div>
+    </div>
+  );
   
   return (
     <div
@@ -329,72 +436,21 @@ export const MessageItem = memo(({ message }: MessageItemProps) => {
         isAgentMessage ? "justify-end" : "justify-start"
       )}
     >
-      <div
-        className={cn(
-          "max-w-[70%] p-3 rounded-lg relative",
-          isAgentMessage
-            ? "bg-viainfra-primary text-white rounded-tr-none"
-            : "bg-card border border-border rounded-tl-none",
-          effectiveStatus === 'failed' && isAgentMessage && "ring-2 ring-destructive/50"
-        )}
-      >
-        {/* Texto da mensagem - exibir se não for apenas placeholder de mídia */}
-        {message.content && !isMediaPlaceholder(message.content) && (
-          <div className="whitespace-pre-wrap">{formatMessageContent(message.content, !!attachment)}</div>
-        )}
-        
-        {/* Anexo com mídia real */}
-        {attachment && (
-          <>
-            {attachment.type === 'image' && (
-              <ImageAttachment url={attachment.url} alt={attachment.filename} />
-            )}
-            {attachment.type === 'video' && (
-              <VideoAttachment url={attachment.url} mimeType={attachment.mimeType} />
-            )}
-            {attachment.type === 'audio' && (
-              <AudioAttachment url={attachment.url} mimeType={attachment.mimeType} />
-            )}
-            {attachment.type === 'document' && (
-              <DocumentAttachment url={attachment.url} filename={attachment.filename} />
-            )}
-          </>
-        )}
-        
-        {/* Mídia marcada como indisponível pelo script de reparo */}
-        {message.mediaUnavailable && !attachment && (
-          <div className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-600 dark:text-amber-400">
-            <AlertCircle size={18} />
-            <div className="flex-1">
-              <span className="text-sm font-medium">Mídia expirada</span>
-              <p className="text-xs opacity-70">
-                {message.mediaType === 'image' && 'Imagem não disponível'}
-                {message.mediaType === 'audio' && 'Áudio não disponível'}
-                {message.mediaType === 'video' && 'Vídeo não disponível'}
-                {message.mediaType === 'document' && 'Documento não disponível'}
-                {!message.mediaType && 'Mídia não disponível'}
-              </p>
-            </div>
-          </div>
-        )}
-        
-        {/* Placeholder para mídia sem URL - mensagens antigas sem attachment e não processadas */}
-        {!attachment && !message.mediaUnavailable && isMediaPlaceholder(message.content) && (
-          <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg text-muted-foreground">
-            <FileText size={20} />
-            <span className="text-sm italic">{extractMediaPlaceholder(message.content)}</span>
-          </div>
-        )}
-        
-        {/* Timestamp e status de entrega */}
-        <div className={cn(
-          "text-xs mt-1 flex items-center justify-end gap-0.5",
-          isAgentMessage ? "text-white/70" : "text-muted-foreground"
-        )}>
-          <span>{formattedTimestamp}</span>
-          <DeliveryStatusIcon status={effectiveStatus} isAgentMessage={isAgentMessage} />
-        </div>
-      </div>
+      {hasActions ? (
+        <MessageActions
+          message={message}
+          onCopy={onCopy || (() => {})}
+          onEdit={onEdit || (() => {})}
+          onPin={onPin || (() => {})}
+          onFavorite={onFavorite || (() => {})}
+          onForward={onForward || (() => {})}
+          onDelete={onDelete || (() => {})}
+        >
+          {messageBubble}
+        </MessageActions>
+      ) : (
+        messageBubble
+      )}
     </div>
   );
 });
