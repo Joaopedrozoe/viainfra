@@ -775,6 +775,27 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         console.error(`⛔ MENSAGEM ENVIADA @lid SEM DESTINO IDENTIFICADO - NÃO CRIANDO NOVA CONVERSA`);
         console.error(`⛔ LID: ${lidId}, Nome: ${contactName}, Conteúdo: ${messageContent?.substring(0, 50)}`);
         console.error(`⛔ Esta mensagem será perdida para evitar duplicação de conversas`);
+        
+        // TENTAR criar mapeamento LID se temos sender válido
+        const senderJid = (message as any).key?.participant || payload?.sender;
+        if (senderJid && senderJid.includes('@s.whatsapp.net')) {
+          const senderPhone = senderJid.replace(/@.*/, '');
+          console.log(`📝 Tentando criar mapeamento LID ${lidId} -> ${senderPhone} para futuras mensagens`);
+          
+          try {
+            await supabase
+              .from('lid_phone_mapping')
+              .upsert({
+                lid: lidId,
+                phone: senderPhone,
+                company_id: companyId,
+                instance_name: webhook.instance
+              }, { onConflict: 'lid,company_id' });
+          } catch (mapErr) {
+            console.log(`⚠️ Erro ao criar mapeamento: ${mapErr}`);
+          }
+        }
+        
         continue; // Ignorar a mensagem ao invés de criar nova conversa
       }
       
@@ -1346,15 +1367,26 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       // PROTEÇÃO: Não criar contato com nome igual ao LID/remoteJid
       // Se o nome é um LID ou remoteJid, usar "Contato Desconhecido"
       // ============================================================
+      // PROTEÇÃO ROBUSTA: Detectar nomes inválidos (LIDs, números, remoteJids)
       const isLidName = contactName && (
         contactName.includes('@lid') || 
         contactName.includes('@s.whatsapp.net') ||
         contactName.includes('@c.us') ||
         contactName.includes('@g.us') ||
-        /^\d{10,20}$/.test(contactName) || // Só números
+        /^\d{10,25}$/.test(contactName) || // Só números (expandido para 25 dígitos)
+        /^\d{10,25}@/.test(contactName) ||  // Números seguidos de @
+        /^[0-9]+@lid$/.test(contactName) || // Formato exato de LID
         contactName === 'Sem Nome' ||
-        contactName === lidId
+        contactName === lidId ||
+        contactName === remoteJid || // Verificar contra remoteJid completo
+        contactName.toLowerCase().includes('lid') // Qualquer variação de LID no nome
       );
+      
+      // BLOQUEIO ABSOLUTO: Nunca criar contato com nome = LID
+      if (/^\d{10,25}@lid$/i.test(contactName) || contactName === remoteJid) {
+        console.error(`⛔ BLOQUEADO: Nome "${contactName}" é claramente um LID - não criar contato`);
+        continue;
+      }
       
       const safeName = isLidName ? `Contato ${lidId.slice(-6)}` : contactName;
       
