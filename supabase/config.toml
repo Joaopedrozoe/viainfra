@@ -237,3 +237,12 @@ verify_jwt = false
 
 [functions.advanced-group-send]
 verify_jwt = false
+
+[functions.deep-history-sync]
+verify_jwt = false
+
+[functions.full-contacts-import]
+verify_jwt = false
+
+[functions.fix-contact-quality]
+verify_jwt = false
