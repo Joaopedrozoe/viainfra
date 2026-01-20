@@ -312,6 +312,59 @@ export type Database = {
           },
         ]
       }
+      import_jobs: {
+        Row: {
+          company_id: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          instance_name: string
+          last_cursor: string | null
+          metadata: Json | null
+          phase: string
+          processed_items: number | null
+          status: string
+          total_items: number | null
+          updated_at: string
+        }
+        Insert: {
+          company_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          instance_name: string
+          last_cursor?: string | null
+          metadata?: Json | null
+          phase?: string
+          processed_items?: number | null
+          status?: string
+          total_items?: number | null
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          instance_name?: string
+          last_cursor?: string | null
+          metadata?: Json | null
+          phase?: string
+          processed_items?: number | null
+          status?: string
+          total_items?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "import_jobs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       internal_conversations: {
         Row: {
           company_id: string | null

@@ -437,44 +437,100 @@ export const useWhatsAppInstances = () => {
   };
 
   /**
-   * Full History Import - Backup-style restoration
-   * Imports complete history from all conversations and contacts
+   * Full History Import - Batch-based backup-style restoration
+   * Imports complete history from all conversations and contacts in chunks
+   * to avoid timeout issues. Supports resume capability.
    */
-  const fullHistoryImport = async (instanceName: string) => {
+  const fullHistoryImport = async (
+    instanceName: string,
+    onProgress?: (progress: BatchImportProgress) => void
+  ): Promise<BatchImportProgress> => {
+    let isComplete = false;
+    let lastProgress: BatchImportProgress = {
+      phase: 'starting',
+      nextPhase: 'messages',
+      completed: false,
+      totalItems: 0,
+      processedItems: 0,
+      needsContinue: true,
+    };
+
     try {
-      console.log('📥 Iniciando importação completa de histórico...');
-      toast.loading('Importando histórico completo... Isso pode levar alguns minutos.');
+      console.log('📥 Iniciando importação em batch de histórico...');
       
+      // Start or continue import
+      while (!isComplete) {
+        const action = lastProgress.phase === 'starting' ? 'start' : 'continue';
+        
+        const response = await fetch(
+          `${SUPABASE_URL}/functions/v1/batch-history-import`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+            },
+            body: JSON.stringify({ instanceName, action })
+          }
+        );
+
+        const data = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(data.error || 'Falha na importação');
+        }
+
+        lastProgress = {
+          phase: data.phase,
+          nextPhase: data.nextPhase,
+          completed: data.completed,
+          totalItems: data.totalItems || 0,
+          processedItems: data.processedItems || 0,
+          itemsProcessed: data.itemsProcessed || 0,
+          summary: data.summary,
+          needsContinue: data.needsContinue,
+        };
+
+        console.log(`📊 Progress: ${lastProgress.phase} - ${lastProgress.processedItems}/${lastProgress.totalItems}`);
+        
+        // Callback for UI update
+        if (onProgress) {
+          onProgress(lastProgress);
+        }
+
+        isComplete = data.completed || !data.needsContinue;
+      }
+      
+      console.log('✅ Importação em batch concluída:', lastProgress);
+      return lastProgress;
+    } catch (error: any) {
+      console.error('Error in batch history import:', error);
+      throw error;
+    }
+  };
+
+  /**
+   * Get current import job status
+   */
+  const getImportStatus = async (instanceName: string): Promise<{ hasActiveJob: boolean; job: any | null }> => {
+    try {
       const response = await fetch(
-        `${SUPABASE_URL}/functions/v1/full-history-import`,
+        `${SUPABASE_URL}/functions/v1/batch-history-import`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
           },
-          body: JSON.stringify({ instanceName, phase: 'all' })
+          body: JSON.stringify({ instanceName, action: 'status' })
         }
       );
 
       const data = await response.json();
-      toast.dismiss();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Falha na importação');
-      }
-      
-      console.log('✅ Importação concluída:', data);
-      toast.success(
-        `Importação concluída! ${data.stats?.phase1?.messagesImported || 0} + ${data.stats?.phase3?.messagesImported || 0} mensagens importadas`,
-        { duration: 8000 }
-      );
       return data;
-    } catch (error: any) {
-      toast.dismiss();
-      console.error('Error in full history import:', error);
-      toast.error('Erro na importação de histórico');
-      throw error;
+    } catch (error) {
+      console.error('Error getting import status:', error);
+      return { hasActiveJob: false, job: null };
     }
   };
 
@@ -495,7 +551,20 @@ export const useWhatsAppInstances = () => {
     fixRemoteJid,
     reprocessMedia,
     forceSyncInbox,
-    fullHistoryImport, // Nova função de importação completa
+    fullHistoryImport,
+    getImportStatus,
     refresh: loadInstances
   };
 };
+
+// Type for batch import progress
+export interface BatchImportProgress {
+  phase: string;
+  nextPhase: string;
+  completed: boolean;
+  totalItems: number;
+  processedItems: number;
+  itemsProcessed?: number;
+  summary?: Record<string, any>;
+  needsContinue: boolean;
+}
