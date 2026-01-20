@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,10 +7,11 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { useWhatsAppInstances } from '@/hooks/useWhatsAppInstances';
+import { useWhatsAppInstances, BatchImportProgress } from '@/hooks/useWhatsAppInstances';
 import { Loader2, QrCode, Trash2, RefreshCw, CheckCircle2, XCircle, AlertCircle, Plus, Smartphone, Bot, Download, Image, Info, History } from 'lucide-react';
 import { toast } from 'sonner';
 import { ImportProgressModal, ImportProgress } from './ImportProgressModal';
+import { BatchImportProgressModal } from './BatchImportProgressModal';
 import { isValidWhatsAppInstance } from '@/lib/whatsapp-rules';
 
 const initialProgress: ImportProgress = {
@@ -25,7 +26,7 @@ const initialProgress: ImportProgress = {
 };
 
 export const WhatsAppInstanceManager = () => {
-  const { instances, loading, instancePrefix, companyId, createInstance, getInstanceQR, deleteInstance, syncInstances, toggleBot, fetchChats, reprocessMedia, fullHistoryImport, refresh } = useWhatsAppInstances();
+  const { instances, loading, instancePrefix, companyId, createInstance, getInstanceQR, deleteInstance, syncInstances, toggleBot, fetchChats, reprocessMedia, fullHistoryImport, getImportStatus, refresh } = useWhatsAppInstances();
   const [newInstanceName, setNewInstanceName] = useState('');
   const [channel, setChannel] = useState('baileys');
   const [creating, setCreating] = useState(false);
@@ -41,6 +42,12 @@ export const WhatsAppInstanceManager = () => {
   const [importingHistory, setImportingHistory] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportProgress>(initialProgress);
+  
+  // Batch import state
+  const [showBatchImportModal, setShowBatchImportModal] = useState(false);
+  const [batchImportProgress, setBatchImportProgress] = useState<BatchImportProgress | null>(null);
+  const [batchImportRunning, setBatchImportRunning] = useState(false);
+  const [batchImportInstance, setBatchImportInstance] = useState<string | null>(null);
 
   // Carregar status do bot do banco de dados (através das instâncias)
   useEffect(() => {
@@ -423,18 +430,49 @@ export const WhatsAppInstanceManager = () => {
                 };
 
                 const handleFullHistoryImport = async () => {
-                  if (!confirm('Isso irá importar TODO o histórico de conversas e contatos da instância. Este processo pode demorar vários minutos. Continuar?')) {
-                    return;
-                  }
-                  
+                  setBatchImportInstance(instance.instance_name);
+                  setBatchImportProgress(null);
+                  setShowBatchImportModal(true);
+                  setBatchImportRunning(true);
                   setImportingHistory(instance.instance_name);
+                  
                   try {
-                    await fullHistoryImport(instance.instance_name);
+                    await fullHistoryImport(instance.instance_name, (progress) => {
+                      setBatchImportProgress(progress);
+                    });
+                    toast.success('Importação de histórico concluída!');
                   } catch (error: any) {
-                    console.error('Error in full history import:', error);
+                    console.error('Error in batch history import:', error);
+                    toast.error(error.message || 'Erro na importação');
                   } finally {
+                    setBatchImportRunning(false);
                     setImportingHistory(null);
                   }
+                };
+
+                const handleContinueBatchImport = async () => {
+                  if (!batchImportInstance) return;
+                  setBatchImportRunning(true);
+                  setImportingHistory(batchImportInstance);
+                  
+                  try {
+                    await fullHistoryImport(batchImportInstance, (progress) => {
+                      setBatchImportProgress(progress);
+                    });
+                    toast.success('Importação de histórico concluída!');
+                  } catch (error: any) {
+                    console.error('Error continuing batch import:', error);
+                    toast.error(error.message || 'Erro ao continuar importação');
+                  } finally {
+                    setBatchImportRunning(false);
+                    setImportingHistory(null);
+                  }
+                };
+
+                const handlePauseBatchImport = () => {
+                  setBatchImportRunning(false);
+                  setImportingHistory(null);
+                  toast.info('Importação pausada. Você pode continuar depois.');
                 };
 
                 return (
@@ -551,6 +589,23 @@ export const WhatsAppInstanceManager = () => {
         onOpenChange={setShowImportModal}
         progress={importProgress}
         instanceName={importingChats || selectedInstance || ''}
+      />
+
+      {/* Batch History Import Modal */}
+      <BatchImportProgressModal
+        open={showBatchImportModal}
+        onOpenChange={setShowBatchImportModal}
+        progress={batchImportProgress}
+        instanceName={batchImportInstance || ''}
+        isRunning={batchImportRunning}
+        onContinue={() => {
+          if (batchImportInstance) {
+            setBatchImportRunning(true);
+            fullHistoryImport(batchImportInstance, setBatchImportProgress)
+              .finally(() => setBatchImportRunning(false));
+          }
+        }}
+        onPause={() => setBatchImportRunning(false)}
       />
     </div>
   );

@@ -249,3 +249,6 @@ verify_jwt = false
 
 [functions.full-history-import]
 verify_jwt = false
+
+[functions.batch-history-import]
+verify_jwt = false
