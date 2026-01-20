@@ -11,7 +11,7 @@ import { useWhatsAppInstances } from '@/hooks/useWhatsAppInstances';
 import { Loader2, QrCode, Trash2, RefreshCw, CheckCircle2, XCircle, AlertCircle, Plus, Smartphone, Bot, Download, Image, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { ImportProgressModal, ImportProgress } from './ImportProgressModal';
-import { WHATSAPP_INSTANCE_PREFIX, isValidWhatsAppInstance } from '@/lib/whatsapp-rules';
+import { isValidWhatsAppInstance } from '@/lib/whatsapp-rules';
 
 const initialProgress: ImportProgress = {
   status: 'idle',
@@ -25,7 +25,7 @@ const initialProgress: ImportProgress = {
 };
 
 export const WhatsAppInstanceManager = () => {
-  const { instances, loading, createInstance, getInstanceQR, deleteInstance, syncInstances, toggleBot, fetchChats, reprocessMedia, refresh } = useWhatsAppInstances();
+  const { instances, loading, instancePrefix, companyId, createInstance, getInstanceQR, deleteInstance, syncInstances, toggleBot, fetchChats, reprocessMedia, refresh } = useWhatsAppInstances();
   const [newInstanceName, setNewInstanceName] = useState('');
   const [channel, setChannel] = useState('baileys');
   const [creating, setCreating] = useState(false);
@@ -50,8 +50,8 @@ export const WhatsAppInstanceManager = () => {
     setBotStatus(savedStatus);
   }, [instances]);
 
-  // REGRA MESTRA: O hook já filtra apenas instâncias com "VIAINFRA" no nome
-  // Aqui apenas mostramos todas as instâncias válidas independente do status
+  // REGRA MESTRA POR EMPRESA: O hook já filtra apenas instâncias com o prefixo correto
+  // VIAINFRA vê apenas instâncias com "VIAINFRA", VIALOGISTIC vê apenas "VIALOGISTIC"
   const connectedInstances = useMemo(() => {
     return instances; // Já filtradas pelo hook useWhatsAppInstances
   }, [instances]);
@@ -281,7 +281,7 @@ export const WhatsAppInstanceManager = () => {
                   <Alert className="border-primary/50 bg-primary/5">
                     <Info className="w-4 h-4" />
                     <AlertDescription className="text-sm">
-                      <strong>Regra:</strong> O nome da instância deve conter <code className="bg-muted px-1 rounded">{WHATSAPP_INSTANCE_PREFIX}</code> para ser válida.
+                      <strong>Regra:</strong> O nome da instância deve conter <code className="bg-muted px-1 rounded">{instancePrefix}</code> para ser válida.
                     </AlertDescription>
                   </Alert>
                   
@@ -289,18 +289,18 @@ export const WhatsAppInstanceManager = () => {
                     <Label htmlFor="instanceName">Nome da Instância *</Label>
                     <Input
                       id="instanceName"
-                      placeholder={`ex: ${WHATSAPP_INSTANCE_PREFIX}-SUPORTE`}
+                      placeholder={`ex: ${instancePrefix}-SUPORTE`}
                       value={newInstanceName}
                       onChange={(e) => setNewInstanceName(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleCreateInstance()}
                       className="mt-1"
                     />
                     <p className="text-xs text-muted-foreground mt-1">
-                      Use apenas letras, números e hífens. Deve conter "{WHATSAPP_INSTANCE_PREFIX}".
+                      Use apenas letras, números e hífens. Deve conter "{instancePrefix}".
                     </p>
-                    {newInstanceName && !isValidWhatsAppInstance(newInstanceName) && (
+                    {newInstanceName && !isValidWhatsAppInstance(newInstanceName, companyId) && (
                       <p className="text-xs text-destructive mt-1">
-                        ⚠️ Nome inválido. Deve conter "{WHATSAPP_INSTANCE_PREFIX}".
+                        ⚠️ Nome inválido. Deve conter "{instancePrefix}".
                       </p>
                     )}
                   </div>
@@ -321,7 +321,7 @@ export const WhatsAppInstanceManager = () => {
                   <div className="flex gap-2">
                     <Button 
                       onClick={handleCreateInstance} 
-                      disabled={creating || !newInstanceName.trim() || !isValidWhatsAppInstance(newInstanceName)}
+                      disabled={creating || !newInstanceName.trim() || !isValidWhatsAppInstance(newInstanceName, companyId)}
                       className="flex-1"
                     >
                       {creating ? (

@@ -12,6 +12,7 @@ import { getDemoContacts } from "@/data/mockContacts";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useDemoMode } from "@/hooks/useDemoMode";
+import { useAuth } from "@/contexts/auth/AuthContext";
 
 // Helper to check if contact is a group
 const isGroup = (contact: Contact): boolean => {
@@ -20,6 +21,7 @@ const isGroup = (contact: Contact): boolean => {
 };
 const Contacts = () => {
   const { isDemoMode } = useDemoMode();
+  const { company } = useAuth(); // Usa a empresa ATIVA (selecionada)
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncingPhotos, setIsSyncingPhotos] = useState(false);
@@ -56,38 +58,26 @@ const Contacts = () => {
     }
   };
 
-  // Load contacts from Supabase
+  // Load contacts from Supabase - apenas da empresa ATIVA
   const fetchContacts = async () => {
     setIsLoading(true);
     try {
-      const { supabase } = await import("@/integrations/supabase/client");
+      // Usar apenas a empresa ativa (selecionada no contexto)
+      const activeCompanyId = company?.id;
       
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
+      if (!activeCompanyId) {
+        console.log('[Contacts] No active company, skipping fetch');
         setContacts([]);
         setIsLoading(false);
         return;
       }
 
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('user_id', user.id);
-
-      // Get all company IDs for this user
-      const companyIds = (profiles || []).map(p => p.company_id).filter(Boolean);
-
-      if (companyIds.length === 0) {
-        setContacts([]);
-        setIsLoading(false);
-        return;
-      }
+      console.log('[Contacts] Fetching contacts for company:', activeCompanyId);
 
       const { data: contactsData, error } = await supabase
         .from('contacts')
         .select('*')
-        .in('company_id', companyIds)
+        .eq('company_id', activeCompanyId)
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -129,7 +119,7 @@ const Contacts = () => {
 
   useEffect(() => {
     fetchContacts();
-  }, [isDemoMode]);
+  }, [isDemoMode, company?.id]); // Recarregar ao trocar de empresa
 
   const filteredContacts = useMemo(() => {
     return contacts.filter(contact => {
