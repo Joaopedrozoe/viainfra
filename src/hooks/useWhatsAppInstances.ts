@@ -436,11 +436,53 @@ export const useWhatsAppInstances = () => {
     }
   };
 
+  /**
+   * Full History Import - Backup-style restoration
+   * Imports complete history from all conversations and contacts
+   */
+  const fullHistoryImport = async (instanceName: string) => {
+    try {
+      console.log('📥 Iniciando importação completa de histórico...');
+      toast.loading('Importando histórico completo... Isso pode levar alguns minutos.');
+      
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/full-history-import`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          },
+          body: JSON.stringify({ instanceName, phase: 'all' })
+        }
+      );
+
+      const data = await response.json();
+      toast.dismiss();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Falha na importação');
+      }
+      
+      console.log('✅ Importação concluída:', data);
+      toast.success(
+        `Importação concluída! ${data.stats?.phase1?.messagesImported || 0} + ${data.stats?.phase3?.messagesImported || 0} mensagens importadas`,
+        { duration: 8000 }
+      );
+      return data;
+    } catch (error: any) {
+      toast.dismiss();
+      console.error('Error in full history import:', error);
+      toast.error('Erro na importação de histórico');
+      throw error;
+    }
+  };
+
   return {
     instances,
     loading,
     companyId,
-    instancePrefix, // Prefixo obrigatório para a empresa atual
+    instancePrefix,
     createInstance,
     getInstanceStatus,
     getInstanceQR,
@@ -453,6 +495,7 @@ export const useWhatsAppInstances = () => {
     fixRemoteJid,
     reprocessMedia,
     forceSyncInbox,
+    fullHistoryImport, // Nova função de importação completa
     refresh: loadInstances
   };
 };

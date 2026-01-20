@@ -246,3 +246,6 @@ verify_jwt = false
 
 [functions.fix-contact-quality]
 verify_jwt = false
+
+[functions.full-history-import]
+verify_jwt = false
