@@ -1,7 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { isValidWhatsAppInstance, filterValidInstances, getInvalidInstanceMessage } from '@/lib/whatsapp-rules';
+import { useAuth } from '@/contexts/auth/AuthContext';
+import { 
+  isValidWhatsAppInstance, 
+  filterValidInstances, 
+  getInvalidInstanceMessage,
+  getCompanyInstancePrefix 
+} from '@/lib/whatsapp-rules';
 
 const SUPABASE_URL = 'https://xxojpfhnkxpbznbmhmua.supabase.co';
 
@@ -41,13 +47,23 @@ export interface DiagnosticProblem {
 }
 
 export const useWhatsAppInstances = () => {
+  const { company } = useAuth();
+  const companyId = company?.id || null;
+  
   const [allInstances, setAllInstances] = useState<WhatsAppInstance[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // REGRA MESTRA: Apenas instâncias com "VIAINFRA" no nome são visíveis
+  // REGRA MESTRA POR EMPRESA: Cada empresa só vê instâncias com seu prefixo
+  // VIAINFRA → instâncias com "VIAINFRA" no nome
+  // VIALOGISTIC → instâncias com "VIALOGISTIC" no nome
   const instances = useMemo(() => {
-    return filterValidInstances(allInstances);
-  }, [allInstances]);
+    return filterValidInstances(allInstances, companyId);
+  }, [allInstances, companyId]);
+  
+  // Prefixo obrigatório para a empresa atual
+  const instancePrefix = useMemo(() => {
+    return getCompanyInstancePrefix(companyId);
+  }, [companyId]);
 
   const loadInstances = async () => {
     try {
@@ -90,9 +106,9 @@ export const useWhatsAppInstances = () => {
   }, []);
 
   const createInstance = async (instanceName: string, channel: string = 'baileys') => {
-    // REGRA MESTRA: Validar nome da instância antes de criar
-    if (!isValidWhatsAppInstance(instanceName)) {
-      const errorMsg = getInvalidInstanceMessage(instanceName);
+    // REGRA MESTRA POR EMPRESA: Validar nome da instância antes de criar
+    if (!isValidWhatsAppInstance(instanceName, companyId)) {
+      const errorMsg = getInvalidInstanceMessage(instanceName, companyId);
       toast.error(errorMsg);
       throw new Error(errorMsg);
     }
@@ -423,6 +439,8 @@ export const useWhatsAppInstances = () => {
   return {
     instances,
     loading,
+    companyId,
+    instancePrefix, // Prefixo obrigatório para a empresa atual
     createInstance,
     getInstanceStatus,
     getInstanceQR,
