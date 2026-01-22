@@ -2804,12 +2804,12 @@ function getExtensionFromMimeType(mimeType: string): string {
 // IMPORTANTE: O contextInfo pode estar em dois lugares diferentes:
 // 1. Dentro de message.extendedTextMessage.contextInfo (mensagens de texto com reply)
 // 2. No nível raiz do objeto data (formato Evolution API para grupos e mensagens simples)
-function extractQuotedInfo(message: EvolutionMessage, rawData?: any): {
+async function extractQuotedInfo(supabase: any, message: EvolutionMessage, rawData?: any): Promise<{
   quotedMessageId?: string;
   quotedContent?: string;
   quotedSender?: string;
   quotedAttachmentType?: 'image' | 'video' | 'audio' | 'document';
-} | null {
+} | null> {
   // PRIORIDADE 1: Buscar contextInfo no nível raiz do rawData (formato Evolution API)
   // Este é o formato usado em grupos e mensagens simples com reply
   let contextInfo: ContextInfo | undefined;
@@ -2842,47 +2842,105 @@ function extractQuotedInfo(message: EvolutionMessage, rawData?: any): {
   console.log('💬 Reply detectado - stanzaId:', contextInfo.stanzaId, 'participant:', contextInfo.participant);
   
   const quotedMessage = contextInfo.quotedMessage;
-  if (!quotedMessage) {
-    // Tem stanzaId mas sem conteúdo da mensagem citada
-    return {
-      quotedMessageId: contextInfo.stanzaId,
-      quotedSender: contextInfo.participant ? extractPhoneNumber(contextInfo.participant) : undefined,
-    };
-  }
   
   // Extrair conteúdo da mensagem citada
   let quotedContent = '';
   let quotedAttachmentType: 'image' | 'video' | 'audio' | 'document' | undefined;
   
-  if (quotedMessage.conversation) {
-    quotedContent = quotedMessage.conversation;
-  } else if (quotedMessage.extendedTextMessage?.text) {
-    quotedContent = quotedMessage.extendedTextMessage.text;
-  } else if (quotedMessage.imageMessage) {
-    quotedContent = quotedMessage.imageMessage.caption || '[Imagem]';
-    quotedAttachmentType = 'image';
-  } else if (quotedMessage.videoMessage) {
-    quotedContent = quotedMessage.videoMessage.caption || '[Vídeo]';
-    quotedAttachmentType = 'video';
-  } else if (quotedMessage.audioMessage) {
-    quotedContent = quotedMessage.audioMessage.ptt ? '[Áudio de voz]' : '[Áudio]';
-    quotedAttachmentType = 'audio';
-  } else if (quotedMessage.documentMessage) {
-    quotedContent = quotedMessage.documentMessage.fileName || quotedMessage.documentMessage.title || '[Documento]';
-    quotedAttachmentType = 'document';
-  } else if (quotedMessage.stickerMessage) {
-    quotedContent = '[Sticker]';
+  if (quotedMessage) {
+    if (quotedMessage.conversation) {
+      quotedContent = quotedMessage.conversation;
+    } else if (quotedMessage.extendedTextMessage?.text) {
+      quotedContent = quotedMessage.extendedTextMessage.text;
+    } else if (quotedMessage.imageMessage) {
+      quotedContent = quotedMessage.imageMessage.caption || '[Imagem]';
+      quotedAttachmentType = 'image';
+    } else if (quotedMessage.videoMessage) {
+      quotedContent = quotedMessage.videoMessage.caption || '[Vídeo]';
+      quotedAttachmentType = 'video';
+    } else if (quotedMessage.audioMessage) {
+      quotedContent = quotedMessage.audioMessage.ptt ? '[Áudio de voz]' : '[Áudio]';
+      quotedAttachmentType = 'audio';
+    } else if (quotedMessage.documentMessage) {
+      quotedContent = quotedMessage.documentMessage.fileName || quotedMessage.documentMessage.title || '[Documento]';
+      quotedAttachmentType = 'document';
+    } else if (quotedMessage.stickerMessage) {
+      quotedContent = '[Sticker]';
+    }
+    
+    // Truncar conteúdo se muito longo
+    if (quotedContent && quotedContent.length > 200) {
+      quotedContent = quotedContent.substring(0, 197) + '...';
+    }
   }
   
-  // Truncar conteúdo se muito longo
-  if (quotedContent && quotedContent.length > 200) {
-    quotedContent = quotedContent.substring(0, 197) + '...';
-  }
-  
-  // Extrair telefone/nome do participant (quem enviou a mensagem original)
+  // Resolver nome do remetente da mensagem citada
   let quotedSender: string | undefined;
   if (contextInfo.participant) {
-    quotedSender = extractPhoneNumber(contextInfo.participant) || contextInfo.participant;
+    const participantId = contextInfo.participant;
+    
+    // Tentar extrair telefone do participant
+    const phoneFromParticipant = extractPhoneNumber(participantId);
+    
+    // PRIORIDADE 1: Buscar pelo LID na tabela lid_phone_mapping
+    if (participantId.includes('@lid')) {
+      const lid = participantId.replace('@lid', '');
+      const { data: lidMapping } = await supabase
+        .from('lid_phone_mapping')
+        .select('phone, contact_id')
+        .eq('lid', lid)
+        .maybeSingle();
+      
+      if (lidMapping?.contact_id) {
+        // Buscar nome do contato
+        const { data: contact } = await supabase
+          .from('contacts')
+          .select('name')
+          .eq('id', lidMapping.contact_id)
+          .maybeSingle();
+        
+        if (contact?.name) {
+          quotedSender = contact.name;
+          console.log(`📇 Nome resolvido via LID mapping: ${quotedSender}`);
+        }
+      } else if (lidMapping?.phone) {
+        // Temos o telefone, buscar contato por telefone
+        const { data: contact } = await supabase
+          .from('contacts')
+          .select('name')
+          .eq('phone', lidMapping.phone)
+          .maybeSingle();
+        
+        if (contact?.name) {
+          quotedSender = contact.name;
+          console.log(`📇 Nome resolvido via telefone do LID: ${quotedSender}`);
+        } else {
+          quotedSender = lidMapping.phone;
+        }
+      }
+    }
+    
+    // PRIORIDADE 2: Buscar pelo telefone extraído
+    if (!quotedSender && phoneFromParticipant) {
+      const { data: contact } = await supabase
+        .from('contacts')
+        .select('name')
+        .eq('phone', phoneFromParticipant)
+        .maybeSingle();
+      
+      if (contact?.name) {
+        quotedSender = contact.name;
+        console.log(`📇 Nome resolvido via telefone: ${quotedSender}`);
+      } else {
+        // Formatar telefone para exibição
+        quotedSender = phoneFromParticipant;
+      }
+    }
+    
+    // FALLBACK: Usar o participant original se não conseguiu resolver
+    if (!quotedSender) {
+      quotedSender = phoneFromParticipant || participantId.split('@')[0];
+    }
   }
   
   console.log('💬 Reply extraído:', { quotedMessageId: contextInfo.stanzaId, quotedContent: quotedContent?.substring(0, 50), quotedSender, quotedAttachmentType });
@@ -2932,7 +2990,7 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
   
   // Extrair informações de mensagem citada (reply/quote)
   // IMPORTANTE: Passar rawData para pegar contextInfo do nível raiz (formato Evolution API para grupos)
-  const quotedInfo = extractQuotedInfo(message, rawData);
+  const quotedInfo = await extractQuotedInfo(supabase, message, rawData);
   if (quotedInfo) {
     console.log('💬 Mensagem com citação detectada:', JSON.stringify(quotedInfo));
     if (quotedInfo.quotedMessageId) messageMetadata.quotedMessageId = quotedInfo.quotedMessageId;
@@ -3025,7 +3083,7 @@ async function saveGroupMessage(supabase: any, conversationId: string, message: 
   
   // Extrair informações de mensagem citada (reply/quote) para grupos
   // IMPORTANTE: Passar rawData para pegar contextInfo do nível raiz
-  const quotedInfo = extractQuotedInfo(message, rawData);
+  const quotedInfo = await extractQuotedInfo(supabase, message, rawData);
   if (quotedInfo) {
     console.log('💬 [GROUP] Reply/citação detectada:', JSON.stringify(quotedInfo));
     if (quotedInfo.quotedMessageId) messageMetadata.quotedMessageId = quotedInfo.quotedMessageId;
