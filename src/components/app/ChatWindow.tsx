@@ -95,6 +95,14 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
               sender: newMessage.sender_type === 'user' ? 'user' : newMessage.sender_type === 'agent' ? 'agent' : 'bot',
               timestamp: newMessage.created_at,
               attachment: attachmentData,
+              // Campos para citação/reply
+              quotedMessageId: newMessage.metadata?.quotedMessageId,
+              quotedContent: newMessage.metadata?.quotedContent,
+              quotedSender: newMessage.metadata?.quotedSender,
+              quotedAttachmentType: newMessage.metadata?.quotedAttachmentType,
+              // Campos para mídia indisponível
+              mediaUnavailable: newMessage.metadata?.mediaUnavailable || false,
+              mediaType: newMessage.metadata?.mediaType,
             };
             
             // Usar hook para substituir temporária ou adicionar
