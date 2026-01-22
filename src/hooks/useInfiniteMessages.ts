@@ -52,6 +52,11 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
       // Campos para mídia indisponível (marcada pelo script de reparo)
       mediaUnavailable: msg.metadata?.mediaUnavailable || false,
       mediaType: msg.metadata?.mediaType,
+      // Campos para mensagens com reply/citação
+      quotedMessageId: msg.metadata?.quotedMessageId,
+      quotedContent: msg.metadata?.quotedContent,
+      quotedSender: msg.metadata?.quotedSender,
+      quotedAttachmentType: msg.metadata?.quotedAttachmentType,
     };
   }, []);
 

@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { Message, MessageDeliveryStatus } from "./types";
 import { format, isThisYear } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { FileText, Download, Play, Pause, Volume2, Check, CheckCheck, Clock, AlertCircle, Loader2, Pin, Star } from "lucide-react";
+import { FileText, Download, Play, Pause, Volume2, Check, CheckCheck, Clock, AlertCircle, Loader2, Pin, Star, Reply, Image, Video, Mic, File } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { MessageActions } from "./MessageActions";
 
@@ -314,6 +314,85 @@ const DocumentAttachment = ({ url, filename }: { url: string; filename?: string 
   );
 };
 
+// Componente para exibir mensagem citada (reply/quote)
+const QuotedMessage = ({ 
+  content, 
+  sender, 
+  attachmentType,
+  isAgentMessage
+}: {
+  content?: string;
+  sender?: string;
+  attachmentType?: 'image' | 'video' | 'audio' | 'document';
+  isAgentMessage: boolean;
+}) => {
+  // Ícone baseado no tipo de anexo
+  const AttachmentIcon = () => {
+    switch (attachmentType) {
+      case 'image':
+        return <Image size={14} className="flex-shrink-0" />;
+      case 'video':
+        return <Video size={14} className="flex-shrink-0" />;
+      case 'audio':
+        return <Mic size={14} className="flex-shrink-0" />;
+      case 'document':
+        return <File size={14} className="flex-shrink-0" />;
+      default:
+        return null;
+    }
+  };
+
+  // Texto do tipo de anexo
+  const attachmentLabel = {
+    image: 'Imagem',
+    video: 'Vídeo',
+    audio: 'Áudio',
+    document: 'Documento'
+  }[attachmentType || ''] || '';
+
+  return (
+    <div 
+      className={cn(
+        "border-l-4 p-2 rounded mb-2 cursor-pointer transition-colors",
+        isAgentMessage 
+          ? "border-green-300 bg-white/10 hover:bg-white/20" 
+          : "border-green-500 bg-muted/50 hover:bg-muted/70"
+      )}
+    >
+      {/* Remetente da mensagem original */}
+      {sender && (
+        <div className="flex items-center gap-1 mb-0.5">
+          <Reply size={12} className={cn(
+            "flex-shrink-0",
+            isAgentMessage ? "text-green-300" : "text-green-600"
+          )} />
+          <span className={cn(
+            "text-xs font-medium truncate",
+            isAgentMessage ? "text-green-300" : "text-green-600"
+          )}>
+            {sender}
+          </span>
+        </div>
+      )}
+      
+      {/* Conteúdo da mensagem citada */}
+      <div className={cn(
+        "text-sm line-clamp-2 flex items-center gap-1",
+        isAgentMessage ? "text-white/70" : "text-muted-foreground"
+      )}>
+        <AttachmentIcon />
+        {attachmentType && !content && (
+          <span className="italic">{attachmentLabel}</span>
+        )}
+        {content && <span>{content}</span>}
+        {!content && !attachmentType && (
+          <span className="italic">Mensagem</span>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const MessageItem = memo(({ 
   message,
   onCopy,
@@ -368,6 +447,16 @@ export const MessageItem = memo(({
           )}
         </div>
       )}
+
+      {/* Mensagem citada (reply/quote) */}
+      {message.quotedContent || message.quotedMessageId ? (
+        <QuotedMessage
+          content={message.quotedContent}
+          sender={message.quotedSender}
+          attachmentType={message.quotedAttachmentType}
+          isAgentMessage={isAgentMessage}
+        />
+      ) : null}
 
       {/* Texto da mensagem - exibir se não for apenas placeholder de mídia */}
       {message.content && !isMediaPlaceholder(message.content) && (

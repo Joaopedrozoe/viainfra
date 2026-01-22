@@ -24,6 +24,11 @@ export interface Message {
   isFavorite?: boolean;
   editedAt?: string;
   isDeleted?: boolean;
+  // Campos para mensagens com reply/citação
+  quotedMessageId?: string;
+  quotedContent?: string;
+  quotedSender?: string;
+  quotedAttachmentType?: 'image' | 'video' | 'audio' | 'document';
 }
 
 export interface ChatWindowProps {

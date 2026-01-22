@@ -20,6 +20,21 @@ interface Attachment {
   mimeType?: string;
 }
 
+// Interface para contextInfo (mensagens de reply/citação)
+interface ContextInfo {
+  stanzaId?: string;
+  participant?: string;
+  quotedMessage?: {
+    conversation?: string;
+    extendedTextMessage?: { text: string };
+    imageMessage?: { caption?: string; mimetype?: string };
+    videoMessage?: { caption?: string; mimetype?: string };
+    audioMessage?: { mimetype?: string; ptt?: boolean };
+    documentMessage?: { title?: string; fileName?: string; mimetype?: string };
+    stickerMessage?: { mimetype?: string };
+  };
+}
+
 interface EvolutionMessage {
   key: {
     id: string;
@@ -30,6 +45,7 @@ interface EvolutionMessage {
     conversation?: string;
     extendedTextMessage?: {
       text: string;
+      contextInfo?: ContextInfo;
     };
     imageMessage?: {
       url?: string;
@@ -37,6 +53,7 @@ interface EvolutionMessage {
       mediaKey?: string;
       mimetype?: string;
       caption?: string;
+      contextInfo?: ContextInfo;
     };
     audioMessage?: {
       url?: string;
@@ -44,6 +61,7 @@ interface EvolutionMessage {
       mediaKey?: string;
       mimetype?: string;
       ptt?: boolean;
+      contextInfo?: ContextInfo;
     };
     videoMessage?: {
       url?: string;
@@ -51,6 +69,7 @@ interface EvolutionMessage {
       mediaKey?: string;
       mimetype?: string;
       caption?: string;
+      contextInfo?: ContextInfo;
     };
     documentMessage?: {
       url?: string;
@@ -59,11 +78,13 @@ interface EvolutionMessage {
       mimetype?: string;
       title?: string;
       fileName?: string;
+      contextInfo?: ContextInfo;
     };
     stickerMessage?: {
       url?: string;
       directPath?: string;
       mimetype?: string;
+      contextInfo?: ContextInfo;
     };
   };
   messageTimestamp: number;
@@ -2779,6 +2800,79 @@ function getExtensionFromMimeType(mimeType: string): string {
   return mimeToExt[mimeType] || 'bin';
 }
 
+// Extrai informações de mensagem citada (reply/quote) do contextInfo
+function extractQuotedInfo(message: EvolutionMessage): {
+  quotedMessageId?: string;
+  quotedContent?: string;
+  quotedSender?: string;
+  quotedAttachmentType?: 'image' | 'video' | 'audio' | 'document';
+} | null {
+  // Buscar contextInfo em qualquer tipo de mensagem
+  const msgObj = message.message;
+  if (!msgObj) return null;
+  
+  const contextInfo: ContextInfo | undefined = 
+    msgObj.extendedTextMessage?.contextInfo ||
+    msgObj.imageMessage?.contextInfo ||
+    msgObj.videoMessage?.contextInfo ||
+    msgObj.audioMessage?.contextInfo ||
+    msgObj.documentMessage?.contextInfo ||
+    msgObj.stickerMessage?.contextInfo;
+  
+  if (!contextInfo?.stanzaId) return null;
+  
+  const quotedMessage = contextInfo.quotedMessage;
+  if (!quotedMessage) {
+    // Tem stanzaId mas sem conteúdo da mensagem citada
+    return {
+      quotedMessageId: contextInfo.stanzaId,
+      quotedSender: contextInfo.participant ? extractPhoneNumber(contextInfo.participant) : undefined,
+    };
+  }
+  
+  // Extrair conteúdo da mensagem citada
+  let quotedContent = '';
+  let quotedAttachmentType: 'image' | 'video' | 'audio' | 'document' | undefined;
+  
+  if (quotedMessage.conversation) {
+    quotedContent = quotedMessage.conversation;
+  } else if (quotedMessage.extendedTextMessage?.text) {
+    quotedContent = quotedMessage.extendedTextMessage.text;
+  } else if (quotedMessage.imageMessage) {
+    quotedContent = quotedMessage.imageMessage.caption || '';
+    quotedAttachmentType = 'image';
+  } else if (quotedMessage.videoMessage) {
+    quotedContent = quotedMessage.videoMessage.caption || '';
+    quotedAttachmentType = 'video';
+  } else if (quotedMessage.audioMessage) {
+    quotedContent = quotedMessage.audioMessage.ptt ? '[Áudio de voz]' : '[Áudio]';
+    quotedAttachmentType = 'audio';
+  } else if (quotedMessage.documentMessage) {
+    quotedContent = quotedMessage.documentMessage.fileName || quotedMessage.documentMessage.title || '[Documento]';
+    quotedAttachmentType = 'document';
+  } else if (quotedMessage.stickerMessage) {
+    quotedContent = '[Sticker]';
+  }
+  
+  // Truncar conteúdo se muito longo
+  if (quotedContent && quotedContent.length > 200) {
+    quotedContent = quotedContent.substring(0, 197) + '...';
+  }
+  
+  // Extrair telefone do participant (quem enviou a mensagem original)
+  let quotedSender: string | undefined;
+  if (contextInfo.participant) {
+    quotedSender = extractPhoneNumber(contextInfo.participant) || contextInfo.participant;
+  }
+  
+  return {
+    quotedMessageId: contextInfo.stanzaId,
+    quotedContent: quotedContent || undefined,
+    quotedSender,
+    quotedAttachmentType,
+  };
+}
+
 async function saveMessage(supabase: any, conversationId: string, message: EvolutionMessage, content: string, phoneNumber: string, instanceName: string, isOutgoing: boolean = false) {
   const externalId = message.key.id;
   
@@ -2812,6 +2906,16 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
   
   if (attachment) {
     messageMetadata.attachment = attachment;
+  }
+  
+  // Extrair informações de mensagem citada (reply/quote)
+  const quotedInfo = extractQuotedInfo(message);
+  if (quotedInfo) {
+    console.log('💬 Mensagem com citação detectada:', JSON.stringify(quotedInfo));
+    if (quotedInfo.quotedMessageId) messageMetadata.quotedMessageId = quotedInfo.quotedMessageId;
+    if (quotedInfo.quotedContent) messageMetadata.quotedContent = quotedInfo.quotedContent;
+    if (quotedInfo.quotedSender) messageMetadata.quotedSender = quotedInfo.quotedSender;
+    if (quotedInfo.quotedAttachmentType) messageMetadata.quotedAttachmentType = quotedInfo.quotedAttachmentType;
   }
   
   // CORREÇÃO: Definir sender_type baseado em fromMe/isOutgoing
