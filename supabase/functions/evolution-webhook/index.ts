@@ -581,7 +581,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
           }
           
           // Salvar mensagem na conversa existente
-          await saveMessage(supabase, mappedConv.id, message, messageContent, lidMapping.phone, webhook.instance, (message as any)._isOutgoing);
+          await saveMessage(supabase, mappedConv.id, message, messageContent, lidMapping.phone, webhook.instance, (message as any)._isOutgoing, messageData);
           console.log(`✅ Mensagem @lid salva na conversa correta (via mapeamento).`);
           continue;
         }
@@ -707,7 +707,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
                     })
                     .eq('id', conv.id);
                   
-                  await saveMessage(supabase, conv.id, message, messageContent, contact.phone, webhook.instance, true);
+                  await saveMessage(supabase, conv.id, message, messageContent, contact.phone, webhook.instance, true, messageData);
                   console.log(`✅ Mensagem enviada @lid salva na conversa correta (match único).`);
                   continue;
                 }
@@ -797,7 +797,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
                   })
                   .eq('id', conv.id);
                 
-                await saveMessage(supabase, conv.id, message, messageContent, conv.contacts.phone, webhook.instance, true);
+                await saveMessage(supabase, conv.id, message, messageContent, conv.contacts.phone, webhook.instance, true, messageData);
                 console.log(`✅ Mensagem enviada @lid salva via conversa recente (nome exato).`);
                 continue;
               }
@@ -955,7 +955,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
                 .eq('id', resolvedConv.id);
             }
             
-            await saveMessage(supabase, resolvedConv.id, message, messageContent, resolvedPhone, webhook.instance, (message as any)._isOutgoing);
+            await saveMessage(supabase, resolvedConv.id, message, messageContent, resolvedPhone, webhook.instance, (message as any)._isOutgoing, messageData);
             console.log(`✅ Mensagem @lid salva na conversa correta (via resolução Evolution API).`);
             continue;
           }
@@ -1369,7 +1369,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         
         // Salvar mensagem na conversa existente
         const phoneForMsg = linkedPhone || existingLidConv.contacts?.phone || lidId;
-        await saveMessage(supabase, existingLidConv.id, message, messageContent, phoneForMsg, webhook.instance, (message as any)._isOutgoing);
+        await saveMessage(supabase, existingLidConv.id, message, messageContent, phoneForMsg, webhook.instance, (message as any)._isOutgoing, messageData);
         
         console.log(`✅ Mensagem @lid salva na conversa existente.`);
         continue;
@@ -1394,7 +1394,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       
       if (lastCheckConv) {
         console.log(`⚠️ RACE CONDITION EVITADA: Conversa ${lastCheckConv.id} foi criada por outro processo`);
-        await saveMessage(supabase, lastCheckConv.id, message, messageContent, lidId, webhook.instance, (message as any)._isOutgoing);
+        await saveMessage(supabase, lastCheckConv.id, message, messageContent, lidId, webhook.instance, (message as any)._isOutgoing, messageData);
         continue;
       }
       
@@ -1500,7 +1500,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
             .maybeSingle();
           
           if (existingConv) {
-            await saveMessage(supabase, existingConv.id, message, messageContent, lidId, webhook.instance, (message as any)._isOutgoing);
+            await saveMessage(supabase, existingConv.id, message, messageContent, lidId, webhook.instance, (message as any)._isOutgoing, messageData);
             continue;
           }
         }
@@ -1511,7 +1511,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       console.log(`✅ Nova conversa @lid criada: ${newConv.id} - BOT DESABILITADO`);
       
       // Salvar mensagem
-      await saveMessage(supabase, newConv.id, message, messageContent, lidId, webhook.instance, (message as any)._isOutgoing);
+      await saveMessage(supabase, newConv.id, message, messageContent, lidId, webhook.instance, (message as any)._isOutgoing, messageData);
       console.log(`✅ Mensagem @lid salva.`);
       continue;
     }
@@ -1605,8 +1605,8 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         console.log(`✅ Created new group conversation: ${groupConversation.id}`);
       }
       
-      // Salvar mensagem do grupo COM processamento de mídia
-      const savedGroupMsg = await saveGroupMessage(supabase, groupConversation.id, message, messageContent, participantName, groupId, webhook.instance);
+      // Salvar mensagem do grupo COM processamento de mídia e rawData para extração de contextInfo
+      const savedGroupMsg = await saveGroupMessage(supabase, groupConversation.id, message, messageContent, participantName, groupId, webhook.instance, messageData);
       
       if (savedGroupMsg) {
         console.log(`✅ Group message saved for conversation ${groupConversation.id}`);
@@ -1657,7 +1657,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     const isReaction = isReactionMessage(message);
     
     // Save message - returns null if duplicate
-    const savedMessage = await saveMessage(supabase, conversation.id, message, messageContent, contactPhone, webhook.instance, (message as any)._isOutgoing);
+    const savedMessage = await saveMessage(supabase, conversation.id, message, messageContent, contactPhone, webhook.instance, (message as any)._isOutgoing, messageData);
     
     // PROTEÇÃO: Se a mensagem foi duplicada, não aciona o bot
     if (!savedMessage) {
@@ -2801,25 +2801,45 @@ function getExtensionFromMimeType(mimeType: string): string {
 }
 
 // Extrai informações de mensagem citada (reply/quote) do contextInfo
-function extractQuotedInfo(message: EvolutionMessage): {
+// IMPORTANTE: O contextInfo pode estar em dois lugares diferentes:
+// 1. Dentro de message.extendedTextMessage.contextInfo (mensagens de texto com reply)
+// 2. No nível raiz do objeto data (formato Evolution API para grupos e mensagens simples)
+function extractQuotedInfo(message: EvolutionMessage, rawData?: any): {
   quotedMessageId?: string;
   quotedContent?: string;
   quotedSender?: string;
   quotedAttachmentType?: 'image' | 'video' | 'audio' | 'document';
 } | null {
-  // Buscar contextInfo em qualquer tipo de mensagem
-  const msgObj = message.message;
-  if (!msgObj) return null;
+  // PRIORIDADE 1: Buscar contextInfo no nível raiz do rawData (formato Evolution API)
+  // Este é o formato usado em grupos e mensagens simples com reply
+  let contextInfo: ContextInfo | undefined;
   
-  const contextInfo: ContextInfo | undefined = 
-    msgObj.extendedTextMessage?.contextInfo ||
-    msgObj.imageMessage?.contextInfo ||
-    msgObj.videoMessage?.contextInfo ||
-    msgObj.audioMessage?.contextInfo ||
-    msgObj.documentMessage?.contextInfo ||
-    msgObj.stickerMessage?.contextInfo;
+  if (rawData?.contextInfo?.stanzaId) {
+    contextInfo = rawData.contextInfo;
+    console.log('🔍 ContextInfo encontrado no nível raiz do payload');
+  }
+  
+  // PRIORIDADE 2: Buscar contextInfo dentro do objeto message (formato clássico)
+  if (!contextInfo) {
+    const msgObj = message.message;
+    if (msgObj) {
+      contextInfo = 
+        msgObj.extendedTextMessage?.contextInfo ||
+        msgObj.imageMessage?.contextInfo ||
+        msgObj.videoMessage?.contextInfo ||
+        msgObj.audioMessage?.contextInfo ||
+        msgObj.documentMessage?.contextInfo ||
+        msgObj.stickerMessage?.contextInfo;
+      
+      if (contextInfo?.stanzaId) {
+        console.log('🔍 ContextInfo encontrado dentro de message object');
+      }
+    }
+  }
   
   if (!contextInfo?.stanzaId) return null;
+  
+  console.log('💬 Reply detectado - stanzaId:', contextInfo.stanzaId, 'participant:', contextInfo.participant);
   
   const quotedMessage = contextInfo.quotedMessage;
   if (!quotedMessage) {
@@ -2839,10 +2859,10 @@ function extractQuotedInfo(message: EvolutionMessage): {
   } else if (quotedMessage.extendedTextMessage?.text) {
     quotedContent = quotedMessage.extendedTextMessage.text;
   } else if (quotedMessage.imageMessage) {
-    quotedContent = quotedMessage.imageMessage.caption || '';
+    quotedContent = quotedMessage.imageMessage.caption || '[Imagem]';
     quotedAttachmentType = 'image';
   } else if (quotedMessage.videoMessage) {
-    quotedContent = quotedMessage.videoMessage.caption || '';
+    quotedContent = quotedMessage.videoMessage.caption || '[Vídeo]';
     quotedAttachmentType = 'video';
   } else if (quotedMessage.audioMessage) {
     quotedContent = quotedMessage.audioMessage.ptt ? '[Áudio de voz]' : '[Áudio]';
@@ -2859,11 +2879,13 @@ function extractQuotedInfo(message: EvolutionMessage): {
     quotedContent = quotedContent.substring(0, 197) + '...';
   }
   
-  // Extrair telefone do participant (quem enviou a mensagem original)
+  // Extrair telefone/nome do participant (quem enviou a mensagem original)
   let quotedSender: string | undefined;
   if (contextInfo.participant) {
     quotedSender = extractPhoneNumber(contextInfo.participant) || contextInfo.participant;
   }
+  
+  console.log('💬 Reply extraído:', { quotedMessageId: contextInfo.stanzaId, quotedContent: quotedContent?.substring(0, 50), quotedSender, quotedAttachmentType });
   
   return {
     quotedMessageId: contextInfo.stanzaId,
@@ -2873,7 +2895,7 @@ function extractQuotedInfo(message: EvolutionMessage): {
   };
 }
 
-async function saveMessage(supabase: any, conversationId: string, message: EvolutionMessage, content: string, phoneNumber: string, instanceName: string, isOutgoing: boolean = false) {
+async function saveMessage(supabase: any, conversationId: string, message: EvolutionMessage, content: string, phoneNumber: string, instanceName: string, isOutgoing: boolean = false, rawData?: any) {
   const externalId = message.key.id;
   
   // Check for duplicate
@@ -2909,7 +2931,8 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
   }
   
   // Extrair informações de mensagem citada (reply/quote)
-  const quotedInfo = extractQuotedInfo(message);
+  // IMPORTANTE: Passar rawData para pegar contextInfo do nível raiz (formato Evolution API para grupos)
+  const quotedInfo = extractQuotedInfo(message, rawData);
   if (quotedInfo) {
     console.log('💬 Mensagem com citação detectada:', JSON.stringify(quotedInfo));
     if (quotedInfo.quotedMessageId) messageMetadata.quotedMessageId = quotedInfo.quotedMessageId;
@@ -2958,7 +2981,7 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
 // ============================================================
 // SAVE GROUP MESSAGE - COM PROCESSAMENTO DE MÍDIA
 // ============================================================
-async function saveGroupMessage(supabase: any, conversationId: string, message: EvolutionMessage, content: string, participantName: string, groupId: string, instanceName: string) {
+async function saveGroupMessage(supabase: any, conversationId: string, message: EvolutionMessage, content: string, participantName: string, groupId: string, instanceName: string, rawData?: any) {
   const externalId = message.key.id;
   
   // Check for duplicate
@@ -2998,6 +3021,17 @@ async function saveGroupMessage(supabase: any, conversationId: string, message: 
   if (attachment) {
     messageMetadata.attachment = attachment;
     console.log('📎 [GROUP] Attachment added to metadata:', attachment.type);
+  }
+  
+  // Extrair informações de mensagem citada (reply/quote) para grupos
+  // IMPORTANTE: Passar rawData para pegar contextInfo do nível raiz
+  const quotedInfo = extractQuotedInfo(message, rawData);
+  if (quotedInfo) {
+    console.log('💬 [GROUP] Reply/citação detectada:', JSON.stringify(quotedInfo));
+    if (quotedInfo.quotedMessageId) messageMetadata.quotedMessageId = quotedInfo.quotedMessageId;
+    if (quotedInfo.quotedContent) messageMetadata.quotedContent = quotedInfo.quotedContent;
+    if (quotedInfo.quotedSender) messageMetadata.quotedSender = quotedInfo.quotedSender;
+    if (quotedInfo.quotedAttachmentType) messageMetadata.quotedAttachmentType = quotedInfo.quotedAttachmentType;
   }
   
   const messageData = {
