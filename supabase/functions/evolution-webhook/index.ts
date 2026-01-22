@@ -138,6 +138,20 @@ serve(async (req) => {
       case 'QRCODE_UPDATED':
         console.log(`📱 QR Code atualizado para ${webhook.instance}`);
         break;
+      // ============================================================
+      // GROUP EVENTS - Create/update groups automatically
+      // ============================================================
+      case 'GROUPS_CREATE':
+      case 'GROUP_CREATE':
+      case 'GROUPS_UPSERT':
+        console.log(`📢 Novo grupo criado: ${JSON.stringify(webhook.data)}`);
+        await processGroupCreate(supabase, webhook);
+        break;
+      case 'GROUPS_UPDATE':
+      case 'GROUP_UPDATE':
+        console.log(`📢 Grupo atualizado: ${JSON.stringify(webhook.data)}`);
+        await processGroupUpdate(supabase, webhook);
+        break;
       default:
         console.log(`⚠️ Evento não tratado: ${webhook.event}`);
     }
@@ -3557,4 +3571,284 @@ function extractAttachment(message: EvolutionMessage): Attachment | null {
   }
   
   return null;
+}
+
+// ============================================================
+// GROUP EVENT HANDLERS - Automatically create/update groups in inbox
+// ============================================================
+
+async function processGroupCreate(supabase: any, webhook: EvolutionWebhook) {
+  console.log('📢 Processing GROUP CREATE event...');
+  
+  try {
+    const data = webhook.data;
+    if (!data) return;
+
+    // Handle array or single group
+    const groups = Array.isArray(data) ? data : [data];
+    
+    // Get company_id from instance
+    const { data: instanceData } = await supabase
+      .from('whatsapp_instances')
+      .select('company_id')
+      .eq('instance_name', webhook.instance)
+      .maybeSingle();
+
+    const companyId = instanceData?.company_id;
+    if (!companyId) {
+      console.error('❌ No company_id for instance:', webhook.instance);
+      return;
+    }
+
+    for (const group of groups) {
+      const remoteJid = group.id || group.jid || group.remoteJid || group.groupJid;
+      if (!remoteJid || !remoteJid.includes('@g.us')) {
+        console.log(`⚠️ Invalid group JID:`, remoteJid);
+        continue;
+      }
+
+      const groupName = group.subject || group.name || 'Grupo sem nome';
+      const pictureUrl = group.pictureUrl || group.profilePictureUrl || null;
+      const owner = group.owner || group.ownerJid || null;
+      const creation = group.creation || group.createdAt || null;
+
+      console.log(`📢 Creating group: ${groupName} (${remoteJid})`);
+
+      // Check if contact already exists
+      const { data: existingContact } = await supabase
+        .from('contacts')
+        .select('id')
+        .eq('company_id', companyId)
+        .contains('metadata', { remoteJid })
+        .maybeSingle();
+
+      let contactId = existingContact?.id;
+
+      if (!contactId) {
+        // Create new contact for group
+        const { data: newContact, error: contactError } = await supabase
+          .from('contacts')
+          .insert({
+            name: groupName,
+            company_id: companyId,
+            metadata: {
+              isGroup: true,
+              remoteJid,
+              subject: groupName,
+              creation,
+              owner,
+              participants: group.participants?.length || 0,
+              createdByWebhook: true
+            }
+          })
+          .select('id')
+          .single();
+
+        if (contactError) {
+          console.error(`❌ Error creating group contact:`, contactError);
+          continue;
+        }
+
+        contactId = newContact.id;
+        console.log(`✅ Group contact created: ${contactId}`);
+      }
+
+      // Check if conversation exists
+      const { data: existingConv } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('contact_id', contactId)
+        .eq('channel', 'whatsapp')
+        .maybeSingle();
+
+      if (!existingConv) {
+        // Create conversation
+        const { error: convError } = await supabase
+          .from('conversations')
+          .insert({
+            company_id: companyId,
+            contact_id: contactId,
+            channel: 'whatsapp',
+            status: 'open',
+            metadata: {
+              isGroup: true,
+              remoteJid,
+              createdByWebhook: true
+            }
+          });
+
+        if (convError && convError.code !== '23505') {
+          console.error(`❌ Error creating conversation:`, convError);
+        } else {
+          console.log(`✅ Group conversation created`);
+        }
+      }
+
+      // Fetch and save group avatar if available
+      if (pictureUrl) {
+        await updateGroupAvatar(supabase, contactId, pictureUrl);
+      } else {
+        // Try to fetch from API
+        await fetchAndUpdateGroupAvatar(supabase, webhook.instance, remoteJid, contactId);
+      }
+    }
+
+  } catch (error) {
+    console.error('❌ Error processing group create:', error);
+  }
+}
+
+async function processGroupUpdate(supabase: any, webhook: EvolutionWebhook) {
+  console.log('📢 Processing GROUP UPDATE event...');
+  
+  try {
+    const data = webhook.data;
+    if (!data) return;
+
+    // Get company_id from instance
+    const { data: instanceData } = await supabase
+      .from('whatsapp_instances')
+      .select('company_id')
+      .eq('instance_name', webhook.instance)
+      .maybeSingle();
+
+    const companyId = instanceData?.company_id;
+    if (!companyId) return;
+
+    const groups = Array.isArray(data) ? data : [data];
+
+    for (const group of groups) {
+      const remoteJid = group.id || group.jid || group.remoteJid || group.groupJid;
+      if (!remoteJid) continue;
+
+      const groupName = group.subject || group.name;
+      const pictureUrl = group.pictureUrl || group.profilePictureUrl;
+
+      // Find existing contact
+      const { data: contact } = await supabase
+        .from('contacts')
+        .select('id, name, avatar_url')
+        .eq('company_id', companyId)
+        .contains('metadata', { remoteJid })
+        .maybeSingle();
+
+      if (!contact) {
+        console.log(`⚠️ Group contact not found for update: ${remoteJid}`);
+        // If group doesn't exist, treat as create
+        await processGroupCreate(supabase, webhook);
+        return;
+      }
+
+      // Update contact info
+      const updates: any = {
+        updated_at: new Date().toISOString()
+      };
+
+      if (groupName && groupName !== contact.name) {
+        updates.name = groupName;
+        console.log(`📝 Updating group name: ${contact.name} -> ${groupName}`);
+      }
+
+      if (Object.keys(updates).length > 1) {
+        await supabase
+          .from('contacts')
+          .update(updates)
+          .eq('id', contact.id);
+      }
+
+      // Update avatar if changed
+      if (pictureUrl && pictureUrl !== contact.avatar_url) {
+        await updateGroupAvatar(supabase, contact.id, pictureUrl);
+      }
+
+      console.log(`✅ Group updated: ${contact.id}`);
+    }
+
+  } catch (error) {
+    console.error('❌ Error processing group update:', error);
+  }
+}
+
+async function updateGroupAvatar(supabase: any, contactId: string, pictureUrl: string) {
+  try {
+    console.log(`🖼️ Updating group avatar for ${contactId}...`);
+    
+    const response = await fetch(pictureUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0' }
+    });
+
+    if (!response.ok) {
+      console.log(`❌ Failed to download avatar: ${response.status}`);
+      return;
+    }
+
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    const arrayBuffer = await response.arrayBuffer();
+    
+    if (arrayBuffer.byteLength > 500000 || arrayBuffer.byteLength < 100) {
+      console.log(`❌ Invalid image size`);
+      return;
+    }
+
+    const blob = new Uint8Array(arrayBuffer);
+    const extension = contentType.includes('png') ? 'png' : 'jpg';
+    const fileName = `${contactId}.${extension}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('profile-pictures')
+      .upload(fileName, blob, { contentType, upsert: true });
+
+    if (uploadError) {
+      console.error(`❌ Upload error:`, uploadError.message);
+      return;
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('profile-pictures')
+      .getPublicUrl(fileName);
+
+    const newUrl = `${urlData.publicUrl}?v=${Date.now()}`;
+
+    await supabase
+      .from('contacts')
+      .update({ avatar_url: newUrl, updated_at: new Date().toISOString() })
+      .eq('id', contactId);
+
+    console.log(`✅ Group avatar updated`);
+
+  } catch (error) {
+    console.error(`❌ Error updating avatar:`, error);
+  }
+}
+
+async function fetchAndUpdateGroupAvatar(supabase: any, instanceName: string, groupJid: string, contactId: string) {
+  try {
+    const evolutionUrl = Deno.env.get('EVOLUTION_API_URL') ?? '';
+    const evolutionKey = Deno.env.get('EVOLUTION_API_KEY') ?? '';
+
+    // Try to fetch profile picture URL from Evolution API
+    const response = await fetch(
+      `${evolutionUrl}/chat/fetchProfilePictureUrl/${instanceName}`,
+      {
+        method: 'POST',
+        headers: { 
+          'apikey': evolutionKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ number: groupJid })
+      }
+    );
+
+    if (!response.ok) return;
+
+    const data = await response.json();
+    const pictureUrl = data?.profilePictureUrl || data?.pictureUrl;
+
+    if (pictureUrl) {
+      await updateGroupAvatar(supabase, contactId, pictureUrl);
+    }
+
+  } catch (error) {
+    console.error(`❌ Error fetching group avatar:`, error);
+  }
 }

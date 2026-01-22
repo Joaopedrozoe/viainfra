@@ -252,3 +252,9 @@ verify_jwt = false
 
 [functions.batch-history-import]
 verify_jwt = false
+
+[functions.cleanup-group-duplicates]
+verify_jwt = false
+
+[functions.sync-all-groups]
+verify_jwt = false
