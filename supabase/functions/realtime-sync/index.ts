@@ -174,6 +174,7 @@ serve(async (req) => {
 
           const isGroup = remoteJid.includes('@g.us');
           const isLid = remoteJid.includes('@lid');
+          const lidId = isLid ? remoteJid.replace('@lid', '') : null;
           const phone = (isLid || isGroup) ? null : remoteJid.split('@')[0];
           
           // Additional validation: reject message IDs used as contact names
@@ -186,6 +187,58 @@ serve(async (req) => {
             continue;
           }
           
+          // ============================================================
+          // BLOQUEIO ABSOLUTO: Nunca criar contato com nome = @lid ou LID numérico
+          // ============================================================
+          const isLidName = rawContactName && (
+            rawContactName.includes('@lid') ||
+            rawContactName.includes('@s.whatsapp.net') ||
+            /^\d{10,25}@/.test(rawContactName) ||
+            /^\d{15,25}$/.test(rawContactName) || // LIDs são números longos
+            rawContactName === remoteJid
+          );
+          
+          if (isLid && isLidName) {
+            console.log(`⛔ BLOQUEADO: Não criar contato com nome LID "${rawContactName}" - buscando mapeamento...`);
+            
+            // Tentar encontrar mapeamento LID -> telefone existente
+            const { data: lidMapping } = await supabase
+              .from('lid_phone_mapping')
+              .select('phone, contact_id')
+              .eq('lid', lidId)
+              .eq('company_id', companyId)
+              .maybeSingle();
+            
+            if (lidMapping && lidMapping.contact_id) {
+              // Já temos mapeamento - buscar conversa do contato mapeado
+              const { data: mappedConv } = await supabase
+                .from('conversations')
+                .select('*, contacts(*)')
+                .eq('contact_id', lidMapping.contact_id)
+                .eq('channel', 'whatsapp')
+                .limit(1)
+                .maybeSingle();
+              
+              if (mappedConv) {
+                console.log(`✅ LID ${lidId} mapeado para conversa existente: ${mappedConv.contacts?.name}`);
+                // Atualizar metadata com lidJid
+                await supabase
+                  .from('conversations')
+                  .update({ 
+                    metadata: { ...mappedConv.metadata, lidJid: remoteJid },
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq('id', mappedConv.id);
+                
+                convByJid.set(remoteJid, mappedConv);
+                continue; // Não criar nova conversa
+              }
+            }
+            
+            console.log(`⚠️ LID ${lidId} sem mapeamento - ignorando para evitar duplicação`);
+            continue; // Ignorar LID sem mapeamento para evitar criar duplicados
+          }
+          
           const contactName = rawContactName;
           const cleanName = contactName.toLowerCase().trim();
 
@@ -194,6 +247,37 @@ serve(async (req) => {
           
           if (!conversation && phone) {
             conversation = convByPhone.get(phone) || convByContactPhone.get(phone);
+          }
+          
+          // ============================================================
+          // Para @lid, tentar vincular a contato existente via lid_phone_mapping
+          // ============================================================
+          if (!conversation && isLid && lidId) {
+            const { data: lidMapping } = await supabase
+              .from('lid_phone_mapping')
+              .select('phone, contact_id')
+              .eq('lid', lidId)
+              .eq('company_id', companyId)
+              .maybeSingle();
+            
+            if (lidMapping && lidMapping.phone) {
+              const existingByMappedPhone = convByPhone.get(lidMapping.phone) || convByContactPhone.get(lidMapping.phone);
+              if (existingByMappedPhone) {
+                console.log(`✅ LID ${lidId} vinculado à conversa via mapeamento: ${lidMapping.phone}`);
+                conversation = existingByMappedPhone;
+                
+                // Atualizar metadata com lidJid
+                await supabase
+                  .from('conversations')
+                  .update({ 
+                    metadata: { ...conversation.metadata, lidJid: remoteJid },
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq('id', conversation.id);
+                
+                convByJid.set(remoteJid, conversation);
+              }
+            }
           }
 
           // If conversation found but missing remoteJid in metadata, update it
@@ -211,12 +295,15 @@ serve(async (req) => {
               .eq('id', conversation.id);
             conversation.metadata = { ...conversation.metadata, remoteJid };
           }
+          
           if (!conversation) {
             const validPhone = phone && /^\d{10,15}$/.test(phone);
             
-            // Create for: valid phone numbers, groups, OR @lid contacts (new!)
-            if (validPhone || isGroup || isLid) {
-              console.log(`➕ Creating: ${contactName} (${isLid ? 'LID' : isGroup ? 'GROUP' : 'PHONE'})`);
+            // ============================================================
+            // PROTEÇÃO: Não criar contatos @lid - só grupos e telefones válidos
+            // ============================================================
+            if (validPhone || isGroup) {
+              console.log(`➕ Creating: ${contactName} (${isGroup ? 'GROUP' : 'PHONE'})`);
               
               let contact = contactByPhone.get(phone || '') || contactByName.get(cleanName);
               
@@ -230,7 +317,6 @@ serve(async (req) => {
                     metadata: { 
                       remoteJid, 
                       isGroup, 
-                      isLid,
                       syncCreated: true,
                       createdAt: new Date().toISOString()
                     }
@@ -247,6 +333,10 @@ serve(async (req) => {
                   console.log(`⚠️ Contact error: ${contactErr.message}`);
                   continue;
                 }
+              } else if (isLid) {
+                // Se já temos contato @lid, pular criação de conversa
+                console.log(`⚠️ LID sem mapeamento e sem conversa existente - ignorando`);
+                continue;
               }
 
               if (contact) {
