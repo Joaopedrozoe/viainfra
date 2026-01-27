@@ -274,11 +274,18 @@ serve(async (req) => {
 
     let sendResult: SendResult;
 
-    // Preparar dados de quoted/reply se existir
+    // Preparar dados de quoted/reply se existir (formato completo do protocolo WhatsApp/Baileys)
+    // O objeto key PRECISA ter remoteJid e fromMe para o WhatsApp localizar a mensagem original
     const quotedData = quoted?.messageId ? {
-      key: { id: quoted.messageId },
+      key: { 
+        remoteJid: recipientJid,  // JID do chat onde a mensagem original está
+        fromMe: quoted.isFromAgent === true,  // true se foi enviada pelo agente
+        id: quoted.messageId 
+      },
       message: { conversation: quoted.content || '' }
     } : undefined;
+    
+    console.log('[send-whatsapp] QuotedData montado:', quotedData ? JSON.stringify(quotedData) : 'null');
 
     if (attachment) {
       sendResult = await sendMediaMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, attachment, formattedMessage, agent_name, isGroup, quotedData);
