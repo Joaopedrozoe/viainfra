@@ -381,10 +381,11 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
                   message_content: content || undefined,
                   attachment: attachmentData,
                   agent_name: profile?.name || 'Atendente',
-                  // Dados para reply/quoted se houver
+                  // Dados para reply/quoted se houver (usa whatsappMessageId que agora inclui external_id)
                   quoted: currentReplyTo ? {
                     messageId: currentReplyTo.whatsappMessageId,
                     content: currentReplyTo.content,
+                    senderName: currentReplyTo.sender === 'user' ? contactName : 'Você',
                   } : undefined,
                 },
               }
