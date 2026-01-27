@@ -55,6 +55,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
   const [deletingMessage, setDeletingMessage] = useState<Message | null>(null);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
+  const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showForwardModal, setShowForwardModal] = useState(false);
@@ -192,7 +193,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   }, [messages, isLoadingMore]);
 
   const handleSendMessage = useCallback(async (content: string, file?: File) => {
-    console.log('🚀 [SEND] Iniciando envio de mensagem:', { conversationId, content, hasFile: !!file });
+    console.log('🚀 [SEND] Iniciando envio de mensagem:', { conversationId, content, hasFile: !!file, hasReply: !!replyToMessage });
     
     if (!conversationId) {
       console.error('❌ [SEND] Sem conversationId');
@@ -204,6 +205,12 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       toast.error('Perfil não encontrado. Por favor, faça logout e login novamente.');
       return;
     }
+
+    // Capturar dados de reply antes de limpar o estado
+    const currentReplyTo = replyToMessage;
+    
+    // Limpar estado de reply imediatamente para melhor UX
+    setReplyToMessage(null);
 
     try {
       let attachmentData: Attachment | undefined;
@@ -264,7 +271,11 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         content: messageContent,
         attachment: attachmentData,
         sender: "agent",
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        // Incluir dados de citação se houver
+        quotedMessageId: currentReplyTo?.whatsappMessageId || currentReplyTo?.id,
+        quotedContent: currentReplyTo?.content,
+        quotedSender: currentReplyTo?.sender === 'user' ? contactName : 'Você',
       };
       
       addMessage(tempMessage);
@@ -298,10 +309,17 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         hasAttachment: !!attachmentData
       });
       
-      // Build metadata with attachment info if present
+      // Build metadata with attachment info and reply info if present
       const messageMetadata: Record<string, any> = {};
       if (attachmentData) {
         messageMetadata.attachment = attachmentData;
+      }
+      // Adicionar dados de citação aos metadados se houver reply
+      if (currentReplyTo) {
+        messageMetadata.quotedMessageId = currentReplyTo.whatsappMessageId || currentReplyTo.id;
+        messageMetadata.quotedContent = currentReplyTo.content;
+        messageMetadata.quotedSender = currentReplyTo.sender === 'user' ? contactName : 'Você';
+        messageMetadata.quotedAttachmentType = currentReplyTo.attachment?.type;
       }
       
       const { data, error } = await supabase
@@ -363,6 +381,11 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
                   message_content: content || undefined,
                   attachment: attachmentData,
                   agent_name: profile?.name || 'Atendente',
+                  // Dados para reply/quoted se houver
+                  quoted: currentReplyTo ? {
+                    messageId: currentReplyTo.whatsappMessageId,
+                    content: currentReplyTo.content,
+                  } : undefined,
                 },
               }
             );
@@ -437,7 +460,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     } catch (error) {
       console.error('💥 Erro geral ao enviar mensagem:', error);
     }
-  }, [conversationId, conversationChannel, profile]);
+  }, [conversationId, conversationChannel, profile, replyToMessage, contactName, addMessage, replaceTemporaryMessage, updateMessage]);
 
   const handleViewContactDetails = useCallback(() => {
     if (conversationId) {
@@ -678,6 +701,18 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     setShowForwardModal(true);
   }, []);
 
+  // Definir mensagem para resposta (reply)
+  const handleReplyMessage = useCallback((message: Message) => {
+    setReplyToMessage(message);
+    // Focar no input após definir reply (para UX melhor)
+    // O componente ChatInput recebe o foco automaticamente
+  }, []);
+
+  // Cancelar resposta
+  const handleCancelReply = useCallback(() => {
+    setReplyToMessage(null);
+  }, []);
+
   // Abrir dialog de confirmação de exclusão
   const handleDeleteMessageClick = useCallback((message: Message) => {
     setDeletingMessage(message);
@@ -827,6 +862,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
                   onFavorite={handleFavoriteMessage}
                   onForward={handleForwardMessage}
                   onDelete={handleDeleteMessageClick}
+                  onReply={handleReplyMessage}
                 />
               </div>
             );
@@ -835,7 +871,12 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         </div>
       </div>
       <div className="flex-shrink-0 border-t bg-background">
-        <ChatInput onSendMessage={handleSendMessage} />
+        <ChatInput 
+          onSendMessage={handleSendMessage} 
+          replyToMessage={replyToMessage}
+          onCancelReply={handleCancelReply}
+          contactName={contactName}
+        />
       </div>
 
       {/* Modais de ações */}

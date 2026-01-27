@@ -7,6 +7,12 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Copy,
   Pencil,
   Pin,
@@ -15,6 +21,8 @@ import {
   StarOff,
   Forward,
   Trash2,
+  Reply,
+  Info,
 } from "lucide-react";
 import { Message } from "./types";
 
@@ -27,7 +35,49 @@ export interface MessageActionsProps {
   onFavorite: (message: Message) => void;
   onForward: (message: Message) => void;
   onDelete: (message: Message) => void;
+  onReply?: (message: Message) => void;
 }
+
+// Helper component for menu items with tooltips
+const MenuItemWithTooltip = ({
+  icon: Icon,
+  label,
+  tooltip,
+  onClick,
+  className,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  tooltip?: string;
+  onClick: () => void;
+  className?: string;
+}) => {
+  if (!tooltip) {
+    return (
+      <ContextMenuItem onClick={onClick} className={className}>
+        <Icon className="w-4 h-4 mr-2" />
+        {label}
+      </ContextMenuItem>
+    );
+  }
+
+  return (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <ContextMenuItem onClick={onClick} className={className}>
+            <Icon className="w-4 h-4 mr-2" />
+            {label}
+            <Info className="w-3 h-3 ml-auto text-muted-foreground" />
+          </ContextMenuItem>
+        </TooltipTrigger>
+        <TooltipContent side="left" className="max-w-[200px]">
+          <p className="text-xs">{tooltip}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+};
 
 export const MessageActions = memo(({
   message,
@@ -38,6 +88,7 @@ export const MessageActions = memo(({
   onFavorite,
   onForward,
   onDelete,
+  onReply,
 }: MessageActionsProps) => {
   const isAgentMessage = message.sender === 'agent';
   const isPinned = message.isPinned;
@@ -48,7 +99,15 @@ export const MessageActions = memo(({
       <ContextMenuTrigger asChild>
         {children}
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-48">
+      <ContextMenuContent className="w-52">
+        {/* Responder - disponível para todas as mensagens */}
+        {onReply && (
+          <ContextMenuItem onClick={() => onReply(message)}>
+            <Reply className="w-4 h-4 mr-2" />
+            Responder
+          </ContextMenuItem>
+        )}
+
         {/* Copiar - disponível para todas as mensagens com conteúdo */}
         {message.content && (
           <ContextMenuItem onClick={() => onCopy(message.content)}>
@@ -57,49 +116,37 @@ export const MessageActions = memo(({
           </ContextMenuItem>
         )}
 
-        {/* Editar - apenas para mensagens do agente */}
+        {/* Editar - apenas para mensagens do agente com tooltip de limitação */}
         {isAgentMessage && (
-          <ContextMenuItem onClick={() => onEdit(message)}>
-            <Pencil className="w-4 h-4 mr-2" />
-            Editar
-          </ContextMenuItem>
+          <MenuItemWithTooltip
+            icon={Pencil}
+            label="Editar"
+            tooltip="Edição no WhatsApp funciona apenas em mensagens enviadas há menos de 15 minutos"
+            onClick={() => onEdit(message)}
+          />
         )}
 
         <ContextMenuSeparator />
 
-        {/* Fixar/Desafixar */}
-        <ContextMenuItem onClick={() => onPin(message)}>
-          {isPinned ? (
-            <>
-              <PinOff className="w-4 h-4 mr-2" />
-              Desafixar
-            </>
-          ) : (
-            <>
-              <Pin className="w-4 h-4 mr-2" />
-              Fixar
-            </>
-          )}
-        </ContextMenuItem>
+        {/* Fixar/Desafixar - com indicador de local */}
+        <MenuItemWithTooltip
+          icon={isPinned ? PinOff : Pin}
+          label={isPinned ? "Desafixar" : "Fixar"}
+          tooltip="Organização interna do CRM - não afeta o WhatsApp"
+          onClick={() => onPin(message)}
+        />
 
-        {/* Favoritar/Desfavoritar */}
-        <ContextMenuItem onClick={() => onFavorite(message)}>
-          {isFavorite ? (
-            <>
-              <StarOff className="w-4 h-4 mr-2" />
-              Remover favorito
-            </>
-          ) : (
-            <>
-              <Star className="w-4 h-4 mr-2" />
-              Favoritar
-            </>
-          )}
-        </ContextMenuItem>
+        {/* Favoritar/Desfavoritar - com indicador de local */}
+        <MenuItemWithTooltip
+          icon={isFavorite ? StarOff : Star}
+          label={isFavorite ? "Remover favorito" : "Favoritar"}
+          tooltip="Organização interna do CRM - não afeta o WhatsApp"
+          onClick={() => onFavorite(message)}
+        />
 
         <ContextMenuSeparator />
 
-        {/* Encaminhar */}
+        {/* Encaminhar - envia mensagem real */}
         <ContextMenuItem onClick={() => onForward(message)}>
           <Forward className="w-4 h-4 mr-2" />
           Encaminhar
@@ -107,14 +154,14 @@ export const MessageActions = memo(({
 
         <ContextMenuSeparator />
 
-        {/* Apagar */}
-        <ContextMenuItem 
+        {/* Apagar - com indicador de local */}
+        <MenuItemWithTooltip
+          icon={Trash2}
+          label="Apagar"
+          tooltip="Remove apenas do CRM - não afeta o WhatsApp"
           onClick={() => onDelete(message)}
           className="text-destructive focus:text-destructive"
-        >
-          <Trash2 className="w-4 h-4 mr-2" />
-          Apagar
-        </ContextMenuItem>
+        />
       </ContextMenuContent>
     </ContextMenu>
   );
