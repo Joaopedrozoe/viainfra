@@ -382,10 +382,12 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
                   attachment: attachmentData,
                   agent_name: profile?.name || 'Atendente',
                   // Dados para reply/quoted se houver (usa whatsappMessageId que agora inclui external_id)
+                  // isFromAgent é necessário para o protocolo WhatsApp definir fromMe corretamente
                   quoted: currentReplyTo ? {
                     messageId: currentReplyTo.whatsappMessageId,
                     content: currentReplyTo.content,
                     senderName: currentReplyTo.sender === 'user' ? contactName : 'Você',
+                    isFromAgent: currentReplyTo.sender === 'agent',  // Define fromMe no protocolo WhatsApp
                   } : undefined,
                 },
               }
