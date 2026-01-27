@@ -1,14 +1,9 @@
-
 import { useState, useCallback, memo, useMemo, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Mic, MicOff, FileUp, X, Image, FileText, Film, Music } from "lucide-react";
+import { Mic, MicOff, FileUp, X, Image, FileText, Film, Music, Reply } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Attachment } from "./types";
-
-type ChatInputProps = {
-  onSendMessage: (message: string, attachment?: File) => void;
-};
+import { Attachment, ChatInputProps, Message } from "./types";
 
 const getFileType = (file: File): Attachment['type'] => {
   if (file.type.startsWith('image/')) return 'image';
@@ -26,7 +21,54 @@ const getFileIcon = (type: Attachment['type']) => {
   }
 };
 
-export const ChatInput = memo(({ onSendMessage }: ChatInputProps) => {
+// Component for reply preview bar
+const ReplyPreview = memo(({
+  message,
+  contactName,
+  onCancel,
+}: {
+  message: Message;
+  contactName?: string;
+  onCancel: () => void;
+}) => {
+  const senderLabel = message.sender === 'user' 
+    ? (message.senderName || contactName || 'Cliente')
+    : message.sender === 'agent'
+    ? 'Você'
+    : 'Bot';
+
+  return (
+    <div className="mb-3 p-3 bg-primary/5 rounded-lg border-l-4 border-primary">
+      <div className="flex items-start gap-3">
+        <Reply className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-primary mb-1">
+            Respondendo a {senderLabel}
+          </p>
+          <p className="text-sm text-muted-foreground line-clamp-2">
+            {message.content || (message.attachment ? `[${message.attachment.type}]` : '[Mensagem]')}
+          </p>
+        </div>
+        <button
+          onClick={onCancel}
+          className="p-1 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted transition-colors"
+          aria-label="Cancelar resposta"
+        >
+          <X size={16} />
+        </button>
+      </div>
+    </div>
+  );
+});
+
+ReplyPreview.displayName = "ReplyPreview";
+
+export const ChatInput = memo(({ 
+  onSendMessage, 
+  replyToMessage, 
+  onCancelReply,
+  contactName,
+}: ChatInputProps) => {
   const [newMessage, setNewMessage] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -90,8 +132,9 @@ export const ChatInput = memo(({ onSendMessage }: ChatInputProps) => {
   }, []);
 
   const inputPlaceholder = useMemo(() => {
+    if (replyToMessage) return "Digite sua resposta...";
     return isRecording ? "Gravando..." : "Digite uma mensagem...";
-  }, [isRecording]);
+  }, [isRecording, replyToMessage]);
 
   const recordingButtonClass = useMemo(() => {
     return cn(
@@ -105,6 +148,15 @@ export const ChatInput = memo(({ onSendMessage }: ChatInputProps) => {
 
   return (
     <div className="bg-white p-4">
+      {/* Reply Preview */}
+      {replyToMessage && onCancelReply && (
+        <ReplyPreview 
+          message={replyToMessage} 
+          contactName={contactName}
+          onCancel={onCancelReply} 
+        />
+      )}
+
       {/* Preview do arquivo selecionado */}
       {selectedFile && (
         <div className="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">

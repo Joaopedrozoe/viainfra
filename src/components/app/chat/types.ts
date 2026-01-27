@@ -16,6 +16,7 @@ export interface Message {
   attachment?: Attachment;
   deliveryStatus?: MessageDeliveryStatus;
   whatsappMessageId?: string;
+  senderName?: string;
   // Campos para mídia indisponível
   mediaUnavailable?: boolean;
   mediaType?: 'image' | 'video' | 'audio' | 'document';
@@ -35,4 +36,11 @@ export interface ChatWindowProps {
   conversationId: string;
   onBack?: () => void;
   onEndConversation?: (conversationId: string) => void;
+}
+
+export interface ChatInputProps {
+  onSendMessage: (message: string, attachment?: File) => void;
+  replyToMessage?: Message | null;
+  onCancelReply?: () => void;
+  contactName?: string;
 }

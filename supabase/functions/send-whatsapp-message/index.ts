@@ -41,7 +41,7 @@ serve(async (req) => {
       return await handleUpdateMessage(body);
     }
     
-    const { conversation_id, message_content, attachment, agent_name, message_id } = body;
+    const { conversation_id, message_content, attachment, agent_name, message_id, quoted } = body;
 
     if (!conversation_id || (!message_content && !attachment)) {
       return new Response(
@@ -49,6 +49,8 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    console.log('[send-whatsapp] Quoted data:', quoted);
 
     // Formatar mensagem com identificação do atendente em negrito
     const formattedMessage = message_content 
@@ -269,10 +271,16 @@ serve(async (req) => {
 
     let sendResult: SendResult;
 
+    // Preparar dados de quoted/reply se existir
+    const quotedData = quoted?.messageId ? {
+      key: { id: quoted.messageId },
+      message: { conversation: quoted.content || '' }
+    } : undefined;
+
     if (attachment) {
-      sendResult = await sendMediaMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, attachment, formattedMessage, agent_name, isGroup);
+      sendResult = await sendMediaMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, attachment, formattedMessage, agent_name, isGroup, quotedData);
     } else {
-      sendResult = await sendTextMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, formattedMessage, isGroup);
+      sendResult = await sendTextMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, formattedMessage, isGroup, quotedData);
     }
 
     // Se enviou com sucesso, atualizar metadata da mensagem com o messageId
@@ -378,15 +386,17 @@ serve(async (req) => {
 // Função auxiliar para enviar mensagem de texto
 // Para GRUPOS: estratégia robusta com múltiplas tentativas
 // Para INDIVIDUAIS: usa /message/sendText padrão
+// quotedData: para responder/citar uma mensagem específica
 async function sendTextMessage(
   evolutionUrl: string,
   evolutionKey: string,
   instanceName: string,
   recipientJid: string,
   text: string,
-  isGroup: boolean
+  isGroup: boolean,
+  quotedData?: { key: { id: string }; message: { conversation: string } }
 ): Promise<SendResult> {
-  console.log(`[send-whatsapp] sendTextMessage - isGroup: ${isGroup}, recipient: ${recipientJid}`);
+  console.log(`[send-whatsapp] sendTextMessage - isGroup: ${isGroup}, recipient: ${recipientJid}, hasQuoted: ${!!quotedData}`);
 
   // ===== ESTRATÉGIA OFICIAL PARA GRUPOS =====
   if (isGroup) {
@@ -420,13 +430,23 @@ async function sendTextMessage(
       
       // PASSO 4: Tentar sendText primeiro, fallback para sendMessage
       console.log('[send-whatsapp] Passo 4: sendText');
+      
+      // Payload com suporte a quoted/reply
+      const sendPayload: Record<string, any> = {
+        number: recipientJid,
+        text: text
+      };
+      
+      // Adicionar quoted se existir
+      if (quotedData) {
+        sendPayload.quoted = quotedData;
+        console.log('[send-whatsapp] Sending with quoted:', quotedData);
+      }
+      
       let response = await fetch(`${evolutionUrl}/message/sendText/${instanceName}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': evolutionKey },
-        body: JSON.stringify({
-          number: recipientJid,
-          text: text
-        })
+        body: JSON.stringify(sendPayload)
       });
 
       let responseText = await response.text();
@@ -473,16 +493,25 @@ async function sendTextMessage(
   console.log('[send-whatsapp] 👤 Enviando para chat individual');
   
   try {
+    // Payload com suporte a quoted/reply
+    const sendPayload: Record<string, any> = {
+      number: recipientJid,
+      text: text,
+    };
+    
+    // Adicionar quoted se existir
+    if (quotedData) {
+      sendPayload.quoted = quotedData;
+      console.log('[send-whatsapp] Individual sending with quoted:', quotedData);
+    }
+    
     const response = await fetch(`${evolutionUrl}/message/sendText/${instanceName}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'apikey': evolutionKey,
       },
-      body: JSON.stringify({
-        number: recipientJid,
-        text: text,
-      }),
+      body: JSON.stringify(sendPayload),
     });
     
     const responseText = await response.text();
@@ -513,7 +542,8 @@ async function sendMediaMessage(
   attachment: Attachment,
   caption: string | undefined,
   agentName: string,
-  isGroup: boolean
+  isGroup: boolean,
+  quotedData?: { key: { id: string }; message: { conversation: string } }
 ): Promise<SendResult> {
   const mediaCaption = caption 
     ? `*${agentName || 'Atendente'}*\n${caption}`
@@ -527,7 +557,9 @@ async function sendMediaMessage(
   let endpoint = '';
   let body: Record<string, any> = {
     number: recipientJid,
-    ...baseOptions
+    ...baseOptions,
+    // Adicionar quoted se existir
+    ...(quotedData ? { quoted: quotedData } : {})
   };
 
   switch (attachment.type) {

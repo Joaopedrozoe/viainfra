@@ -15,6 +15,7 @@ export type MessageItemProps = {
   onFavorite?: (message: Message) => void;
   onForward?: (message: Message) => void;
   onDelete?: (message: Message) => void;
+  onReply?: (message: Message) => void;
 };
 
 const formatMessageTimestamp = (dateString: string) => {
@@ -401,6 +402,7 @@ export const MessageItem = memo(({
   onFavorite,
   onForward,
   onDelete,
+  onReply,
 }: MessageItemProps) => {
   if (!message || !message.timestamp) {
     return null;
@@ -420,7 +422,7 @@ export const MessageItem = memo(({
     : deliveryStatus;
 
   // Se não houver handlers, renderizar sem ContextMenu
-  const hasActions = onCopy || onEdit || onPin || onFavorite || onForward || onDelete;
+  const hasActions = onCopy || onEdit || onPin || onFavorite || onForward || onDelete || onReply;
 
   const messageBubble = (
     <div
@@ -534,6 +536,7 @@ export const MessageItem = memo(({
           onFavorite={onFavorite || (() => {})}
           onForward={onForward || (() => {})}
           onDelete={onDelete || (() => {})}
+          onReply={onReply}
         >
           {messageBubble}
         </MessageActions>

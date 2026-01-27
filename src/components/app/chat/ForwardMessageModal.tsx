@@ -12,7 +12,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
 import { Message } from "./types";
-import { Search, Send, MessageSquare } from "lucide-react";
+import { Search, Send, MessageSquare, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -20,6 +20,7 @@ interface Conversation {
   id: string;
   contactName: string;
   contactAvatar: string | null;
+  channel: string;
   lastMessage: string;
 }
 
@@ -37,7 +38,7 @@ export function ForwardMessageModal({
   const [search, setSearch] = useState("");
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSending, setIsSending] = useState(false);
+  const [sendingTo, setSendingTo] = useState<string | null>(null);
   const { profile } = useAuth();
 
   // Carregar conversas
@@ -51,6 +52,7 @@ export function ForwardMessageModal({
           .from('conversations')
           .select(`
             id,
+            channel,
             contacts (
               name,
               avatar_url
@@ -66,6 +68,7 @@ export function ForwardMessageModal({
           id: conv.id,
           contactName: conv.contacts?.name || 'Cliente',
           contactAvatar: conv.contacts?.avatar_url || null,
+          channel: conv.channel || 'web',
           lastMessage: '',
         }));
 
@@ -85,36 +88,87 @@ export function ForwardMessageModal({
     conv.contactName.toLowerCase().includes(search.toLowerCase())
   );
 
-  // Encaminhar mensagem
-  const handleForward = async (targetConversationId: string) => {
+  // Encaminhar mensagem - AGORA COM ENVIO REAL PARA WHATSAPP
+  const handleForward = async (targetConversation: Conversation) => {
     if (!message || !profile) return;
 
-    setIsSending(true);
+    setSendingTo(targetConversation.id);
     try {
       // Criar mensagem encaminhada
       const forwardContent = `↪️ Encaminhada:\n${message.content}`;
       
-      const { error } = await supabase.from('messages').insert({
-        conversation_id: targetConversationId,
-        sender_type: 'agent',
-        sender_id: profile.id,
-        content: forwardContent,
-        metadata: {
-          forwarded: true,
-          originalMessageId: message.id,
-          originalTimestamp: message.timestamp,
-        },
-      });
+      // Inserir mensagem no banco de dados
+      const { data: insertedMessage, error: insertError } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: targetConversation.id,
+          sender_type: 'agent',
+          sender_id: profile.id,
+          content: forwardContent,
+          metadata: {
+            forwarded: true,
+            originalMessageId: message.id,
+            originalTimestamp: message.timestamp,
+          },
+        })
+        .select()
+        .single();
 
-      if (error) throw error;
+      if (insertError) throw insertError;
 
-      toast.success('Mensagem encaminhada!');
+      // Se a conversa destino for WhatsApp, enviar mensagem real
+      if (targetConversation.channel === 'whatsapp' && insertedMessage) {
+        console.log('[Forward] Enviando para WhatsApp:', {
+          conversationId: targetConversation.id,
+          messageId: insertedMessage.id,
+        });
+
+        const { data: sendResult, error: sendError } = await supabase.functions.invoke(
+          'send-whatsapp-message',
+          {
+            body: {
+              conversation_id: targetConversation.id,
+              message_id: insertedMessage.id,
+              message_content: forwardContent,
+              agent_name: profile.name || 'Atendente',
+            },
+          }
+        );
+
+        if (sendError || !sendResult?.success) {
+          console.error('[Forward] Erro ao enviar via WhatsApp:', sendError || sendResult?.error);
+          
+          // Atualizar metadata com status de erro
+          await supabase
+            .from('messages')
+            .update({
+              metadata: {
+                forwarded: true,
+                originalMessageId: message.id,
+                originalTimestamp: message.timestamp,
+                whatsappStatus: 'failed',
+                whatsappError: sendResult?.error || 'Erro desconhecido',
+              },
+            })
+            .eq('id', insertedMessage.id);
+
+          toast.warning('Mensagem encaminhada localmente. Falha no envio para WhatsApp.', {
+            description: sendResult?.queued ? 'Será reenviada automaticamente.' : undefined,
+          });
+        } else {
+          console.log('[Forward] Mensagem enviada com sucesso via WhatsApp:', sendResult);
+          toast.success('Mensagem encaminhada via WhatsApp!');
+        }
+      } else {
+        toast.success('Mensagem encaminhada!');
+      }
+
       onOpenChange(false);
     } catch (error) {
       console.error('Erro ao encaminhar mensagem:', error);
       toast.error('Erro ao encaminhar mensagem');
     } finally {
-      setIsSending(false);
+      setSendingTo(null);
     }
   };
 
@@ -151,6 +205,7 @@ export function ForwardMessageModal({
         <ScrollArea className="h-[300px] pr-3">
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mr-2" />
               <p className="text-muted-foreground">Carregando...</p>
             </div>
           ) : filteredConversations.length === 0 ? (
@@ -163,8 +218,8 @@ export function ForwardMessageModal({
               {filteredConversations.map((conv) => (
                 <button
                   key={conv.id}
-                  onClick={() => handleForward(conv.id)}
-                  disabled={isSending}
+                  onClick={() => handleForward(conv)}
+                  disabled={sendingTo !== null}
                   className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
                 >
                   <Avatar className="w-10 h-10">
@@ -175,8 +230,13 @@ export function ForwardMessageModal({
                   </Avatar>
                   <div className="flex-1 text-left">
                     <p className="font-medium">{conv.contactName}</p>
+                    <p className="text-xs text-muted-foreground capitalize">{conv.channel}</p>
                   </div>
-                  <Send className="w-4 h-4 text-muted-foreground" />
+                  {sendingTo === conv.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                  ) : (
+                    <Send className="w-4 h-4 text-muted-foreground" />
+                  )}
                 </button>
               ))}
             </div>
