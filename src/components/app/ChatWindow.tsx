@@ -35,6 +35,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   const { profile } = useAuth();
   const previousConversationIdRef = useRef<string | null>(null);
   const previousScrollHeightRef = useRef<number>(0);
+  const isLoadingHistoryRef = useRef(false);
   
   // Hook para infinite scroll de mensagens
   const {
@@ -160,6 +161,11 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   
   // Scroll para o final quando novas mensagens chegam
   useEffect(() => {
+    // NÃO fazer scroll automático se estiver carregando histórico antigo
+    if (isLoadingHistoryRef.current) {
+      return;
+    }
+    
     // Scroll instantâneo para nova mensagem com requestAnimationFrame
     requestAnimationFrame(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -173,6 +179,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
 
     // Se estiver perto do topo (100px), carregar mais mensagens
     if (container.scrollTop < 100) {
+      // Marcar que é carregamento de histórico (evita scroll automático para o final)
+      isLoadingHistoryRef.current = true;
       // Guardar altura atual para manter posição após carregar
       previousScrollHeightRef.current = container.scrollHeight;
       loadMoreMessages();
@@ -189,6 +197,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         container.scrollTop = scrollDiff;
       }
       previousScrollHeightRef.current = 0;
+      // Resetar flag após restaurar posição
+      isLoadingHistoryRef.current = false;
     }
   }, [messages, isLoadingMore]);
 
