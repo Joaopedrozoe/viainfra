@@ -48,7 +48,8 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
       timestamp: msg.created_at,
       attachment,
       deliveryStatus,
-      whatsappMessageId: msg.metadata?.whatsappMessageId,
+      // Unificar ID: mensagens enviadas usam whatsappMessageId, recebidas usam external_id
+      whatsappMessageId: msg.metadata?.whatsappMessageId || msg.metadata?.external_id,
       // Campos para mídia indisponível (marcada pelo script de reparo)
       mediaUnavailable: msg.metadata?.mediaUnavailable || false,
       mediaType: msg.metadata?.mediaType,

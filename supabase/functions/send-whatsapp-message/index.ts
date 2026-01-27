@@ -50,7 +50,10 @@ serve(async (req) => {
       );
     }
 
-    console.log('[send-whatsapp] Quoted data:', quoted);
+    // Debug detalhado do quoted para diagnóstico
+    console.log('[send-whatsapp] Quoted data received:', JSON.stringify(quoted));
+    console.log('[send-whatsapp] Quoted messageId:', quoted?.messageId);
+    console.log('[send-whatsapp] Will send with quoted:', !!(quoted?.messageId));
 
     // Formatar mensagem com identificação do atendente em negrito
     const formattedMessage = message_content 
