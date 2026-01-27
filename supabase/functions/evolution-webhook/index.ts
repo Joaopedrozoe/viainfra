@@ -1526,15 +1526,29 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
       
       console.log(`📢 Processing GROUP message from ${participantName} in group ${groupId}`);
       
-      // Buscar ou criar contato para o grupo
+      // CRÍTICO: Obter company_id da instância WhatsApp ANTES de processar
+      const { data: instanceData } = await supabase
+        .from('whatsapp_instances')
+        .select('company_id')
+        .eq('instance_name', webhook.instance)
+        .maybeSingle();
+
+      const groupCompanyId = instanceData?.company_id;
+      if (!groupCompanyId) {
+        console.log(`⚠️ Instance ${webhook.instance} has no company_id - skipping group ${groupId}`);
+        continue;
+      }
+      
+      // Buscar ou criar contato para o grupo (COM filtro por company_id)
       let groupContact = null;
       
       const { data: existingGroupContact } = await supabase
         .from('contacts')
         .select('*')
+        .eq('company_id', groupCompanyId)
         .contains('metadata', { remoteJid: groupId })
         .limit(1)
-        .single();
+        .maybeSingle();
       
       if (existingGroupContact) {
         groupContact = existingGroupContact;
@@ -1544,6 +1558,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
           .from('contacts')
           .insert({
             name: groupName,
+            company_id: groupCompanyId,
             metadata: { 
               remoteJid: groupId, 
               isGroup: true,
@@ -1559,22 +1574,23 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
         }
         
         groupContact = newGroupContact;
-        console.log(`✅ Created new group contact: ${groupContact.name}`);
+        console.log(`✅ Created new group contact: ${groupContact.name} with company_id: ${groupCompanyId}`);
       }
       
       // Agendar atualização de foto do grupo em background
       scheduleGroupAvatarUpdate(supabase, groupContact, groupId, webhook.instance);
 
-      // Buscar ou criar conversa para o grupo
+      // Buscar ou criar conversa para o grupo (COM filtro por company_id)
       let groupConversation = null;
       
       const { data: existingConv } = await supabase
         .from('conversations')
         .select('*')
+        .eq('company_id', groupCompanyId)
         .eq('contact_id', groupContact.id)
         .eq('channel', 'whatsapp')
         .limit(1)
-        .single();
+        .maybeSingle();
       
       if (existingConv) {
         groupConversation = existingConv;
@@ -1584,6 +1600,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
           .from('conversations')
           .insert({
             contact_id: groupContact.id,
+            company_id: groupCompanyId,
             channel: 'whatsapp',
             status: 'open',
             bot_active: false, // Grupos NUNCA têm bot
