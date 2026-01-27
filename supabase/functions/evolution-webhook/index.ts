@@ -1521,10 +1521,37 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     // ============================================================
     if ((message as any)._isGroup) {
       const groupId = remoteJid;
-      const groupName = contactName || `Grupo ${groupId.split('@')[0]}`;
       const participantName = message.pushName || 'Participante';
       
       console.log(`📢 Processing GROUP message from ${participantName} in group ${groupId}`);
+      
+      // Buscar nome REAL do grupo via API do Evolution (não usar pushName que é o nome do participante)
+      let groupName = `Grupo ${groupId.split('@')[0]}`; // fallback
+      
+      try {
+        const evolutionUrl = Deno.env.get('EVOLUTION_API_URL') ?? '';
+        const evolutionKey = Deno.env.get('EVOLUTION_API_KEY') ?? '';
+        
+        if (evolutionUrl && evolutionKey) {
+          const groupInfoResponse = await fetch(
+            `${evolutionUrl}/group/findGroupInfos/${webhook.instance}?groupJid=${groupId}`,
+            { 
+              headers: { 'apikey': evolutionKey },
+              signal: AbortSignal.timeout(5000) // timeout de 5 segundos
+            }
+          );
+          
+          if (groupInfoResponse.ok) {
+            const groupInfo = await groupInfoResponse.json();
+            if (groupInfo?.subject) {
+              groupName = groupInfo.subject;
+              console.log(`📢 Group name from API: ${groupName}`);
+            }
+          }
+        }
+      } catch (error) {
+        console.log(`⚠️ Could not fetch group name from API, using fallback: ${groupName}`);
+      }
       
       // CRÍTICO: Obter company_id da instância WhatsApp ANTES de processar
       const { data: instanceData } = await supabase
