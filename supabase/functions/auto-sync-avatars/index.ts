@@ -43,7 +43,17 @@ serve(async (req) => {
                          instances[0]?.instanceName;
 
     if (!instanceName) {
-      throw new Error('Nenhuma instância WhatsApp disponível');
+      // Gracefully handle no instance - return success with info instead of error
+      console.log('⚠️ Nenhuma instância WhatsApp disponível - pulando sync de avatares');
+      return new Response(
+        JSON.stringify({
+          success: true,
+          skipped: true,
+          reason: 'Nenhuma instância WhatsApp conectada',
+          summary: { total: 0, updated: 0, failed: 0, skipped: 0 }
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     console.log(`📱 Usando instância: ${instanceName}`);
