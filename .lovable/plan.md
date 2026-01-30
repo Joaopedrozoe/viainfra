@@ -248,6 +248,30 @@ Para implementacao futura com testes adequados:
 
 ---
 
+## Status de Implementacao
+
+### Nivel 2: Otimizacoes Conservadoras - ✅ IMPLEMENTADAS
+
+1. **Reduzir polling quando realtime esta ativo** ✅
+   - Mudou de 15s fixo para 60s quando realtime esta saudavel
+   - Mantém 15s quando realtime está desconectado (fallback)
+   - Arquivo: `src/hooks/useConversations.ts`
+
+2. **Cache de canal da conversa** ✅
+   - Removida query redundante antes de enviar mensagem
+   - Usa state existente `conversationChannel` carregado em `loadConversationData()`
+   - Economia de ~100-200ms por mensagem enviada
+   - Arquivo: `src/components/app/ChatWindow.tsx`
+
+3. **Batch de ultima mensagem via SQL** ✅
+   - Substituídas N queries sequenciais por 1 única query
+   - Busca todas as mensagens de todas as conversas em uma chamada
+   - Processa em memória para agrupar por conversa
+   - Economia potencial: de 700-2100ms para ~100-300ms
+   - Arquivo: `src/hooks/useConversations.ts`
+
+---
+
 ## Conclusao
 
 A analise indica que o sistema esta funcionando dentro de parametros aceitaveis para uma integracao com API externa (WhatsApp via Evolution API). O tempo de 2-3 segundos para envio e 1-3 segundos para recebimento sao inerentes a arquitetura distribuida.
@@ -257,4 +281,4 @@ A percepcao de lentidao pode ser atribuida a:
 - Momentos de pico com multiplos webhooks simultaneos
 - Polling que nao captura mensagens nos intervalos entre fetches
 
-As otimizacoes propostas no Nivel 2 podem melhorar a percepcao sem introduzir riscos, mas devem ser avaliadas e implementadas com acompanhamento adequado.
+As otimizacoes de Nivel 2 foram implementadas e devem melhorar a percepcao de performance.
