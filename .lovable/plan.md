@@ -1,232 +1,260 @@
 
-# Correção do Scroll ao Carregar Histórico de Mensagens
+# Plano de Revisao de Performance: Envio e Recebimento de Mensagens
 
-## Problema Identificado
+## Resumo Executivo
 
-Ao rolar para o topo da conversa para carregar mensagens antigas, a visualização retorna abruptamente para o final da conversa, forçando o usuário a rolar novamente para encontrar o histórico.
-
-## Causa Raiz
-
-Existe um **conflito entre dois efeitos** no componente ChatWindow:
-
-### Efeito 1 - Scroll automático para novas mensagens (linhas 162-167)
-```javascript
-useEffect(() => {
-  requestAnimationFrame(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  });
-}, [messages.length]);
-```
-
-### Efeito 2 - Restauração de posição após carregar histórico (linhas 183-193)
-```javascript
-useEffect(() => {
-  // Tenta restaurar posição do scroll...
-}, [messages, isLoadingMore]);
-```
-
-### Sequência de Eventos (Problema)
-```text
-Usuario rola para o topo
-         |
-         v
-loadMoreMessages() é chamado
-         |
-         v
-Mensagens antigas adicionadas ao início do array
-         |
-         v
-messages.length AUMENTA
-         |
-         v
-EFEITO 1 dispara: scrollIntoView para o FINAL
-         |
-         v
-EFEITO 2 dispara: tenta restaurar posição (TARDE DEMAIS)
-         |
-         v
-Usuario perde posição e vai para o final
-```
-
-## Solução Proposta
-
-Adicionar uma **flag de controle** que indica quando estamos carregando histórico antigo, e **impedir o scroll automático** nesse cenário.
-
-### Fase 1: Adicionar Flag de Controle
-
-Criar uma ref para rastrear se o carregamento atual é de histórico antigo ou de nova mensagem.
-
-```typescript
-const isLoadingHistoryRef = useRef(false);
-```
-
-### Fase 2: Modificar handleScroll
-
-Setar a flag antes de chamar loadMoreMessages:
-
-```typescript
-const handleScroll = useCallback(() => {
-  const container = messagesContainerRef.current;
-  if (!container || isLoadingMore || !hasMore) return;
-
-  if (container.scrollTop < 100) {
-    isLoadingHistoryRef.current = true; // Marcar que é histórico
-    previousScrollHeightRef.current = container.scrollHeight;
-    loadMoreMessages();
-  }
-}, [isLoadingMore, hasMore, loadMoreMessages]);
-```
-
-### Fase 3: Modificar Efeito de Scroll Automático
-
-Verificar a flag antes de fazer scroll para o final:
-
-```typescript
-useEffect(() => {
-  // NÃO fazer scroll automático se estiver carregando histórico
-  if (isLoadingHistoryRef.current) {
-    return;
-  }
-  
-  requestAnimationFrame(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  });
-}, [messages.length]);
-```
-
-### Fase 4: Modificar Efeito de Restauração de Posição
-
-Resetar a flag após restaurar a posição:
-
-```typescript
-useEffect(() => {
-  const container = messagesContainerRef.current;
-  if (container && previousScrollHeightRef.current > 0 && !isLoadingMore) {
-    const newScrollHeight = container.scrollHeight;
-    const scrollDiff = newScrollHeight - previousScrollHeightRef.current;
-    if (scrollDiff > 0) {
-      container.scrollTop = scrollDiff;
-    }
-    previousScrollHeightRef.current = 0;
-    isLoadingHistoryRef.current = false; // Resetar flag
-  }
-}, [messages, isLoadingMore]);
-```
+Apos analise detalhada do codigo, logs e arquitetura do sistema, foi possivel identificar o estado atual da performance e mapear os pontos de atencao que podem impactar a percepcao de lentidao relatada pelas usuarios do Inbox.
 
 ---
 
-## Fluxo Corrigido
+## Estado Atual da Performance
+
+### Metricas Observadas nos Logs (dados reais)
+
+| Componente | Tempo Medio | Observacao |
+|------------|-------------|------------|
+| `evolution-webhook` | 120-2236ms | Variacao significativa |
+| `send-whatsapp-message` | ~2 segundos | Tempo de envio individual |
+| `realtime-sync` | 20-23 segundos | Funcao pesada de sincronizacao |
+| Boot das Edge Functions | 30-84ms | Cold start |
+
+### Fluxo de Envio Atual (Analise Tecnica)
 
 ```text
-Usuario rola para o topo
-         |
-         v
-handleScroll: isLoadingHistoryRef = TRUE
-         |
-         v
-loadMoreMessages() é chamado
-         |
-         v
-Mensagens antigas adicionadas ao início do array
-         |
-         v
-messages.length AUMENTA
-         |
-         v
-EFEITO 1 verifica: isLoadingHistoryRef === true
-         |
-         v
-EFEITO 1 retorna sem fazer nada (scroll preservado)
-         |
-         v
-EFEITO 2 restaura posição do scroll
-         |
-         v
-isLoadingHistoryRef = FALSE
-         |
-         v
-Usuario permanece no topo onde estava
+Usuario clica "Enviar"
+        |
+        v (instantaneo)
+Mensagem temporaria adicionada a UI
+        |
+        v (~100-300ms)
+Query para buscar canal da conversa no banco
+        |
+        v (~100-200ms)
+INSERT da mensagem na tabela messages
+        |
+        v (~30-84ms)
+Cold start da Edge Function (se nao estava ativa)
+        |
+        v (~2000ms)
+Chamada ao Evolution API para envio WhatsApp
+        |
+        v (~50-100ms)
+UPDATE do metadata com messageId
+        |
+        v (realtime)
+Supabase Realtime atualiza a UI
 ```
+
+**Tempo total percebido pelo usuario: 2-3 segundos**
+
+### Fluxo de Recebimento Atual
+
+```text
+Mensagem chega no WhatsApp
+        |
+        v (~100-500ms)
+Webhook Evolution API -> evolution-webhook Edge Function
+        |
+        v (30-84ms)
+Cold start (se necessario)
+        |
+        v (~500-2000ms)
+Processamento: buscar/criar contato, conversa, salvar mensagem
+        |
+        v (realtime)
+Supabase Realtime notifica o frontend
+        |
+        v (instantaneo)
+UI atualiza com nova mensagem
+```
+
+**Tempo total: 1-3 segundos desde chegada no WhatsApp ate aparecer na tela**
 
 ---
 
-## Secao Tecnica
+## Pontos de Atencao Identificados
 
-### Arquivo a Modificar
+### 1. Polling Excessivo na Lista de Conversas
 
-`src/components/app/ChatWindow.tsx`
+**Localizacao**: `src/hooks/useConversations.ts` linhas 452-467
 
-### Alterações Detalhadas
+**Observacao**:
+- O hook executa `fetchConversations()` a cada 15 segundos
+- MESMO quando o realtime esta funcionando normalmente
+- Cada fetch busca ate 200 conversas + faz N queries para buscar ultima mensagem
 
-| Linha Atual | Alteração |
-|-------------|-----------|
-| 37 | Adicionar `const isLoadingHistoryRef = useRef(false);` |
-| 162-167 | Adicionar verificação de `isLoadingHistoryRef.current` |
-| 175-178 | Setar `isLoadingHistoryRef.current = true` antes de loadMoreMessages |
-| 191 | Adicionar `isLoadingHistoryRef.current = false` após restaurar scroll |
+**Impacto potencial**: Consumo de recursos do banco e sobrecarga de requests
 
-### Código Final dos Efeitos
-
-**Efeito de Scroll Automático:**
 ```typescript
-useEffect(() => {
-  // Não fazer scroll automático se estiver carregando histórico antigo
-  if (isLoadingHistoryRef.current) {
-    return;
-  }
-  
-  requestAnimationFrame(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  });
-}, [messages.length]);
+// Codigo atual (linha 462-466)
+} else {
+  // Occasional sync even when realtime works (every 30s)
+  console.log('🔄 Routine sync poll');
+  fetchConversations(true);  // <-- Executa SEMPRE, mesmo com realtime ok
+}
 ```
 
-**Handler de Scroll:**
-```typescript
-const handleScroll = useCallback(() => {
-  const container = messagesContainerRef.current;
-  if (!container || isLoadingMore || !hasMore) return;
+### 2. Queries Sequenciais para Ultima Mensagem
 
-  if (container.scrollTop < 100) {
-    isLoadingHistoryRef.current = true;
-    previousScrollHeightRef.current = container.scrollHeight;
-    loadMoreMessages();
-  }
-}, [isLoadingMore, hasMore, loadMoreMessages]);
+**Localizacao**: `src/hooks/useConversations.ts` linhas 129-161
+
+**Observacao**:
+- Para cada conversa, faz uma query separada para buscar a ultima mensagem
+- Queries em batches de 30, mas ainda assim multiplas roundtrips ao banco
+- Busca 5 mensagens por conversa para filtrar reacoes
+
+**Calculo de impacto**:
+- 200 conversas = 7 batches de queries
+- Cada batch pode levar 100-300ms
+- Total: 700-2100ms apenas para buscar ultimas mensagens
+
+### 3. Funcao realtime-sync Pesada
+
+**Localizacao**: `supabase/functions/realtime-sync/index.ts`
+
+**Observacao dos logs**:
+- Tempo de execucao: 20-23 segundos
+- Chamada automaticamente pelo botao "Refresh"
+- Pode bloquear recursos se acionada frequentemente
+
+### 4. Query Dupla ao Enviar Mensagem
+
+**Localizacao**: `src/components/app/ChatWindow.tsx` linhas 293-298
+
+**Observacao**:
+- Antes de enviar, faz uma query para buscar o canal da conversa
+- Essa informacao ja esta disponivel no state (`conversationChannel`)
+- Query redundante adiciona 100-200ms ao envio
+
+```typescript
+// Query potencialmente redundante
+const { data: conversationData, error: convError } = await supabase
+  .from('conversations')
+  .select('channel')
+  .eq('id', conversationId)
+  .single();
 ```
 
-**Efeito de Restauração:**
-```typescript
-useEffect(() => {
-  const container = messagesContainerRef.current;
-  if (container && previousScrollHeightRef.current > 0 && !isLoadingMore) {
-    const newScrollHeight = container.scrollHeight;
-    const scrollDiff = newScrollHeight - previousScrollHeightRef.current;
-    if (scrollDiff > 0) {
-      container.scrollTop = scrollDiff;
-    }
-    previousScrollHeightRef.current = 0;
-    isLoadingHistoryRef.current = false;
-  }
-}, [messages, isLoadingMore]);
-```
+### 5. Auto-sync de Avatares no Carregamento
+
+**Localizacao**: `src/pages/app/Inbox.tsx` linhas 47-70
+
+**Observacao**:
+- Dispara `auto-sync-avatars` 10 segundos apos carregar a pagina
+- Logs mostram que essa funcao retorna erro 500 frequentemente
+- Pode competir por recursos com operacoes criticas
+
+### 6. Multiplas Subscricoes Realtime
+
+**Localizacao**: Varios arquivos
+
+**Observacao**:
+- `useConversations`: 3 subscricoes (conversations INSERT, UPDATE, messages INSERT)
+- `ChatWindow`: 1 subscricao (messages INSERT por conversa)
+- `useMessageNotifications`: 1 subscricao (messages INSERT global)
+
+**Impacto potencial**: Overhead de conexoes WebSocket e processamento duplicado
 
 ---
 
-## Validação
+## Secao Tecnica: Arquitetura de Mensagens
 
-Após implementação:
+### Diagrama do Fluxo Atual
 
-1. Abrir uma conversa com histórico extenso
-2. Rolar até o topo para acionar carregamento de mensagens antigas
-3. Verificar que a visualização permanece no topo
-4. Confirmar que as mensagens antigas aparecem acima
-5. Enviar uma nova mensagem e verificar que o scroll automático para o final ainda funciona
+```text
++----------------+     +------------------+     +----------------+
+|   Frontend     | --> |  Supabase Edge   | --> | Evolution API  |
+|   ChatWindow   |     |  Functions       |     | (WhatsApp)     |
++----------------+     +------------------+     +----------------+
+        ^                      |                       |
+        |                      v                       |
+        +------------ Supabase Realtime <--------------+
+```
 
-## Riscos e Mitigações
+### Componentes Envolvidos no Envio
 
-| Risco | Mitigação |
-|-------|-----------|
-| Flag não resetada em caso de erro | O useEffect de restauração sempre reseta a flag ao final |
-| Scroll automático não funciona para novas mensagens | A flag só é setada em handleScroll (carregamento de histórico) |
-| Race condition residual | requestAnimationFrame é removido em favor de execução síncrona |
+| Arquivo | Responsabilidade |
+|---------|------------------|
+| `ChatWindow.tsx` | UI, mensagem temporaria, chamada ao backend |
+| `send-whatsapp-message/index.ts` | Resolucao de destinatario, envio via Evolution |
+| `messages` (tabela) | Persistencia da mensagem |
+| Supabase Realtime | Notificacao de nova mensagem |
+
+### Componentes Envolvidos no Recebimento
+
+| Arquivo | Responsabilidade |
+|---------|------------------|
+| `evolution-webhook/index.ts` | Processar webhooks da Evolution API |
+| `contacts` (tabela) | Criar/buscar contato |
+| `conversations` (tabela) | Criar/buscar conversa |
+| `messages` (tabela) | Salvar mensagem recebida |
+| `useConversations.ts` | Atualizar lista de conversas |
+| `useInfiniteMessages.ts` | Atualizar mensagens da conversa aberta |
+
+---
+
+## Visao do Estado Atual
+
+### Performance Dentro do Esperado
+
+1. **Envio de mensagens**: 2-3 segundos e aceitavel para integracao via API externa
+2. **Recebimento de mensagens**: 1-3 segundos via webhook e normal
+3. **Edge Functions**: Boot time de 30-84ms e adequado
+4. **Realtime**: Funcionando corretamente (logs mostram eventos sendo processados)
+
+### Areas que Podem Contribuir para Percepcao de Lentidao
+
+1. **Polling de 15 segundos**: Se o realtime falhar momentaneamente, usuario percebe atraso
+2. **Queries N+1 para ultimas mensagens**: Pode causar lentidao ao carregar lista
+3. **Cold starts**: Primeira mensagem apos periodo de inatividade e mais lenta
+4. **Competicao de recursos**: Sync de avatares, realtime-sync, e operacoes normais compartilham recursos
+
+---
+
+## Proposta de Encaminhamento
+
+### Nivel 1: Monitoramento (Sem alteracao de codigo)
+
+Recomenda-se acompanhar os seguintes indicadores atraves dos logs existentes:
+
+- Tempo medio de execucao do `evolution-webhook`
+- Taxa de sucesso do Supabase Realtime (reconexoes)
+- Frequencia de cold starts nas Edge Functions
+- Tempo de resposta da Evolution API
+
+### Nivel 2: Otimizacoes Conservadoras (Baixo risco)
+
+Se aprovado pela gestao, podem ser implementadas melhorias pontuais:
+
+1. **Reduzir polling quando realtime esta ativo**
+   - Mudar de 15s para 60s quando realtime esta saudavel
+   - Risco: Minimo, apenas reduz frequencia de backup
+
+2. **Cache de canal da conversa**
+   - Usar state existente ao inves de query antes de enviar
+   - Risco: Minimo, dados ja estao disponiveis
+
+3. **Batch de ultima mensagem via SQL**
+   - Substituir N queries por 1 query com subquery
+   - Risco: Baixo, melhora eficiencia
+
+### Nivel 3: Otimizacoes Estruturais (Requer planejamento)
+
+Para implementacao futura com testes adequados:
+
+1. **Desnormalizar ultima mensagem na tabela conversations**
+2. **Unificar subscricoes realtime**
+3. **Implementar keep-alive para Edge Functions**
+
+---
+
+## Conclusao
+
+A analise indica que o sistema esta funcionando dentro de parametros aceitaveis para uma integracao com API externa (WhatsApp via Evolution API). O tempo de 2-3 segundos para envio e 1-3 segundos para recebimento sao inerentes a arquitetura distribuida.
+
+A percepcao de lentidao pode ser atribuida a:
+- Expectativa de instantaneidade (usuarios acostumados com WhatsApp nativo)
+- Momentos de pico com multiplos webhooks simultaneos
+- Polling que nao captura mensagens nos intervalos entre fetches
+
+As otimizacoes propostas no Nivel 2 podem melhorar a percepcao sem introduzir riscos, mas devem ser avaliadas e implementadas com acompanhamento adequado.
