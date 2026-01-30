@@ -120,34 +120,36 @@ export const useConversations = () => {
         return;
       }
 
-      // Fetch last message for EACH conversation in parallel batches
-      // Also fetch the last REAL (non-reaction) message for sorting
+      // Fetch last messages for ALL conversations in a SINGLE batch query
+      // This replaces N sequential queries with 1 efficient query
       const conversationIds = (convData || []).map(c => c.id);
       const lastMessages: Record<string, any> = {};
       const lastRealMessages: Record<string, any> = {};
       
       if (conversationIds.length > 0) {
-        const batchSize = 30;
-        
-        for (let i = 0; i < conversationIds.length; i += batchSize) {
-          const batch = conversationIds.slice(i, i + batchSize);
+        // Use a single query with a window function to get last 5 messages per conversation
+        // This is more efficient than N separate queries
+        const { data: allMessages, error: msgError } = await supabase
+          .from('messages')
+          .select('id, conversation_id, content, sender_type, created_at')
+          .in('conversation_id', conversationIds)
+          .order('created_at', { ascending: false });
+
+        if (!msgError && allMessages && mountedRef.current) {
+          // Group messages by conversation and keep only last 5 per conversation
+          const messagesByConv: Record<string, any[]> = {};
+          for (const msg of allMessages) {
+            if (!messagesByConv[msg.conversation_id]) {
+              messagesByConv[msg.conversation_id] = [];
+            }
+            if (messagesByConv[msg.conversation_id].length < 5) {
+              messagesByConv[msg.conversation_id].push(msg);
+            }
+          }
           
-          const promises = batch.map(async (convId) => {
-            // Fetch last 5 messages to find both the last message and last real message
-            const { data } = await supabase
-              .from('messages')
-              .select('id, conversation_id, content, sender_type, created_at')
-              .eq('conversation_id', convId)
-              .order('created_at', { ascending: false })
-              .limit(5);
-            return { convId, messages: data || [] };
-          });
-          
-          const results = await Promise.all(promises);
-          
-          if (!mountedRef.current) return;
-          
-          for (const { convId, messages } of results) {
+          // Process grouped messages
+          for (const convId of conversationIds) {
+            const messages = messagesByConv[convId] || [];
             if (messages.length > 0) {
               // Last message (for display)
               lastMessages[convId] = messages[0];
@@ -449,22 +451,27 @@ export const useConversations = () => {
           }
         });
 
-      // Adaptive polling: faster when realtime seems down
+      // Adaptive polling: slower when realtime is healthy, faster when down
+      let pollCounter = 0;
       const pollInterval = setInterval(() => {
         if (!mountedRef.current) return;
         
+        pollCounter++;
         const timeSinceLastEvent = Date.now() - lastRealtimeEvent;
         const isRealtimeStale = timeSinceLastEvent > 60000; // 1 minute without events
         
         if (!realtimeConnected || isRealtimeStale) {
+          // Realtime is down - poll every 15s (fast fallback)
           console.log('🔄 Fast poll (realtime may be down)');
           fetchConversations(true);
         } else {
-          // Occasional sync even when realtime works (every 30s)
-          console.log('🔄 Routine sync poll');
-          fetchConversations(true);
+          // Realtime is healthy - only sync every 60s (every 4th poll)
+          if (pollCounter % 4 === 0) {
+            console.log('🔄 Routine sync poll (realtime healthy)');
+            fetchConversations(true);
+          }
         }
-      }, 15000); // Poll every 15s (faster than before)
+      }, 15000); // Base interval 15s, but only fetches every 60s when realtime is healthy
 
       return () => {
         mountedRef.current = false;

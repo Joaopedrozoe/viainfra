@@ -290,23 +290,12 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       
       addMessage(tempMessage);
 
-      // CRITICAL: Buscar canal da conversa DIRETAMENTE do banco para garantir que está atualizado
-      const { data: conversationData, error: convError } = await supabase
-        .from('conversations')
-        .select('channel')
-        .eq('id', conversationId)
-        .single();
-
-      if (convError) {
-        console.error('❌ Erro ao buscar canal da conversa:', convError);
-      }
-
-      const currentChannel = conversationData?.channel || conversationChannel;
-      console.log('📡 [Send] Canal da conversa:', {
+      // Usar canal já carregado do state (evita query redundante)
+      // O canal é carregado em loadConversationData() que sempre executa ao abrir a conversa
+      const currentChannel = conversationChannel;
+      console.log('📡 [Send] Canal da conversa (from state):', {
         conversationId,
-        channelFromDB: conversationData?.channel,
-        channelFromState: conversationChannel,
-        usingChannel: currentChannel
+        channel: currentChannel
       });
 
       // Inserir mensagem no banco
