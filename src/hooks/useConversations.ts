@@ -451,27 +451,28 @@ export const useConversations = () => {
           }
         });
 
-      // Adaptive polling: slower when realtime is healthy, faster when down
+      // Adaptive polling: uses subscription status instead of event timestamp
+      // This avoids false positives during low-activity periods
       let pollCounter = 0;
       const pollInterval = setInterval(() => {
         if (!mountedRef.current) return;
         
         pollCounter++;
-        const timeSinceLastEvent = Date.now() - lastRealtimeEvent;
-        const isRealtimeStale = timeSinceLastEvent > 60000; // 1 minute without events
         
-        if (!realtimeConnected || isRealtimeStale) {
-          // Realtime is down - poll every 15s (fast fallback)
-          console.log('🔄 Fast poll (realtime may be down)');
+        // Only check connection status, NOT event timestamp
+        // Low activity periods should NOT trigger fast polling
+        if (!realtimeConnected) {
+          // Realtime is actually disconnected - poll every 15s
+          console.log('🔄 Fast poll (realtime disconnected)');
           fetchConversations(true);
         } else {
-          // Realtime is healthy - only sync every 60s (every 4th poll)
+          // Realtime is connected - sync every 60s (every 4th poll)
           if (pollCounter % 4 === 0) {
-            console.log('🔄 Routine sync poll (realtime healthy)');
+            console.log('🔄 Routine sync poll (realtime connected)');
             fetchConversations(true);
           }
         }
-      }, 15000); // Base interval 15s, but only fetches every 60s when realtime is healthy
+      }, 15000); // Base interval 15s, but only fetches every 60s when realtime is connected
 
       return () => {
         mountedRef.current = false;
