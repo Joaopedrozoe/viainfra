@@ -111,7 +111,13 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             replaceTemporaryMessage(newMessage.content, mappedMessage);
           }
         )
-        .subscribe();
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('✅ ChatWindow realtime CONNECTED for conversation:', conversationId);
+          } else {
+            console.warn('⚠️ ChatWindow realtime status:', status);
+          }
+        });
 
       return () => {
         supabase.removeChannel(channel);
@@ -166,9 +172,9 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       return;
     }
     
-    // Scroll instantâneo para nova mensagem com requestAnimationFrame
+    // Scroll INSTANTÂNEO para nova mensagem (sem animação para UX imediata)
     requestAnimationFrame(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
     });
   }, [messages.length]);
 

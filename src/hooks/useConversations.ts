@@ -357,8 +357,17 @@ export const useConversations = () => {
   // Setup realtime subscriptions and polling
   useEffect(() => {
     mountedRef.current = true;
-    let realtimeConnected = false;
-    let lastRealtimeEvent = Date.now();
+    // CRÍTICO: Iniciar como TRUE e só marcar false em erro explícito
+    // Isso evita polling desnecessário durante a conexão inicial
+    let realtimeConnected = true;
+    let connectionConfirmed = false;
+    
+    // Timeout para detectar se a conexão realmente falhou
+    const connectionTimeout = setTimeout(() => {
+      if (!connectionConfirmed && mountedRef.current) {
+        console.warn('⚠️ Realtime connection timeout - still waiting for SUBSCRIBED status');
+      }
+    }, 10000);
     
     // Initial fetch
     fetchConversations(false);
@@ -386,7 +395,6 @@ export const useConversations = () => {
             filter: `company_id=eq.${company.id}`
           },
           (payload) => {
-            lastRealtimeEvent = Date.now();
             console.log('⚡ NEW conversation (realtime):', payload.new);
             fetchConversations(true);
           }
@@ -401,7 +409,6 @@ export const useConversations = () => {
             filter: `company_id=eq.${company.id}`
           },
           (payload) => {
-            lastRealtimeEvent = Date.now();
             const updated = payload.new as any;
             console.log('⚡ UPDATED conversation (realtime):', updated.id);
             // Update in place AND move to top if updated_at changed significantly
@@ -435,18 +442,20 @@ export const useConversations = () => {
             table: 'messages',
           },
           (payload) => {
-            lastRealtimeEvent = Date.now();
             console.log('⚡ NEW message (realtime):', payload.new);
             handleNewMessage(payload);
           }
         )
         .subscribe((status) => {
           console.log('📡 Realtime status:', status);
+          clearTimeout(connectionTimeout);
           if (status === 'SUBSCRIBED') {
             realtimeConnected = true;
+            connectionConfirmed = true;
             console.log('✅ Realtime CONNECTED - instant updates enabled');
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
             realtimeConnected = false;
+            connectionConfirmed = false;
             console.error('❌ Realtime disconnected:', status);
           }
         });
@@ -477,6 +486,7 @@ export const useConversations = () => {
       return () => {
         mountedRef.current = false;
         clearInterval(pollInterval);
+        clearTimeout(connectionTimeout);
         if (fetchTimeoutRef.current) {
           clearTimeout(fetchTimeoutRef.current);
         }

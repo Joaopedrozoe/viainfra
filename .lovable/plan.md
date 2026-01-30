@@ -1,255 +1,91 @@
+# Plano de Otimização: Instantaneidade Percebida no Inbox
 
-# Revisao Focada em Instantaneidade Percebida
-
-## Entendimento do Problema Central
-
-A usuaria relata que apos tres testes reais de envio de mensagens, a percepcao **nao e de instantaneidade**. O objetivo nao e apenas otimizar processos internos, mas garantir que a **reacao visual do Inbox seja imediata e comparavel ao WhatsApp oficial**.
+## Status: ✅ IMPLEMENTADO (30/01/2026)
 
 ---
 
-## Diagnostico: Onde Ocorre a Latencia Percebida
+## Correções Aplicadas
 
-### Fluxo de Envio - Ponto por Ponto
-
-```text
-[0ms]    Usuario clica "Enviar"
-         |
-[0-5ms]  Mensagem temporaria adicionada a UI (INSTANTANEO)
-         | <-- Ate aqui a percepcao e boa
-         |
-[5-250ms] Supabase INSERT da mensagem
-         |
-[250-300ms] Invoke Edge Function send-whatsapp-message
-         |
-[300-2500ms] Chamada ao Evolution API (TEMPO EXTERNO)
-         | <-- Este tempo e IRREDUTIVEL (depende do WhatsApp)
-         |
-[2500-2700ms] UPDATE metadata com messageId
-         |
-[Realtime] Supabase Realtime dispara evento
-         | <-- Aqui a mensagem "temp-XXX" e substituida pela real
-```
-
-**Latencia percebida no ENVIO: ~2-3 segundos** - Este tempo e inerente a API externa e nao pode ser reduzido significativamente.
-
-### Fluxo de Recebimento - Ponto por Ponto
-
-```text
-[0ms]    Mensagem chega no servidor WhatsApp
-         |
-[0-200ms] Evolution API dispara webhook
-         |
-[~50-200ms] Edge Function evolution-webhook processa
-           (metricas reais: 63-163ms para maioria)
-         |
-[INSERT]  Mensagem salva no banco Supabase
-         |
-[Realtime] Supabase deveria notificar frontend
-         | <-- AQUI ESTA O PROBLEMA IDENTIFICADO
-         |
-[???]    UI atualiza
-```
-
----
-
-## Problema Critico Identificado: Realtime Nao Conectado
-
-### Evidencia nos Console Logs
-
-Os logs atuais mostram consistentemente:
-
-```text
-🔄 Fast poll (realtime disconnected)
-🔄 Fast poll (realtime disconnected)
-```
-
-### Causa Raiz
-
-No arquivo `src/hooks/useConversations.ts`, linha 360:
-
-```typescript
-let realtimeConnected = false;  // INICIA COMO FALSE
-```
-
-O problema:
-1. A variavel `realtimeConnected` e local ao `useEffect` e inicia como `false`
-2. O primeiro poll (15s) verifica esta variavel
-3. O callback `.subscribe()` pode demorar 1-3s para executar
-4. Se nao houver eventos entre o subscribe e o primeiro poll, o status permanece `false`
-
-**Resultado**: O sistema assume que o realtime esta com problema e faz polling a cada 15s, mesmo quando a conexao esta perfeitamente saudavel.
-
-### Impacto na Percepcao Visual
-
-Quando o realtime esta marcado como "disconnected" incorretamente:
-- A UI so atualiza quando o polling executa (a cada 15s no pior caso)
-- Mensagens recebidas podem levar ate 15 segundos para aparecer
-- A percepcao e de "lentidao" mesmo que o backend seja rapido
-
----
-
-## Solucao para Instantaneidade no Recebimento
-
-### Correcao 1: Status Inicial do Realtime
-
-Alterar a logica para:
-1. Inicializar `realtimeConnected = true` (assumir conectado)
-2. Adicionar deteccao de desconexao por timeout (ex: 30s sem resposta do subscribe)
-3. Marcar como desconectado apenas em erros explicitos
-
-**Codigo proposto**:
-
-```typescript
-// src/hooks/useConversations.ts - linha 360
-let realtimeConnected = true;  // ASSUME CONECTADO ATE ERRO
-let connectionTimeout: NodeJS.Timeout;
-
-// Timeout de 10s para confirmar conexao
-connectionTimeout = setTimeout(() => {
-  if (!realtimeConnected) {
-    console.warn('⚠️ Realtime connection timeout');
-  }
-}, 10000);
-
-// No callback do subscribe:
-.subscribe((status) => {
-  console.log('📡 Realtime status:', status);
-  clearTimeout(connectionTimeout);
-  if (status === 'SUBSCRIBED') {
-    realtimeConnected = true;
-  } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-    realtimeConnected = false;
-  }
-});
-```
-
-### Correcao 2: Verificacao do ChatWindow Subscribe
-
-O `ChatWindow.tsx` (linha 79-114) tem sua propria subscription para mensagens da conversa aberta. Esta subscription **nao tem callback de status**, entao nao sabemos se esta conectada.
-
-**Codigo proposto**:
-
-```typescript
-// src/components/app/ChatWindow.tsx - linha 79-114
-const channel = supabase
-  .channel(`messages-${conversationId}`)
-  .on('postgres_changes', { /* ... */ }, (payload) => { /* ... */ })
-  .subscribe((status) => {
-    if (status === 'SUBSCRIBED') {
-      console.log('✅ ChatWindow realtime CONNECTED');
-    } else if (status !== 'SUBSCRIBED') {
-      console.warn('⚠️ ChatWindow realtime status:', status);
-    }
-  });
-```
-
----
-
-## Analise Tecnica: Tempos Inerentes vs Redutiveis
-
-### Tempos IRREDUTÍVEIS (externos)
-
-| Componente | Tempo | Motivo |
-|------------|-------|--------|
-| Evolution API (envio) | 1.5-2.5s | Comunicacao com servidores WhatsApp |
-| Evolution API (webhook) | 50-200ms | Depende da rede/servidor externo |
-
-### Tempos REDUTIVEIS (dentro do controle)
-
-| Componente | Tempo Atual | Tempo Otimizado | Acao |
-|------------|-------------|-----------------|------|
-| Deteccao de nova mensagem | Ate 15s (polling) | <100ms (realtime) | Corrigir status do realtime |
-| Scroll para nova mensagem | ~50ms (smooth) | <16ms (instant) | Usar `behavior: "auto"` |
-| Atualizacao da lista de conversas | Ate 15s (polling) | <100ms (realtime) | Ja implementado, depende do fix acima |
-
----
-
-## Comparativo: WhatsApp Web vs Inbox VIAINFRA
-
-### WhatsApp Web
-
-| Acao | Tempo Percebido |
-|------|-----------------|
-| Enviar mensagem | <1s (otimista local + servidor) |
-| Receber mensagem | Instantaneo (conexao persistente) |
-
-### Inbox VIAINFRA (Atual)
-
-| Acao | Tempo Percebido | Motivo |
-|------|-----------------|--------|
-| Enviar mensagem | 2-3s | Depende da Evolution API (irredutivel) |
-| Receber mensagem | 0.5-15s | Varia: instantaneo se realtime OK, ate 15s se fallback polling |
-
-### Inbox VIAINFRA (Apos Correcoes)
-
-| Acao | Tempo Percebido | Garantia |
-|------|-----------------|----------|
-| Enviar mensagem | 2-3s | Tempo da Evolution API (irredutivel) |
-| Receber mensagem | 0.1-0.5s | Realtime funcionando corretamente |
-
----
-
-## Plano de Correcoes para Instantaneidade
-
-### Prioridade 1: Corrigir Deteccao de Realtime
-
+### 1. ✅ Correção do Status Inicial do Realtime
 **Arquivo**: `src/hooks/useConversations.ts`
 
-| Linha | Alteracao |
-|-------|-----------|
-| 360 | Mudar `let realtimeConnected = false` para `let realtimeConnected = true` |
-| 443-451 | Adicionar tratamento robusto de status com timeout |
+**Problema**: A variável `realtimeConnected` era inicializada como `false`, causando polling desnecessário a cada 15s mesmo quando a conexão estava saudável.
 
-**Impacto**: Mensagens recebidas aparecerao em <500ms ao inves de potencialmente 15s
+**Solução Implementada**:
+- Inicializar `realtimeConnected = true` (assume conectado até erro explícito)
+- Adicionar flag `connectionConfirmed` para rastrear confirmação
+- Implementar timeout de 10s para detectar falha real de conexão
+- Marcar como desconectado apenas em erros explícitos (CHANNEL_ERROR, TIMED_OUT, CLOSED)
+- Remover referências a `lastRealtimeEvent` (lógica obsoleta)
 
-### Prioridade 2: Confirmar Conexao do ChatWindow
-
+### 2. ✅ Callback de Status no ChatWindow
 **Arquivo**: `src/components/app/ChatWindow.tsx`
 
-| Linha | Alteracao |
-|-------|-----------|
-| 114 | Adicionar callback de status ao `.subscribe()` para diagnostico |
+**Problema**: A subscription de mensagens da conversa aberta não tinha callback de status.
 
-**Impacto**: Visibilidade do status de conexao para debugging
+**Solução Implementada**:
+- Adicionar callback `.subscribe((status) => {...})` com logs claros
+- Log de sucesso: `✅ ChatWindow realtime CONNECTED for conversation: {id}`
+- Log de alerta: `⚠️ ChatWindow realtime status: {status}`
 
-### Prioridade 3: Scroll Instantaneo
-
+### 3. ✅ Scroll Instantâneo
 **Arquivo**: `src/components/app/ChatWindow.tsx`
 
-| Linha | Alteracao |
-|-------|-----------|
-| 171 | Mudar `behavior: "smooth"` para `behavior: "auto"` para mensagens do usuario |
+**Problema**: O scroll para novas mensagens usava `behavior: "smooth"`, adicionando 200-300ms de delay visual.
 
-**Impacto**: Nova mensagem aparece visualmente mais rapido (elimina animacao de 200-300ms)
+**Solução Implementada**:
+- Mudar para `behavior: "auto"` para scroll instantâneo
+- Mantém o `requestAnimationFrame` para garantir que o DOM está atualizado
 
 ---
 
-## Metricas de Sucesso
+## Métricas de Sucesso Esperadas
 
-Apos as correcoes, os console logs devem mostrar:
+### Console Logs Após Correções
 
+**Esperado**:
 ```text
 📡 Realtime status: SUBSCRIBED
 ✅ Realtime CONNECTED - instant updates enabled
-✅ ChatWindow realtime CONNECTED
+✅ ChatWindow realtime CONNECTED for conversation: {id}
 ```
 
-E NAO mais:
-
+**Não deve mais aparecer**:
 ```text
 🔄 Fast poll (realtime disconnected)
 ```
 
+### Tempos de Resposta
+
+| Ação | Antes | Depois |
+|------|-------|--------|
+| Receber mensagem | 0.5-15s (variável) | <500ms (consistente) |
+| Scroll para nova mensagem | ~300ms | <16ms |
+| Detecção de conexão | 15s (polling) | Instantânea (realtime) |
+
 ---
 
-## Conclusao
+## Limitações Conhecidas (Irredutíveis)
 
-O problema de **percepcao de lentidao** nao esta no backend (que responde em 63-163ms para maioria dos webhooks), mas sim na **deteccao incorreta do status do Realtime** que faz o frontend cair em modo de polling lento.
+### Envio de Mensagens: 2-3 segundos
+Este tempo é inerente à comunicação com a Evolution API e servidores do WhatsApp. Não pode ser reduzido significativamente.
 
-A correcao proposta e de **baixo risco** e **alto impacto**, pois:
-- Nao altera nenhuma logica de negocio
-- Nao modifica o fluxo de dados
-- Apenas corrige a inicializacao de uma variavel de estado
-- Resultado esperado: recebimento de mensagens em <500ms de forma consistente
+### Dependência da Conexão de Internet
+A experiência de tempo real depende da qualidade da conexão do usuário com o Supabase Realtime.
 
-O tempo de **envio de 2-3 segundos e irredutivel** pois depende da Evolution API externa. Para melhorar essa percepcao, seria necessario implementar feedback visual mais rico (animacao de "enviando...", confirmacao de entrega, etc.) - o que e uma melhoria de UX, nao de performance.
+---
+
+## Próximos Passos Opcionais (Nível 3)
+
+1. **Otimização da Edge Function `realtime-sync`**
+   - Tempo atual: 21-22 segundos
+   - Meta: 5-7 segundos
+   - Ações: Filtrar JIDs inválidos, batch updates, reduzir limit de mensagens
+
+2. **Feedback Visual Aprimorado para Envio**
+   - Animação de "digitando..." durante envio
+   - Indicador de status de entrega (✓, ✓✓)
+
+3. **Reconexão Automática do Realtime**
+   - Detectar desconexão e reconectar automaticamente
+   - Exibir indicador visual de status de conexão
