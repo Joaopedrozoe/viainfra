@@ -265,7 +265,7 @@ export class BotFlowProcessor {
         1: { nome: 'Atendimento', atendente: 'Joicy Souza' },
         2: { nome: 'Comercial', atendente: 'Elisabete Silva' },
         3: { nome: 'Manutenção', atendente: 'Suelem Souza' },
-        4: { nome: 'Financeiro', atendente: 'Giovanna Ferreira' },
+        4: { nome: 'Financeiro', atendente: 'Flávia' },
         5: { nome: 'RH', atendente: 'Sandra Romano' },
       };
 
