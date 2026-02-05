@@ -57,6 +57,26 @@ export const AppSidebar = () => {
   
   const isActive = (path: string) => location.pathname === path;
 
+  // Route preloaders for instant perceived navigation
+  const routePreloaders: Record<string, () => Promise<any>> = {
+    '/dashboard': () => import('@/pages/app/Dashboard'),
+    '/inbox': () => import('@/pages/app/Inbox'),
+    '/bot-builder': () => import('@/pages/app/BotBuilder'),
+    '/channels': () => import('@/pages/app/Channels'),
+    '/contacts': () => import('@/pages/app/Contacts'),
+    '/agents': () => import('@/pages/app/Agents'),
+    '/schedule': () => import('@/pages/app/Schedule'),
+    '/settings': () => import('@/pages/app/Settings'),
+    '/help': () => import('@/pages/app/Help'),
+  };
+
+  // Preload route on hover for instant navigation
+  const handleMouseEnter = (url: string) => {
+    if (routePreloaders[url]) {
+      routePreloaders[url]();
+    }
+  };
+
   const menuItems = [
     { title: "Dashboard", url: "/dashboard", icon: BarChart3, available: true },
     { title: "Conversas", url: "/inbox", icon: MessageSquare, available: hasFeature(PLAN_FEATURES.INBOX) },
@@ -168,6 +188,7 @@ export const AppSidebar = () => {
                   >
                     <NavLink 
                       to={item.url}
+                      onMouseEnter={() => handleMouseEnter(item.url)}
                     >
                       <item.icon className="h-5 w-5" />
                         <div className="flex items-center justify-between w-full">
