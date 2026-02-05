@@ -344,6 +344,12 @@ export const useConversations = () => {
       return updated;
     });
   }, [fetchConversations, notifyNewMessage, playNotificationSound]);
+  
+  // Stable ref for realtime handler to prevent re-subscriptions
+  const handleNewMessageRef = useRef(handleNewMessage);
+  useEffect(() => {
+    handleNewMessageRef.current = handleNewMessage;
+  }, [handleNewMessage]);
 
   // Clear new message flag
   const clearNewMessageFlag = useCallback((conversationId: string) => {
@@ -434,6 +440,7 @@ export const useConversations = () => {
           }
         )
         // Listen to ALL message inserts - filter in handleNewMessage
+        // Uses stable ref to prevent re-subscriptions when handler changes
         .on(
           'postgres_changes',
           {
@@ -443,7 +450,7 @@ export const useConversations = () => {
           },
           (payload) => {
             console.log('⚡ NEW message (realtime):', payload.new);
-            handleNewMessage(payload);
+            handleNewMessageRef.current(payload);
           }
         )
         .subscribe((status) => {

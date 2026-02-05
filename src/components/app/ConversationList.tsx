@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { SearchHeader } from "./conversation/SearchHeader";
 import { ConversationItem } from "./conversation/ConversationItem";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -28,6 +29,8 @@ export const resolveConversation = (conversationId: string) => {
 
 export const ConversationList = ({ onSelectConversation, selectedId, refreshTrigger, onResolveConversation, onSelectInternalChat }: ConversationListProps) => {
   const [searchTerm, setSearchTerm] = useState("");
+  // useDeferredValue para não bloquear a UI durante digitação
+  const deferredSearchTerm = useDeferredValue(searchTerm);
   const [selectedChannel, setSelectedChannel] = useState<Channel | "all">("all");
   const [selectedDepartment, setSelectedDepartment] = useState<string | "all">("all");
   const [activeTab, setActiveTab] = useState<"all" | "unread" | "bot" | "preview" | "resolved" | "internal" | "archived">("all");
@@ -38,6 +41,9 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
   const { conversations: supabaseConversations, loading: supabaseLoading, refetch, forceSync, lastSyncTime, clearNewMessageFlag } = useConversations();
   const [isSyncing, setIsSyncing] = useState(false);
   const { conversations: internalConversations } = useInternalChat();
+  
+  // Ref for virtualization scroll container
+  const parentRef = useRef<HTMLDivElement>(null);
   
   // Get conversation IDs for typing indicator
   const conversationIds = useMemo(() => 
@@ -191,17 +197,17 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     onResolveConversation?.(conversationId);
   }, [onResolveConversation]);
 
-  // Apply filters and sorting - computed directly from combinedConversations
+  // Apply filters and sorting - use deferredSearchTerm for smooth typing
   const filteredConversations = useMemo(() => {
     logger.debug('Filtering conversations...');
     
     let result = [...combinedConversations];
 
-    // Apply search filter
-    if (searchTerm) {
+    // Apply search filter (using deferred value)
+    if (deferredSearchTerm) {
       result = result.filter((conversation) =>
-        conversation.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        conversation.preview.toLowerCase().includes(searchTerm.toLowerCase())
+        conversation.name.toLowerCase().includes(deferredSearchTerm.toLowerCase()) ||
+        conversation.preview.toLowerCase().includes(deferredSearchTerm.toLowerCase())
       );
     }
 
@@ -257,7 +263,15 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     });
     
     return result;
-  }, [combinedConversations, searchTerm, selectedChannel, selectedDepartment, activeTab, resolvedConversations]);
+  }, [combinedConversations, deferredSearchTerm, selectedChannel, selectedDepartment, activeTab, resolvedConversations]);
+  
+  // Virtualizer for efficient list rendering
+  const rowVirtualizer = useVirtualizer({
+    count: activeTab === "internal" ? internalConversations.length : filteredConversations.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 80, // Estimated height of each conversation item
+    overscan: 5, // Extra items to render above/below viewport
+  });
 
   // Loading state - only show skeleton on very first load
   const isInitialLoad = supabaseLoading && combinedConversations.length === 0 && refreshTrigger === 0;
@@ -376,65 +390,108 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         </TabsList>
       </Tabs>
 
-      <div className="flex-1 overflow-y-auto">
+      <div 
+        ref={parentRef}
+        className="flex-1 overflow-y-auto"
+      >
         {activeTab === "internal" ? (
           internalConversations.length > 0 ? (
-            internalConversations.map((conv) => {
-              const otherParticipants = conv.profiles?.filter(p => p.email !== conv.profiles?.[0]?.email) || [];
-              const title = conv.title || otherParticipants.map(p => p.name).join(', ') || 'Chat Interno';
-              
-              // Helper to format time with date if not today
-              const formatTime = (dateStr: string) => {
-                const date = new Date(dateStr);
-                const today = new Date();
-                const isToday = date.toDateString() === today.toDateString();
-                if (isToday) {
-                  return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                } else {
-                  const day = date.getDate().toString().padStart(2, '0');
-                  const month = (date.getMonth() + 1).toString().padStart(2, '0');
-                  const time = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-                  return `${day}/${month} ${time}`;
-                }
-              };
+            <div
+              style={{
+                height: `${rowVirtualizer.getTotalSize()}px`,
+                width: '100%',
+                position: 'relative',
+              }}
+            >
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const conv = internalConversations[virtualRow.index];
+                const otherParticipants = conv.profiles?.filter(p => p.email !== conv.profiles?.[0]?.email) || [];
+                const title = conv.title || otherParticipants.map(p => p.name).join(', ') || 'Chat Interno';
+                
+                // Helper to format time with date if not today
+                const formatTime = (dateStr: string) => {
+                  const date = new Date(dateStr);
+                  const today = new Date();
+                  const isToday = date.toDateString() === today.toDateString();
+                  if (isToday) {
+                    return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                  } else {
+                    const day = date.getDate().toString().padStart(2, '0');
+                    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+                    const time = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                    return `${day}/${month} ${time}`;
+                  }
+                };
 
-              return (
-                <ConversationItem
-                  key={conv.id}
-                  conversation={{
-                    id: conv.id,
-                    name: title,
-                    channel: 'internal' as Channel,
-                    preview: conv.last_message?.content || 'Nova conversa',
-                    time: formatTime(conv.last_message?.created_at || conv.created_at),
-                    unread: conv.unread_count || 0,
-                  }}
-                  isSelected={selectedId === conv.id}
-                  onClick={() => onSelectInternalChat?.(conv.id)}
-                  showResolveButton={false}
-                />
-              );
-            })
+                return (
+                  <div
+                    key={conv.id}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    <ConversationItem
+                      conversation={{
+                        id: conv.id,
+                        name: title,
+                        channel: 'internal' as Channel,
+                        preview: conv.last_message?.content || 'Nova conversa',
+                        time: formatTime(conv.last_message?.created_at || conv.created_at),
+                        unread: conv.unread_count || 0,
+                      }}
+                      isSelected={selectedId === conv.id}
+                      onClick={() => onSelectInternalChat?.(conv.id)}
+                      showResolveButton={false}
+                    />
+                  </div>
+                );
+              })}
+            </div>
           ) : (
-            <div className="p-4 text-center text-gray-500">
+            <div className="p-4 text-center text-muted-foreground">
               Clique em um colega da Equipe no Dashboard para iniciar uma conversa interna
             </div>
           )
         ) : filteredConversations.length > 0 ? (
-          filteredConversations.map((conversation) => (
-            <ConversationItem
-              key={conversation.id}
-              conversation={conversation}
-              isSelected={selectedId === conversation.id}
-              onClick={() => handleConversationSelect(conversation.id)}
-              onResolve={() => handleConversationResolve(conversation.id)}
-              showResolveButton={activeTab !== "resolved"}
-              isTyping={isTyping(conversation.id)}
-              hasNewMessage={(conversation as any).hasNewMessage}
-            />
-          ))
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              width: '100%',
+              position: 'relative',
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const conversation = filteredConversations[virtualRow.index];
+              return (
+                <div
+                  key={conversation.id}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <ConversationItem
+                    conversation={conversation}
+                    isSelected={selectedId === conversation.id}
+                    onClick={() => handleConversationSelect(conversation.id)}
+                    onResolve={() => handleConversationResolve(conversation.id)}
+                    showResolveButton={activeTab !== "resolved"}
+                    isTyping={isTyping(conversation.id)}
+                    hasNewMessage={(conversation as any).hasNewMessage}
+                  />
+                </div>
+              );
+            })}
+          </div>
         ) : (
-          <div className="p-4 text-center text-gray-500">
+          <div className="p-4 text-center text-muted-foreground">
             {searchTerm || selectedChannel !== "all" || selectedDepartment !== "all" ? "Nenhuma conversa encontrada" : 
              activeTab === "preview" ? "Teste o preview do bot para ver as conversas aqui" :
              "Nenhuma conversa disponível"}
