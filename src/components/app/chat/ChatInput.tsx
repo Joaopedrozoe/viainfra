@@ -1,5 +1,5 @@
 import { useState, useCallback, memo, useMemo, useRef } from "react";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Mic, MicOff, FileUp, X, Image, FileText, Film, Music, Reply } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -191,7 +191,7 @@ export const ChatInput = memo(({
         </div>
       )}
 
-      <div className="flex space-x-2">
+      <div className="flex space-x-2 items-end">
         <input
           ref={fileInputRef}
           type="file"
@@ -214,14 +214,15 @@ export const ChatInput = memo(({
           <FileUp size={20} />
         </button>
         <div className="flex-1">
-          <Input
+          <Textarea
             placeholder={inputPlaceholder}
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            className="w-full"
+            className="w-full min-h-10 max-h-32 resize-none py-2"
             disabled={isRecording}
             aria-label="Digite uma mensagem"
+            rows={1}
           />
         </div>
         <Button 
