@@ -41,6 +41,11 @@ serve(async (req) => {
       return await handleUpdateMessage(body);
     }
     
+    // Handle message delete action (delete message for everyone on WhatsApp)
+    if (body.action === 'deleteMessage') {
+      return await handleDeleteMessage(body);
+    }
+    
     const { conversation_id, message_content, attachment, agent_name, message_id, quoted } = body;
 
     if (!conversation_id || (!message_content && !attachment)) {
@@ -747,6 +752,84 @@ async function handleUpdateMessage(body: {
     );
   } catch (error) {
     console.error('[send-whatsapp] Error updating message:', error);
+    return new Response(
+      JSON.stringify({ success: false, error: error.message || 'Unknown error' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+}
+
+// Handle deleting a message on WhatsApp (delete for everyone)
+async function handleDeleteMessage(body: {
+  instanceName: string;
+  remoteJid: string;
+  messageId: string;
+  fromMe: boolean;
+}): Promise<Response> {
+  const { instanceName, remoteJid, messageId, fromMe } = body;
+  
+  console.log('[send-whatsapp] handleDeleteMessage:', { instanceName, remoteJid, messageId, fromMe });
+  
+  if (!instanceName || !remoteJid || !messageId) {
+    return new Response(
+      JSON.stringify({ success: false, error: 'Missing required fields for deleteMessage' }),
+      { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+  
+  const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL');
+  const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
+  
+  if (!evolutionApiUrl || !evolutionApiKey) {
+    return new Response(
+      JSON.stringify({ success: false, error: 'Evolution API not configured' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+  
+  try {
+    // Evolution API endpoint for deleting messages for everyone
+    const deleteUrl = `${evolutionApiUrl}/chat/deleteMessageForEveryone/${instanceName}`;
+    
+    const deletePayload = {
+      id: messageId,
+      remoteJid: remoteJid,
+      fromMe: fromMe === true
+    };
+    
+    console.log('[send-whatsapp] Calling Evolution API deleteMessageForEveryone:', deleteUrl, deletePayload);
+    
+    const response = await fetch(deleteUrl, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': evolutionApiKey
+      },
+      body: JSON.stringify(deletePayload)
+    });
+    
+    const responseText = await response.text();
+    console.log('[send-whatsapp] Evolution API deleteMessage response:', response.status, responseText);
+    
+    if (!response.ok) {
+      // Verificar se é erro de limite de tempo ou mensagem não encontrada
+      const isTimeLimit = responseText.includes('time') || responseText.includes('limit') || responseText.includes('expired');
+      const errorMessage = isTimeLimit 
+        ? 'Limite de tempo excedido para exclusão no WhatsApp'
+        : `Evolution API error: ${responseText}`;
+      
+      return new Response(
+        JSON.stringify({ success: false, error: errorMessage, isTimeLimit }),
+        { status: response.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
+    return new Response(
+      JSON.stringify({ success: true, message: 'Message deleted on WhatsApp' }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  } catch (error) {
+    console.error('[send-whatsapp] Error deleting message:', error);
     return new Response(
       JSON.stringify({ success: false, error: error.message || 'Unknown error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
