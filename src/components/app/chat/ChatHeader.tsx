@@ -161,21 +161,21 @@ export const ChatHeader = memo(({
   return (
     <div 
       className={cn(
-        "flex items-center p-4 border-b border-gray-200 bg-white",
+        "flex items-center p-5 border-b border-border bg-background/95 backdrop-blur-sm shadow-sm",
         className
       )}
     >
       {isMobile && onBackToList && (
         <button
           onClick={onBackToList}
-          className="mr-2 p-2 hover:bg-gray-100 rounded-full transition-colors"
+          className="mr-3 p-2 hover:bg-accent/50 rounded-full transition-colors"
           aria-label="Voltar para lista de conversas"
         >
-          <ArrowLeft className="h-5 w-5" />
+          <ArrowLeft className="h-5 w-5 text-foreground" />
         </button>
       )}
       <div 
-        className="w-10 h-10 rounded-full bg-gray-300 mr-3 flex-shrink-0 relative cursor-pointer overflow-hidden"
+        className="w-11 h-11 rounded-full bg-muted mr-4 flex-shrink-0 relative cursor-pointer overflow-hidden ring-2 ring-border transition-shadow hover:ring-primary/30"
         onClick={onViewContactDetails}
       >
         {avatar && !imageError ? (
@@ -186,15 +186,15 @@ export const ChatHeader = memo(({
             onError={() => setImageError(true)}
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-gray-500 font-medium">
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground font-semibold text-lg">
             {userName.charAt(0).toUpperCase()}
           </div>
         )}
         <ChannelIcon channel={channel} hasBackground />
       </div>
-      <div onClick={onViewContactDetails} className="cursor-pointer flex-1">
-        <h2 className="font-medium text-gray-900">{userName}</h2>
-        <p className="text-sm text-gray-500">Ver detalhes do contato</p>
+      <div onClick={onViewContactDetails} className="cursor-pointer flex-1 min-w-0">
+        <h2 className="font-semibold text-foreground truncate">{userName}</h2>
+        <p className="text-sm text-muted-foreground">Ver detalhes do contato</p>
       </div>
       
       <DropdownMenu>

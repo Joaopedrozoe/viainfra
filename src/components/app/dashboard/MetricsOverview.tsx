@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { MessageSquare, Clock, CheckCircle, Share2, TrendingUp } from "lucide-react";
 import { calculateDashboardMetrics, formatResponseTime, getPerformanceColor, DashboardMetrics } from "./dashboardUtils";
 import { useDemoMode } from "@/hooks/useDemoMode";
@@ -41,14 +42,14 @@ export const MetricsOverview: React.FC = () => {
   
   if (loading || !metrics) {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4 w-full">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-6 w-full">
         {Array.from({ length: 5 }).map((_, index) => (
-          <Card key={index} className="animate-pulse">
+          <Card key={index} className="shadow-sm border border-border/50">
             <CardHeader className="pb-2">
-              <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+              <Skeleton className="h-4 w-3/4" />
             </CardHeader>
             <CardContent>
-              <div className="h-8 bg-gray-200 rounded w-1/2"></div>
+              <Skeleton className="h-8 w-1/2" />
             </CardContent>
           </Card>
         ))}
@@ -61,53 +62,53 @@ export const MetricsOverview: React.FC = () => {
       title: "Conversas Ativas",
       value: metrics.activeConversations.toLocaleString(),
       icon: MessageSquare,
-      color: "text-blue-600",
-      bgColor: "bg-blue-50"
+      color: "text-primary",
+      bgColor: "bg-primary/10"
     },
     {
       title: "Mensagens Hoje",
       value: metrics.todayMessages.toLocaleString(),
       icon: TrendingUp,
-      color: "text-green-600",
-      bgColor: "bg-green-50"
+      color: "text-emerald-600",
+      bgColor: "bg-emerald-50 dark:bg-emerald-950/30"
     },
     {
       title: "Tempo de Resposta",
       value: formatResponseTime(metrics.averageResponseTime),
       icon: Clock,
       color: getPerformanceColor(metrics.averageResponseTime),
-      bgColor: "bg-yellow-50"
+      bgColor: "bg-amber-50 dark:bg-amber-950/30"
     },
     {
       title: "Taxa de Resolução",
       value: `${metrics.resolutionRate.toFixed(1)}%`,
       icon: CheckCircle,
       color: "text-emerald-600",
-      bgColor: "bg-emerald-50"
+      bgColor: "bg-emerald-50 dark:bg-emerald-950/30"
     },
     {
       title: "Canais Online",
       value: `${metrics.connectedChannels}/${metrics.totalChannels}`,
       icon: Share2,
-      color: "text-purple-600",
-      bgColor: "bg-purple-50"
+      color: "text-violet-600",
+      bgColor: "bg-violet-50 dark:bg-violet-950/30"
     }
   ];
   
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4 w-full">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 sm:gap-6 w-full">
       {cards.map((card, index) => (
-        <Card key={index} className="hover:shadow-md transition-shadow w-full">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-3 sm:px-6 pt-3 sm:pt-6">
+        <Card key={index} className="shadow-sm border border-border/50 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 w-full">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 px-4 sm:px-6 pt-4 sm:pt-6">
             <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground truncate pr-2">
               {card.title}
             </CardTitle>
-            <div className={`p-1.5 sm:p-2 rounded-md ${card.bgColor} flex-shrink-0`}>
-              <card.icon className={`h-3 w-3 sm:h-4 sm:w-4 ${card.color}`} />
+            <div className={`p-2 sm:p-2.5 rounded-lg ${card.bgColor} flex-shrink-0`}>
+              <card.icon className={`h-4 w-4 sm:h-5 sm:w-5 ${card.color}`} />
             </div>
           </CardHeader>
-          <CardContent className="px-3 sm:px-6 pb-3 sm:pb-6">
-            <div className={`text-lg sm:text-2xl font-bold ${card.color} truncate`}>
+          <CardContent className="px-4 sm:px-6 pb-4 sm:pb-6">
+            <div className={`text-xl sm:text-3xl font-bold ${card.color} truncate`}>
               {card.value}
             </div>
           </CardContent>

@@ -53,14 +53,14 @@ export const ActivityChart: React.FC = () => {
   
   if (isLoading || !metrics || !metrics.hourlyActivity) {
     return (
-      <Card>
+      <Card className="shadow-sm border border-border/50">
         <CardHeader>
-          <CardTitle>Atividade nas Últimas 24 Horas</CardTitle>
+          <CardTitle className="text-lg font-semibold">Atividade nas Últimas 24 Horas</CardTitle>
           <CardDescription>Volume de mensagens por hora</CardDescription>
         </CardHeader>
-        <CardContent className="p-3 sm:p-6">
+        <CardContent className="p-4 sm:p-6">
           <div className="w-full h-64 sm:h-80 flex items-center justify-center">
-            <div className="animate-pulse text-gray-500">Carregando...</div>
+            <div className="text-muted-foreground animate-pulse">Carregando...</div>
           </div>
         </CardContent>
       </Card>
@@ -68,14 +68,14 @@ export const ActivityChart: React.FC = () => {
   }
   
   return (
-    <Card>
+    <Card className="shadow-sm border border-border/50">
       <CardHeader>
-        <CardTitle>Atividade nas Últimas 24 Horas</CardTitle>
+        <CardTitle className="text-lg font-semibold">Atividade nas Últimas 24 Horas</CardTitle>
         <CardDescription>
           Volume de mensagens por hora
         </CardDescription>
       </CardHeader>
-      <CardContent className="p-3 sm:p-6">
+      <CardContent className="p-4 sm:p-6">
         <div className="w-full h-64 sm:h-80">
           <ChartContainer config={chartConfig}>
             <AreaChart 

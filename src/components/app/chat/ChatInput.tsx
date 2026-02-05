@@ -139,7 +139,7 @@ export const ChatInput = memo(({
   const recordingButtonClass = useMemo(() => {
     return cn(
       "p-2 rounded-full transition-colors",
-      isRecording ? "text-destructive hover:text-destructive/80" : "text-gray-500 hover:text-gray-700"
+      isRecording ? "text-destructive hover:text-destructive/80" : "text-muted-foreground hover:text-foreground"
     );
   }, [isRecording]);
 
@@ -147,7 +147,7 @@ export const ChatInput = memo(({
   const FileIcon = fileType ? getFileIcon(fileType) : null;
 
   return (
-    <div className="bg-white p-4">
+    <div className="bg-background border-t border-border p-4 shadow-sm">
       {/* Reply Preview */}
       {replyToMessage && onCancelReply && (
         <ReplyPreview 
@@ -159,7 +159,7 @@ export const ChatInput = memo(({
 
       {/* Preview do arquivo selecionado */}
       {selectedFile && (
-        <div className="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+        <div className="mb-3 p-3 bg-muted/50 rounded-lg border border-border">
           <div className="flex items-center gap-3">
             {previewUrl ? (
               <img 
@@ -168,21 +168,21 @@ export const ChatInput = memo(({
                 className="w-16 h-16 object-cover rounded-lg"
               />
             ) : (
-              <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center">
-                {FileIcon && <FileIcon size={24} className="text-gray-500" />}
+              <div className="w-16 h-16 bg-muted rounded-lg flex items-center justify-center">
+                {FileIcon && <FileIcon size={24} className="text-muted-foreground" />}
               </div>
             )}
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-700 truncate">
+              <p className="text-sm font-medium text-foreground truncate">
                 {selectedFile.name}
               </p>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-muted-foreground">
                 {(selectedFile.size / 1024).toFixed(1)} KB
               </p>
             </div>
             <button
               onClick={removeFile}
-              className="p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-200"
+              className="p-1 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted transition-colors"
               aria-label="Remover arquivo"
             >
               <X size={18} />
@@ -207,7 +207,7 @@ export const ChatInput = memo(({
           {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
         </button>
         <button
-          className="p-2 text-gray-500 hover:text-gray-700 rounded-full transition-colors"
+          className="p-2 text-muted-foreground hover:text-foreground rounded-full transition-colors"
           onClick={handleFileUpload}
           aria-label="Enviar arquivo"
         >
@@ -219,7 +219,7 @@ export const ChatInput = memo(({
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            className="w-full min-h-10 max-h-32 resize-none py-2"
+            className="w-full min-h-10 max-h-32 resize-none py-2 bg-muted/30 border-0 focus:ring-1 focus:ring-primary/50"
             disabled={isRecording}
             aria-label="Digite uma mensagem"
             rows={1}
@@ -227,7 +227,7 @@ export const ChatInput = memo(({
         </div>
         <Button 
           onClick={handleSendMessage} 
-          className="bg-viainfra-primary hover:bg-viainfra-primary/90"
+          className="bg-primary hover:bg-primary/90"
           disabled={(!newMessage.trim() && !selectedFile) || isRecording}
           aria-label="Enviar mensagem"
         >

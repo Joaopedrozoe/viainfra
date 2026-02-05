@@ -1,6 +1,7 @@
 
 import { NavLink, Link, useLocation } from "react-router-dom";
-import { 
+import { cn } from "@/lib/utils";
+import {
   MessageSquare, 
   Share2, 
   Bot, 
@@ -81,12 +82,13 @@ export const AppSidebar = () => {
   ];
   
   return (
-    <Sidebar collapsible="icon" className="border-r">
-      <SidebarHeader className="border-b">
-        <div className={`flex items-center px-2 py-2 ${collapsed ? 'justify-center' : 'gap-2'}`}>
+    <Sidebar collapsible="icon" className="border-r border-border/50">
+      {/* Logo Area - Premium floating effect */}
+      <SidebarHeader className="bg-white dark:bg-background shadow-sm">
+        <div className={`flex items-center ${collapsed ? 'justify-center py-4 px-2' : 'py-5 px-4'} transition-all duration-200`}>
           <Link 
             to="/dashboard" 
-            className={`transition-all duration-200 ${
+            className={`transition-all duration-200 hover:opacity-90 ${
               collapsed ? 'flex justify-center' : ''
             }`}
           >
@@ -96,7 +98,7 @@ export const AppSidebar = () => {
                 : "/lovable-uploads/c4694f21-258b-4986-8611-4b1b7fb7a727.png"
               } 
               alt={company?.name || 'Logo'} 
-              className={`${collapsed ? 'h-8' : 'h-10'} w-auto transition-all duration-200`}
+              className={`${collapsed ? 'h-10' : 'h-14'} w-auto transition-all duration-200`}
             />
           </Link>
         </div>
@@ -117,19 +119,20 @@ export const AppSidebar = () => {
             )}
             
             {!collapsed && (
-              <div className="px-2 mb-4 space-y-2">
+              <div className="px-3 mb-4 space-y-3">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" className="w-full flex items-center justify-start gap-2 text-left p-2 h-auto">
-                      <Avatar className="h-8 w-8">
-                        <AvatarFallback className="bg-sidebar-primary text-sidebar-primary-foreground">
+                    <Button variant="ghost" className="w-full flex items-center justify-start gap-3 text-left p-2 h-auto hover:bg-accent/50 transition-colors">
+                      <Avatar className="h-10 w-10 ring-2 ring-primary/20">
+                        <AvatarFallback className="bg-sidebar-primary text-sidebar-primary-foreground font-semibold">
                           {profile?.name?.charAt(0) || '?'}
                         </AvatarFallback>
                       </Avatar>
-                      <div className="overflow-hidden">
-                        <div className="font-medium truncate text-sm">{profile?.name || 'Usuário'}</div>
-                        <div className="text-xs text-muted-foreground truncate">{profile?.email || ''}</div>
+                      <div className="overflow-hidden flex-1">
+                        <div className="font-semibold truncate text-sm text-foreground">{profile?.name || 'Usuário'}</div>
+                        <div className="text-xs text-muted-foreground/70 truncate">{profile?.email || ''}</div>
                       </div>
+                      <StatusSelector />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" className="w-56">
@@ -147,24 +150,26 @@ export const AppSidebar = () => {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-                
-                <div className="flex justify-center">
-                  <StatusSelector />
-                </div>
               </div>
             )}
             
-            <SidebarMenu>
+            <SidebarMenu className="gap-1.5 px-1">
               {menuItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton 
                     asChild 
                     isActive={isActive(item.url)}
+                    className={cn(
+                      "transition-all duration-150",
+                      isActive(item.url) 
+                        ? "bg-sidebar-accent font-medium border-l-[3px] border-primary rounded-l-none" 
+                        : "hover:bg-accent/50"
+                    )}
                   >
                     <NavLink 
                       to={item.url}
                     >
-                      <item.icon className="h-4 w-4" />
+                      <item.icon className="h-5 w-5" />
                         <div className="flex items-center justify-between w-full">
                           <span>{item.title}</span>
                           {item.feature && !collapsed && (

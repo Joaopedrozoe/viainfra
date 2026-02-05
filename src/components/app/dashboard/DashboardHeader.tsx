@@ -39,10 +39,10 @@ export const DashboardHeader: React.FC = () => {
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
       <div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-foreground">
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
           Olá, {profile?.name || 'Usuário'}! 👋
         </h1>
-        <p className="text-muted-foreground mt-1">
+        <p className="text-muted-foreground font-medium mt-1">
           {currentDate} • {currentTime}
         </p>
       </div>
@@ -53,7 +53,7 @@ export const DashboardHeader: React.FC = () => {
           size="sm"
           onClick={handleRefresh}
           disabled={isRefreshing}
-          className="flex items-center gap-2"
+          className="flex items-center gap-2 border-dashed"
         >
           <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
           {isRefreshing ? 'Atualizando...' : 'Atualizar'}
