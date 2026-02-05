@@ -67,7 +67,7 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="p-3 sm:p-6 space-y-4 sm:space-y-6 bg-gray-50 min-h-full">
+    <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 bg-muted/30 min-h-full">
       <DashboardHeader />
       <MetricsOverview />
       

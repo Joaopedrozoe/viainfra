@@ -113,7 +113,7 @@ export const ConversationItem = memo(({
       referrerPolicy="no-referrer"
     />
   ) : (
-    <div className="w-full h-full flex items-center justify-center text-gray-500 font-medium bg-gray-100">
+    <div className="w-full h-full flex items-center justify-center text-muted-foreground font-medium bg-muted">
       {conversation.name.charAt(0).toUpperCase()}
     </div>
   );
@@ -233,8 +233,8 @@ export const ConversationItem = memo(({
         {/* Badge de contagem não lida */}
         {conversation.unread > 0 && (
           <div className={cn(
-            "flex-shrink-0 min-w-[20px] h-5 px-1.5 rounded-full text-white text-xs font-medium flex items-center justify-center",
-            showNewBadge && !isSelected ? "bg-primary animate-pulse" : "bg-viainfra-primary"
+            "flex-shrink-0 min-w-[20px] h-5 px-1.5 rounded-full text-primary-foreground text-xs font-medium flex items-center justify-center",
+            showNewBadge && !isSelected ? "bg-primary animate-pulse" : "bg-primary"
           )}>
             {conversation.unread > 99 ? '99+' : conversation.unread}
           </div>

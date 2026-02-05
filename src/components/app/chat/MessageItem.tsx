@@ -306,11 +306,11 @@ const DocumentAttachment = ({ url, filename }: { url: string; filename?: string 
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="mt-2 flex items-center gap-2 p-3 bg-black/5 rounded-lg hover:bg-black/10 transition-colors"
+      className="mt-2 flex items-center gap-2 p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors"
     >
-      <FileText size={24} className="text-gray-500" />
+      <FileText size={24} className="text-muted-foreground" />
       <span className="flex-1 text-sm truncate">{displayName}</span>
-      <Download size={18} className="text-gray-400" />
+      <Download size={18} className="text-muted-foreground" />
     </a>
   );
 };
@@ -427,10 +427,10 @@ export const MessageItem = memo(({
   const messageBubble = (
     <div
       className={cn(
-        "max-w-[70%] p-3 rounded-lg relative group",
+        "max-w-[70%] px-4 py-3 rounded-2xl relative group shadow-sm",
         isAgentMessage
-          ? "bg-viainfra-primary text-white rounded-tr-none"
-          : "bg-card border border-border rounded-tl-none",
+          ? "bg-primary text-primary-foreground rounded-tr-md"
+          : "bg-muted/60 rounded-tl-md",
         effectiveStatus === 'failed' && isAgentMessage && "ring-2 ring-destructive/50"
       )}
     >
@@ -510,8 +510,8 @@ export const MessageItem = memo(({
       
       {/* Timestamp e status de entrega */}
       <div className={cn(
-        "text-xs mt-1 flex items-center justify-end gap-1",
-        isAgentMessage ? "text-white/70" : "text-muted-foreground"
+        "text-[10px] mt-1.5 flex items-center justify-end gap-1",
+        isAgentMessage ? "text-primary-foreground/70" : "text-muted-foreground"
       )}>
         {isEdited && <span className="italic">(editado)</span>}
         <span>{formattedTimestamp}</span>

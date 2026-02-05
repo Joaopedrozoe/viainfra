@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Skeleton } from "@/components/ui/skeleton";
 import { MessageSquare, User, CheckCircle, Clock } from "lucide-react";
 import { useDemoMode } from "@/hooks/useDemoMode";
 import { Conversation } from "@/types/conversation";
@@ -42,21 +43,21 @@ export const RecentActivity: React.FC = () => {
   
   const getStatusIcon = (unread: number) => {
     if (unread === 0) {
-      return <CheckCircle className="h-4 w-4 text-green-600" />;
+      return <CheckCircle className="h-4 w-4 text-emerald-600" />;
     } else if (unread > 3) {
       return <Clock className="h-4 w-4 text-destructive" />;
     } else {
-      return <MessageSquare className="h-4 w-4 text-blue-600" />;
+      return <MessageSquare className="h-4 w-4 text-primary" />;
     }
   };
   
   const getStatusColor = (unread: number) => {
     if (unread === 0) {
-      return 'bg-green-50 text-green-700 border-green-200';
+      return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800';
     } else if (unread > 3) {
       return 'bg-destructive/10 text-destructive border-destructive/20';
     } else {
-      return 'bg-blue-50 text-blue-700 border-blue-200';
+      return 'bg-primary/10 text-primary border-primary/20';
     }
   };
   
@@ -76,21 +77,21 @@ export const RecentActivity: React.FC = () => {
   
   if (loading) {
     return (
-      <Card className="w-full">
+      <Card className="w-full shadow-sm border border-border/50">
         <CardHeader>
-          <CardTitle>Atividade Recente</CardTitle>
+          <CardTitle className="text-lg font-semibold">Atividade Recente</CardTitle>
           <CardDescription>Últimas conversas e interações</CardDescription>
         </CardHeader>
-        <CardContent className="p-3 sm:p-6">
-          <div className="space-y-3 sm:space-y-4">
+        <CardContent className="p-4 sm:p-6">
+          <div className="space-y-4">
             {Array.from({ length: 3 }).map((_, index) => (
-              <div key={index} className="flex items-center gap-3 p-3 border rounded-lg animate-pulse">
-                <div className="h-8 w-8 bg-gray-200 rounded-full"></div>
+              <div key={index} className="flex items-center gap-3 p-3 border border-border/50 rounded-lg">
+                <Skeleton className="h-8 w-8 rounded-full" />
                 <div className="flex-1 space-y-2">
-                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                  <div className="h-3 bg-gray-200 rounded w-full"></div>
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-3 w-full" />
                 </div>
-                <div className="h-3 w-10 bg-gray-200 rounded"></div>
+                <Skeleton className="h-3 w-10" />
               </div>
             ))}
           </div>
@@ -100,18 +101,18 @@ export const RecentActivity: React.FC = () => {
   }
   
   return (
-    <Card className="w-full">
+    <Card className="w-full shadow-sm border border-border/50">
       <CardHeader>
-        <CardTitle>Atividade Recente</CardTitle>
+        <CardTitle className="text-lg font-semibold">Atividade Recente</CardTitle>
         <CardDescription>Últimas conversas e interações</CardDescription>
       </CardHeader>
-      <CardContent className="p-3 sm:p-6">
-        <div className="space-y-3 sm:space-y-4">
+      <CardContent className="p-4 sm:p-6">
+        <div className="space-y-4">
           {recentConversations.length > 0 ? (
             recentConversations.map((conversation) => (
               <div 
                 key={conversation.id}
-                className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
+                className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 border border-border/50 rounded-lg hover:bg-accent/30 transition-colors cursor-pointer"
               >
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <Avatar className="h-8 w-8 flex-shrink-0">
