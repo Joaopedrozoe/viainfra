@@ -1,91 +1,281 @@
-# Plano de Otimização: Instantaneidade Percebida no Inbox
 
-## Status: ✅ IMPLEMENTADO (30/01/2026)
 
----
+# Revisao: Exclusao de Mensagens via WhatsApp
 
-## Correções Aplicadas
+## Resumo do Problema
 
-### 1. ✅ Correção do Status Inicial do Realtime
-**Arquivo**: `src/hooks/useConversations.ts`
+Ao usar a opcao "Apagar" no menu de contexto de uma mensagem, atualmente:
+- A mensagem e removida **apenas do banco de dados local (CRM)**
+- A mensagem **permanece visivel** no WhatsApp oficial do destinatario
+- A UI ja informa isso via tooltip: "Remove apenas do CRM - não afeta o WhatsApp"
 
-**Problema**: A variável `realtimeConnected` era inicializada como `false`, causando polling desnecessário a cada 15s mesmo quando a conexão estava saudável.
-
-**Solução Implementada**:
-- Inicializar `realtimeConnected = true` (assume conectado até erro explícito)
-- Adicionar flag `connectionConfirmed` para rastrear confirmação
-- Implementar timeout de 10s para detectar falha real de conexão
-- Marcar como desconectado apenas em erros explícitos (CHANNEL_ERROR, TIMED_OUT, CLOSED)
-- Remover referências a `lastRealtimeEvent` (lógica obsoleta)
-
-### 2. ✅ Callback de Status no ChatWindow
-**Arquivo**: `src/components/app/ChatWindow.tsx`
-
-**Problema**: A subscription de mensagens da conversa aberta não tinha callback de status.
-
-**Solução Implementada**:
-- Adicionar callback `.subscribe((status) => {...})` com logs claros
-- Log de sucesso: `✅ ChatWindow realtime CONNECTED for conversation: {id}`
-- Log de alerta: `⚠️ ChatWindow realtime status: {status}`
-
-### 3. ✅ Scroll Instantâneo
-**Arquivo**: `src/components/app/ChatWindow.tsx`
-
-**Problema**: O scroll para novas mensagens usava `behavior: "smooth"`, adicionando 200-300ms de delay visual.
-
-**Solução Implementada**:
-- Mudar para `behavior: "auto"` para scroll instantâneo
-- Mantém o `requestAnimationFrame` para garantir que o DOM está atualizado
+O usuario espera que a exclusao seja propagada para o WhatsApp ("apagar para todos").
 
 ---
 
-## Métricas de Sucesso Esperadas
+## Analise da Implementacao Atual
 
-### Console Logs Após Correções
-
-**Esperado**:
-```text
-📡 Realtime status: SUBSCRIBED
-✅ Realtime CONNECTED - instant updates enabled
-✅ ChatWindow realtime CONNECTED for conversation: {id}
+### Frontend - DeleteMessageDialog.tsx
+```typescript
+// Confirma exclusao chamando onConfirm com o messageId
+const handleConfirm = () => {
+  if (!message) return;
+  onConfirm(message.id);
+  onOpenChange(false);
+};
 ```
 
-**Não deve mais aparecer**:
-```text
-🔄 Fast poll (realtime disconnected)
+### Frontend - ChatWindow.tsx (linha 731-747)
+```typescript
+// Apenas deleta do banco local - NAO propaga para WhatsApp
+const handleConfirmDelete = useCallback(async (messageId: string) => {
+  try {
+    const { error } = await supabase
+      .from('messages')
+      .delete()
+      .eq('id', messageId);
+    
+    if (error) throw error;
+    
+    deleteMessage(messageId);  // Remove da UI
+    toast.success('Mensagem apagada!');
+  } catch (error) {
+    toast.error('Erro ao apagar mensagem');
+  }
+}, [deleteMessage]);
 ```
 
-### Tempos de Resposta
-
-| Ação | Antes | Depois |
-|------|-------|--------|
-| Receber mensagem | 0.5-15s (variável) | <500ms (consistente) |
-| Scroll para nova mensagem | ~300ms | <16ms |
-| Detecção de conexão | 15s (polling) | Instantânea (realtime) |
-
----
-
-## Limitações Conhecidas (Irredutíveis)
-
-### Envio de Mensagens: 2-3 segundos
-Este tempo é inerente à comunicação com a Evolution API e servidores do WhatsApp. Não pode ser reduzido significativamente.
-
-### Dependência da Conexão de Internet
-A experiência de tempo real depende da qualidade da conexão do usuário com o Supabase Realtime.
+### UI - MessageActions.tsx (linha 158-163)
+```typescript
+// O tooltip ja avisa que nao afeta WhatsApp
+<MenuItemWithTooltip
+  icon={Trash2}
+  label="Apagar"
+  tooltip="Remove apenas do CRM - não afeta o WhatsApp"
+  onClick={() => onDelete(message)}
+/>
+```
 
 ---
 
-## Próximos Passos Opcionais (Nível 3)
+## Capacidade da Evolution API
 
-1. **Otimização da Edge Function `realtime-sync`**
-   - Tempo atual: 21-22 segundos
-   - Meta: 5-7 segundos
-   - Ações: Filtrar JIDs inválidos, batch updates, reduzir limit de mensagens
+A Evolution API **suporta exclusao de mensagens para todos** via:
 
-2. **Feedback Visual Aprimorado para Envio**
-   - Animação de "digitando..." durante envio
-   - Indicador de status de entrega (✓, ✓✓)
+```text
+DELETE /chat/deleteMessageForEveryone/{instanceName}
+```
 
-3. **Reconexão Automática do Realtime**
-   - Detectar desconexão e reconectar automaticamente
-   - Exibir indicador visual de status de conexão
+**Payload necessario**:
+```json
+{
+  "id": "BAE5ABC123...",     // WhatsApp Message ID
+  "remoteJid": "5511999999999@s.whatsapp.net",
+  "fromMe": true             // true se enviada pelo agente
+}
+```
+
+**Limitacoes do WhatsApp**:
+- Exclusao para todos funciona apenas em mensagens recentes (prazo de ~1 hora)
+- Apos o prazo, apenas exclusao local e possivel
+- Mensagens recebidas (fromMe: false) nao podem ser apagadas "para todos"
+
+---
+
+## Secao Tecnica: Plano de Implementacao
+
+### 1. Adicionar Handler na Edge Function
+
+**Arquivo**: `supabase/functions/send-whatsapp-message/index.ts`
+
+Adicionar suporte para `action: 'deleteMessage'` (similar ao `updateMessage` existente):
+
+```typescript
+// No inicio do handler principal (apos linha 40)
+if (body.action === 'deleteMessage') {
+  return await handleDeleteMessage(body);
+}
+
+// Nova funcao ao final do arquivo
+async function handleDeleteMessage(body: {
+  instanceName: string;
+  remoteJid: string;
+  messageId: string;
+  fromMe: boolean;
+}): Promise<Response> {
+  const { instanceName, remoteJid, messageId, fromMe } = body;
+  
+  const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL');
+  const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
+  
+  // Chamar endpoint DELETE
+  const deleteUrl = `${evolutionApiUrl}/chat/deleteMessageForEveryone/${instanceName}`;
+  
+  const response = await fetch(deleteUrl, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': evolutionApiKey
+    },
+    body: JSON.stringify({
+      id: messageId,
+      remoteJid: remoteJid,
+      fromMe: fromMe
+    })
+  });
+  
+  // Retornar resultado
+  if (!response.ok) {
+    return new Response(
+      JSON.stringify({ success: false, error: 'WhatsApp deletion failed' }),
+      { status: response.status, headers: corsHeaders }
+    );
+  }
+  
+  return new Response(
+    JSON.stringify({ success: true }),
+    { status: 200, headers: corsHeaders }
+  );
+}
+```
+
+### 2. Atualizar handleConfirmDelete no Frontend
+
+**Arquivo**: `src/components/app/ChatWindow.tsx` (linhas 730-747)
+
+Modificar para tentar exclusao no WhatsApp antes de deletar localmente:
+
+```typescript
+const handleConfirmDelete = useCallback(async (messageId: string) => {
+  try {
+    // Buscar dados da mensagem para exclusao WhatsApp
+    const { data: msgData } = await supabase
+      .from('messages')
+      .select('metadata')
+      .eq('id', messageId)
+      .single();
+    
+    const metadata = msgData?.metadata as Record<string, any>;
+    const whatsappMessageId = metadata?.whatsappMessageId || metadata?.external_id;
+    const remoteJid = metadata?.remoteJid;
+    const isFromAgent = metadata?.sender_type === 'agent' || 
+                        deletingMessage?.sender === 'agent';
+    
+    // Se for WhatsApp e tiver messageId, tentar excluir no WhatsApp
+    if (conversationChannel === 'whatsapp' && whatsappMessageId && remoteJid) {
+      // Buscar instancia
+      const { data: conversation } = await supabase
+        .from('conversations')
+        .select('metadata')
+        .eq('id', conversationId)
+        .single();
+      
+      const instanceName = (conversation?.metadata as any)?.instanceName || 'VIAINFRAOFICIAL';
+      
+      try {
+        const { data: deleteResult, error: deleteError } = await supabase.functions.invoke(
+          'send-whatsapp-message',
+          {
+            body: {
+              action: 'deleteMessage',
+              instanceName,
+              remoteJid,
+              messageId: whatsappMessageId,
+              fromMe: isFromAgent
+            }
+          }
+        );
+        
+        if (deleteError || !deleteResult?.success) {
+          // WhatsApp falhou - avisar usuario mas ainda deletar local
+          toast.warning('Mensagem apagada localmente. Exclusão no WhatsApp não disponível.', {
+            description: 'O WhatsApp limita exclusão após ~1 hora ou para mensagens recebidas'
+          });
+        } else {
+          toast.success('Mensagem apagada do WhatsApp!');
+        }
+      } catch (whatsappError) {
+        console.warn('Erro ao excluir no WhatsApp:', whatsappError);
+        toast.warning('Mensagem apagada localmente.');
+      }
+    }
+    
+    // Sempre deletar do banco local
+    const { error } = await supabase
+      .from('messages')
+      .delete()
+      .eq('id', messageId);
+    
+    if (error) throw error;
+    
+    deleteMessage(messageId);
+    
+    // Se nao for WhatsApp, mostrar sucesso simples
+    if (conversationChannel !== 'whatsapp') {
+      toast.success('Mensagem apagada!');
+    }
+  } catch (error) {
+    console.error('Erro ao apagar mensagem:', error);
+    toast.error('Erro ao apagar mensagem');
+  }
+}, [deleteMessage, conversationChannel, conversationId, deletingMessage]);
+```
+
+### 3. Atualizar Tooltip na UI
+
+**Arquivo**: `src/components/app/chat/MessageActions.tsx` (linhas 157-164)
+
+Atualizar tooltip para refletir o novo comportamento:
+
+```typescript
+<MenuItemWithTooltip
+  icon={Trash2}
+  label="Apagar"
+  tooltip={isAgentMessage 
+    ? "Tenta apagar para todos no WhatsApp (limite: ~1h após envio)" 
+    : "Mensagens recebidas só podem ser removidas do CRM"}
+  onClick={() => onDelete(message)}
+  className="text-destructive focus:text-destructive"
+/>
+```
+
+---
+
+## Comportamento Esperado Apos Implementacao
+
+| Cenario | Comportamento |
+|---------|---------------|
+| Mensagem enviada pelo agente (< 1h) | Apaga no WhatsApp + CRM |
+| Mensagem enviada pelo agente (> 1h) | Toast warning + Apaga so no CRM |
+| Mensagem recebida do contato | Toast info + Apaga so no CRM |
+| Conversa Web (nao-WhatsApp) | Apaga no CRM (comportamento atual) |
+
+---
+
+## Arquivos a Serem Modificados
+
+| Arquivo | Alteracao |
+|---------|-----------|
+| `supabase/functions/send-whatsapp-message/index.ts` | Adicionar `handleDeleteMessage` |
+| `src/components/app/ChatWindow.tsx` | Modificar `handleConfirmDelete` |
+| `src/components/app/chat/MessageActions.tsx` | Atualizar tooltip |
+
+---
+
+## Riscos e Mitigacoes
+
+| Risco | Mitigacao |
+|-------|-----------|
+| API WhatsApp falhar | Sempre deleta local + toast de aviso |
+| Mensagem sem whatsappMessageId | Deleta apenas local (comportamento atual) |
+| Prazo de exclusao expirado | Toast warning informativo |
+| Tentativa de apagar mensagem recebida | Tooltip informa limitacao |
+
+---
+
+## Alinhamento com Restricoes
+
+- **Sem testes adicionais ativos**: Alteracoes sao transparentes e seguem padrao existente
+- **Sem impacto no ambiente**: Fallback para comportamento atual em caso de erro
+- **Experiencia visual clara**: Feedbacks via toast informam exatamente o que aconteceu
+
