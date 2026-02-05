@@ -46,7 +46,7 @@ export function EditMessageDialog({
         <DialogHeader>
           <DialogTitle>Editar mensagem</DialogTitle>
           <DialogDescription>
-            Edite o conteúdo da mensagem. A alteração será salva localmente.
+            Edite o conteúdo da mensagem. Em conversas WhatsApp, a edição será propagada se a mensagem foi enviada há menos de 15 minutos.
           </DialogDescription>
         </DialogHeader>
         <div className="py-4">

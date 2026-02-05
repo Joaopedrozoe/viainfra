@@ -584,7 +584,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       updateMessage(messageId, { content: newContent, editedAt });
       
       // Tentar editar no WhatsApp se for canal WhatsApp e tiver o messageId do WhatsApp
-      const whatsappMessageId = currentMetadata.whatsappMessageId || currentMetadata.messageId;
+      const whatsappMessageId = currentMetadata.whatsappMessageId || currentMetadata.messageId || currentMetadata.external_id;
       const remoteJid = currentMetadata.remoteJid;
       
       if (conversationChannel === 'whatsapp' && whatsappMessageId && remoteJid) {
@@ -596,33 +596,30 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             .eq('id', conversationId)
             .single();
           
-          const instanceName = (conversation?.metadata as Record<string, unknown>)?.instanceName;
+          // Fallback para VIAINFRAOFICIAL se instanceName não estiver presente
+          const instanceName = (conversation?.metadata as Record<string, unknown>)?.instanceName || 'VIAINFRAOFICIAL';
           
-          if (instanceName) {
-            const { data: editResult, error: editError } = await supabase.functions.invoke('send-whatsapp-message', {
-              body: {
-                action: 'updateMessage',
-                instanceName,
-                remoteJid,
-                messageId: whatsappMessageId,
-                newContent
-              }
-            });
-            
-            if (editError || !editResult?.success) {
-              console.warn('⚠️ Não foi possível editar no WhatsApp:', editError || editResult?.error);
-              toast.warning('Mensagem editada localmente. Edição no WhatsApp não disponível.', {
-                description: 'O WhatsApp pode limitar edição após 15 minutos'
-              });
-            } else {
-              toast.success('Mensagem editada no WhatsApp!');
+          const { data: editResult, error: editError } = await supabase.functions.invoke('send-whatsapp-message', {
+            body: {
+              action: 'updateMessage',
+              instanceName,
+              remoteJid,
+              messageId: whatsappMessageId,
+              newContent
             }
+          });
+          
+          if (editError || !editResult?.success) {
+            console.warn('⚠️ Não foi possível editar no WhatsApp:', editError || editResult?.error);
+            toast.warning('Mensagem editada localmente. Edição no WhatsApp não disponível.', {
+              description: 'O WhatsApp limita edição a ~15 minutos após o envio'
+            });
           } else {
-            toast.success('Mensagem editada!');
+            toast.success('Mensagem editada no WhatsApp!');
           }
         } catch (whatsappError) {
           console.warn('⚠️ Erro ao editar no WhatsApp:', whatsappError);
-          toast.success('Mensagem editada localmente!');
+          toast.warning('Mensagem editada localmente.');
         }
       } else {
         toast.success('Mensagem editada!');
