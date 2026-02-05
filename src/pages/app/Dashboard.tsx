@@ -71,33 +71,37 @@ const Dashboard = () => {
       <DashboardHeader />
       <MetricsOverview />
       
+      {/* Seção: Atividade e Tendências */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6">
         <div className="w-full min-w-0">
           <ActivityChart />
         </div>
         <div className="w-full min-w-0">
-          <ChannelDistributionChart />
-        </div>
-      </div>
-      
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6">
-        <div className="w-full min-w-0">
           <WeeklyTrendChart />
         </div>
+      </div>
+      
+      {/* Seção: Canais e Performance */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6">
         <div className="w-full min-w-0">
-          <SystemHealthCheck />
+          <ChannelDistributionChart />
+        </div>
+        <div className="w-full min-w-0">
+          <ChannelHealthPanel />
         </div>
       </div>
       
+      {/* Seção: Sistema e Equipe */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6">
         <div className="w-full min-w-0">
-          <ChannelHealthPanel />
+          <SystemHealthCheck />
         </div>
         <div className="w-full min-w-0">
           <TeamPresence onStartChat={handleStartChat} />
         </div>
       </div>
-
+      
+      {/* Seção: Atividades Recentes */}
       <div className="w-full min-w-0">
         <RecentActivity />
       </div>

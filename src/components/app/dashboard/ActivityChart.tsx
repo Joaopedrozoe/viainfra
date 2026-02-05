@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid } from "recharts";
-import { calculateDashboardMetrics, DashboardMetrics } from "./dashboardUtils";
-import { useDemoMode } from "@/hooks/useDemoMode";
+import { Area, AreaChart, XAxis, YAxis, CartesianGrid } from "recharts";
+import { Skeleton } from "@/components/ui/skeleton";
+import { BarChart3 } from "lucide-react";
+import { fetchHourlyActivity } from "./dashboardUtils";
+import { useAuth } from "@/contexts/auth";
 
 const chartConfig = {
   messages: {
@@ -13,54 +15,69 @@ const chartConfig = {
 };
 
 export const ActivityChart: React.FC = () => {
-  const { isDemoMode } = useDemoMode();
-  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  const { company } = useAuth();
+  const [hourlyData, setHourlyData] = useState<{ hour: string; messages: number }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  useEffect(() => {
-    const loadMetrics = () => {
-      setIsLoading(true);
-      try {
-        const calculatedMetrics = calculateDashboardMetrics(isDemoMode);
-        setMetrics(calculatedMetrics);
-      } catch (error) {
-        console.error('Error loading metrics:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const loadData = async () => {
+    if (!company?.id) return;
     
-    loadMetrics();
-  }, [isDemoMode]);
+    setIsLoading(true);
+    try {
+      const data = await fetchHourlyActivity(company.id);
+      setHourlyData(data);
+    } catch (error) {
+      console.error('Error loading hourly activity:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, [company?.id]);
   
   // Listen for dashboard refresh events
   useEffect(() => {
     const handleRefresh = () => {
-      setIsLoading(true);
-      try {
-        const calculatedMetrics = calculateDashboardMetrics(isDemoMode);
-        setMetrics(calculatedMetrics);
-      } catch (error) {
-        console.error('Error refreshing metrics:', error);
-      } finally {
-        setIsLoading(false);
-      }
+      loadData();
     };
     
     window.addEventListener('dashboard-refresh', handleRefresh);
     return () => window.removeEventListener('dashboard-refresh', handleRefresh);
-  }, [isDemoMode]);
+  }, [company?.id]);
+
+  const totalMessages = hourlyData.reduce((sum, item) => sum + item.messages, 0);
+  const hasData = totalMessages > 0;
   
-  if (isLoading || !metrics || !metrics.hourlyActivity) {
+  if (isLoading) {
     return (
       <Card className="shadow-sm border border-border/50">
         <CardHeader>
-          <CardTitle className="text-lg font-semibold">Atividade nas Últimas 24 Horas</CardTitle>
-          <CardDescription>Volume de mensagens por hora</CardDescription>
+          <Skeleton className="h-6 w-48" />
+          <Skeleton className="h-4 w-32 mt-1" />
         </CardHeader>
         <CardContent className="p-4 sm:p-6">
-          <div className="w-full h-64 sm:h-80 flex items-center justify-center">
-            <div className="text-muted-foreground animate-pulse">Carregando...</div>
+          <Skeleton className="w-full h-64 sm:h-80" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!hasData) {
+    return (
+      <Card className="shadow-sm border border-border/50">
+        <CardHeader>
+          <CardTitle className="text-lg font-semibold">Mensagens por Hora (Hoje)</CardTitle>
+          <CardDescription>Volume de mensagens ao longo do dia</CardDescription>
+        </CardHeader>
+        <CardContent className="p-4 sm:p-6">
+          <div className="w-full h-64 sm:h-80 flex flex-col items-center justify-center text-center">
+            <BarChart3 className="h-12 w-12 text-muted-foreground/40 mb-4" />
+            <h3 className="text-lg font-medium text-foreground">Nenhuma atividade registrada</h3>
+            <p className="text-sm text-muted-foreground mt-1 max-w-xs">
+              Dados aparecerão conforme mensagens forem recebidas ao longo do dia
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -70,16 +87,16 @@ export const ActivityChart: React.FC = () => {
   return (
     <Card className="shadow-sm border border-border/50">
       <CardHeader>
-        <CardTitle className="text-lg font-semibold">Atividade nas Últimas 24 Horas</CardTitle>
+        <CardTitle className="text-lg font-semibold">Mensagens por Hora (Hoje)</CardTitle>
         <CardDescription>
-          Volume de mensagens por hora
+          {totalMessages.toLocaleString()} mensagens hoje
         </CardDescription>
       </CardHeader>
       <CardContent className="p-4 sm:p-6">
         <div className="w-full h-64 sm:h-80">
           <ChartContainer config={chartConfig}>
             <AreaChart 
-              data={metrics.hourlyActivity} 
+              data={hourlyData} 
               margin={{ top: 10, right: 10, left: 0, bottom: 10 }}
             >
               <defs>

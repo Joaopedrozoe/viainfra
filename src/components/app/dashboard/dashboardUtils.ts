@@ -1,6 +1,6 @@
-import { getDemoChannelsExpanded } from "@/data/mockChannelsExpanded";
-import { apiClient } from "@/lib/api-client";
-import { useDemoMode } from "@/hooks/useDemoMode";
+import { supabase } from "@/integrations/supabase/client";
+import { startOfDay, subDays, format, startOfHour, getHours } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 export interface DashboardMetrics {
   // Conversas
@@ -10,16 +10,22 @@ export interface DashboardMetrics {
   
   // Performance
   averageResponseTime: number; // em segundos
+  firstResponseTime: number; // tempo médio da primeira resposta
   resolutionRate: number; // percentual
   
   // Canais
   connectedChannels: number;
   totalChannels: number;
   
-  // Atividade
+  // Atividade - DADOS REAIS
   hourlyActivity: { hour: string; messages: number }[];
-  weeklyTrend: { day: string; conversations: number; messages: number }[];
+  weeklyTrend: { day: string; date: string; conversations: number; messages: number }[];
   channelDistribution: { name: string; value: number; percentage: number }[];
+  
+  // Sistema
+  apiLatency?: number;
+  whatsappStatus?: 'connected' | 'disconnected' | 'error';
+  queuedMessages?: number;
 }
 
 // Cache para evitar recálculos desnecessários
@@ -27,105 +33,399 @@ let cachedMetrics: DashboardMetrics | null = null;
 let lastCalculation = 0;
 const CACHE_DURATION = 30000; // 30 segundos
 
-export const calculateDashboardMetrics = (isDemoMode: boolean = true, previewConversations: any[] = []): DashboardMetrics => {
+// =====================================================
+// FUNÇÕES ASSÍNCRONAS PARA BUSCAR DADOS REAIS
+// =====================================================
+
+export async function fetchConversationStats(companyId: string) {
+  try {
+    const { data: conversations, error } = await supabase
+      .from('conversations')
+      .select('id, status, created_at')
+      .eq('company_id', companyId);
+
+    if (error) throw error;
+
+    const total = conversations?.length || 0;
+    const open = conversations?.filter(c => c.status === 'open').length || 0;
+    const pending = conversations?.filter(c => c.status === 'pending').length || 0;
+    const resolved = conversations?.filter(c => c.status === 'resolved').length || 0;
+    
+    const today = startOfDay(new Date());
+    const todayConversations = conversations?.filter(c => 
+      new Date(c.created_at) >= today
+    ).length || 0;
+
+    return {
+      activeConversations: open + pending,
+      totalConversations: total,
+      resolvedConversations: resolved,
+      todayConversations,
+      resolutionRate: total > 0 ? (resolved / total) * 100 : 0
+    };
+  } catch (error) {
+    console.error('Error fetching conversation stats:', error);
+    return {
+      activeConversations: 0,
+      totalConversations: 0,
+      resolvedConversations: 0,
+      todayConversations: 0,
+      resolutionRate: 0
+    };
+  }
+}
+
+export async function fetchTodayMessages(companyId: string) {
+  try {
+    const today = startOfDay(new Date()).toISOString();
+    
+    const { count, error } = await supabase
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .gte('created_at', today);
+
+    if (error) throw error;
+    return count || 0;
+  } catch (error) {
+    console.error('Error fetching today messages:', error);
+    return 0;
+  }
+}
+
+export async function fetchHourlyActivity(companyId: string): Promise<{ hour: string; messages: number }[]> {
+  try {
+    const today = startOfDay(new Date()).toISOString();
+    
+    const { data: messages, error } = await supabase
+      .from('messages')
+      .select('created_at')
+      .gte('created_at', today)
+      .order('created_at');
+
+    if (error) throw error;
+
+    // Agrupar por hora
+    const hourlyMap: Record<number, number> = {};
+    
+    // Inicializar todas as horas com 0
+    for (let i = 0; i < 24; i++) {
+      hourlyMap[i] = 0;
+    }
+
+    // Contar mensagens por hora
+    messages?.forEach(msg => {
+      const hour = getHours(new Date(msg.created_at));
+      hourlyMap[hour] = (hourlyMap[hour] || 0) + 1;
+    });
+
+    // Converter para array formatado
+    return Object.entries(hourlyMap).map(([hour, count]) => ({
+      hour: `${hour.padStart(2, '0')}:00`,
+      messages: count
+    }));
+  } catch (error) {
+    console.error('Error fetching hourly activity:', error);
+    // Retornar array vazio em caso de erro
+    return Array.from({ length: 24 }, (_, i) => ({
+      hour: `${i.toString().padStart(2, '0')}:00`,
+      messages: 0
+    }));
+  }
+}
+
+export async function fetchWeeklyTrend(companyId: string): Promise<{ day: string; date: string; conversations: number; messages: number }[]> {
+  try {
+    const sevenDaysAgo = subDays(startOfDay(new Date()), 6).toISOString();
+    
+    // Buscar mensagens dos últimos 7 dias
+    const { data: messages, error: messagesError } = await supabase
+      .from('messages')
+      .select('created_at')
+      .gte('created_at', sevenDaysAgo)
+      .order('created_at');
+
+    // Buscar conversas dos últimos 7 dias
+    const { data: conversations, error: conversationsError } = await supabase
+      .from('conversations')
+      .select('created_at')
+      .eq('company_id', companyId)
+      .gte('created_at', sevenDaysAgo)
+      .order('created_at');
+
+    if (messagesError) throw messagesError;
+    if (conversationsError) throw conversationsError;
+
+    // Criar mapa para os últimos 7 dias
+    const dailyMap: Record<string, { conversations: number; messages: number }> = {};
+    
+    for (let i = 6; i >= 0; i--) {
+      const date = subDays(new Date(), i);
+      const dateKey = format(date, 'yyyy-MM-dd');
+      dailyMap[dateKey] = { conversations: 0, messages: 0 };
+    }
+
+    // Contar mensagens por dia
+    messages?.forEach(msg => {
+      const dateKey = format(new Date(msg.created_at), 'yyyy-MM-dd');
+      if (dailyMap[dateKey]) {
+        dailyMap[dateKey].messages += 1;
+      }
+    });
+
+    // Contar conversas por dia
+    conversations?.forEach(conv => {
+      const dateKey = format(new Date(conv.created_at), 'yyyy-MM-dd');
+      if (dailyMap[dateKey]) {
+        dailyMap[dateKey].conversations += 1;
+      }
+    });
+
+    // Converter para array formatado
+    return Object.entries(dailyMap).map(([dateKey, data]) => {
+      const date = new Date(dateKey + 'T12:00:00');
+      return {
+        day: format(date, 'EEE', { locale: ptBR }),
+        date: format(date, 'dd/MM'),
+        conversations: data.conversations,
+        messages: data.messages
+      };
+    });
+  } catch (error) {
+    console.error('Error fetching weekly trend:', error);
+    // Retornar array vazio formatado
+    return Array.from({ length: 7 }, (_, i) => {
+      const date = subDays(new Date(), 6 - i);
+      return {
+        day: format(date, 'EEE', { locale: ptBR }),
+        date: format(date, 'dd/MM'),
+        conversations: 0,
+        messages: 0
+      };
+    });
+  }
+}
+
+export async function fetchChannelDistribution(companyId: string): Promise<{ name: string; value: number; percentage: number }[]> {
+  try {
+    const { data: conversations, error } = await supabase
+      .from('conversations')
+      .select('channel')
+      .eq('company_id', companyId);
+
+    if (error) throw error;
+
+    // Contar por canal
+    const channelCounts: Record<string, number> = {};
+    conversations?.forEach(conv => {
+      const channel = conv.channel || 'Desconhecido';
+      channelCounts[channel] = (channelCounts[channel] || 0) + 1;
+    });
+
+    const total = Object.values(channelCounts).reduce((sum, count) => sum + count, 0);
+
+    // Mapear nomes dos canais para exibição
+    const channelNames: Record<string, string> = {
+      'whatsapp': 'WhatsApp',
+      'instagram': 'Instagram',
+      'facebook': 'Facebook',
+      'telegram': 'Telegram',
+      'email': 'E-mail',
+      'web': 'Chat Web',
+      'website': 'Website'
+    };
+
+    return Object.entries(channelCounts).map(([channel, count]) => ({
+      name: channelNames[channel] || channel,
+      value: count,
+      percentage: total > 0 ? (count / total) * 100 : 0
+    }));
+  } catch (error) {
+    console.error('Error fetching channel distribution:', error);
+    return [];
+  }
+}
+
+export async function fetchWhatsAppStatus(companyId: string): Promise<'connected' | 'disconnected' | 'error'> {
+  try {
+    const { data, error } = await supabase
+      .from('whatsapp_instances')
+      .select('connection_state')
+      .eq('company_id', companyId)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return 'disconnected';
+
+    return data.connection_state === 'open' ? 'connected' : 'disconnected';
+  } catch (error) {
+    console.error('Error fetching WhatsApp status:', error);
+    return 'error';
+  }
+}
+
+export async function fetchQueueStatus(): Promise<number> {
+  try {
+    const { count, error } = await supabase
+      .from('message_queue')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending');
+
+    if (error) throw error;
+    return count || 0;
+  } catch (error) {
+    console.error('Error fetching queue status:', error);
+    return 0;
+  }
+}
+
+export async function fetchConnectedChannels(companyId: string): Promise<{ connected: number; total: number }> {
+  try {
+    const { data, error } = await supabase
+      .from('whatsapp_instances')
+      .select('id, connection_state')
+      .eq('company_id', companyId);
+
+    if (error) throw error;
+
+    const total = data?.length || 0;
+    const connected = data?.filter(i => i.connection_state === 'open').length || 0;
+
+    return { connected, total };
+  } catch (error) {
+    console.error('Error fetching connected channels:', error);
+    return { connected: 0, total: 0 };
+  }
+}
+
+// =====================================================
+// FUNÇÃO PRINCIPAL PARA BUSCAR TODAS AS MÉTRICAS
+// =====================================================
+
+export async function fetchDashboardMetrics(companyId: string): Promise<DashboardMetrics> {
   const now = Date.now();
   
-  // Limpa cache para forçar recálculo sempre (temporário para garantir dados zerados)
-  cachedMetrics = null;
-  
-  let conversations: any[] = previewConversations || [];
-  let channels: any[] = [];
-  
-  // Usar previewConversations se fornecidas
-  if (previewConversations.length > 0) {
-    conversations = previewConversations;
+  // Verificar cache
+  if (cachedMetrics && (now - lastCalculation) < CACHE_DURATION) {
+    return cachedMetrics;
   }
-  
-  // Carrega canais do localStorage (mesma fonte que a página Canais)
-  channels = getDemoChannelsExpanded();
-  
-  // Conversas ativas (consideramos conversas com unread > 0 como ativas)
-  const activeConversations = conversations.filter(c => c.unread && c.unread > 0).length;
-  const totalConversations = conversations.length;
-  
-  // Mensagens hoje - zerado quando não há conversas
-  const todayMessages = conversations.length > 0 ? channels.reduce((sum, channel) => {
-    const messages = channel.metrics?.todayMessages || channel.today_messages || 0;
-    return sum + (typeof messages === 'number' ? messages : 0);
-  }, 0) : 0;
-  
-  // Tempo médio de resposta (dos canais conectados)
-  const connectedChannels = channels.filter(c => c.status === 'connected');
-  const averageResponseTime = conversations.length > 0 && connectedChannels.length > 0 
-    ? connectedChannels.reduce((sum, c) => {
-        const responseTime = c.metrics?.responseTime || c.response_time || 0;
-        return sum + (typeof responseTime === 'number' ? responseTime : 0);
-      }, 0) / connectedChannels.length
-    : 0;
-  
-  // Taxa de resolução (conversas com unread = 0 como resolvidas)
-  const resolvedConversations = conversations.filter(c => !c.unread || c.unread === 0).length;
-  const resolutionRate = totalConversations > 0 ? (resolvedConversations / totalConversations) * 100 : 0;
-  
-  // Distribuição por canal - zerado quando não há conversas
-  const channelCounts = conversations.length > 0 ? channels.reduce((acc, channel) => {
-    const name = channel.name || channel.type || 'Desconhecido';
-    const totalMessages = channel.metrics?.totalMessages || channel.total_messages || 0;
-    acc[name] = typeof totalMessages === 'number' ? totalMessages : 0;
-    return acc;
-  }, {} as Record<string, number>) : {};
-  
-  const totalChannelMessages = Object.values(channelCounts).reduce((sum: number, count: number) => sum + count, 0);
-  const channelDistribution = Object.entries(channelCounts).map(([name, value]) => ({
-    name,
-    value: Number(value),
-    percentage: Number(totalChannelMessages) > 0 ? (Number(value) / Number(totalChannelMessages)) * 100 : 0
-  }));
-  
-  // Atividade por hora - zerado quando não há conversas
-  const hourlyActivity = Array.from({ length: 24 }, (_, i) => {
-    const hour = i.toString().padStart(2, '0');
-    return {
-      hour: `${hour}:00`,
-      messages: conversations.length > 0 ? Math.round(Math.random() * (i >= 9 && i <= 18 ? 50 : 10)) : 0
+
+  try {
+    // Executar todas as queries em paralelo
+    const [
+      conversationStats,
+      todayMessages,
+      hourlyActivity,
+      weeklyTrend,
+      channelDistribution,
+      whatsappStatus,
+      queuedMessages,
+      channels
+    ] = await Promise.all([
+      fetchConversationStats(companyId),
+      fetchTodayMessages(companyId),
+      fetchHourlyActivity(companyId),
+      fetchWeeklyTrend(companyId),
+      fetchChannelDistribution(companyId),
+      fetchWhatsAppStatus(companyId),
+      fetchQueueStatus(),
+      fetchConnectedChannels(companyId)
+    ]);
+
+    const metrics: DashboardMetrics = {
+      activeConversations: conversationStats.activeConversations,
+      totalConversations: conversationStats.totalConversations,
+      todayMessages,
+      averageResponseTime: 0, // Será calculado quando tivermos dados de timing
+      firstResponseTime: 0,
+      resolutionRate: conversationStats.resolutionRate,
+      connectedChannels: channels.connected,
+      totalChannels: Math.max(channels.total, 1), // Pelo menos 1 para evitar divisão por zero
+      hourlyActivity,
+      weeklyTrend,
+      channelDistribution,
+      whatsappStatus,
+      queuedMessages
     };
-  });
-  
-  // Tendência semanal - zerado quando não há conversas
-  const weeklyTrend = Array.from({ length: 7 }, (_, i) => {
-    const date = new Date();
-    date.setDate(date.getDate() - (6 - i));
-    const dayName = date.toLocaleDateString('pt-BR', { weekday: 'short' });
+
+    // Atualizar cache
+    cachedMetrics = metrics;
+    lastCalculation = now;
+
+    return metrics;
+  } catch (error) {
+    console.error('Error fetching dashboard metrics:', error);
     
+    // Retornar métricas vazias em caso de erro
     return {
-      day: dayName,
-      conversations: conversations.length > 0 ? Math.round(Math.random() * 20 + 10) : 0,
-      messages: conversations.length > 0 ? Math.round(Math.random() * 100 + 50) : 0
+      activeConversations: 0,
+      totalConversations: 0,
+      todayMessages: 0,
+      averageResponseTime: 0,
+      firstResponseTime: 0,
+      resolutionRate: 0,
+      connectedChannels: 0,
+      totalChannels: 1,
+      hourlyActivity: Array.from({ length: 24 }, (_, i) => ({
+        hour: `${i.toString().padStart(2, '0')}:00`,
+        messages: 0
+      })),
+      weeklyTrend: Array.from({ length: 7 }, (_, i) => {
+        const date = subDays(new Date(), 6 - i);
+        return {
+          day: format(date, 'EEE', { locale: ptBR }),
+          date: format(date, 'dd/MM'),
+          conversations: 0,
+          messages: 0
+        };
+      }),
+      channelDistribution: []
     };
-  });
-  
-  const metrics: DashboardMetrics = {
-    activeConversations,
-    totalConversations,
-    todayMessages,
-    averageResponseTime,
-    resolutionRate,
-    connectedChannels: connectedChannels.length,
-    totalChannels: channels.length,
-    hourlyActivity,
-    weeklyTrend,
-    channelDistribution
+  }
+}
+
+// Função para invalidar cache (usado pelo refresh)
+export function invalidateDashboardCache(): void {
+  cachedMetrics = null;
+  lastCalculation = 0;
+}
+
+// =====================================================
+// FUNÇÕES LEGADAS (MANTIDAS PARA COMPATIBILIDADE)
+// =====================================================
+
+// @deprecated - Use fetchDashboardMetrics instead
+export const calculateDashboardMetrics = (isDemoMode: boolean = true, previewConversations: any[] = []): DashboardMetrics => {
+  // Retorna métricas vazias - o componente deve usar fetchDashboardMetrics
+  return {
+    activeConversations: 0,
+    totalConversations: 0,
+    todayMessages: 0,
+    averageResponseTime: 0,
+    firstResponseTime: 0,
+    resolutionRate: 0,
+    connectedChannels: 0,
+    totalChannels: 1,
+    hourlyActivity: Array.from({ length: 24 }, (_, i) => ({
+      hour: `${i.toString().padStart(2, '0')}:00`,
+      messages: 0
+    })),
+    weeklyTrend: Array.from({ length: 7 }, (_, i) => {
+      const date = subDays(new Date(), 6 - i);
+      return {
+        day: format(date, 'EEE', { locale: ptBR }),
+        date: format(date, 'dd/MM'),
+        conversations: 0,
+        messages: 0
+      };
+    }),
+    channelDistribution: []
   };
-  
-  // Atualiza cache
-  cachedMetrics = metrics;
-  lastCalculation = now;
-  
-  return metrics;
 };
 
 // Função para formatar tempo de resposta
 export const formatResponseTime = (seconds: number): string => {
+  if (seconds === 0) return '--';
   if (seconds < 60) {
     return `${Math.round(seconds)}s`;
   } else if (seconds < 3600) {
@@ -137,15 +437,16 @@ export const formatResponseTime = (seconds: number): string => {
 
 // Função para determinar cor baseada na performance
 export const getPerformanceColor = (responseTime: number): string => {
+  if (responseTime === 0) return "text-muted-foreground";
   if (responseTime <= 60) return "text-green-600"; // Excelente
-  if (responseTime <= 300) return "text-orange-600"; // Bom (mudei de yellow para orange)
+  if (responseTime <= 300) return "text-orange-600"; // Bom
   return "text-red-600"; // Precisa melhorar
 };
 
 // Cores para gráficos
 export const CHART_COLORS = [
   "hsl(var(--primary))",
-  "#6B7280", // gray-500 (cinza mais escuro)
+  "#6B7280", // gray-500
   "#3B82F6", // blue-500
   "#10B981", // emerald-500
   "#F59E0B", // amber-500
