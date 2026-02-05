@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart";
-import { Line, LineChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid } from "recharts";
-import { calculateDashboardMetrics, DashboardMetrics } from "./dashboardUtils";
-import { useDemoMode } from "@/hooks/useDemoMode";
+import { Line, LineChart, XAxis, YAxis, CartesianGrid } from "recharts";
+import { Skeleton } from "@/components/ui/skeleton";
+import { TrendingUp } from "lucide-react";
+import { fetchWeeklyTrend } from "./dashboardUtils";
+import { useAuth } from "@/contexts/auth";
 
 const chartConfig = {
   conversations: {
@@ -12,59 +14,75 @@ const chartConfig = {
   },
   messages: {
     label: "Mensagens", 
-    color: "#6B7280", // gray-500 (cinza mais escuro)
+    color: "#6B7280", // gray-500
   },
 };
 
 export const WeeklyTrendChart: React.FC = () => {
-  const { isDemoMode } = useDemoMode();
-  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  const { company } = useAuth();
+  const [weeklyData, setWeeklyData] = useState<{ day: string; date: string; conversations: number; messages: number }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  useEffect(() => {
-    const loadMetrics = () => {
-      setIsLoading(true);
-      try {
-        const calculatedMetrics = calculateDashboardMetrics(isDemoMode);
-        setMetrics(calculatedMetrics);
-      } catch (error) {
-        console.error('Error loading metrics:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const loadData = async () => {
+    if (!company?.id) return;
     
-    loadMetrics();
-  }, [isDemoMode]);
+    setIsLoading(true);
+    try {
+      const data = await fetchWeeklyTrend(company.id);
+      setWeeklyData(data);
+    } catch (error) {
+      console.error('Error loading weekly trend:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, [company?.id]);
   
   // Listen for dashboard refresh events
   useEffect(() => {
     const handleRefresh = () => {
-      setIsLoading(true);
-      try {
-        const calculatedMetrics = calculateDashboardMetrics(isDemoMode);
-        setMetrics(calculatedMetrics);
-      } catch (error) {
-        console.error('Error refreshing metrics:', error);
-      } finally {
-        setIsLoading(false);
-      }
+      loadData();
     };
     
     window.addEventListener('dashboard-refresh', handleRefresh);
     return () => window.removeEventListener('dashboard-refresh', handleRefresh);
-  }, [isDemoMode]);
+  }, [company?.id]);
+
+  const totalMessages = weeklyData.reduce((sum, item) => sum + item.messages, 0);
+  const totalConversations = weeklyData.reduce((sum, item) => sum + item.conversations, 0);
+  const hasData = totalMessages > 0 || totalConversations > 0;
   
-  if (isLoading || !metrics || !metrics.weeklyTrend) {
+  if (isLoading) {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Tendência Semanal</CardTitle>
-          <CardDescription>Conversas e mensagens dos últimos 7 dias</CardDescription>
+          <Skeleton className="h-6 w-48" />
+          <Skeleton className="h-4 w-32 mt-1" />
         </CardHeader>
         <CardContent className="p-3 sm:p-6">
-          <div className="w-full h-64 sm:h-80 flex items-center justify-center">
-            <div className="animate-pulse text-gray-500">Carregando...</div>
+          <Skeleton className="w-full h-64 sm:h-80" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!hasData) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Histórico dos Últimos 7 Dias</CardTitle>
+          <CardDescription>Evolução de conversas e mensagens</CardDescription>
+        </CardHeader>
+        <CardContent className="p-3 sm:p-6">
+          <div className="w-full h-64 sm:h-80 flex flex-col items-center justify-center text-center">
+            <TrendingUp className="h-12 w-12 text-muted-foreground/40 mb-4" />
+            <h3 className="text-lg font-medium text-foreground">Sem histórico recente</h3>
+            <p className="text-sm text-muted-foreground mt-1 max-w-xs">
+              O histórico será exibido conforme atividades forem registradas
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -74,21 +92,21 @@ export const WeeklyTrendChart: React.FC = () => {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Tendência Semanal</CardTitle>
+        <CardTitle>Histórico dos Últimos 7 Dias</CardTitle>
         <CardDescription>
-          Conversas e mensagens dos últimos 7 dias
+          {totalConversations.toLocaleString()} conversas • {totalMessages.toLocaleString()} mensagens
         </CardDescription>
       </CardHeader>
       <CardContent className="p-3 sm:p-6">
         <div className="w-full h-64 sm:h-80">
           <ChartContainer config={chartConfig}>
             <LineChart 
-              data={metrics.weeklyTrend} 
+              data={weeklyData} 
               margin={{ top: 10, right: 10, left: 0, bottom: 10 }}
             >
               <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
               <XAxis 
-                dataKey="day" 
+                dataKey="date" 
                 className="text-xs"
                 tick={{ fontSize: 11 }}
                 axisLine={false}
@@ -99,7 +117,15 @@ export const WeeklyTrendChart: React.FC = () => {
                 axisLine={false}
                 tickLine={false}
               />
-              <ChartTooltip content={<ChartTooltipContent />} />
+              <ChartTooltip 
+                content={<ChartTooltipContent />}
+                labelFormatter={(_, payload) => {
+                  if (payload?.[0]?.payload) {
+                    return `${payload[0].payload.day} (${payload[0].payload.date})`;
+                  }
+                  return '';
+                }}
+              />
               <ChartLegend content={<ChartLegendContent />} />
               <Line
                 type="monotone"
