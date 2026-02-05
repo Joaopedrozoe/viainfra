@@ -154,11 +154,13 @@ export const MessageActions = memo(({
 
         <ContextMenuSeparator />
 
-        {/* Apagar - com indicador de local */}
+        {/* Apagar - tooltip dinâmico baseado no tipo de mensagem */}
         <MenuItemWithTooltip
           icon={Trash2}
           label="Apagar"
-          tooltip="Remove apenas do CRM - não afeta o WhatsApp"
+          tooltip={isAgentMessage 
+            ? "Tenta apagar para todos no WhatsApp (limite: ~1h após envio)" 
+            : "Mensagens recebidas só podem ser removidas do CRM"}
           onClick={() => onDelete(message)}
           className="text-destructive focus:text-destructive"
         />
