@@ -1,507 +1,611 @@
 
-# Plano de Desenvolvimento ViaInfra
-
-## Status de Implementação
-
-### Revisão Visual Premium (FASE 1 - Concluída ✅)
-- [x] Sidebar: Logo flutuante com fundo branco
-- [x] Menu: Ícones maiores (h-5 w-5), indicador ativo com border-l
-- [x] Perfil: Avatar maior (h-10), ring primária
-- [x] ChatHeader: backdrop-blur, shadow-sm, tokens semânticos
-- [x] MessageItem: bordas arredondadas premium, shadow-sm
-- [x] ConversationItem: tokens semânticos, hover refinado
-- [x] Dashboard: tokens semânticos, cards refinados
-- [x] MetricsOverview: hover elevado, loading skeletons
-- [x] EmptyState: novo componente reutilizável
-
-### Otimização de Performance (FASE 1 - Concluída ✅)
-- [x] Virtualização: ConversationList com @tanstack/react-virtual
-- [x] Debounce: useDeferredValue para busca fluida
-- [x] Handlers estáveis: useRef para handlers realtime
-- [x] Pre-loading: rotas carregadas no hover do menu
-
----
-
-# Plano de Revisao e Otimizacao de Performance da Interface (UI)
+# Plano de Revisao e Aprimoramento do Dashboard
 
 ## Resumo Executivo
 
-Este plano propoe otimizacoes abrangentes para elevar a responsividade, fluidez e percepcao de instantaneidade da plataforma ViaInfra, adequando-a a um ambiente corporativo de uso intensivo. As melhorias sao incrementais, seguras e nao alteram funcionalidades existentes.
+Este plano transforma o Dashboard em uma ferramenta confiavel de acompanhamento operacional e tecnico, eliminando dados mockados/aleatorios e substituindo por metricas reais do banco de dados Supabase, com visao temporal por periodos e indicadores de saude do sistema.
 
 ---
 
+## 1. Diagnostico Atual - Problemas Identificados
 
-## 1. Diagnostico Atual - Pontos de Gargalo Identificados
+### 1.1 Metricas com Dados Aleatorios (Problema Critico)
 
-### 1.1 Renderizacoes e Re-renders
+| Componente | Problema | Linha |
+|------------|----------|-------|
+| `dashboardUtils.ts` | `hourlyActivity` usa `Math.random()` | 86-92 |
+| `dashboardUtils.ts` | `weeklyTrend` usa `Math.random()` | 95-105 |
+| Ambos graficos | Dados diferentes a cada refresh, nao refletem realidade | - |
 
-| Componente | Problema | Impacto |
-|------------|----------|---------|
-| `ConversationList` | `filteredConversations` recalcula em todo render, mesmo sem mudanca de dados | Lentidao ao digitar busca |
-| `ChatWindow` | Subscription realtime recriada a cada render do useEffect | Overhead de conexao |
-| `MessageItem` | Ja usa `memo` (OK) | Baixo impacto |
-| `ConversationItem` | Ja usa `memo` (OK) | Baixo impacto |
-| `useConversations` | `handleNewMessage` cria novas funcoes internas a cada render | Re-renders desnecessarios na lista |
+**Dados Reais Disponiveis no Banco:**
+- 357 conversas totais (320 abertas, 32 resolvidas, 5 pendentes)
+- 11.062 mensagens totais (108 hoje)
+- Historico de mensagens por dia (ultimos 7 dias)
+- Historico de mensagens por hora (hoje)
 
-### 1.2 Listas Longas (Sem Virtualizacao)
+### 1.2 Componentes Atuais do Dashboard
 
-| Lista | Volume Tipico | Problema |
-|-------|---------------|----------|
-| `ConversationList` | 50-200 conversas | Renderiza TODAS as conversas visualmente |
-| `ChatWindow` (mensagens) | 50-500+ mensagens | Renderiza todas as mensagens da pagina atual (50) |
+| Componente | Proposito | Status |
+|------------|-----------|--------|
+| `DashboardHeader` | Saudacao + botao refresh | OK |
+| `MetricsOverview` | 5 cards de metricas principais | Parcialmente real |
+| `ActivityChart` | Atividade por hora (24h) | MOCK - dados aleatorios |
+| `ChannelDistributionChart` | Pizza de distribuicao por canal | MOCK - depende de canais |
+| `WeeklyTrendChart` | Tendencia semanal (7 dias) | MOCK - dados aleatorios |
+| `SystemHealthCheck` | Status de componentes do sistema | OK - dados reais |
+| `ChannelHealthPanel` | Status dos canais de atendimento | OK - dados reais |
+| `TeamPresence` | Equipe online/offline | OK - dados reais |
+| `RecentActivity` | Ultimas conversas | OK - dados reais |
 
-O DOM cresce linearmente com o numero de itens, causando:
-- Scroll menos fluido
-- Maior tempo de reconciliacao React
-- Maior uso de memoria
+### 1.3 Metricas que Faltam (Visao Tecnica)
 
-### 1.3 Queries e Chamadas Assincronas
-
-| Hook/Componente | Observacao |
-|-----------------|------------|
-| `useConversations.fetchConversations` | Ja otimizada com batch query unica para mensagens |
-| `useInfiniteMessages.loadInitialMessages` | Faz 2 queries (count + select) - poderia ser 1 |
-| `markMessagesAsRead` | Faz updates em batches de 10 - OK |
-
-### 1.4 Gerenciamento de Estado
-
-| Contexto | Problema Potencial |
-|----------|-------------------|
-| `AuthContext` | OK - estavel |
-| `PreviewConversationContext` | OK - escopo limitado |
-| Multiple `useState` em hooks | Cada `setX` causa re-render individual |
-
-### 1.5 Animacoes e Transicoes
-
-| Componente | Animacao | Impacto |
-|------------|----------|---------|
-| `ConversationItem` | `animate-bounce`, `animate-pulse` em badges | Baixo |
-| `MessageItem` | Nenhuma animacao pesada | OK |
-| `Sidebar` | `transition-all duration-200` | OK |
+| Metrica | Valor para Operacao |
+|---------|---------------------|
+| Tempo medio de primeira resposta | Critico para SLA |
+| Mensagens por hora (real) | Tendencia de carga |
+| Conversas por dia (historico real) | Planejamento de capacidade |
+| Taxa de resolucao por periodo | Eficiencia da equipe |
+| Status dos canais WhatsApp | Monitoramento de conexao |
 
 ---
 
-## 2. Estrategia de Otimizacao por Area
+## 2. Arquitetura da Solucao
 
-### 2.1 Inbox e Conversas (Prioridade CRITICA)
-
-#### 2.1.1 Virtualizacao da Lista de Conversas
-
-**Problema**: `ConversationList` renderiza todas as conversas no DOM simultaneamente.
-
-**Solucao**: Implementar virtualizacao usando `react-virtual` (tanstack) ou `react-window`.
-
-**Beneficio Esperado**:
-- Reducao de ~80% no tempo de render inicial
-- Scroll de 60fps mesmo com 500+ conversas
-- Reducao de uso de memoria
-
-**Implementacao**:
+### 2.1 Nova Estrutura de Dados
 
 ```text
-Arquivo: src/components/app/ConversationList.tsx
-
-- Instalar: @tanstack/react-virtual
-- Criar ref para container de scroll
-- Usar useVirtualizer para calcular items visiveis
-- Renderizar apenas ~10-15 conversas visiveis + buffer
+dashboardUtils.ts (refatorar)
++-- fetchDashboardMetrics() - busca dados reais do Supabase
+    +-- Metricas de Conversas (real)
+    +-- Metricas de Mensagens por Hora (real)
+    +-- Metricas de Mensagens por Dia (real)
+    +-- Status dos Canais (real)
+    +-- Tempo de Resposta calculado
 ```
 
-#### 2.1.2 Virtualizacao de Mensagens no Chat
-
-**Problema**: `ChatWindow` renderiza todas as 50 mensagens da pagina atual.
-
-**Solucao**: Aplicar virtualizacao similar ao historico de mensagens.
-
-**Consideracoes**:
-- Scroll reverso (mensagens novas no final)
-- Ancoragem no final ao receber nova mensagem
-- Preservar posicao ao carregar historico
-
-**Beneficio**: Suporte a conversas de 1000+ mensagens sem degradacao.
-
-#### 2.1.3 Otimizacao de Re-renders na Lista
-
-**Problema**: `filteredConversations` recalcula mesmo quando estados irrelevantes mudam.
-
-**Solucao**: Garantir memoizacao estavel com dependencias corretas.
-
-**Codigo Atual** (linha 195-260):
-```typescript
-const filteredConversations = useMemo(() => {
-  // ...logica de filtragem
-}, [combinedConversations, searchTerm, selectedChannel, selectedDepartment, activeTab, resolvedConversations]);
-```
-
-**Verificacao**: Dependencias parecem corretas, mas `resolvedConversations` e um `Set` que e recriado no storage sync. Usar referencia estavel ou serializar para comparacao.
-
-### 2.2 Navegacao Geral (Prioridade ALTA)
-
-#### 2.2.1 Pre-loading de Rotas Adjacentes
-
-**Status Atual**: Lazy loading implementado para todas as rotas principais.
-
-**Melhoria Proposta**: Pre-carregar rotas provaveis quando usuario hover no menu.
+### 2.2 Fluxo de Dados
 
 ```text
-Arquivo: src/components/app/Sidebar.tsx
-
-- onMouseEnter em cada NavLink
-- Chamar import() da rota correspondente
-- Cacheado automaticamente pelo bundler
-```
-
-**Beneficio**: Navegacao percebida como instantanea (rota ja carregada).
-
-#### 2.2.2 Skeleton de Pagina Especifico
-
-**Status Atual**: Fallback generico (spinner) para todas as paginas.
-
-**Melhoria**: Skeletons especificos por tipo de pagina (Dashboard, Inbox, Settings).
-
-```text
-Arquivo: src/App.tsx
-
-Criar componentes:
-- DashboardSkeleton
-- InboxSkeleton
-- SettingsSkeleton
-```
-
-**Beneficio**: Percepcao de carregamento mais rapido (layout ja definido).
-
-### 2.3 Sidebar e Menus (Prioridade MEDIA)
-
-#### 2.3.1 Memoizacao de Items de Menu
-
-**Status Atual**: `menuItems` e um array estatico, recriado a cada render.
-
-**Solucao**:
-
-```typescript
-const menuItems = useMemo(() => [
-  { title: "Dashboard", url: "/dashboard", icon: BarChart3, available: true },
-  // ...
-], [hasFeature]); // Apenas quando permissoes mudam
-```
-
-### 2.4 Formularios e Acoes Criticas (Prioridade MEDIA)
-
-#### 2.4.1 Debounce em Campos de Busca
-
-**Status Atual**: `searchTerm` atualiza a cada keystroke, triggering filtro.
-
-**Solucao**:
-
-```text
-Arquivo: src/components/app/ConversationList.tsx
-
-- Usar useDeferredValue para searchTerm
-- Ou implementar debounce de 150ms
-```
-
-**Beneficio**: Digitacao fluida, sem travamentos.
-
-#### 2.4.2 Envio de Mensagens - Feedback Instantaneo
-
-**Status Atual**: Ja implementado (mensagem temporaria).
-
-**Verificacao**: `handleSendMessage` adiciona `tempMessage` antes da API.
-
-**Status**: OK - padrao de optimistic update correto.
-
-### 2.5 Atualizacoes em Tempo Real (Prioridade ALTA)
-
-#### 2.5.1 Otimizacao do handleNewMessage
-
-**Problema**: Funcao recriada a cada render do hook, causando re-subscricao.
-
-**Solucao**: Usar `useRef` para handlers estaveis.
-
-```text
-Arquivo: src/hooks/useConversations.ts
-
-const handleNewMessageRef = useRef(handleNewMessage);
-useEffect(() => {
-  handleNewMessageRef.current = handleNewMessage;
-}, [handleNewMessage]);
-
-// Na subscription:
-.on('postgres_changes', ..., (payload) => {
-  handleNewMessageRef.current(payload);
-})
-```
-
-#### 2.5.2 Reducao de Polling Redundante
-
-**Status Atual**: Polling a cada 15s com verificacao de conexao realtime.
-
-**Status**: Ja otimizado com polling adaptativo (60s quando realtime conectado).
-
-### 2.6 Estados de Loading (Prioridade MEDIA)
-
-#### 2.6.1 Skeleton para Items de Lista
-
-**Status Atual**: ConversationList tem skeleton adequado no carregamento inicial.
-
-**Melhoria**: Adicionar skeleton inline para "carregar mais" ao rolar.
-
-```text
-Quando isLoadingMore === true:
-- Mostrar 2-3 skeletons no topo (historico) ou final (conversas)
-- Em vez de apenas indicador generico
+Supabase (fonte) --> fetchDashboardMetrics() --> Componentes
+                          |
+                          +-- Cache local (30s TTL)
+                          |
+                          +-- Listener 'dashboard-refresh'
 ```
 
 ---
 
-## 3. Implementacoes Detalhadas
+## 3. Implementacoes por Componente
 
-### 3.1 Virtualizacao de ConversationList
+### 3.1 dashboardUtils.ts - Refatorar para Dados Reais
 
-**Nova Dependencia**: `@tanstack/react-virtual`
+**Problema Central:** As funcoes `calculateDashboardMetrics` usam dados mockados.
 
-**Arquivo**: `src/components/app/ConversationList.tsx`
+**Solucao:** Criar funcoes assincronas que buscam dados do Supabase.
+
+**Novas Funcoes:**
 
 ```typescript
-import { useVirtualizer } from '@tanstack/react-virtual';
+// Buscar metricas de conversas
+async function fetchConversationMetrics(companyId: string) {
+  const { data } = await supabase
+    .from('conversations')
+    .select('status, created_at')
+    .eq('company_id', companyId);
+  
+  return {
+    total: data.length,
+    open: data.filter(c => c.status === 'open').length,
+    resolved: data.filter(c => c.status === 'resolved').length,
+    pending: data.filter(c => c.status === 'pending').length,
+    today: data.filter(c => isToday(c.created_at)).length
+  };
+}
 
-// Dentro do componente:
-const parentRef = useRef<HTMLDivElement>(null);
+// Buscar mensagens por hora (hoje) - SUBSTITUIR Math.random()
+async function fetchHourlyActivity(companyId: string) {
+  const { data } = await supabase
+    .from('messages')
+    .select('created_at')
+    .gte('created_at', todayStart)
+    .order('created_at');
+  
+  // Agrupar por hora
+  return groupByHour(data);
+}
 
-const virtualizer = useVirtualizer({
-  count: filteredConversations.length,
-  getScrollElement: () => parentRef.current,
-  estimateSize: () => 80, // altura aproximada de cada item
-  overscan: 5, // itens extras renderizados fora da view
-});
-
-// No JSX:
-<div ref={parentRef} className="flex-1 overflow-y-auto">
-  <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
-    {virtualizer.getVirtualItems().map(virtualRow => {
-      const conversation = filteredConversations[virtualRow.index];
-      return (
-        <div
-          key={conversation.id}
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            transform: `translateY(${virtualRow.start}px)`,
-          }}
-        >
-          <ConversationItem {...props} />
-        </div>
-      );
-    })}
-  </div>
-</div>
+// Buscar tendencia semanal (7 dias) - SUBSTITUIR Math.random()
+async function fetchWeeklyTrend(companyId: string) {
+  const { data } = await supabase
+    .from('messages')
+    .select('created_at')
+    .gte('created_at', sevenDaysAgo)
+    .order('created_at');
+  
+  // Agrupar por dia
+  return groupByDay(data);
+}
 ```
 
-### 3.2 Virtualizacao de Mensagens
+### 3.2 ActivityChart.tsx - Atividade por Hora (Real)
 
-**Arquivo**: `src/components/app/ChatWindow.tsx`
+**Antes:** Dados aleatorios `Math.random() * (i >= 9 && i <= 18 ? 50 : 10)`
 
-Similar a lista de conversas, mas com scroll reverso:
+**Depois:** Query real de mensagens agrupadas por hora
+
+**Beneficio:** Identificar picos de demanda, horarios de maior atividade
+
+### 3.3 WeeklyTrendChart.tsx - Tendencia Semanal (Real)
+
+**Antes:** Dados aleatorios para 7 dias
+
+**Depois:** Query real com agregacao por data
+
+**Melhorias Adicionais:**
+- Adicionar comparacao com semana anterior (linha pontilhada)
+- Tooltip com detalhes (conversas vs mensagens)
+
+### 3.4 MetricsOverview.tsx - Cards Principais
+
+**Cards Atuais (manter):**
+
+| Card | Fonte Atual | Acao |
+|------|-------------|------|
+| Conversas Ativas | Supabase | OK |
+| Mensagens Hoje | Misto | Corrigir para query direta |
+| Tempo de Resposta | Calculado | Melhorar calculo |
+| Taxa de Resolucao | Calculado | OK |
+| Canais Online | localStorage | Migrar para Supabase |
+
+**Card Novo Proposto:**
+- Substituir "Canais Online" por "Tempo Medio 1a Resposta" (mais relevante para SLA)
+
+### 3.5 SystemHealthCheck.tsx - Expandir Metricas Tecnicas
+
+**Atual:** 4 verificacoes basicas (Frontend, Database, Auth, Chat)
+
+**Proposta de Expansao:**
+
+| Check Atual | Manter |
+|-------------|--------|
+| Frontend Application | Sim |
+| Database Connection | Sim |
+| Autenticacao | Sim |
+| Sistema de Chat | Sim |
+
+| Check Novo | Valor |
+|------------|-------|
+| WhatsApp Connection | Status da instancia (`connection_state`) |
+| Realtime Subscription | Verificar se channel esta ativo |
+| API Latency | Medir tempo de resposta da query |
+| Queue Status | Verificar `message_queue` pendentes |
+
+**Implementacao do API Latency:**
 
 ```typescript
-const virtualizer = useVirtualizer({
-  count: messages.length,
-  getScrollElement: () => messagesContainerRef.current,
-  estimateSize: (index) => {
-    // Estimar altura baseado em tipo de mensagem
-    const msg = messages[index];
-    if (msg.attachment) return 200;
-    if (msg.content.length > 200) return 100;
-    return 60;
-  },
-  overscan: 10,
-  // Scroll reverso para chat
-  getItemKey: (index) => messages[index].id,
-});
-```
+// Medir latencia de query
+const start = performance.now();
+await supabase.from('companies').select('count').limit(1);
+const latency = performance.now() - start;
 
-### 3.3 Pre-loading de Rotas
-
-**Arquivo**: `src/components/app/Sidebar.tsx`
-
-```typescript
-const routePreloaders: Record<string, () => Promise<any>> = {
-  '/dashboard': () => import('@/pages/app/Dashboard'),
-  '/inbox': () => import('@/pages/app/Inbox'),
-  '/settings': () => import('@/pages/app/Settings'),
-  // ...
+return {
+  component: 'API Latency',
+  status: latency < 100 ? 'healthy' : latency < 300 ? 'warning' : 'error',
+  message: `${Math.round(latency)}ms`,
 };
+```
 
-const handleMouseEnter = (url: string) => {
-  if (routePreloaders[url]) {
-    routePreloaders[url]();
+### 3.6 ChannelDistributionChart.tsx - Ajustar para Dados Reais
+
+**Problema:** Depende de `channelDistribution` que vem de localStorage
+
+**Solucao:** Query mensagens agrupadas por canal real
+
+```typescript
+// Distribuicao real por canal
+const { data } = await supabase
+  .from('conversations')
+  .select('channel')
+  .eq('company_id', companyId);
+
+// Contar por canal
+const channelCounts = data.reduce((acc, c) => {
+  acc[c.channel] = (acc[c.channel] || 0) + 1;
+  return acc;
+}, {});
+```
+
+---
+
+## 4. Nova Secao: Visao Temporal e Tendencias
+
+### 4.1 Novo Componente: PerformanceMetricsChart
+
+**Proposito:** Graficos de linha por periodo mostrando tendencias
+
+**Conteudo:**
+- Mensagens por dia (ultimos 7/14/30 dias)
+- Conversas iniciadas por dia
+- Taxa de resolucao por dia
+- Tempo medio de resposta por dia
+
+**Seletor de Periodo:**
+- 7 dias (padrao)
+- 14 dias
+- 30 dias
+
+### 4.2 Formato do Grafico
+
+```text
+[Titulo: Tendencias de Atendimento]
+[Seletor: 7 dias | 14 dias | 30 dias]
+
+Linha 1 (primaria): Mensagens/dia
+Linha 2 (secundaria): Conversas/dia
+Eixo X: Datas
+Eixo Y: Contagem
+```
+
+---
+
+## 5. Reorganizacao do Layout
+
+### 5.1 Layout Atual
+
+```text
+Row 1: [DashboardHeader]
+Row 2: [MetricsOverview - 5 cards]
+Row 3: [ActivityChart] [ChannelDistributionChart]
+Row 4: [WeeklyTrendChart] [SystemHealthCheck]
+Row 5: [ChannelHealthPanel] [TeamPresence]
+Row 6: [RecentActivity]
+```
+
+### 5.2 Layout Proposto (Prioridade Hierarquica)
+
+```text
+Row 1: [DashboardHeader com status geral]
+Row 2: [MetricsOverview - 5 cards principais]
+
+--- Secao: Atividade e Tendencias ---
+Row 3: [ActivityChart - Hoje por Hora] [WeeklyTrendChart - 7 dias]
+
+--- Secao: Canais e Performance ---
+Row 4: [ChannelDistributionChart] [ChannelHealthPanel]
+
+--- Secao: Sistema e Equipe ---
+Row 5: [SystemHealthCheck EXPANDIDO] [TeamPresence]
+
+--- Secao: Detalhes ---
+Row 6: [RecentActivity]
+```
+
+**Justificativa:**
+- Metricas mais acionaveis primeiro (cards)
+- Tendencias temporais juntas (atividade + semanal)
+- Status operacional agrupado (canais)
+- Status tecnico com equipe (suporte)
+- Detalhes por ultimo (consulta eventual)
+
+---
+
+## 6. Detalhamento Tecnico das Alteracoes
+
+### 6.1 dashboardUtils.ts - Refatoracao Completa
+
+**Arquivo:** `src/components/app/dashboard/dashboardUtils.ts`
+
+**Alteracoes:**
+
+1. Adicionar nova interface para metricas expandidas:
+
+```typescript
+export interface DashboardMetrics {
+  // Conversas (existente)
+  activeConversations: number;
+  totalConversations: number;
+  todayMessages: number;
+  
+  // Performance (expandir)
+  averageResponseTime: number;
+  firstResponseTime: number; // NOVO
+  resolutionRate: number;
+  
+  // Canais (existente)
+  connectedChannels: number;
+  totalChannels: number;
+  
+  // Atividade - DADOS REAIS
+  hourlyActivity: { hour: string; messages: number }[];
+  weeklyTrend: { day: string; date: string; conversations: number; messages: number }[];
+  channelDistribution: { name: string; value: number; percentage: number }[];
+  
+  // NOVO - Tendencias
+  previousWeekTrend?: { day: string; date: string; conversations: number; messages: number }[];
+  
+  // NOVO - Sistema
+  apiLatency?: number;
+  whatsappStatus?: 'connected' | 'disconnected' | 'error';
+  queuedMessages?: number;
+}
+```
+
+2. Criar nova funcao assincrona principal:
+
+```typescript
+export async function fetchDashboardMetrics(companyId: string): Promise<DashboardMetrics> {
+  // Todas as queries em paralelo para performance
+  const [
+    conversationStats,
+    hourlyData,
+    weeklyData,
+    channelData,
+    whatsappStatus,
+    queueStatus
+  ] = await Promise.all([
+    fetchConversationStats(companyId),
+    fetchHourlyActivity(companyId),
+    fetchWeeklyTrend(companyId),
+    fetchChannelDistribution(companyId),
+    fetchWhatsAppStatus(companyId),
+    fetchQueueStatus(companyId)
+  ]);
+
+  return {
+    ...conversationStats,
+    hourlyActivity: hourlyData,
+    weeklyTrend: weeklyData,
+    channelDistribution: channelData,
+    whatsappStatus,
+    queuedMessages: queueStatus
+  };
+}
+```
+
+3. Remover `Math.random()` das linhas 86-92 e 95-105
+
+### 6.2 Componentes - Migrar para useEffect Assincrono
+
+**Padrao para todos os componentes:**
+
+```typescript
+// ANTES (sincrono com mock)
+const calculatedMetrics = calculateDashboardMetrics(isDemoMode);
+
+// DEPOIS (assincrono com dados reais)
+useEffect(() => {
+  const loadMetrics = async () => {
+    if (!companyId) return;
+    setIsLoading(true);
+    try {
+      const data = await fetchDashboardMetrics(companyId);
+      setMetrics(data);
+    } catch (error) {
+      console.error('Error loading metrics:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  loadMetrics();
+}, [companyId]);
+```
+
+### 6.3 SystemHealthCheck.tsx - Adicionar Verificacoes
+
+**Linhas a adicionar (apos linha 83):**
+
+```typescript
+// WhatsApp connection check
+(async () => {
+  try {
+    const { data, error } = await supabase
+      .from('whatsapp_instances')
+      .select('connection_state, instance_name')
+      .limit(1)
+      .single();
+    
+    return {
+      component: 'WhatsApp',
+      status: data?.connection_state === 'open' ? 'healthy' : 'warning',
+      message: data?.connection_state === 'open' 
+        ? `${data.instance_name} conectado` 
+        : 'Instancia desconectada',
+      lastCheck: new Date().toLocaleTimeString('pt-BR')
+    };
+  } catch {
+    return {
+      component: 'WhatsApp',
+      status: 'error',
+      message: 'Erro ao verificar WhatsApp',
+      lastCheck: new Date().toLocaleTimeString('pt-BR')
+    };
   }
-};
+})(),
 
-// No NavLink:
-<NavLink 
-  to={item.url}
-  onMouseEnter={() => handleMouseEnter(item.url)}
->
+// API Latency check
+(async () => {
+  const start = performance.now();
+  try {
+    await supabase.from('companies').select('id').limit(1);
+    const latency = Math.round(performance.now() - start);
+    
+    return {
+      component: 'API Latency',
+      status: latency < 200 ? 'healthy' : latency < 500 ? 'warning' : 'error',
+      message: `${latency}ms`,
+      lastCheck: new Date().toLocaleTimeString('pt-BR')
+    };
+  } catch {
+    return {
+      component: 'API Latency',
+      status: 'error',
+      message: 'Timeout',
+      lastCheck: new Date().toLocaleTimeString('pt-BR')
+    };
+  }
+})(),
+
+// Message queue check
+(async () => {
+  try {
+    const { count, error } = await supabase
+      .from('message_queue')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending');
+    
+    const pending = count || 0;
+    return {
+      component: 'Fila de Mensagens',
+      status: pending < 10 ? 'healthy' : pending < 50 ? 'warning' : 'error',
+      message: `${pending} pendentes`,
+      lastCheck: new Date().toLocaleTimeString('pt-BR')
+    };
+  } catch {
+    return {
+      component: 'Fila de Mensagens',
+      status: 'warning',
+      message: 'Nao monitorado',
+      lastCheck: new Date().toLocaleTimeString('pt-BR')
+    };
+  }
+})(),
 ```
 
-### 3.4 Debounce na Busca
+---
 
-**Arquivo**: `src/components/app/ConversationList.tsx`
+## 7. Nomenclaturas e Clareza
+
+### 7.1 Ajustes de Nomenclatura
+
+| Atual | Proposto | Razao |
+|-------|----------|-------|
+| "Atividade nas Ultimas 24 Horas" | "Mensagens por Hora (Hoje)" | Mais preciso |
+| "Tendencia Semanal" | "Historico dos Ultimos 7 Dias" | Mais claro |
+| "Status dos Canais" | "Canais de Atendimento" | Mais objetivo |
+| "Status do Sistema" | "Saude do Sistema" | Terminologia tecnica |
+| "Equipe" | "Equipe Online" | Indica proposito |
+
+### 7.2 Tooltips Informativos
+
+Adicionar tooltips explicativos em cada metrica:
 
 ```typescript
-import { useDeferredValue } from 'react';
-
-const [searchTerm, setSearchTerm] = useState("");
-const deferredSearchTerm = useDeferredValue(searchTerm);
-
-// Usar deferredSearchTerm no useMemo de filteredConversations
-const filteredConversations = useMemo(() => {
-  // ...usar deferredSearchTerm em vez de searchTerm
-}, [combinedConversations, deferredSearchTerm, ...]);
+// Exemplo no MetricsOverview
+const cards = [
+  {
+    title: "Conversas Ativas",
+    tooltip: "Conversas com status 'aberto' ou 'pendente'",
+    ...
+  },
+  {
+    title: "Tempo de Resposta",
+    tooltip: "Media de tempo entre mensagem do cliente e resposta do agente",
+    ...
+  }
+];
 ```
 
-### 3.5 Referencia Estavel para Handlers Realtime
+---
 
-**Arquivo**: `src/hooks/useConversations.ts`
+## 8. Estados Vazios e Carregamento
+
+### 8.1 Padronizar Loading States
+
+**Usar Skeleton para todos os componentes:**
 
 ```typescript
-// No topo do hook:
-const handleNewMessageRef = useRef<(payload: any) => void>();
+// Padrao de loading
+if (isLoading) {
+  return (
+    <Card>
+      <CardHeader>
+        <Skeleton className="h-6 w-48" />
+        <Skeleton className="h-4 w-32 mt-1" />
+      </CardHeader>
+      <CardContent>
+        <Skeleton className="h-64 w-full" />
+      </CardContent>
+    </Card>
+  );
+}
+```
 
-// Atualizar ref quando handler muda:
-useEffect(() => {
-  handleNewMessageRef.current = handleNewMessage;
-});
+### 8.2 Estados Vazios com Acao
 
-// No useEffect da subscription (linha ~437):
-.on('postgres_changes', { event: 'INSERT', ... }, (payload) => {
-  handleNewMessageRef.current?.(payload);
-})
+```typescript
+// Estado vazio com acao
+if (data.length === 0) {
+  return (
+    <Card>
+      <CardContent className="py-12 text-center">
+        <MessageSquare className="h-12 w-12 mx-auto text-muted-foreground/40 mb-4" />
+        <h3 className="text-lg font-medium">Nenhuma atividade registrada</h3>
+        <p className="text-sm text-muted-foreground mt-1">
+          Dados aparecerao conforme mensagens forem recebidas
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
 ```
 
 ---
 
-## 4. Metricas e Medicao
+## 9. Arquivos a Serem Modificados
 
-### 4.1 Metricas de Performance a Monitorar
+### Alta Prioridade (Dados Reais)
 
-| Metrica | Ferramenta | Alvo |
-|---------|------------|------|
-| First Contentful Paint | Lighthouse | < 1.5s |
-| Time to Interactive | Lighthouse | < 3s |
-| Scroll FPS | DevTools Performance | 60fps |
-| Render Time (lista) | React DevTools Profiler | < 16ms |
-| Memory Usage | DevTools Memory | Estavel (sem leaks) |
+| Arquivo | Alteracao |
+|---------|-----------|
+| `src/components/app/dashboard/dashboardUtils.ts` | Refatorar para queries reais, remover Math.random() |
+| `src/components/app/dashboard/ActivityChart.tsx` | Usar dados reais de mensagens por hora |
+| `src/components/app/dashboard/WeeklyTrendChart.tsx` | Usar dados reais de mensagens por dia |
+| `src/components/app/SystemHealthCheck.tsx` | Adicionar verificacoes de WhatsApp, latencia, fila |
 
-### 4.2 Testes de Regressao
+### Media Prioridade (Melhorias)
 
-| Cenario | Verificacao |
-|---------|-------------|
-| Lista com 200 conversas | Scroll fluido, sem jank |
-| Chat com 500 mensagens | Scroll reverso fluido |
-| Digitar busca rapido | Sem travamento de UI |
-| Receber 10 mensagens seguidas | Updates instantaneos |
-| Navegar entre 5 telas | Transicao < 100ms |
+| Arquivo | Alteracao |
+|---------|-----------|
+| `src/components/app/dashboard/MetricsOverview.tsx` | Tooltips, ajuste de "Canais Online" |
+| `src/components/app/dashboard/ChannelDistributionChart.tsx` | Query real por canal |
+| `src/components/app/dashboard/DashboardHeader.tsx` | Indicador de status geral |
 
----
+### Baixa Prioridade (Refinamentos)
 
-## 5. Priorizacao e Cronograma de Implementacao
-
-### Fase 1 - Impacto Imediato (Alta Prioridade)
-
-| Item | Arquivo | Esforco | Impacto |
-|------|---------|---------|---------|
-| Virtualizacao ConversationList | ConversationList.tsx | Medio | Alto |
-| Debounce na busca | ConversationList.tsx | Baixo | Medio |
-| Handler estavel realtime | useConversations.ts | Baixo | Medio |
-
-### Fase 2 - Percepcao de Velocidade (Media Prioridade)
-
-| Item | Arquivo | Esforco | Impacto |
-|------|---------|---------|---------|
-| Pre-loading de rotas | Sidebar.tsx | Baixo | Medio |
-| Skeletons especificos | App.tsx + componentes | Medio | Medio |
-| Virtualizacao de mensagens | ChatWindow.tsx | Alto | Alto |
-
-### Fase 3 - Refinamentos (Baixa Prioridade)
-
-| Item | Arquivo | Esforco | Impacto |
-|------|---------|---------|---------|
-| Memoizacao menuItems | Sidebar.tsx | Baixo | Baixo |
-| Skeleton inline loadMore | ConversationList.tsx | Baixo | Baixo |
-| Query unica para count+select | useInfiniteMessages.ts | Baixo | Baixo |
+| Arquivo | Alteracao |
+|---------|-----------|
+| `src/pages/app/Dashboard.tsx` | Reorganizar layout se necessario |
+| Todos componentes | Padronizar loading/empty states |
 
 ---
 
-## 6. Arquivos a Serem Modificados
-
-### Alta Prioridade
-
-| Arquivo | Alteracoes |
-|---------|------------|
-| `package.json` | Adicionar @tanstack/react-virtual |
-| `src/components/app/ConversationList.tsx` | Virtualizacao + debounce |
-| `src/hooks/useConversations.ts` | Ref estavel para handlers |
-
-### Media Prioridade
-
-| Arquivo | Alteracoes |
-|---------|------------|
-| `src/components/app/Sidebar.tsx` | Pre-loading + memoizacao |
-| `src/components/app/ChatWindow.tsx` | Virtualizacao de mensagens |
-| `src/App.tsx` | Skeletons especificos por rota |
-
-### Baixa Prioridade
-
-| Arquivo | Alteracoes |
-|---------|------------|
-| `src/hooks/useInfiniteMessages.ts` | Unificar queries |
-
----
-
-## 7. Riscos e Mitigacoes
-
-| Risco | Mitigacao |
-|-------|-----------|
-| Virtualizacao quebra scroll position cache | Testar preservacao de posicao |
-| Pre-loading aumenta bandwidth inicial | Limitar a rotas mais usadas |
-| Debounce atrasa resultados de busca | Usar useDeferredValue (nativo React 18) |
-| Mudancas em ConversationList quebram filtros | Testes extensivos de filtragem |
-
----
-
-## 8. Resultados Esperados
-
-### Antes vs Depois (Estimativas)
+## 10. Beneficios Esperados
 
 | Metrica | Antes | Depois |
 |---------|-------|--------|
-| Render inicial (200 conversas) | ~300ms | ~50ms |
-| Scroll FPS | 30-45 | 60 |
-| Navegacao entre telas | 200-400ms | 50-100ms |
-| Resposta a digitacao | 50-100ms | < 16ms |
-| Memoria (500 msgs) | ~50MB | ~20MB |
+| Confiabilidade dos dados | Baixa (mock) | Alta (Supabase) |
+| Valor para decisao | Nenhum | Alto (tendencias reais) |
+| Identificacao de problemas | Manual | Automatica (health checks) |
+| Tempo para insight | N/A | Imediato (dados atuais) |
 
 ---
 
-## 9. Fora de Escopo
+## 11. Fora de Escopo
 
 Este plano NAO altera:
 - Fluxos funcionais existentes
-- APIs e Edge Functions
+- Design visual (cores, espacamentos) - tratado em plano separado
 - Estrutura de banco de dados
-- Design visual (tratado em plano separado)
+- Edge functions
 - Logica de negocios
 
 ---
 
-## 10. Dependencias Novas
+## 12. Riscos e Mitigacoes
 
-| Pacote | Versao | Motivo |
-|--------|--------|--------|
-| @tanstack/react-virtual | ^3.x | Virtualizacao eficiente de listas |
-
-Total: 1 nova dependencia (leve, ~10KB gzipped).
+| Risco | Mitigacao |
+|-------|-----------|
+| Queries pesadas no Dashboard | Cache de 30s, queries otimizadas com limit |
+| Latencia no carregamento | Loading states, Promise.all paralelo |
+| Dados vazios em ambiente novo | Estados vazios informativos |
+| Erro em query especifica | Fallback graceful, nao quebra outros componentes |
