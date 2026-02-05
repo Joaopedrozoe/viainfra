@@ -22,6 +22,9 @@ const getFileType = (file: File): Attachment['type'] => {
   return 'document';
 };
 
+// Cache de posição de scroll por conversa (distância do final)
+const scrollPositionsCache = new Map<string, number>();
+
 export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: ChatWindowProps) => {
   const [contactName, setContactName] = useState<string>("");
   const [contactAvatar, setContactAvatar] = useState<string | null>(null);
@@ -165,18 +168,52 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     }
   };
   
-  // Scroll para o final quando novas mensagens chegam
+  // Salvar posição do scroll quando sair da conversa
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    const currentConvId = conversationId;
+    
+    return () => {
+      if (currentConvId && container) {
+        const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+        // Só salvar se não estiver no final (mais de 100px do fim)
+        if (distanceFromBottom > 100) {
+          scrollPositionsCache.set(currentConvId, distanceFromBottom);
+        } else {
+          scrollPositionsCache.delete(currentConvId);
+        }
+      }
+    };
+  }, [conversationId]);
+  
+  // Scroll para o final quando novas mensagens chegam (com preservação de posição)
   useEffect(() => {
     // NÃO fazer scroll automático se estiver carregando histórico antigo
     if (isLoadingHistoryRef.current) {
       return;
     }
     
-    // Scroll INSTANTÂNEO para nova mensagem (sem animação para UX imediata)
-    requestAnimationFrame(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
-    });
-  }, [messages.length]);
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    
+    // Verificar se temos posição salva para esta conversa
+    const savedDistance = scrollPositionsCache.get(conversationId || '');
+    
+    if (savedDistance !== undefined) {
+      // Restaurar posição salva (distância do final)
+      requestAnimationFrame(() => {
+        const targetScroll = container.scrollHeight - container.clientHeight - savedDistance;
+        container.scrollTop = Math.max(0, targetScroll);
+      });
+      // Limpar cache após usar (uma vez só)
+      scrollPositionsCache.delete(conversationId || '');
+    } else {
+      // Comportamento padrão: scroll para o final
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+      });
+    }
+  }, [messages.length, conversationId]);
 
   // Infinite scroll: detectar quando o usuário rola para cima
   const handleScroll = useCallback(() => {

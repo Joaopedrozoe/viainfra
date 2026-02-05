@@ -18,7 +18,7 @@ export const InternalChatWindow = ({ conversation, onBack }: InternalChatWindowP
   const { user } = useAuth();
   const { messages, fetchMessages, sendMessage } = useInternalChat();
   const [messageInput, setMessageInput] = useState('');
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const conversationMessages = messages[conversation.id] || [];
 
@@ -27,9 +27,8 @@ export const InternalChatWindow = ({ conversation, onBack }: InternalChatWindowP
   }, [conversation.id]);
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    // Scroll para o final quando novas mensagens chegam
+    messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
   }, [conversationMessages]);
 
   const handleSendMessage = async () => {
@@ -91,7 +90,7 @@ export const InternalChatWindow = ({ conversation, onBack }: InternalChatWindowP
       </div>
 
       {/* Messages */}
-      <ScrollArea className="flex-1 p-4" ref={scrollRef}>
+      <ScrollArea className="flex-1 p-4">
         <div className="space-y-4">
           {conversationMessages.map((message: InternalMessage) => {
             const isOwn = message.sender_id === user?.id;
@@ -133,6 +132,7 @@ export const InternalChatWindow = ({ conversation, onBack }: InternalChatWindowP
               </div>
             );
           })}
+          <div ref={messagesEndRef} />
         </div>
       </ScrollArea>
 
