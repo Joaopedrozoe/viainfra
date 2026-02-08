@@ -610,20 +610,50 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       // Buscar metadata atual
       const { data: currentMsg } = await supabase
         .from('messages')
-        .select('metadata')
+        .select('metadata, created_at, sender_type')
         .eq('id', messageId)
         .single();
       
       const currentMetadata = (typeof currentMsg?.metadata === 'object' && currentMsg?.metadata !== null)
         ? currentMsg.metadata as Record<string, unknown>
         : {};
+
+      // IMPORTANTE: Obter o whatsappMessageId com prioridade correta
+      // external_id é o ID original recebido do webhook, whatsappMessageId é usado internamente
+      const whatsappMessageId = currentMetadata.external_id || currentMetadata.whatsappMessageId || currentMetadata.messageId;
+      const remoteJid = currentMetadata.remoteJid;
       
-      // Atualizar no banco local
+      console.log('✏️ [Edit] Iniciando edição:', {
+        messageId,
+        whatsappMessageId,
+        remoteJid,
+        senderType: currentMsg?.sender_type,
+        createdAt: currentMsg?.created_at,
+        hasExternalId: !!currentMetadata.external_id,
+        hasWhatsappMessageId: !!currentMetadata.whatsappMessageId,
+      });
+      
+      // Verificar se é uma mensagem do agente (só agentes podem editar suas próprias mensagens)
+      const isAgentMessage = currentMsg?.sender_type === 'agent';
+      
+      // Verificar tempo de edição (WhatsApp limita a ~15 minutos)
+      const messageCreatedAt = currentMsg?.created_at ? new Date(currentMsg.created_at) : null;
+      const minutesSinceCreation = messageCreatedAt 
+        ? (Date.now() - messageCreatedAt.getTime()) / (1000 * 60) 
+        : Infinity;
+      
+      console.log('✏️ [Edit] Validações:', {
+        isAgentMessage,
+        minutesSinceCreation: minutesSinceCreation.toFixed(1),
+        canEditOnWhatsApp: isAgentMessage && minutesSinceCreation < 15
+      });
+      
+      // Atualizar no banco local primeiro
       const { error } = await supabase
         .from('messages')
         .update({ 
           content: newContent,
-          metadata: { ...currentMetadata, editedAt }
+          metadata: { ...currentMetadata, editedAt, editedLocally: true }
         })
         .eq('id', messageId);
       
@@ -632,11 +662,22 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       // Atualizar localmente
       updateMessage(messageId, { content: newContent, editedAt });
       
-      // Tentar editar no WhatsApp se for canal WhatsApp e tiver o messageId do WhatsApp
-      const whatsappMessageId = currentMetadata.whatsappMessageId || currentMetadata.messageId || currentMetadata.external_id;
-      const remoteJid = currentMetadata.remoteJid;
+      // Tentar editar no WhatsApp se for canal WhatsApp, mensagem do agente e tiver os IDs necessários
+      const canEditOnWhatsApp = conversationChannel === 'whatsapp' && 
+                                 whatsappMessageId && 
+                                 remoteJid && 
+                                 isAgentMessage;
       
-      if (conversationChannel === 'whatsapp' && whatsappMessageId && remoteJid) {
+      if (canEditOnWhatsApp) {
+        // Avisar se passou do limite de tempo
+        if (minutesSinceCreation >= 15) {
+          console.warn('⚠️ [Edit] Mensagem muito antiga para edição no WhatsApp:', minutesSinceCreation.toFixed(1), 'minutos');
+          toast.warning('Mensagem editada localmente. Limite de 15 minutos do WhatsApp excedido.', {
+            duration: 4000,
+          });
+          return;
+        }
+        
         try {
           // Buscar instância da conversa
           const { data: conversation } = await supabase
@@ -646,7 +687,15 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             .single();
           
           // Fallback para VIAINFRAOFICIAL se instanceName não estiver presente
-          const instanceName = (conversation?.metadata as Record<string, unknown>)?.instanceName || 'VIAINFRAOFICIAL';
+          const conversationMeta = (conversation?.metadata as Record<string, unknown>) || {};
+          const instanceName = conversationMeta.instanceName as string || 'VIAINFRAOFICIAL';
+          
+          console.log('✏️ [Edit] Enviando para Evolution API:', {
+            instanceName,
+            remoteJid,
+            messageId: whatsappMessageId,
+            newContentLength: newContent.length
+          });
           
           const { data: editResult, error: editError } = await supabase.functions.invoke('send-whatsapp-message', {
             body: {
@@ -658,20 +707,30 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             }
           });
           
+          console.log('✏️ [Edit] Resposta da Evolution API:', editResult, editError);
+          
           if (editError || !editResult?.success) {
-            console.warn('⚠️ Não foi possível editar no WhatsApp:', editError || editResult?.error);
+            console.warn('⚠️ [Edit] Não foi possível editar no WhatsApp:', editError || editResult?.error);
             toast.warning('Mensagem editada localmente. Edição no WhatsApp não disponível.', {
-              description: 'O WhatsApp limita edição a ~15 minutos após o envio'
+              description: editResult?.error || 'O WhatsApp limita edição a ~15 minutos após o envio',
+              duration: 4000,
             });
           } else {
             toast.success('Mensagem editada no WhatsApp!');
           }
         } catch (whatsappError) {
-          console.warn('⚠️ Erro ao editar no WhatsApp:', whatsappError);
+          console.warn('⚠️ [Edit] Erro ao editar no WhatsApp:', whatsappError);
           toast.warning('Mensagem editada localmente.');
         }
       } else {
-        toast.success('Mensagem editada!');
+        // Mensagem editada apenas localmente
+        if (!whatsappMessageId && conversationChannel === 'whatsapp') {
+          toast.info('Mensagem editada localmente (sem ID do WhatsApp para propagação).');
+        } else if (!isAgentMessage) {
+          toast.info('Apenas mensagens enviadas por você podem ser editadas no WhatsApp.');
+        } else {
+          toast.success('Mensagem editada!');
+        }
       }
     } catch (error) {
       console.error('Erro ao editar mensagem:', error);
