@@ -414,7 +414,19 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           
           try {
             const startTime = Date.now();
-            const { data: response, error: whatsappError } = await supabase.functions.invoke(
+              // Garantir que o messageId do quoted existe (prioridade: whatsappMessageId > id da mensagem)
+              // IMPORTANTE: whatsappMessageId é preenchido em useInfiniteMessages.ts com fallback para external_id
+              const quotedMessageId = currentReplyTo?.whatsappMessageId;
+              
+              console.log('📩 [Reply] Dados de citação:', {
+                hasReplyTo: !!currentReplyTo,
+                quotedMessageId,
+                whatsappMessageId: currentReplyTo?.whatsappMessageId,
+                messageId: currentReplyTo?.id,
+                sender: currentReplyTo?.sender,
+              });
+              
+              const { data: response, error: whatsappError } = await supabase.functions.invoke(
               'send-whatsapp-message',
               {
                 body: {
@@ -423,10 +435,10 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
                   message_content: content || undefined,
                   attachment: attachmentData,
                   agent_name: profile?.name || 'Atendente',
-                  // Dados para reply/quoted se houver (usa whatsappMessageId que agora inclui external_id)
+                  // Dados para reply/quoted se houver - só envia se tiver messageId válido
                   // isFromAgent é necessário para o protocolo WhatsApp definir fromMe corretamente
-                  quoted: currentReplyTo ? {
-                    messageId: currentReplyTo.whatsappMessageId,
+                  quoted: (currentReplyTo && quotedMessageId) ? {
+                    messageId: quotedMessageId,
                     content: currentReplyTo.content,
                     senderName: currentReplyTo.sender === 'user' ? contactName : 'Você',
                     isFromAgent: currentReplyTo.sender === 'agent',  // Define fromMe no protocolo WhatsApp
@@ -745,6 +757,18 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
 
   // Definir mensagem para resposta (reply)
   const handleReplyMessage = useCallback((message: Message) => {
+    // Verificar se a mensagem tem ID do WhatsApp para reply funcionar
+    if (!message.whatsappMessageId) {
+      console.warn('⚠️ [Reply] Mensagem sem whatsappMessageId - reply pode não funcionar no WhatsApp oficial', {
+        messageId: message.id,
+        sender: message.sender,
+        content: message.content?.substring(0, 50),
+      });
+      // Não bloqueia - permite reply visual no Inbox, mas avisa que pode não refletir no WhatsApp
+      toast.warning('Esta mensagem é antiga e pode não mostrar como resposta no WhatsApp oficial', {
+        duration: 3000,
+      });
+    }
     setReplyToMessage(message);
     // Focar no input após definir reply (para UX melhor)
     // O componente ChatInput recebe o foco automaticamente
