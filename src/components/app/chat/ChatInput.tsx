@@ -1,9 +1,11 @@
-import { useState, useCallback, memo, useMemo, useRef } from "react";
+import { useState, useCallback, memo, useMemo, useRef, useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Mic, MicOff, FileUp, X, Image, FileText, Film, Music, Reply } from "lucide-react";
+import { Mic, MicOff, FileUp, X, Image, FileText, Film, Music, Reply, Smile } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Attachment, ChatInputProps, Message } from "./types";
+import EmojiPicker, { EmojiClickData, Theme, EmojiStyle } from 'emoji-picker-react';
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 const getFileType = (file: File): Attachment['type'] => {
   if (file.type.startsWith('image/')) return 'image';
@@ -73,7 +75,25 @@ export const ChatInput = memo(({
   const [isRecording, setIsRecording] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Detectar tema do sistema/app
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  
+  useEffect(() => {
+    const checkDarkMode = () => {
+      setIsDarkMode(document.documentElement.classList.contains('dark'));
+    };
+    checkDarkMode();
+    
+    // Observer para mudanças de tema
+    const observer = new MutationObserver(checkDarkMode);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    
+    return () => observer.disconnect();
+  }, []);
 
   const handleSendMessage = useCallback(() => {
     if (newMessage.trim() === "" && !selectedFile) return;
@@ -130,6 +150,32 @@ export const ChatInput = memo(({
     setSelectedFile(null);
     setPreviewUrl(null);
   }, []);
+
+  // Handler para inserir emoji no cursor
+  const handleEmojiClick = useCallback((emojiData: EmojiClickData) => {
+    const emoji = emojiData.emoji;
+    
+    if (textareaRef.current) {
+      const textarea = textareaRef.current;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const newText = newMessage.slice(0, start) + emoji + newMessage.slice(end);
+      
+      setNewMessage(newText);
+      
+      // Mover cursor para depois do emoji
+      setTimeout(() => {
+        textarea.focus();
+        const newCursorPos = start + emoji.length;
+        textarea.setSelectionRange(newCursorPos, newCursorPos);
+      }, 10);
+    } else {
+      // Fallback: adicionar no final
+      setNewMessage(prev => prev + emoji);
+    }
+    
+    setIsEmojiPickerOpen(false);
+  }, [newMessage]);
 
   const inputPlaceholder = useMemo(() => {
     if (replyToMessage) return "Digite sua resposta...";
@@ -213,8 +259,41 @@ export const ChatInput = memo(({
         >
           <FileUp size={20} />
         </button>
+        
+        {/* Emoji Picker Button */}
+        <Popover open={isEmojiPickerOpen} onOpenChange={setIsEmojiPickerOpen}>
+          <PopoverTrigger asChild>
+            <button
+              className="p-2 text-muted-foreground hover:text-foreground rounded-full transition-colors"
+              aria-label="Selecionar emoji"
+              type="button"
+            >
+              <Smile size={20} />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent 
+            className="w-auto p-0 border-0" 
+            side="top" 
+            align="start"
+            sideOffset={8}
+          >
+            <EmojiPicker
+              onEmojiClick={handleEmojiClick}
+              theme={isDarkMode ? Theme.DARK : Theme.LIGHT}
+              emojiStyle={EmojiStyle.NATIVE}
+              lazyLoadEmojis={true}
+              searchPlaceHolder="Buscar emoji..."
+              previewConfig={{ showPreview: false }}
+              height={350}
+              width={320}
+              skinTonesDisabled={false}
+            />
+          </PopoverContent>
+        </Popover>
+        
         <div className="flex-1">
           <Textarea
+            ref={textareaRef}
             placeholder={inputPlaceholder}
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
