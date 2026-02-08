@@ -39,9 +39,11 @@ export interface ConversationState {
 export class BotFlowProcessor {
   private flow: BotFlow;
   private conversationState: ConversationState;
+  private companyName: string;
 
-  constructor(flow: BotFlow, conversationState?: ConversationState) {
+  constructor(flow: BotFlow, conversationState?: ConversationState, companyName: string = 'Viainfra') {
     this.flow = flow;
+    this.companyName = companyName;
     this.conversationState = conversationState || {
       currentNodeId: 'start-1',
       collectedData: {},

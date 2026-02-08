@@ -3,7 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import { BotFlowProcessor } from './bot-flow-processor.ts';
 
 // IMPORTANTE: Instâncias autorizadas para processamento
-const ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'viainfraoficial', 'Via Infra ', 'Via Infra', 'JUNIORCORRETOR'];
+const ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'viainfraoficial', 'Via Infra ', 'Via Infra', 'JUNIORCORRETOR', 'VIALOGISTIC', 'vialogistic'];
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -3338,13 +3338,22 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     })
     .eq('id', conversationId);
   
-  // Buscar bot
-  const { data: bots, error: botsError } = await supabase
-    .from('bots')
-    .select('*')
-    .contains('channels', ['whatsapp'])
-    .eq('status', 'published')
-    .limit(1);
+  // Buscar bot baseado na empresa da conversa
+  // REGRA DE ISOLAMENTO: ViaInfra usa FLUXO-VIAINFRA, ViaLogistic usa FLUXO-VIALOGISTIC
+  const conversationCompanyId = freshConversation.company_id;
+  const isVialogistic = instanceName?.toUpperCase().includes('VIALOGISTIC') || false;
+  
+  // Determinar qual bot usar baseado na instância
+  let botQuery = supabase.from('bots').select('*').eq('status', 'published');
+  
+  if (isVialogistic) {
+    botQuery = botQuery.eq('company_id', 'e3ad9c68-cf12-4e39-a12d-3f3068e975a0'); // ViaLogistic
+  } else {
+    // Default: ViaInfra ou qualquer outra instância
+    botQuery = botQuery.eq('company_id', 'da17735c-5a76-4797-b338-f6e63a7b3f8b'); // ViaInfra
+  }
+  
+  const { data: bots, error: botsError } = await botQuery.limit(1);
 
   if (botsError) {
     console.error('Error fetching bots:', botsError);
@@ -3354,20 +3363,23 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
   const conversation = freshConversation;
 
   if (!bots || bots.length === 0) {
-    console.log('No active WhatsApp bots found');
+    console.log(`No active bots found for company (isVialogistic: ${isVialogistic})`);
     return;
   }
 
   const bot = bots[0];
-  console.log('Using bot:', bot.name);
+  console.log('Using bot:', bot.name, 'for instance:', instanceName);
+  
+  // Determinar nome da empresa para mensagens do bot
+  const companyDisplayName = isVialogistic ? 'ViaLogistic' : 'Viainfra';
 
   const conversationState = conversation?.metadata?.bot_state || {
     currentNodeId: 'start-1',
     collectedData: {},
   };
 
-  // Processar fluxo do bot
-  const processor = new BotFlowProcessor(bot.flows, conversationState);
+  // Processar fluxo do bot - passar nome da empresa
+  const processor = new BotFlowProcessor(bot.flows, conversationState, companyDisplayName);
   const result = await processor.processUserInput(messageContent);
 
   // Preparar atualização
