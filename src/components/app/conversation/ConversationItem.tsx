@@ -220,7 +220,7 @@ export const ConversationItem = memo(({
                   </span>
                 )}
                 <span className={cn(
-                  "text-sm truncate flex-1",
+                  "text-sm truncate flex-1 emoji-text",
                   showNewBadge && !isSelected ? "text-foreground font-medium" : "text-muted-foreground"
                 )}>
                   {renderPreview()}
