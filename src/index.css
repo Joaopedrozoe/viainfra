@@ -144,10 +144,32 @@
   body {
     @apply bg-background text-foreground overflow-x-hidden;
     font-feature-settings: "rlig" 1, "calt" 1;
-    /* Emoji font stack para garantir renderização correta de emojis compostos (flags, skin tones, etc) */
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 
-                 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', 
-                 'Segoe UI Symbol', 'Android Emoji', 'EmojiSymbols', sans-serif;
+    /* 
+     * Font stack otimizado para emojis:
+     * 1. Fontes de emoji PRIMEIRO para garantir renderização colorida
+     * 2. Depois fontes de sistema para texto
+     */
+    font-family: 
+      /* Emoji fonts first (all platforms) */
+      'Apple Color Emoji',      /* macOS/iOS */
+      'Segoe UI Emoji',         /* Windows */
+      'Segoe UI Symbol',        /* Windows symbols */
+      'Noto Color Emoji',       /* Android/Linux */
+      'Android Emoji',          /* Android fallback */
+      'EmojiSymbols',           /* Generic fallback */
+      'Twemoji Mozilla',        /* Firefox */
+      /* System fonts for text */
+      system-ui, 
+      -apple-system, 
+      BlinkMacSystemFont, 
+      'Segoe UI', 
+      Roboto, 
+      'Helvetica Neue',
+      Arial,
+      sans-serif;
+    /* Forçar apresentação de emoji colorido */
+    font-variant-emoji: emoji;
+    -webkit-font-variant-emoji: emoji;
   }
   
   /* Prevent horizontal scrolling at all viewports */
@@ -156,13 +178,24 @@
     overflow-x: hidden;
   }
   
-  /* Garante que emojis sejam renderizados corretamente em qualquer contexto */
-  .emoji-text, .message-content, .whitespace-pre-wrap {
+  /* 
+   * Regras específicas para texto de mensagem 
+   * Garante emojis coloridos em todos os contextos
+   */
+  .emoji-text, 
+  .message-content, 
+  .whitespace-pre-wrap,
+  [class*="message"],
+  [class*="preview"] {
     font-family: inherit;
-    /* Força uso de emojis coloridos */
+    font-variant-emoji: emoji;
+    -webkit-font-variant-emoji: emoji;
+    /* Melhora renderização de texto */
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    /* Evita quebra de emojis compostos */
+    word-break: keep-all;
   }
 }
 

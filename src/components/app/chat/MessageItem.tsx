@@ -531,7 +531,7 @@ export const MessageItem = memo(({
 
       {/* Texto da mensagem - exibir se não for apenas placeholder de mídia */}
       {message.content && !isMediaPlaceholder(message.content) && (
-        <div className="whitespace-pre-wrap">{formatMessageContent(message.content, !!attachment)}</div>
+        <div className="whitespace-pre-wrap emoji-text">{formatMessageContent(message.content, !!attachment)}</div>
       )}
       
       {/* Anexo com mídia real */}
