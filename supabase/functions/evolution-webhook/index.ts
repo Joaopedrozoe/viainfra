@@ -14,10 +14,15 @@ const corsHeaders = {
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz0viYlAJ_-v00BzqRgMROE0wdvixohvQ4d949mTvRQk_eRdqN-CsxQeAldpV6HR2xlBQ/exec';
 
 interface Attachment {
-  type: 'image' | 'video' | 'audio' | 'document';
+  type: 'image' | 'video' | 'audio' | 'document' | 'location';
   url: string;
   filename?: string;
   mimeType?: string;
+  // Campos específicos para localização
+  latitude?: number;
+  longitude?: number;
+  locationName?: string;
+  locationAddress?: string;
 }
 
 // Interface para contextInfo (mensagens de reply/citação)
@@ -84,6 +89,29 @@ interface EvolutionMessage {
       url?: string;
       directPath?: string;
       mimetype?: string;
+      contextInfo?: ContextInfo;
+    };
+    // Mensagens de localização (location)
+    locationMessage?: {
+      degreesLatitude?: number;
+      degreesLongitude?: number;
+      name?: string;
+      address?: string;
+      url?: string;
+      jpegThumbnail?: string;
+      contextInfo?: ContextInfo;
+    };
+    // Localização ao vivo (live location)
+    liveLocationMessage?: {
+      degreesLatitude?: number;
+      degreesLongitude?: number;
+      accuracyInMeters?: number;
+      speedInMps?: number;
+      degreesClockwiseFromMagneticNorth?: number;
+      caption?: string;
+      sequenceNumber?: number;
+      timeOffset?: number;
+      jpegThumbnail?: string;
       contextInfo?: ContextInfo;
     };
   };
@@ -3750,6 +3778,28 @@ function extractMessageContent(message: EvolutionMessage): string {
     return `[Documento: ${msgContent.documentMessage.fileName || msgContent.documentMessage.title}]`;
   }
   
+  // Mensagem de localização
+  if (msgContent.locationMessage) {
+    const loc = msgContent.locationMessage;
+    if (loc.name && loc.address) {
+      return `📍 ${loc.name} - ${loc.address}`;
+    } else if (loc.name) {
+      return `📍 ${loc.name}`;
+    } else if (loc.address) {
+      return `📍 ${loc.address}`;
+    }
+    return '[Localização]';
+  }
+  
+  // Localização ao vivo
+  if (msgContent.liveLocationMessage) {
+    const loc = msgContent.liveLocationMessage;
+    if (loc.caption) {
+      return `📍 Localização ao vivo: ${loc.caption}`;
+    }
+    return '[Localização ao vivo]';
+  }
+  
   if (msgContent.imageMessage) {
     return '[Imagem]';
   }
@@ -3807,6 +3857,35 @@ function extractAttachment(message: EvolutionMessage): Attachment | null {
       url: msgContent.documentMessage.url || msgContent.documentMessage.directPath || '',
       filename: msgContent.documentMessage.fileName || msgContent.documentMessage.title,
       mimeType: msgContent.documentMessage.mimetype,
+    };
+  }
+  
+  // Mensagem de localização
+  if (msgContent.locationMessage) {
+    const loc = msgContent.locationMessage;
+    const lat = loc.degreesLatitude || 0;
+    const lng = loc.degreesLongitude || 0;
+    return {
+      type: 'location',
+      url: loc.url || `https://www.google.com/maps?q=${lat},${lng}`,
+      latitude: lat,
+      longitude: lng,
+      locationName: loc.name,
+      locationAddress: loc.address,
+    };
+  }
+  
+  // Localização ao vivo
+  if (msgContent.liveLocationMessage) {
+    const loc = msgContent.liveLocationMessage;
+    const lat = loc.degreesLatitude || 0;
+    const lng = loc.degreesLongitude || 0;
+    return {
+      type: 'location',
+      url: `https://www.google.com/maps?q=${lat},${lng}`,
+      latitude: lat,
+      longitude: lng,
+      locationName: loc.caption || 'Localização ao vivo',
     };
   }
   
