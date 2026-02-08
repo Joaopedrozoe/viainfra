@@ -816,11 +816,23 @@ async function handleDeleteMessage(body: {
 }): Promise<Response> {
   const { instanceName, remoteJid, messageId, fromMe } = body;
   
-  console.log('[send-whatsapp] handleDeleteMessage:', { instanceName, remoteJid, messageId, fromMe });
+  console.log('[send-whatsapp] 🗑️ handleDeleteMessage START:', { 
+    instanceName, 
+    remoteJid, 
+    messageId, 
+    fromMe,
+    messageIdType: typeof messageId
+  });
   
   if (!instanceName || !remoteJid || !messageId) {
+    const missingFields = [];
+    if (!instanceName) missingFields.push('instanceName');
+    if (!remoteJid) missingFields.push('remoteJid');
+    if (!messageId) missingFields.push('messageId');
+    
+    console.error('[send-whatsapp] 🗑️ Missing fields:', missingFields);
     return new Response(
-      JSON.stringify({ success: false, error: 'Missing required fields for deleteMessage' }),
+      JSON.stringify({ success: false, error: `Missing required fields: ${missingFields.join(', ')}` }),
       { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
@@ -829,6 +841,7 @@ async function handleDeleteMessage(body: {
   const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
   
   if (!evolutionApiUrl || !evolutionApiKey) {
+    console.error('[send-whatsapp] 🗑️ Evolution API not configured');
     return new Response(
       JSON.stringify({ success: false, error: 'Evolution API not configured' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -837,15 +850,20 @@ async function handleDeleteMessage(body: {
   
   try {
     // Evolution API endpoint for deleting messages for everyone
+    // Documentação: DELETE /chat/deleteMessageForEveryone/{instance}
     const deleteUrl = `${evolutionApiUrl}/chat/deleteMessageForEveryone/${instanceName}`;
     
+    // Payload conforme documentação oficial da Evolution API v2
     const deletePayload = {
       id: messageId,
       remoteJid: remoteJid,
-      fromMe: fromMe === true
+      fromMe: fromMe === true  // Garante booleano
     };
     
-    console.log('[send-whatsapp] Calling Evolution API deleteMessageForEveryone:', deleteUrl, deletePayload);
+    console.log('[send-whatsapp] 🗑️ Calling Evolution API:', {
+      url: deleteUrl,
+      payload: deletePayload
+    });
     
     const response = await fetch(deleteUrl, {
       method: 'DELETE',
@@ -857,29 +875,68 @@ async function handleDeleteMessage(body: {
     });
     
     const responseText = await response.text();
-    console.log('[send-whatsapp] Evolution API deleteMessage response:', response.status, responseText);
+    console.log('[send-whatsapp] 🗑️ Evolution API response:', {
+      status: response.status,
+      statusText: response.statusText,
+      body: responseText.substring(0, 500)
+    });
+    
+    // Parse response para melhor diagnóstico
+    let responseData: unknown;
+    try {
+      responseData = JSON.parse(responseText);
+    } catch {
+      responseData = responseText;
+    }
     
     if (!response.ok) {
+      console.error('[send-whatsapp] 🗑️ Evolution API error:', {
+        status: response.status,
+        error: responseData
+      });
+      
       // Verificar se é erro de limite de tempo ou mensagem não encontrada
-      const isTimeLimit = responseText.includes('time') || responseText.includes('limit') || responseText.includes('expired');
-      const errorMessage = isTimeLimit 
-        ? 'Limite de tempo excedido para exclusão no WhatsApp'
-        : `Evolution API error: ${responseText}`;
+      const responseStr = responseText.toLowerCase();
+      const isTimeLimit = responseStr.includes('time') || 
+                         responseStr.includes('limit') || 
+                         responseStr.includes('expired') ||
+                         responseStr.includes('too old') ||
+                         responseStr.includes('cannot delete');
+      const isNotFound = responseStr.includes('not found') || response.status === 404;
+      
+      // Mensagens de erro mais amigáveis
+      let errorMessage = 'Erro na API do WhatsApp';
+      if (isTimeLimit) {
+        errorMessage = 'Limite de tempo excedido (~1 hora) para exclusão no WhatsApp';
+      } else if (isNotFound) {
+        errorMessage = 'Mensagem não encontrada no WhatsApp';
+      } else if (response.status === 401 || response.status === 403) {
+        errorMessage = 'Não autorizado a excluir esta mensagem';
+      } else if (!fromMe) {
+        errorMessage = 'Mensagens recebidas não podem ser apagadas para todos';
+      }
       
       return new Response(
-        JSON.stringify({ success: false, error: errorMessage, isTimeLimit }),
+        JSON.stringify({ 
+          success: false, 
+          error: errorMessage, 
+          details: responseData,
+          isTimeLimit,
+          isNotFound
+        }),
         { status: response.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
     
+    console.log('[send-whatsapp] 🗑️ Message deleted successfully on WhatsApp');
     return new Response(
-      JSON.stringify({ success: true, message: 'Message deleted on WhatsApp' }),
+      JSON.stringify({ success: true, message: 'Message deleted on WhatsApp', data: responseData }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error) {
-    console.error('[send-whatsapp] Error deleting message:', error);
+    console.error('[send-whatsapp] 🗑️ Exception during delete:', error);
     return new Response(
-      JSON.stringify({ success: false, error: error.message || 'Unknown error' }),
+      JSON.stringify({ success: false, error: error.message || 'Unknown error during delete' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
