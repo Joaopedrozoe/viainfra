@@ -850,17 +850,48 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       // Buscar dados da mensagem para exclusão no WhatsApp
       const { data: msgData } = await supabase
         .from('messages')
-        .select('metadata')
+        .select('metadata, sender_type, created_at')
         .eq('id', messageId)
         .single();
       
       const metadata = msgData?.metadata as Record<string, any>;
-      const whatsappMessageId = metadata?.whatsappMessageId || metadata?.external_id;
+      // IMPORTANTE: Prioridade correta para obter o ID do WhatsApp
+      const whatsappMessageId = metadata?.external_id || metadata?.whatsappMessageId || metadata?.messageId;
       const remoteJid = metadata?.remoteJid;
-      const isFromAgent = metadata?.sender_type === 'agent' || deletingMessage?.sender === 'agent';
+      const isFromAgent = msgData?.sender_type === 'agent' || deletingMessage?.sender === 'agent';
+      
+      // Verificar tempo desde criação (WhatsApp limita a ~1 hora para exclusão)
+      const messageCreatedAt = msgData?.created_at ? new Date(msgData.created_at) : null;
+      const minutesSinceCreation = messageCreatedAt 
+        ? (Date.now() - messageCreatedAt.getTime()) / (1000 * 60) 
+        : Infinity;
+      
+      console.log('🗑️ [Delete] Iniciando exclusão:', {
+        messageId,
+        whatsappMessageId,
+        remoteJid,
+        isFromAgent,
+        minutesSinceCreation: minutesSinceCreation.toFixed(1),
+        hasExternalId: !!metadata?.external_id,
+        hasWhatsappMessageId: !!metadata?.whatsappMessageId,
+        conversationChannel,
+      });
+      
+      let whatsappDeleteSuccess = false;
+      let whatsappDeleteAttempted = false;
       
       // Se for WhatsApp e tiver messageId, tentar excluir no WhatsApp
       if (conversationChannel === 'whatsapp' && whatsappMessageId && remoteJid) {
+        whatsappDeleteAttempted = true;
+        
+        // Avisar sobre limitações de tempo
+        if (minutesSinceCreation > 60) {
+          console.warn('⚠️ [Delete] Mensagem muito antiga para exclusão no WhatsApp:', minutesSinceCreation.toFixed(1), 'minutos');
+          toast.warning('Mensagem antiga - exclusão no WhatsApp pode não funcionar (limite: ~1 hora)', {
+            duration: 4000,
+          });
+        }
+        
         // Buscar instância da conversa
         const { data: conversation } = await supabase
           .from('conversations')
@@ -868,7 +899,15 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           .eq('id', conversationId)
           .single();
         
-        const instanceName = (conversation?.metadata as any)?.instanceName || 'VIAINFRAOFICIAL';
+        const conversationMeta = (conversation?.metadata as Record<string, unknown>) || {};
+        const instanceName = conversationMeta.instanceName as string || 'VIAINFRAOFICIAL';
+        
+        console.log('🗑️ [Delete] Enviando para Evolution API:', {
+          instanceName,
+          remoteJid,
+          messageId: whatsappMessageId,
+          fromMe: isFromAgent
+        });
         
         try {
           const { data: deleteResult, error: deleteError } = await supabase.functions.invoke(
@@ -884,16 +923,32 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             }
           );
           
+          console.log('🗑️ [Delete] Resposta da Evolution API:', deleteResult, deleteError);
+          
           if (deleteError || !deleteResult?.success) {
             // WhatsApp falhou - avisar usuário mas ainda deletar local
-            toast.warning('Mensagem apagada localmente. Exclusão no WhatsApp não disponível.', {
-              description: 'O WhatsApp limita exclusão após ~1 hora ou para mensagens recebidas'
-            });
+            const errorMessage = deleteResult?.error || 'Exclusão no WhatsApp não disponível';
+            console.warn('⚠️ [Delete] Falha ao excluir no WhatsApp:', errorMessage);
+            
+            if (deleteResult?.isTimeLimit) {
+              toast.warning('Mensagem apagada localmente. Limite de tempo do WhatsApp excedido (~1 hora).', {
+                duration: 4000,
+              });
+            } else if (!isFromAgent) {
+              toast.warning('Mensagem apagada localmente. Mensagens recebidas não podem ser apagadas para todos no WhatsApp.', {
+                duration: 4000,
+              });
+            } else {
+              toast.warning('Mensagem apagada localmente. ' + errorMessage, {
+                duration: 4000,
+              });
+            }
           } else {
-            toast.success('Mensagem apagada do WhatsApp!');
+            whatsappDeleteSuccess = true;
+            toast.success('Mensagem apagada do WhatsApp para todos!');
           }
         } catch (whatsappError) {
-          console.warn('Erro ao excluir no WhatsApp:', whatsappError);
+          console.warn('⚠️ [Delete] Erro ao excluir no WhatsApp:', whatsappError);
           toast.warning('Mensagem apagada localmente.');
         }
       }
@@ -909,9 +964,13 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       // Remover localmente
       deleteMessage(messageId);
       
-      // Se não for WhatsApp, mostrar sucesso simples
-      if (conversationChannel !== 'whatsapp') {
-        toast.success('Mensagem apagada!');
+      // Se não for WhatsApp ou não tentou exclusão remota, mostrar sucesso simples
+      if (!whatsappDeleteAttempted) {
+        if (conversationChannel === 'whatsapp' && !whatsappMessageId) {
+          toast.info('Mensagem apagada localmente (sem ID do WhatsApp para exclusão remota).');
+        } else {
+          toast.success('Mensagem apagada!');
+        }
       }
     } catch (error) {
       console.error('Erro ao apagar mensagem:', error);
