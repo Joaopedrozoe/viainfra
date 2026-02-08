@@ -144,12 +144,25 @@
   body {
     @apply bg-background text-foreground overflow-x-hidden;
     font-feature-settings: "rlig" 1, "calt" 1;
+    /* Emoji font stack para garantir renderização correta de emojis compostos (flags, skin tones, etc) */
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 
+                 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', 
+                 'Segoe UI Symbol', 'Android Emoji', 'EmojiSymbols', sans-serif;
   }
   
   /* Prevent horizontal scrolling at all viewports */
   html, body {
     max-width: 100%;
     overflow-x: hidden;
+  }
+  
+  /* Garante que emojis sejam renderizados corretamente em qualquer contexto */
+  .emoji-text, .message-content, .whitespace-pre-wrap {
+    font-family: inherit;
+    /* Força uso de emojis coloridos */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 }
 
