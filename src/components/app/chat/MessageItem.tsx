@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 import { Message, MessageDeliveryStatus } from "./types";
 import { format, isThisYear } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { FileText, Download, Play, Pause, Volume2, Check, CheckCheck, Clock, AlertCircle, Loader2, Pin, Star, Reply, Image, Video, Mic, File } from "lucide-react";
+import { FileText, Download, Play, Pause, Volume2, Check, CheckCheck, Clock, AlertCircle, Loader2, Pin, Star, Reply, Image, Video, Mic, File, MapPin, ExternalLink } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { MessageActions } from "./MessageActions";
 
@@ -38,7 +38,7 @@ const formatMessageTimestamp = (dateString: string) => {
 };
 
 // Padrões de placeholder de mídia
-const MEDIA_PLACEHOLDERS = ['[Imagem]', '[Áudio]', '[Áudio de voz]', '[Vídeo]', '[Documento', '[Sticker]', '[Mídia]'];
+const MEDIA_PLACEHOLDERS = ['[Imagem]', '[Áudio]', '[Áudio de voz]', '[Vídeo]', '[Documento', '[Sticker]', '[Mídia]', '[Localização]', '📍'];
 
 // Verifica se o conteúdo é apenas um placeholder de mídia (com ou sem nome de participante de grupo)
 const isMediaPlaceholder = (content: string): boolean => {
@@ -315,6 +315,72 @@ const DocumentAttachment = ({ url, filename }: { url: string; filename?: string 
   );
 };
 
+// Componente para exibir localização
+const LocationAttachment = ({ 
+  url, 
+  latitude, 
+  longitude, 
+  name, 
+  address 
+}: { 
+  url: string; 
+  latitude?: number; 
+  longitude?: number; 
+  name?: string; 
+  address?: string;
+}) => {
+  const lat = latitude || 0;
+  const lng = longitude || 0;
+  
+  // Gerar URL do mapa estático para preview
+  const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=15&size=300x150&maptype=roadmap&markers=color:red%7C${lat},${lng}&key=AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8`;
+  
+  // URL do Google Maps para abrir
+  const mapsUrl = url || `https://www.google.com/maps?q=${lat},${lng}`;
+  
+  return (
+    <a
+      href={mapsUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-2 block rounded-lg overflow-hidden hover:opacity-90 transition-opacity cursor-pointer border border-border/50"
+    >
+      {/* Preview do mapa usando OpenStreetMap (alternativa sem API key) */}
+      <div className="relative">
+        <iframe
+          src={`https://www.openstreetmap.org/export/embed.html?bbox=${lng-0.01},${lat-0.01},${lng+0.01},${lat+0.01}&layer=mapnik&marker=${lat},${lng}`}
+          width="280"
+          height="150"
+          style={{ border: 0, pointerEvents: 'none' }}
+          loading="lazy"
+          title="Localização"
+          className="w-full"
+        />
+        <div className="absolute inset-0 bg-transparent" />
+      </div>
+      
+      {/* Info da localização */}
+      <div className="p-3 bg-muted/50 flex items-center gap-2">
+        <MapPin size={20} className="text-red-500 flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          {name && (
+            <div className="font-medium text-sm truncate">{name}</div>
+          )}
+          {address && (
+            <div className="text-xs text-muted-foreground truncate">{address}</div>
+          )}
+          {!name && !address && (
+            <div className="text-sm">
+              {lat.toFixed(6)}, {lng.toFixed(6)}
+            </div>
+          )}
+        </div>
+        <ExternalLink size={16} className="text-muted-foreground flex-shrink-0" />
+      </div>
+    </a>
+  );
+};
+
 // Componente para exibir mensagem citada (reply/quote)
 const QuotedMessage = ({ 
   content, 
@@ -324,7 +390,7 @@ const QuotedMessage = ({
 }: {
   content?: string;
   sender?: string;
-  attachmentType?: 'image' | 'video' | 'audio' | 'document';
+  attachmentType?: 'image' | 'video' | 'audio' | 'document' | 'location';
   isAgentMessage: boolean;
 }) => {
   // Ícone baseado no tipo de anexo
@@ -338,6 +404,8 @@ const QuotedMessage = ({
         return <Mic size={14} className="flex-shrink-0" />;
       case 'document':
         return <File size={14} className="flex-shrink-0" />;
+      case 'location':
+        return <MapPin size={14} className="flex-shrink-0" />;
       default:
         return null;
     }
@@ -348,7 +416,8 @@ const QuotedMessage = ({
     image: 'Imagem',
     video: 'Vídeo',
     audio: 'Áudio',
-    document: 'Documento'
+    document: 'Documento',
+    location: 'Localização'
   }[attachmentType || ''] || '';
 
   return (
@@ -479,6 +548,15 @@ export const MessageItem = memo(({
           )}
           {attachment.type === 'document' && (
             <DocumentAttachment url={attachment.url} filename={attachment.filename} />
+          )}
+          {attachment.type === 'location' && (
+            <LocationAttachment 
+              url={attachment.url} 
+              latitude={attachment.latitude}
+              longitude={attachment.longitude}
+              name={attachment.locationName}
+              address={attachment.locationAddress}
+            />
           )}
         </>
       )}
