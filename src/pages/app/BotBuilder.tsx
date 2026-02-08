@@ -35,36 +35,82 @@ import {
   Trash2, 
   Plus,
   Settings,
-  GitBranch
+  GitBranch,
+  Loader2
 } from "lucide-react";
 import { ChatBotPreview } from "@/components/app/chat/ChatBotPreview";
 import { BotVersionControl } from "@/components/app/bots/BotVersionControl";
 import { BotFlowBuilder } from "@/components/app/bots/BotFlowBuilder";
 import { BotVersion } from "@/types/bot";
+import { useAuth } from "@/contexts/auth";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const BotBuilder = () => {
+  const { company } = useAuth();
   const [selectedBot, setSelectedBot] = useState<string | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<string>("v1");
   const [showPreview, setShowPreview] = useState(false);
   const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [originalBotData, setOriginalBotData] = useState<{ nodes: Node[]; edges: Edge[] } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   
-  // Bot versions state - FLUXO-VIAINFRA já criado e PUBLICADO
-  const [botVersions, setBotVersions] = useState<BotVersion[]>([
-    {
-      id: "fluxo-viainfra",
-      name: "FLUXO-VIAINFRA", 
-      version: "v1",
-      status: 'published',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      flows: {
-        nodes: [], // Começa vazio, será carregado com o fluxo padrão no BotFlowBuilder
-        edges: []
+  // Bot versions state - carregado do banco de dados
+  const [botVersions, setBotVersions] = useState<BotVersion[]>([]);
+
+  // Buscar bots do banco de dados filtrados pela empresa ativa
+  useEffect(() => {
+    const fetchBots = async () => {
+      if (!company?.id) {
+        setIsLoading(false);
+        return;
       }
-    }
-  ]);
+
+      try {
+        setIsLoading(true);
+        console.log('🤖 [BotBuilder] Fetching bots for company:', company.id, company.name);
+        
+        const { data: bots, error } = await supabase
+          .from('bots')
+          .select('*')
+          .eq('company_id', company.id);
+
+        if (error) {
+          console.error('❌ [BotBuilder] Error fetching bots:', error);
+          toast.error('Erro ao carregar bots');
+          return;
+        }
+
+        console.log('🤖 [BotBuilder] Bots found:', bots?.length || 0, bots);
+
+        if (bots && bots.length > 0) {
+          const mappedBots: BotVersion[] = bots.map(bot => {
+            const flowsData = bot.flows as unknown as { nodes: Node[]; edges: Edge[] } | null;
+            return {
+              id: bot.id,
+              name: bot.name,
+              version: bot.version,
+              status: bot.status as 'draft' | 'published',
+              createdAt: bot.created_at,
+              updatedAt: bot.updated_at,
+              flows: flowsData || { nodes: [], edges: [] }
+            };
+          });
+          setBotVersions(mappedBots);
+        } else {
+          setBotVersions([]);
+        }
+      } catch (err) {
+        console.error('❌ [BotBuilder] Exception fetching bots:', err);
+        toast.error('Erro ao carregar bots');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchBots();
+  }, [company?.id]);
 
   // Get unique bots (by id)
   const availableBots = botVersions.reduce((acc, bot) => {
@@ -230,43 +276,62 @@ const BotBuilder = () => {
               </Button>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {availableBots.map((bot) => {
-                const versions = botVersions.filter(v => v.id === bot.id);
-                const publishedVersion = versions.find(v => v.status === 'published');
-                
-                return (
-                  <Card 
-                    key={bot.id}
-                    className="p-6 cursor-pointer hover:shadow-md transition-shadow"
-                    onClick={() => {
-                      const targetVersion = publishedVersion?.version || versions[0]?.version || 'v1';
-                      setSelectedVersion(targetVersion);
+            {isLoading ? (
+              <div className="flex items-center justify-center h-64">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                <span className="ml-2 text-muted-foreground">Carregando bots...</span>
+              </div>
+            ) : availableBots.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-64 text-center">
+                <GitBranch className="h-12 w-12 text-muted-foreground mb-4" />
+                <h3 className="text-lg font-medium mb-2">Nenhum bot encontrado</h3>
+                <p className="text-muted-foreground mb-4">
+                  {company?.name ? `Não há bots configurados para ${company.name}.` : 'Selecione uma empresa para ver os bots.'}
+                </p>
+                <Button className="flex items-center gap-2">
+                  <Plus className="h-4 w-4" />
+                  Criar Primeiro Bot
+                </Button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {availableBots.map((bot) => {
+                  const versions = botVersions.filter(v => v.id === bot.id);
+                  const publishedVersion = versions.find(v => v.status === 'published');
+                  
+                  return (
+                    <Card 
+                      key={bot.id}
+                      className="p-6 cursor-pointer hover:shadow-md transition-shadow"
+                      onClick={() => {
+                        const targetVersion = publishedVersion?.version || versions[0]?.version || 'v1';
+                        setSelectedVersion(targetVersion);
+                        
+                        // Aguardar o setState e depois selecionar o bot
+                        setTimeout(() => {
+                          handleBotSelect(bot.id);
+                        }, 0);
+                      }}
+                    >
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="font-semibold">{bot.name}</h3>
+                        <Badge variant={publishedVersion ? 'default' : 'secondary'}>
+                          {publishedVersion ? 'Publicado' : 'Rascunho'}
+                        </Badge>
+                      </div>
                       
-                      // Aguardar o setState e depois selecionar o bot
-                      setTimeout(() => {
-                        handleBotSelect(bot.id);
-                      }, 0);
-                    }}
-                  >
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="font-semibold">{bot.name}</h3>
-                      <Badge variant={publishedVersion ? 'default' : 'secondary'}>
-                        {publishedVersion ? 'Publicado' : 'Rascunho'}
-                      </Badge>
-                    </div>
-                    
-                    <p className="text-sm text-muted-foreground mb-4">
-                      {versions.length} versão{versions.length !== 1 ? 'ões' : ''}
-                    </p>
-                    
-                    <div className="text-xs text-muted-foreground">
-                      Atualizado: {new Date(bot.updatedAt).toLocaleDateString('pt-BR')}
-                    </div>
-                  </Card>
-                );
-              })}
-            </div>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        {versions.length} versão{versions.length !== 1 ? 'ões' : ''}
+                      </p>
+                      
+                      <div className="text-xs text-muted-foreground">
+                        Atualizado: {new Date(bot.updatedAt).toLocaleDateString('pt-BR')}
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
           </div>
         ) : (
           <>
