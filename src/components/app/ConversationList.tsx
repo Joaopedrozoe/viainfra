@@ -238,7 +238,13 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         conversation.channel === 'web' && !(conversation as any).is_preview && (conversation as any).status !== 'resolved' && !(conversation as any).archived
       );
     } else if (activeTab === "unread") {
-      result = result.filter((conversation) => conversation.unread > 0 && (conversation as any).status !== 'resolved' && !(conversation as any).archived);
+      // Usar hasNewMessage para filtrar não lidas (sincronizado com clearNewMessageFlag)
+      result = result.filter((conversation) => {
+        const hasNew = (conversation as any).hasNewMessage === true || conversation.unread > 0;
+        const isResolved = (conversation as any).status === 'resolved';
+        const isArchived = (conversation as any).archived;
+        return hasNew && !isResolved && !isArchived;
+      });
     } else if (activeTab === "preview") {
       result = result.filter((conversation) => (conversation as any).is_preview === true && (conversation as any).status !== 'resolved');
     } else if (activeTab === "resolved") {
@@ -369,7 +375,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
             Todas
           </TabsTrigger>
           <TabsTrigger value="unread" className="text-xs px-2 py-1 h-7 flex-shrink-0">
-            Não lidas {combinedConversations.filter(c => c.unread > 0 && (c as any).status !== 'resolved' && !(c as any).archived).length > 0 && `(${combinedConversations.filter(c => c.unread > 0 && (c as any).status !== 'resolved' && !(c as any).archived).length})`}
+            Não lidas {combinedConversations.filter(c => ((c as any).hasNewMessage === true || c.unread > 0) && (c as any).status !== 'resolved' && !(c as any).archived).length > 0 && `(${combinedConversations.filter(c => ((c as any).hasNewMessage === true || c.unread > 0) && (c as any).status !== 'resolved' && !(c as any).archived).length})`}
           </TabsTrigger>
           <TabsTrigger value="bot" className="text-xs px-2 py-1 h-7 flex-shrink-0">
             Bot

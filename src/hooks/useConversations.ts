@@ -56,6 +56,10 @@ export const useConversations = () => {
   const [error, setError] = useState<Error | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   
+  // Track read conversations during the session (persists across refetches)
+  // Key: conversationId, Value: timestamp of last message when marked as read
+  const readConversationsRef = useRef<Map<string, string>>(new Map());
+  
   const fetchTimeoutRef = useRef<NodeJS.Timeout>();
   const lastFetchRef = useRef<number>(0);
   const previousConversationsRef = useRef<Set<string>>(new Set());
@@ -198,10 +202,20 @@ export const useConversations = () => {
           
           // Detectar se há mensagem não lida:
           // - Última mensagem é do contato (user) e não é reação
-          // - Preservar hasNewMessage existente se já estava setado
-          const existingConv = conversations.find(c => c.id === conv.id);
+          // - E a conversa não foi marcada como lida após essa mensagem
+          const lastRealMsgTime = lastRealMsg?.created_at || '';
           const isLastFromContact = lastRealMsg?.sender_type === 'user' && 
                                     !isReactionMessage(lastRealMsg?.content);
+          
+          // Verificar se o usuário já leu essa conversa após a última mensagem
+          const readTimestamp = readConversationsRef.current.get(conv.id);
+          const wasReadAfterLastMessage = readTimestamp && lastRealMsgTime && 
+            new Date(readTimestamp) >= new Date(lastRealMsgTime);
+          
+          // Preservar hasNewMessage existente se já estava setado
+          // MAS não marcar como nova se foi lida após a última mensagem
+          const existingConv = conversations.find(c => c.id === conv.id);
+          const shouldHaveNewMessage = isLastFromContact && !wasReadAfterLastMessage;
           
           return {
             ...conv,
@@ -222,8 +236,12 @@ export const useConversations = () => {
               sender_type: lastRealMsg.sender_type as 'user' | 'agent' | 'bot',
               created_at: lastRealMsg.created_at
             } : undefined,
-            // Preservar hasNewMessage ou detectar baseado na última mensagem
-            hasNewMessage: existingConv?.hasNewMessage ?? isLastFromContact,
+            // Usar o estado existente se houver, caso contrário calcular
+            // IMPORTANTE: Se já existe na lista e está como falso, manter falso
+            // Só marcar como true se for nova mensagem que não foi lida
+            hasNewMessage: existingConv 
+              ? (existingConv.hasNewMessage || false) 
+              : shouldHaveNewMessage,
           };
         });
 
@@ -292,6 +310,11 @@ export const useConversations = () => {
     const isContactMessage = newMsg.sender_type === 'user';
     const isReaction = isReactionMessage(newMsg.content);
     
+    // Se é mensagem de contato (não reação), limpar o "read timestamp" para essa conversa
+    // Isso garante que ela apareça como não lida novamente
+    if (isContactMessage && !isReaction) {
+      readConversationsRef.current.delete(newMsg.conversation_id);
+    }
     setConversations(prev => {
       const conversationIndex = prev.findIndex(c => c.id === newMsg.conversation_id);
       
@@ -351,8 +374,11 @@ export const useConversations = () => {
     handleNewMessageRef.current = handleNewMessage;
   }, [handleNewMessage]);
 
-  // Clear new message flag
+  // Clear new message flag - also track in readConversationsRef to persist across refetches
   const clearNewMessageFlag = useCallback((conversationId: string) => {
+    // Store the current timestamp as "read time" for this conversation
+    readConversationsRef.current.set(conversationId, new Date().toISOString());
+    
     setConversations(prev => 
       prev.map(conv => 
         conv.id === conversationId ? { ...conv, hasNewMessage: false } : conv
