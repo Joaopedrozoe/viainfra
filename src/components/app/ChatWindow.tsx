@@ -105,6 +105,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
               quotedContent: newMessage.metadata?.quotedContent,
               quotedSender: newMessage.metadata?.quotedSender,
               quotedAttachmentType: newMessage.metadata?.quotedAttachmentType,
+              // ID do WhatsApp para replies
+              whatsappMessageId: newMessage.metadata?.whatsappMessageId || newMessage.metadata?.external_id,
               // Campos para mídia indisponível
               mediaUnavailable: newMessage.metadata?.mediaUnavailable || false,
               mediaType: newMessage.metadata?.mediaType,
