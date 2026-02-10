@@ -3,42 +3,6 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { AuthContextType, User, Profile, Company } from './types';
 
-// ============================================================
-// 🚨 MODO EMERGÊNCIA - BYPASS DE AUTENTICAÇÃO
-// Para reverter: mude EMERGENCY_BYPASS para false
-// ============================================================
-const EMERGENCY_BYPASS = true;
-
-const EMERGENCY_COMPANY: Company = {
-  id: 'da17735c-5a76-4797-b338-f6e63a7b3f8b',
-  name: 'Viainfra',
-  plan: 'enterprise',
-  settings: {},
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-};
-
-const EMERGENCY_PROFILE: Profile = {
-  id: '175cfece-3a16-42c7-b4e4-414f825639fa',
-  user_id: '6a1713fa-31e0-42e8-beae-805c3e589f42',
-  company_id: 'da17735c-5a76-4797-b338-f6e63a7b3f8b',
-  name: 'Anthony Suporte',
-  email: 'adm@viainfra.com.br',
-  role: 'admin',
-  permissions: ['all'],
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-  companies: EMERGENCY_COMPANY,
-};
-
-const EMERGENCY_USER: User = {
-  id: '6a1713fa-31e0-42e8-beae-805c3e589f42',
-  email: 'adm@viainfra.com.br',
-  name: 'Anthony Suporte',
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-};
-
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const useAuth = (): AuthContextType => {
@@ -72,16 +36,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const initializeAuth = async () => {
     try {
       console.log('🔐 [AuthContext] Initializing auth...');
-
-      if (EMERGENCY_BYPASS) {
-        console.log('🚨 [AuthContext] EMERGENCY BYPASS ATIVO - pulando Supabase Auth');
-        setUser(EMERGENCY_USER);
-        setProfile(EMERGENCY_PROFILE);
-        setCompany(EMERGENCY_COMPANY);
-        setUserProfiles([EMERGENCY_PROFILE]);
-        setIsLoading(false);
-        return;
-      }
 
       const { data: { session } } = await supabase.auth.getSession();
       
@@ -214,16 +168,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       console.log('🔐 [AuthContext] Attempting sign in for:', email);
 
-      if (EMERGENCY_BYPASS) {
-        console.log('🚨 [AuthContext] EMERGENCY BYPASS - login aceito sem Supabase');
-        setUser(EMERGENCY_USER);
-        setProfile(EMERGENCY_PROFILE);
-        setCompany(EMERGENCY_COMPANY);
-        setUserProfiles([EMERGENCY_PROFILE]);
-        toast.success(`Bem-vindo(a), Anthony Suporte! (modo emergência)`);
-        return;
-      }
-      
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
