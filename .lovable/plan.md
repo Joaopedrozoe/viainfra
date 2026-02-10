@@ -1,55 +1,44 @@
 
-## Correção: Respostas (Reply) Não Funcionam no WhatsApp
 
-### Problema Identificado
+## Plano: Bypass Temporario de Autenticacao (Modo Emergencia)
 
-O campo `whatsappMessageId` -- essencial para o protocolo de reply do WhatsApp -- **nao esta sendo preenchido** nas mensagens recebidas via Supabase Realtime. Isso faz com que toda tentativa de responder a uma mensagem resulte em envio sem citacao.
+### O que sera feito
 
-### Causa Raiz
+Criar um **modo emergencia** no `AuthContext.tsx` que, quando ativado por uma flag, pula completamente a autenticacao do Supabase e carrega dados de perfil/empresa hardcoded, permitindo que qualquer tentativa de login entre direto no sistema.
 
-Existem dois caminhos pelos quais mensagens chegam ao chat:
+### Como funciona
 
-1. **Carregamento inicial** (`useInfiniteMessages.ts`, funcao `mapMessage`): Preenche `whatsappMessageId` corretamente usando `metadata.whatsappMessageId || metadata.external_id`
-2. **Tempo real** (`ChatWindow.tsx`, handler do Realtime): **Nao preenche** `whatsappMessageId` -- o campo fica `undefined`
+1. Uma constante `EMERGENCY_BYPASS = true` no topo do `AuthContext.tsx` controla o modo
+2. Quando ativa, o `signIn` ignora o Supabase Auth e seta diretamente os dados do usuario admin (Anthony Suporte / adm@viainfra.com.br) com a empresa Viainfra
+3. O `initializeAuth` tambem carrega esses dados automaticamente (sem precisar de sessao)
+4. Todo o resto do app funciona normalmente pois recebe os mesmos tipos de dados
 
-Como a maioria das mensagens durante uma conversa ativa chega pelo canal de tempo real, o campo fica vazio, e ao tentar responder:
-- O sistema exibe o aviso "Esta mensagem e antiga e pode nao mostrar como resposta"
-- O `quoted` e enviado como `undefined` para a Edge Function
-- A mensagem e enviada sem citacao no WhatsApp oficial
+### Limitacoes conhecidas
 
-### Evidencia nos Logs
+- Todos os usuarios entrarao como "Anthony Suporte" (admin) -- nao ha distincao de atendente
+- O Supabase Database/Realtime **tambem esta bloqueado**, entao o Inbox pode nao carregar conversas reais (depende do mesmo egress)
+- Este modo so resolve o login; se as queries de conversas/mensagens tambem falharem, o Inbox ficara vazio
 
-Os logs da Edge Function `send-whatsapp-message` confirmam:
-```
-Quoted data received: undefined
-Quoted messageId: MISSING
-Will send with quoted: false
-```
+### Rollback
 
-### Correcao
+Para reverter, basta mudar `EMERGENCY_BYPASS = true` para `EMERGENCY_BYPASS = false` no topo do arquivo `AuthContext.tsx`. Nenhum outro arquivo sera alterado.
 
-**Arquivo: `src/components/app/ChatWindow.tsx`**
+### Detalhes tecnicos
 
-Adicionar o campo `whatsappMessageId` no mapeamento do handler Realtime (por volta da linha 111), usando a mesma logica do `useInfiniteMessages`:
+**Arquivo modificado:** `src/contexts/auth/AuthContext.tsx`
 
-```
-whatsappMessageId: newMessage.metadata?.whatsappMessageId || newMessage.metadata?.external_id,
-```
+Adicionar no topo do arquivo:
+- Constante `EMERGENCY_BYPASS = true`
+- Objeto `EMERGENCY_USER_DATA` com dados hardcoded do admin e empresa Viainfra (IDs reais do banco)
 
-Isso resolve o problema para todas as mensagens que chegam em tempo real (tanto do usuario quanto do agente).
+Modificar:
+- `initializeAuth()`: se bypass ativo, setar dados direto sem chamar Supabase
+- `signIn()`: se bypass ativo, aceitar qualquer email/senha e setar dados direto
+- `signOut()`: funciona normalmente (limpa estado)
 
-### Impacto
+Dados usados:
+- user_id: `6a1713fa-31e0-42e8-beae-805c3e589f42`
+- profile_id: `175cfece-3a16-42c7-b4e4-414f825639fa`
+- company_id: `da17735c-5a76-4797-b338-f6e63a7b3f8b`
+- Empresa: Viainfra, plano enterprise, role admin
 
-- Nenhuma alteracao no fluxo de envio (Edge Function)
-- Nenhuma alteracao na logica de citacao existente
-- Nenhuma alteracao na ordenacao ou filtragem do Inbox
-- Correcao pontual de 1 linha no handler Realtime
-- Mensagens ja carregadas via scroll/paginacao continuam funcionando normalmente (ja tinham a logica correta)
-
-### Validacao
-
-Apos a correcao:
-1. Receber uma mensagem nova de um contato
-2. Clicar com botao direito e selecionar "Responder"
-3. O aviso de "mensagem antiga" **nao** deve aparecer
-4. A resposta deve aparecer como citacao no WhatsApp oficial do destinatario
