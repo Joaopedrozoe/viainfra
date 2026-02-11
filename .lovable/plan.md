@@ -1,20 +1,31 @@
 
 
-## Plano: Reverter o Bypass de Emergencia
+## Correção: Função de Responder/Mencionar mostrando aviso indevido
 
-Remover todo o codigo de bypass de emergencia do `AuthContext.tsx`, voltando a autenticacao normal do Supabase.
+### Problema identificado
 
-### O que sera feito
+Na linha 822 de `ChatWindow.tsx`, o código verifica se a mensagem tem `whatsappMessageId`. Se não tiver, exibe o toast:
 
-1. Remover a constante `EMERGENCY_BYPASS` e todos os objetos hardcoded (`EMERGENCY_USER`, `EMERGENCY_PROFILE`, `EMERGENCY_COMPANY`)
-2. Remover os blocos `if (EMERGENCY_BYPASS)` dentro de `initializeAuth()` e `signIn()`
-3. O arquivo volta ao estado original, com autenticacao 100% via Supabase
+> "Esta mensagem é antiga e pode não mostrar como resposta no WhatsApp oficial"
 
-### Arquivo modificado
+**Porém isso está errado.** A ausência de `whatsappMessageId` não significa que a mensagem é "antiga" -- significa apenas que o campo `metadata.whatsappMessageId` ou `metadata.external_id` não foi gravado no banco. Isso pode acontecer com mensagens importadas em lote, mensagens de sync antigo, ou até mensagens recentes com falha de metadata. O WhatsApp oficial NÃO tem essa limitação de tempo para replies.
 
-- `src/contexts/auth/AuthContext.tsx` -- remocao de ~50 linhas adicionadas pelo bypass
+### O que será feito
 
-### Resultado
+**Arquivo:** `src/components/app/ChatWindow.tsx`
 
-A autenticacao volta a funcionar normalmente via Supabase Auth. Quando voce resolver a questao do egress no Supabase, o login e o inbox voltarao a funcionar.
+1. **Remover o aviso enganoso** (linhas 822-831): O toast "mensagem antiga" será removido. O reply visual no inbox deve funcionar sempre sem assustar o atendente.
 
+2. **Manter o log de console** (apenas para debug): Manter o `console.warn` para diagnóstico técnico, mas sem exibir nada ao usuário.
+
+3. **Enviar reply mesmo sem whatsappMessageId**: Se não houver `whatsappMessageId`, o reply será enviado como mensagem normal (sem citação no WhatsApp), o que já funciona -- o código na linha 442 já faz `quoted: (currentReplyTo && quotedMessageId) ? {...} : undefined`. Nenhuma mudança necessária aqui.
+
+### Sobre o problema da barra de rolagem
+
+Não é possível reproduzir o arquivo de vídeo MP4 no ambiente atual. Preciso que você descreva o comportamento: a barra de rolagem trava? Pula para o topo? Fica tremendo? Com essa informação posso investigar e corrigir.
+
+### Resumo técnico
+
+- **Arquivo modificado:** `src/components/app/ChatWindow.tsx`
+- **Mudança:** Remover o `toast.warning` da função `handleReplyMessage` (linhas 828-831), mantendo apenas o log de debug
+- **Impacto:** Atendentes poderão responder/mencionar qualquer mensagem sem aviso desnecessário
