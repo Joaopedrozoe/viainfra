@@ -1,79 +1,95 @@
 
 
-## Correções: Barra de Rolagem Instável + Reply/Menção no WhatsApp
+## Criação de Credenciais VIALOGISTIC + Fluxo de Autenticação por Empresa
 
-### Problema 1: Barra de Rolagem Instável ao Carregar Histórico
+### Resumo
 
-**Causa raiz identificada:** Dois bugs no gerenciamento de scroll em `ChatWindow.tsx`:
+Criar contas de login separadas para Joicy e Suelem no contexto VIALOGISTIC, e implementar um fluxo onde ao alternar de empresa pela primeira vez, uma tela de login com identidade visual da VIALOGISTIC aparece exigindo autenticação. Após autenticar, a troca entre empresas é livre na sessão.
 
-1. **Posição do scroll não é salva antes do carregamento.** Quando o usuário está a ~80px do topo e dispara o carregamento de histórico, o código salva apenas o `scrollHeight` do container (linha 230). Depois que as mensagens antigas são inseridas, o código faz `container.scrollTop = scrollDiff` (linha 242). Porém isso assume que o scrollTop era 0. O correto seria: `scrollTop = scrollDiff + scrollTopAnterior`. Sem isso, a barra "pula" para uma posição incorreta.
+### O que sera feito
 
-2. **Classe CSS `scroll-smooth` no container (linha 1059).** Essa classe aplica `scroll-behavior: smooth` a TODAS as mudanças de scrollTop, incluindo a restauração programática após carregar histórico. Isso causa um efeito visual de "deslizamento" inesperado quando deveria ser instantâneo.
+**1. Criar credenciais Supabase Auth para VIALOGISTIC**
 
-3. **Race condition entre dois useEffects.** O efeito da linha 192 (auto-scroll para o fim) e o da linha 236 (restaurar posição após histórico) compartilham a dependência `messages`. Se o flag `isLoadingHistoryRef` for resetado antes do próximo ciclo, o efeito de auto-scroll pode disparar indevidamente.
+Criar dois novos usuarios no Supabase Auth:
+- `joicy.souza@vialogistic.com.br` / `atendimento@26`
+- `suelem.souza@vialogistic.com.br` / `atendimento@26`
 
-**Correções:**
+Atualizar os perfis VIALOGISTIC existentes (criados na migracao anterior) para apontar para os novos `user_id`s, mantendo os perfis VIAINFRA inalterados.
 
-- **Salvar `scrollTop` atual** em `handleScroll` junto com `scrollHeight`, e usar ambos na restauração: `container.scrollTop = scrollDiff + savedScrollTop`
-- **Remover `scroll-smooth` do container** de mensagens (linha 1059) -- o scroll suave é desnecessário e causa problemas na restauração de posição
-- **Usar `requestAnimationFrame`** na restauração para garantir que o DOM já foi pintado antes de ajustar o scrollTop
+**2. Edge Function `verify-company-credentials`**
 
----
+Uma edge function que recebe email + senha e verifica as credenciais server-side usando `supabase.auth.signInWithPassword` em um cliente separado do admin. Retorna sucesso/falha SEM alterar a sessao do cliente (a verificacao e feita no servidor).
 
-### Problema 2: Reply/Menção -- Garantir que Funcione no WhatsApp Oficial
+Isso garante que a sessao atual do atendente na VIAINFRA nao e interrompida.
 
-O código de reply está **estruturalmente correto**: a Edge Function `send-whatsapp-message` monta o objeto `quotedData` com `key.remoteJid`, `key.fromMe` e `key.id` no formato Baileys/Evolution API (linhas 285-292). Porém há um ponto fraco:
+**3. Componente `CompanyAuthModal`**
 
-- Se a mensagem não tem `whatsappMessageId` (campo unificado de `metadata.whatsappMessageId || metadata.external_id`), o reply é enviado como mensagem normal sem citação. O atendente não recebe feedback visual claro de que a citação não será refletida no WhatsApp.
+Novo componente modal com identidade visual dinamica baseada na empresa destino:
+- Logo VIALOGISTIC (`/lovable-uploads/vialogistic-logo.png`)
+- Campos de email e senha
+- Botao "Autenticar" com cores amarelas (tema VIALOGISTIC)
+- Exibido APENAS na primeira tentativa de troca para uma empresa nao verificada
 
-**Correção:** Adicionar um indicador visual sutil (nao um toast bloqueante) quando o reply for a uma mensagem sem `whatsappMessageId`, informando que a citação aparecerá apenas no inbox, não no WhatsApp. Isso será um pequeno texto no bloco de reply, não um toast.
+**4. Fluxo de troca de empresa atualizado**
 
----
-
-### Arquivos modificados
-
-**`src/components/app/ChatWindow.tsx`:**
-
-1. No `handleScroll` (linha 221-233):
-   - Salvar `container.scrollTop` em um novo ref (`previousScrollTopRef`) além do `scrollHeight`
-
-2. No useEffect de restauração (linha 236-248):
-   - Usar `container.scrollTop = scrollDiff + previousScrollTopRef.current` em vez de apenas `scrollDiff`
-   - Envolver em `requestAnimationFrame` para timing correto
-   - Resetar `previousScrollTopRef` após uso
-
-3. No container de mensagens (linha 1059):
-   - Remover a classe `scroll-smooth` do className
-
-4. No `handleReplyMessage` (linha 820-832):
-   - Se a mensagem não tem `whatsappMessageId`, marcar o `replyToMessage` com um flag visual para que o `ChatInput` possa mostrar "(citação local)" no bloco de reply
-
-**`src/components/app/chat/ChatInput.tsx`** (ajuste menor):
-   - Se o `replyToMessage` não tem `whatsappMessageId`, mostrar um texto pequeno "(somente no inbox)" abaixo da citação
-
----
-
-### Resumo tecnico das mudancas
+Modificacoes no `AuthContext.tsx` e `CompanySwitcher.tsx`:
 
 ```text
-ChatWindow.tsx:
-  L25:  + const previousScrollTopRef = useRef(0);
-  L229: + previousScrollTopRef.current = container.scrollTop;
-  L241: - container.scrollTop = scrollDiff;
-  L241: + requestAnimationFrame(() => {
-            container.scrollTop = scrollDiff + previousScrollTopRef.current;
-            previousScrollTopRef.current = 0;
-          });
-  L1059: - className="... scroll-smooth"
-  L1059: + className="..." (sem scroll-smooth)
-
-ChatInput.tsx:
-  - Indicador visual quando reply nao tem whatsappMessageId
+Usuario clica em "VIALOGISTIC" no CompanySwitcher
+       |
+       v
+Empresa ja verificada nesta sessao? (sessionStorage)
+       |
+  SIM -+-> switchCompany() normal (troca instantanea)
+       |
+  NAO -+-> Abre CompanyAuthModal com branding VIALOGISTIC
+              |
+              v
+        Usuario insere email + senha VIALOGISTIC
+              |
+              v
+        Chama edge function verify-company-credentials
+              |
+         SUCESSO -> Salva no sessionStorage -> switchCompany()
+         FALHA -> Exibe erro "Credenciais invalidas"
 ```
 
-### Resultado esperado
+**5. Armazenamento de verificacao**
 
-- Ao rolar para cima e carregar mensagens antigas, a barra permanece na posição exata onde o usuario estava, sem pulos ou animacoes indesejadas
-- Reply/mencao continua funcionando normalmente no WhatsApp oficial quando a mensagem tem ID valido
-- Feedback visual claro quando a citacao nao sera refletida no WhatsApp (sem bloquear o envio)
+Usar `sessionStorage` (nao `localStorage`) para guardar as empresas verificadas. Isso significa que ao fechar o navegador, a verificacao expira e sera necessario autenticar novamente na proxima sessao -- comportamento seguro e esperado.
+
+---
+
+### Arquivos criados/modificados
+
+| Arquivo | Acao |
+|---------|------|
+| `supabase/functions/verify-company-credentials/index.ts` | **Criar** -- Edge function de verificacao |
+| `src/components/app/CompanyAuthModal.tsx` | **Criar** -- Modal de login por empresa |
+| `src/contexts/auth/AuthContext.tsx` | **Modificar** -- Adicionar logica de verificacao no `switchCompany` |
+| `src/components/app/CompanySwitcher.tsx` | **Modificar** -- Integrar modal de autenticacao |
+| `src/components/app/Sidebar.tsx` | **Modificar** -- Passar props do modal |
+| Migracao SQL | **Criar** -- Setup users via edge function |
+
+### Detalhes tecnicos
+
+**Edge Function `verify-company-credentials`:**
+- Recebe `{ email, password, targetCompanyId }`
+- Cria um cliente Supabase temporario e chama `signInWithPassword`
+- Verifica se o usuario autenticado tem perfil na empresa alvo
+- Retorna `{ success: true }` ou `{ success: false, error: "..." }`
+- NAO afeta a sessao do cliente chamador
+
+**CompanyAuthModal:**
+- Props: `isOpen`, `onClose`, `onSuccess`, `targetCompany`
+- Logo e cores dinamicas baseadas em `targetCompany.name`
+- Chama a edge function e dispara `onSuccess(companyId)` ao verificar
+
+**AuthContext changes:**
+- `switchCompany` agora aceita callback `onRequireAuth` 
+- Ou: novo estado `pendingCompanySwitch` + `verifiedCompanies` Set
+- Metodo `verifyCompanyAccess(companyId)` que checa sessionStorage
+
+**Criacao de auth users:**
+- Sera feita via a edge function `setup-users` existente ou via migracao com `supabase.auth.admin.createUser`
 
