@@ -258,3 +258,9 @@ verify_jwt = false
 
 [functions.sync-all-groups]
 verify_jwt = false
+
+[functions.verify-company-credentials]
+verify_jwt = false
+
+[functions.create-vialogistic-users]
+verify_jwt = false
