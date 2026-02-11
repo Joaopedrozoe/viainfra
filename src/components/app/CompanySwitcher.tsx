@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Check, ChevronsUpDown, Building2 } from "lucide-react";
 import {
   DropdownMenu,
@@ -7,6 +8,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { CompanyAuthModal } from "./CompanyAuthModal";
 
 interface Company {
   id: string;
@@ -20,15 +22,33 @@ interface CompanySwitcherProps {
   collapsed?: boolean;
 }
 
+const isCompanyVerified = (companyId: string): boolean => {
+  const verified = JSON.parse(sessionStorage.getItem("verified_companies") || "[]");
+  return verified.includes(companyId);
+};
+
 export const CompanySwitcher = ({ 
   companies, 
   currentCompanyId, 
   onCompanyChange,
   collapsed = false 
 }: CompanySwitcherProps) => {
+  const [authModal, setAuthModal] = useState<{ open: boolean; company: Company | null }>({
+    open: false,
+    company: null,
+  });
+
+  // Mark the current (logged-in) company as verified on mount
+  useEffect(() => {
+    if (currentCompanyId && !isCompanyVerified(currentCompanyId)) {
+      const verified = JSON.parse(sessionStorage.getItem("verified_companies") || "[]");
+      verified.push(currentCompanyId);
+      sessionStorage.setItem("verified_companies", JSON.stringify(verified));
+    }
+  }, [currentCompanyId]);
+
   const currentCompany = companies.find(c => c.id === currentCompanyId);
   
-  // Ordenar empresas: VIAINFRA primeiro, depois outras
   const sortedCompanies = [...companies].sort((a, b) => {
     const aName = a.name?.toUpperCase();
     const bName = b.name?.toUpperCase();
@@ -37,68 +57,84 @@ export const CompanySwitcher = ({
     return 0;
   });
 
-  if (collapsed) {
-    return (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-10 w-10">
-            <Building2 className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-[200px]">
-          {sortedCompanies.map((company) => (
-            <DropdownMenuItem
-              key={company.id}
-              onClick={() => onCompanyChange(company.id)}
-              className="cursor-pointer"
-            >
-              <Check
-                className={cn(
-                  "mr-2 h-4 w-4",
-                  currentCompanyId === company.id ? "opacity-100" : "opacity-0"
-                )}
-              />
-              {company.name}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    );
-  }
+  const handleCompanySelect = (company: Company) => {
+    if (company.id === currentCompanyId) return;
+
+    // If switching to a different company, check if verified in this session
+    if (isCompanyVerified(company.id)) {
+      onCompanyChange(company.id);
+    } else {
+      // The current company (where they logged in) is always verified
+      // Only require auth for companies they haven't verified yet
+      setAuthModal({ open: true, company });
+    }
+  };
+
+  const handleAuthSuccess = (companyId: string) => {
+    setAuthModal({ open: false, company: null });
+    onCompanyChange(companyId);
+  };
+
+  const renderDropdownItems = () =>
+    sortedCompanies.map((company) => (
+      <DropdownMenuItem
+        key={company.id}
+        onClick={() => handleCompanySelect(company)}
+        className="cursor-pointer"
+      >
+        <Check
+          className={cn(
+            "mr-2 h-4 w-4",
+            currentCompanyId === company.id ? "opacity-100" : "opacity-0"
+          )}
+        />
+        {company.name}
+      </DropdownMenuItem>
+    ));
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button 
-          variant="ghost" 
-          className="w-full justify-between h-auto py-2 px-3"
-        >
-          <div className="flex items-center gap-2">
-            <Building2 className="h-4 w-4" />
-            <span className="text-sm font-medium truncate">
-              {currentCompany?.name || "Selecione uma empresa"}
-            </span>
-          </div>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[200px]">
-        {sortedCompanies.map((company) => (
-          <DropdownMenuItem
-            key={company.id}
-            onClick={() => onCompanyChange(company.id)}
-            className="cursor-pointer"
-          >
-            <Check
-              className={cn(
-                "mr-2 h-4 w-4",
-                currentCompanyId === company.id ? "opacity-100" : "opacity-0"
-              )}
-            />
-            {company.name}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      {collapsed ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-10 w-10">
+              <Building2 className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-[200px]">
+            {renderDropdownItems()}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button 
+              variant="ghost" 
+              className="w-full justify-between h-auto py-2 px-3"
+            >
+              <div className="flex items-center gap-2">
+                <Building2 className="h-4 w-4" />
+                <span className="text-sm font-medium truncate">
+                  {currentCompany?.name || "Selecione uma empresa"}
+                </span>
+              </div>
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-[200px]">
+            {renderDropdownItems()}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+
+      {authModal.company && (
+        <CompanyAuthModal
+          isOpen={authModal.open}
+          onClose={() => setAuthModal({ open: false, company: null })}
+          onSuccess={handleAuthSuccess}
+          targetCompany={authModal.company}
+        />
+      )}
+    </>
   );
 };
