@@ -820,14 +820,10 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   const handleReplyMessage = useCallback((message: Message) => {
     // Verificar se a mensagem tem ID do WhatsApp para reply funcionar
     if (!message.whatsappMessageId) {
-      console.warn('⚠️ [Reply] Mensagem sem whatsappMessageId - reply pode não funcionar no WhatsApp oficial', {
+      console.warn('⚠️ [Reply] Mensagem sem whatsappMessageId - reply será enviado como mensagem normal (sem citação no WhatsApp)', {
         messageId: message.id,
         sender: message.sender,
         content: message.content?.substring(0, 50),
-      });
-      // Não bloqueia - permite reply visual no Inbox, mas avisa que pode não refletir no WhatsApp
-      toast.warning('Esta mensagem é antiga e pode não mostrar como resposta no WhatsApp oficial', {
-        duration: 3000,
       });
     }
     setReplyToMessage(message);
