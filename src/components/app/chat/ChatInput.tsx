@@ -50,6 +50,11 @@ const ReplyPreview = memo(({
           <p className="text-sm text-muted-foreground line-clamp-2">
             {message.content || (message.attachment ? `[${message.attachment.type}]` : '[Mensagem]')}
           </p>
+          {!message.whatsappMessageId && (
+            <p className="text-[10px] text-amber-500/80 mt-0.5 italic">
+              citação somente no inbox
+            </p>
+          )}
         </div>
         <button
           onClick={onCancel}

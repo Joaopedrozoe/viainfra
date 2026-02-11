@@ -38,6 +38,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   const { profile } = useAuth();
   const previousConversationIdRef = useRef<string | null>(null);
   const previousScrollHeightRef = useRef<number>(0);
+  const previousScrollTopRef = useRef<number>(0);
   const isLoadingHistoryRef = useRef(false);
   
   // Hook para infinite scroll de mensagens
@@ -226,8 +227,9 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     if (container.scrollTop < 100) {
       // Marcar que é carregamento de histórico (evita scroll automático para o final)
       isLoadingHistoryRef.current = true;
-      // Guardar altura atual para manter posição após carregar
+      // Guardar altura e posição atuais para manter posição após carregar
       previousScrollHeightRef.current = container.scrollHeight;
+      previousScrollTopRef.current = container.scrollTop;
       loadMoreMessages();
     }
   }, [isLoadingMore, hasMore, loadMoreMessages]);
@@ -236,14 +238,21 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   useEffect(() => {
     const container = messagesContainerRef.current;
     if (container && previousScrollHeightRef.current > 0 && !isLoadingMore) {
-      const newScrollHeight = container.scrollHeight;
-      const scrollDiff = newScrollHeight - previousScrollHeightRef.current;
-      if (scrollDiff > 0) {
-        container.scrollTop = scrollDiff;
-      }
+      const savedScrollTop = previousScrollTopRef.current;
+      const savedScrollHeight = previousScrollHeightRef.current;
+      // Resetar refs antes do rAF para evitar re-execução
       previousScrollHeightRef.current = 0;
-      // Resetar flag após restaurar posição
-      isLoadingHistoryRef.current = false;
+      previousScrollTopRef.current = 0;
+      
+      requestAnimationFrame(() => {
+        const newScrollHeight = container.scrollHeight;
+        const scrollDiff = newScrollHeight - savedScrollHeight;
+        if (scrollDiff > 0) {
+          container.scrollTop = scrollDiff + savedScrollTop;
+        }
+        // Resetar flag após restaurar posição
+        isLoadingHistoryRef.current = false;
+      });
     }
   }, [messages, isLoadingMore]);
 
@@ -1056,7 +1065,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       <div 
         ref={messagesContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto bg-muted/30 p-4 scroll-smooth"
+        className="flex-1 overflow-y-auto bg-muted/30 p-4"
       >
         <div className="space-y-3">
           {/* Indicador de carregamento de mensagens antigas */}
