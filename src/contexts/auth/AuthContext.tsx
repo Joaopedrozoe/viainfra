@@ -152,12 +152,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           // do NOT overwrite profile/company - just update userProfiles and user basics
           // This must work regardless of preserveCompany flag (SIGNED_IN also fires on tab switch)
           if (activeCompanyId && !hasLocalProfileForActive) {
-            console.log('🔐 [AuthContext] Preserving external company, skipping profile/company reset:', activeCompanyId);
+            console.log('🔐 [AuthContext] External company active:', activeCompanyId);
             
             const mappedProfiles = sortedProfiles.map(p => buildProfileData(p));
             setUserProfiles(mappedProfiles);
 
-            // Update user basics from session but keep profile/company untouched
+            // Update user basics
             setUser(prev => prev ? { ...prev, id: session.user.id, email: session.user.email! } : {
               id: session.user.id,
               email: session.user.email!,
@@ -165,6 +165,47 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               created_at: session.user.created_at,
               updated_at: sortedProfiles[0].updated_at,
             });
+
+            // CRITICAL: If profile/company are null (page refresh), restore from sessionStorage cache
+            const cachedData = sessionStorage.getItem(`external_profile_${activeCompanyId}`);
+            if (cachedData) {
+              try {
+                const { profile: cachedProfile, company: cachedCompany } = JSON.parse(cachedData);
+                if (cachedProfile && cachedCompany) {
+                  console.log('🔐 [AuthContext] Restoring external company from cache:', cachedCompany.name);
+                  setProfile(cachedProfile);
+                  setCompany(cachedCompany);
+                }
+              } catch (e) {
+                console.error('❌ [AuthContext] Failed to parse cached external profile:', e);
+                // Cache corrupted - clear and fall back to default
+                sessionStorage.removeItem('active_company_id');
+                sessionStorage.removeItem(`external_profile_${activeCompanyId}`);
+                // Re-run with default company
+                const defaultProfile = sortedProfiles[0];
+                if (defaultProfile.companies) {
+                  setProfile(buildProfileData(defaultProfile));
+                  setCompany({
+                    ...defaultProfile.companies,
+                    plan: defaultProfile.companies.plan as 'free' | 'pro' | 'enterprise',
+                    settings: (defaultProfile.companies.settings as any) || {},
+                  });
+                }
+              }
+            } else {
+              // No cache available - can't restore external company, fall back to default
+              console.warn('⚠️ [AuthContext] No cached data for external company, falling back to default');
+              sessionStorage.removeItem('active_company_id');
+              const defaultProfile = sortedProfiles[0];
+              if (defaultProfile.companies) {
+                setProfile(buildProfileData(defaultProfile));
+                setCompany({
+                  ...defaultProfile.companies,
+                  plan: defaultProfile.companies.plan as 'free' | 'pro' | 'enterprise',
+                  settings: (defaultProfile.companies.settings as any) || {},
+                });
+              }
+            }
 
             // Load accessible companies
             const profileCompanies: AccessibleCompany[] = sortedProfiles
@@ -175,7 +216,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 logo_url: p.companies!.logo_url || undefined,
               }));
             await loadAccessibleCompanies(session.user.id, profileCompanies);
-            console.log('✅ [AuthContext] Auth re-initialized (external company preserved)');
+            console.log('✅ [AuthContext] Auth re-initialized (external company handled)');
           } else {
             // Normal flow: pick the right local profile
             let profileData = sortedProfiles[0];
