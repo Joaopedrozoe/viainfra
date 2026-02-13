@@ -15,21 +15,10 @@ import { BroadcastHistory } from "@/components/app/broadcast/BroadcastHistory";
 import { toast } from "sonner";
 import type { BroadcastList } from "@/types/broadcast";
 
-const mockContacts = [
-  { id: "1", name: "João Silva", phone: "+5511999887766" },
-  { id: "2", name: "Maria Santos", phone: "+5511988776655" },
-  { id: "3", name: "Carlos Oliveira", phone: "+5511977665544" },
-  { id: "4", name: "Ana Costa", phone: "+5511966554433" },
-  { id: "5", name: "Pedro Lima", phone: "+5511955443322" },
-];
-
-const mockLists: BroadcastList[] = [
-  { id: "1", name: "Clientes VIP", contactIds: ["1", "2", "3"], createdAt: "2026-02-01", updatedAt: "2026-02-10", lastUsedAt: "2026-02-12" },
-  { id: "2", name: "Leads Fevereiro", contactIds: ["1", "4", "5"], createdAt: "2026-02-05", updatedAt: "2026-02-08" },
-];
+const mockContacts: { id: string; name: string; phone: string }[] = [];
 
 const BroadcastLists = () => {
-  const [lists, setLists] = useState<BroadcastList[]>(mockLists);
+  const [lists, setLists] = useState<BroadcastList[]>([]);
   const [formOpen, setFormOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [selectedList, setSelectedList] = useState<BroadcastList | null>(null);
@@ -99,7 +88,7 @@ const BroadcastLists = () => {
                 <CardContent className="p-4 flex items-center gap-3">
                   <Send className="h-8 w-8 text-green-600" />
                   <div>
-                    <p className="text-2xl font-bold">165</p>
+                    <p className="text-2xl font-bold">0</p>
                     <p className="text-xs text-muted-foreground">Enviadas</p>
                   </div>
                 </CardContent>
@@ -108,7 +97,7 @@ const BroadcastLists = () => {
                 <CardContent className="p-4 flex items-center gap-3">
                   <BarChart3 className="h-8 w-8 text-blue-600" />
                   <div>
-                    <p className="text-2xl font-bold">72%</p>
+                    <p className="text-2xl font-bold">0%</p>
                     <p className="text-xs text-muted-foreground">Taxa de leitura</p>
                   </div>
                 </CardContent>
@@ -117,7 +106,7 @@ const BroadcastLists = () => {
                 <CardContent className="p-4 flex items-center gap-3">
                   <AlertCircle className="h-8 w-8 text-destructive" />
                   <div>
-                    <p className="text-2xl font-bold">8</p>
+                    <p className="text-2xl font-bold">0</p>
                     <p className="text-xs text-muted-foreground">Falhas</p>
                   </div>
                 </CardContent>
