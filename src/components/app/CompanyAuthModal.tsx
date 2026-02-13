@@ -15,7 +15,7 @@ import { toast } from "sonner";
 interface CompanyAuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (companyId: string) => void;
+  onSuccess: (companyId: string, profileData?: any) => void;
   targetCompany: {
     id: string;
     name: string;
@@ -77,7 +77,7 @@ export const CompanyAuthModal = ({
       toast.success(`Autenticado em ${targetCompany.name}`);
       setEmail("");
       setPassword("");
-      onSuccess(targetCompany.id);
+      onSuccess(targetCompany.id, { profile: data.profile, company: data.company });
     } catch (err: any) {
       toast.error("Erro ao verificar credenciais");
     } finally {

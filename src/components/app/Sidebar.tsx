@@ -46,14 +46,12 @@ import { CompanySwitcher } from "@/components/app/CompanySwitcher";
 export const AppSidebar = () => {
   const { state } = useSidebar();
   const location = useLocation();
-  const { profile, company, userProfiles, switchCompany, signOut } = useAuth();
+  const { profile, company, userProfiles, accessibleCompanies, switchCompany, switchCompanyWithProfile, signOut } = useAuth();
   const { hasFeature } = usePlanPermissions();
   const collapsed = state === "collapsed";
   
-  const companies = userProfiles.map(p => ({
-    id: p.company_id,
-    name: p.companies?.name || 'Empresa'
-  }));
+  // Use accessibleCompanies (profiles + company_access) instead of just userProfiles
+  const companies = accessibleCompanies;
   
   const isActive = (path: string) => location.pathname === path;
 
@@ -129,10 +127,12 @@ export const AppSidebar = () => {
           <SidebarGroupContent>
             {companies.length > 1 && (
               <div className="px-2 mb-2">
-                <CompanySwitcher 
+              <CompanySwitcher 
                   companies={companies}
                   currentCompanyId={company?.id || null}
                   onCompanyChange={switchCompany}
+                  onCompanyChangeWithProfile={switchCompanyWithProfile}
+                  userProfiles={userProfiles}
                   collapsed={collapsed}
                 />
               </div>

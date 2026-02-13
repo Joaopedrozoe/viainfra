@@ -37,13 +37,21 @@ export interface Company {
   updated_at: string;
 }
 
+export interface AccessibleCompany {
+  id: string;
+  name: string;
+  logo_url?: string;
+}
+
 export interface AuthContextType {
   user: User | null;
   profile: Profile | null;
   company: Company | null;
   isLoading: boolean;
   userProfiles: Profile[];
+  accessibleCompanies: AccessibleCompany[];
   switchCompany: (companyId: string) => Promise<void>;
+  switchCompanyWithProfile: (companyId: string, externalProfile: Profile, companyData: Company) => void;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name: string) => Promise<any>;
   signOut: () => Promise<void>;
