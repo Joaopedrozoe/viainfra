@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback, ReactNode } from 'react';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { AuthContextType, User, Profile, Company, AccessibleCompany } from './types';
@@ -240,6 +240,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  // Use ref to always call the latest initializeAuth from auth state change listener
+  const initializeAuthRef = useRef(initializeAuth);
+  useEffect(() => {
+    initializeAuthRef.current = initializeAuth;
+  }, [initializeAuth]);
+
   useEffect(() => {
     initializeAuth();
 
@@ -252,11 +258,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setAccessibleCompanies([]);
         sessionStorage.removeItem('active_company_id');
       } else if (event === 'SIGNED_IN' && session) {
-        initializeAuth();
+        // Always use latest initializeAuth via ref to avoid stale closures
+        initializeAuthRef.current();
       } else if (event === 'TOKEN_REFRESHED' && session) {
-        // Token refresh should NOT reset the active company
         console.log('🔐 [AuthContext] Token refreshed, preserving company selection');
-        initializeAuth(true);
+        initializeAuthRef.current(true);
       }
     });
 
@@ -371,6 +377,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setCompany(null);
       setUserProfiles([]);
       setAccessibleCompanies([]);
+      // Clear all company-related session data
+      sessionStorage.removeItem('active_company_id');
+      sessionStorage.removeItem('verified_companies');
+      // Clear cached external profiles
+      Object.keys(sessionStorage).forEach(key => {
+        if (key.startsWith('external_profile_')) {
+          sessionStorage.removeItem(key);
+        }
+      });
       toast.success('Logout realizado com sucesso!');
     } catch (error) {
       console.error('Sign out error:', error);
