@@ -1,7 +1,7 @@
 
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { MessageSquare, MoreHorizontal, Users, Calendar, Settings, ExternalLink, Layers, BarChart3, Plug, HelpCircle } from "lucide-react";
+import { MessageSquare, MoreHorizontal, Users, Calendar, Settings, ExternalLink, Layers, BarChart3, Plug, HelpCircle, Radio, Phone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Sheet,
@@ -35,6 +35,16 @@ const moreNavItems = [
     title: "Canais",
     path: "/channels",
     icon: <Layers size={20} />
+  },
+  {
+    title: "Transmissão",
+    path: "/broadcast",
+    icon: <Radio size={20} />
+  },
+  {
+    title: "Ligações",
+    path: "/calls",
+    icon: <Phone size={20} />
   },
   {
     title: "Agenda",

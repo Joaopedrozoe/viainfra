@@ -39,6 +39,8 @@ const Settings = lazy(() => import("@/pages/app/Settings"));
 const Help = lazy(() => import("@/pages/app/Help"));
 const ContactDetails = lazy(() => import("@/pages/app/ContactDetails"));
 const Contacts = lazy(() => import("@/pages/app/Contacts"));
+const BroadcastLists = lazy(() => import("@/pages/app/BroadcastLists"));
+const WhatsAppCalls = lazy(() => import("@/pages/app/WhatsAppCalls"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
 const PublicBooking = lazy(() => import("@/pages/public/PublicBooking"));
 
@@ -100,6 +102,8 @@ const App = () => (
                 <Route path="/bot-builder" element={<BotBuilder />} />
                 <Route path="/channels" element={<Channels />} />
                 <Route path="/contacts" element={<Contacts />} />
+                <Route path="/broadcast" element={<BroadcastLists />} />
+                <Route path="/calls" element={<WhatsAppCalls />} />
                 <Route path="/ai" element={<AIRedirect />} />
                 <Route path="/agents" element={<Agents />} />
                 <Route path="/agents/:id" element={<AgentDetails />} />
