@@ -82,7 +82,10 @@ export const CompanySwitcher = ({
       onCompanyChange(company.id);
     } else {
       // No local profile and not verified - require authentication
-      setAuthModal({ open: true, company });
+      // Use setTimeout to avoid Radix DropdownMenu focus trap conflicting with Dialog
+      setTimeout(() => {
+        setAuthModal({ open: true, company });
+      }, 100);
     }
   };
 
