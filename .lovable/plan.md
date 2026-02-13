@@ -1,95 +1,94 @@
 
+## Habilitar Alternancia de Empresa para Logins Diferentes
 
-## Criação de Credenciais VIALOGISTIC + Fluxo de Autenticação por Empresa
+### Problema
 
-### Resumo
+O `AuthContext` carrega perfis apenas por `user_id` da sessao ativa. Como Joicy e Suelem tem user_ids diferentes para VIAINFRA e VIALOGISTIC, o sistema so encontra 1 perfil e nao mostra o `CompanySwitcher`.
 
-Criar contas de login separadas para Joicy e Suelem no contexto VIALOGISTIC, e implementar um fluxo onde ao alternar de empresa pela primeira vez, uma tela de login com identidade visual da VIALOGISTIC aparece exigindo autenticação. Após autenticar, a troca entre empresas é livre na sessão.
+### Solucao: Tabela `company_access`
 
-### O que sera feito
+Criar uma tabela de mapeamento que indica quais empresas um usuario pode acessar, independente de ter perfil com o mesmo `user_id`.
 
-**1. Criar credenciais Supabase Auth para VIALOGISTIC**
+### Mudancas
 
-Criar dois novos usuarios no Supabase Auth:
-- `joicy.souza@vialogistic.com.br` / `atendimento@26`
-- `suelem.souza@vialogistic.com.br` / `atendimento@26`
+**1. Criar tabela `company_access`**
 
-Atualizar os perfis VIALOGISTIC existentes (criados na migracao anterior) para apontar para os novos `user_id`s, mantendo os perfis VIAINFRA inalterados.
-
-**2. Edge Function `verify-company-credentials`**
-
-Uma edge function que recebe email + senha e verifica as credenciais server-side usando `supabase.auth.signInWithPassword` em um cliente separado do admin. Retorna sucesso/falha SEM alterar a sessao do cliente (a verificacao e feita no servidor).
-
-Isso garante que a sessao atual do atendente na VIAINFRA nao e interrompida.
-
-**3. Componente `CompanyAuthModal`**
-
-Novo componente modal com identidade visual dinamica baseada na empresa destino:
-- Logo VIALOGISTIC (`/lovable-uploads/vialogistic-logo.png`)
-- Campos de email e senha
-- Botao "Autenticar" com cores amarelas (tema VIALOGISTIC)
-- Exibido APENAS na primeira tentativa de troca para uma empresa nao verificada
-
-**4. Fluxo de troca de empresa atualizado**
-
-Modificacoes no `AuthContext.tsx` e `CompanySwitcher.tsx`:
-
-```text
-Usuario clica em "VIALOGISTIC" no CompanySwitcher
-       |
-       v
-Empresa ja verificada nesta sessao? (sessionStorage)
-       |
-  SIM -+-> switchCompany() normal (troca instantanea)
-       |
-  NAO -+-> Abre CompanyAuthModal com branding VIALOGISTIC
-              |
-              v
-        Usuario insere email + senha VIALOGISTIC
-              |
-              v
-        Chama edge function verify-company-credentials
-              |
-         SUCESSO -> Salva no sessionStorage -> switchCompany()
-         FALHA -> Exibe erro "Credenciais invalidas"
+```sql
+CREATE TABLE public.company_access (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  UNIQUE(user_id, company_id)
+);
 ```
 
-**5. Armazenamento de verificacao**
+Inserir registros para Joicy e Suelem mapeando seus user_ids VIAINFRA para a VIALOGISTIC:
 
-Usar `sessionStorage` (nao `localStorage`) para guardar as empresas verificadas. Isso significa que ao fechar o navegador, a verificacao expira e sera necessario autenticar novamente na proxima sessao -- comportamento seguro e esperado.
+| user_id (VIAINFRA login) | company_id (VIALOGISTIC) |
+|---|---|
+| df98e045... (Joicy) | e3ad9c68... |
+| 2dbb8e79... (Suelem) | e3ad9c68... |
 
----
+**2. Modificar `AuthContext.tsx`**
 
-### Arquivos criados/modificados
+Apos carregar os perfis por `user_id`, tambem consultar `company_access` para descobrir empresas adicionais. Montar a lista de empresas disponiveis combinando:
+- Empresas dos perfis carregados (comportamento atual)
+- Empresas da tabela `company_access`
+
+Modificar `switchCompany` para que, quando a empresa alvo nao tem perfil com o mesmo `user_id`, busque o perfil por `company_id` e `name` (ou via dados retornados pela edge function).
+
+**3. Modificar `verify-company-credentials` (Edge Function)**
+
+Alem de verificar credenciais, retornar o perfil completo do usuario autenticado na empresa alvo (id, name, email, role, permissions). Esses dados serao usados pelo `AuthContext` para montar o contexto da empresa sem precisar do mesmo `user_id`.
+
+**4. Modificar `CompanySwitcher.tsx`**
+
+O componente ja esta correto -- ele recebe a lista de empresas como prop. A mudanca e apenas na origem dos dados (AuthContext).
+
+**5. Modificar `Sidebar.tsx`**
+
+Atualizar a construcao da lista `companies` para incluir empresas da `company_access`, nao apenas dos `userProfiles`.
+
+### Fluxo atualizado
+
+```text
+Joicy faz login (atendimento@viainfra.com.br)
+    |
+    v
+AuthContext carrega perfis (1 perfil VIAINFRA)
+    |
+    v
+AuthContext consulta company_access -> encontra VIALOGISTIC
+    |
+    v
+CompanySwitcher mostra: [VIAINFRA, VIALOGISTIC]
+    |
+    v
+Joicy clica em VIALOGISTIC (nao verificada na sessao)
+    |
+    v
+CompanyAuthModal abre com branding VIALOGISTIC
+    |
+    v
+Joicy insere joicy.souza@vialogistic.com.br + senha
+    |
+    v
+verify-company-credentials valida e retorna perfil completo
+    |
+    v
+AuthContext recebe perfil e faz switch -> sessao verificada
+    |
+    v
+Proximas trocas sao instantaneas (sessionStorage)
+```
+
+### Arquivos modificados
 
 | Arquivo | Acao |
-|---------|------|
-| `supabase/functions/verify-company-credentials/index.ts` | **Criar** -- Edge function de verificacao |
-| `src/components/app/CompanyAuthModal.tsx` | **Criar** -- Modal de login por empresa |
-| `src/contexts/auth/AuthContext.tsx` | **Modificar** -- Adicionar logica de verificacao no `switchCompany` |
-| `src/components/app/CompanySwitcher.tsx` | **Modificar** -- Integrar modal de autenticacao |
-| `src/components/app/Sidebar.tsx` | **Modificar** -- Passar props do modal |
-| Migracao SQL | **Criar** -- Setup users via edge function |
-
-### Detalhes tecnicos
-
-**Edge Function `verify-company-credentials`:**
-- Recebe `{ email, password, targetCompanyId }`
-- Cria um cliente Supabase temporario e chama `signInWithPassword`
-- Verifica se o usuario autenticado tem perfil na empresa alvo
-- Retorna `{ success: true }` ou `{ success: false, error: "..." }`
-- NAO afeta a sessao do cliente chamador
-
-**CompanyAuthModal:**
-- Props: `isOpen`, `onClose`, `onSuccess`, `targetCompany`
-- Logo e cores dinamicas baseadas em `targetCompany.name`
-- Chama a edge function e dispara `onSuccess(companyId)` ao verificar
-
-**AuthContext changes:**
-- `switchCompany` agora aceita callback `onRequireAuth` 
-- Ou: novo estado `pendingCompanySwitch` + `verifiedCompanies` Set
-- Metodo `verifyCompanyAccess(companyId)` que checa sessionStorage
-
-**Criacao de auth users:**
-- Sera feita via a edge function `setup-users` existente ou via migracao com `supabase.auth.admin.createUser`
-
+|---|---|
+| Migracao SQL | Criar tabela `company_access` + inserir registros |
+| `src/contexts/auth/AuthContext.tsx` | Consultar `company_access` + switchCompany com perfil externo |
+| `src/contexts/auth/types.ts` | Adicionar `accessibleCompanies` ao AuthContextType |
+| `supabase/functions/verify-company-credentials/index.ts` | Retornar perfil completo |
+| `src/components/app/Sidebar.tsx` | Usar `accessibleCompanies` para lista do switcher |
+| `src/integrations/supabase/types.ts` | Adicionar tipo da tabela `company_access` |
