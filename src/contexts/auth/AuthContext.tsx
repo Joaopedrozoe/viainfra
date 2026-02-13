@@ -38,7 +38,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       // Query company_access for additional companies
       const { data: accessData, error } = await supabase
-        .from('company_access' as any)
+        .from('company_access')
         .select('company_id')
         .eq('user_id', userId);
 
