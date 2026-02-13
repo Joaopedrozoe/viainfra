@@ -63,29 +63,44 @@ export const CompanySwitcher = ({
   });
 
   const handleCompanySelect = (company: CompanyItem) => {
-    if (company.id === currentCompanyId) return;
+    console.log('🔄 [CompanySwitcher] handleCompanySelect called', {
+      targetCompany: company.name,
+      targetId: company.id,
+      currentCompanyId,
+      userProfileCompanyIds: userProfiles.map(p => p.company_id),
+      verifiedCompanies: JSON.parse(sessionStorage.getItem("verified_companies") || "[]"),
+    });
+
+    if (company.id === currentCompanyId) {
+      console.log('🔄 [CompanySwitcher] Same company, skipping');
+      return;
+    }
 
     // Check if user has a local profile for this company
     const hasLocalProfile = userProfiles.some(p => p.company_id === company.id);
+    const verified = isCompanyVerified(company.id);
 
-    if (hasLocalProfile && isCompanyVerified(company.id)) {
-      // Has profile and verified - instant switch
+    console.log('🔄 [CompanySwitcher] Decision:', { hasLocalProfile, verified });
+
+    if (hasLocalProfile && verified) {
+      console.log('🔄 [CompanySwitcher] Path: hasLocalProfile + verified → instant switch');
       onCompanyChange(company.id);
     } else if (hasLocalProfile) {
-      // Has profile but not verified - mark as verified (same user_id = same session)
-      const verified = JSON.parse(sessionStorage.getItem("verified_companies") || "[]");
-      verified.push(company.id);
-      sessionStorage.setItem("verified_companies", JSON.stringify(verified));
+      console.log('🔄 [CompanySwitcher] Path: hasLocalProfile, marking verified');
+      const verifiedList = JSON.parse(sessionStorage.getItem("verified_companies") || "[]");
+      verifiedList.push(company.id);
+      sessionStorage.setItem("verified_companies", JSON.stringify(verifiedList));
       onCompanyChange(company.id);
-    } else if (isCompanyVerified(company.id)) {
-      // No local profile but verified this session - switch with cached data
+    } else if (verified) {
+      console.log('🔄 [CompanySwitcher] Path: verified (no local profile) → switch');
       onCompanyChange(company.id);
     } else {
-      // No local profile and not verified - require authentication
+      console.log('🔄 [CompanySwitcher] Path: NOT verified → opening auth modal');
       // Use setTimeout to avoid Radix DropdownMenu focus trap conflicting with Dialog
       setTimeout(() => {
+        console.log('🔄 [CompanySwitcher] Setting authModal open NOW');
         setAuthModal({ open: true, company });
-      }, 100);
+      }, 150);
     }
   };
 
