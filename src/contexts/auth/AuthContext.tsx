@@ -148,9 +148,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             ? sortedProfiles.some(p => p.company_id === activeCompanyId) 
             : false;
 
-          // If preserving and the active company is external (set via switchCompanyWithProfile),
+          // If the active company is external (set via switchCompanyWithProfile),
           // do NOT overwrite profile/company - just update userProfiles and user basics
-          if (preserveCompany && activeCompanyId && !hasLocalProfileForActive) {
+          // This must work regardless of preserveCompany flag (SIGNED_IN also fires on tab switch)
+          if (activeCompanyId && !hasLocalProfileForActive) {
             console.log('🔐 [AuthContext] Preserving external company, skipping profile/company reset:', activeCompanyId);
             
             const mappedProfiles = sortedProfiles.map(p => buildProfileData(p));
