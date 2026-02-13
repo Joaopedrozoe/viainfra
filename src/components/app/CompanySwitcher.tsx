@@ -30,6 +30,27 @@ const isCompanyVerified = (companyId: string): boolean => {
   return verified.includes(companyId);
 };
 
+const markCompanyVerified = (companyId: string) => {
+  const verified = JSON.parse(sessionStorage.getItem("verified_companies") || "[]");
+  if (!verified.includes(companyId)) {
+    verified.push(companyId);
+    sessionStorage.setItem("verified_companies", JSON.stringify(verified));
+  }
+};
+
+const getCachedExternalProfile = (companyId: string): { profile: Profile; company: Company } | null => {
+  try {
+    const cached = sessionStorage.getItem(`external_profile_${companyId}`);
+    return cached ? JSON.parse(cached) : null;
+  } catch {
+    return null;
+  }
+};
+
+const cacheExternalProfile = (companyId: string, profile: Profile, company: Company) => {
+  sessionStorage.setItem(`external_profile_${companyId}`, JSON.stringify({ profile, company }));
+};
+
 export const CompanySwitcher = ({ 
   companies, 
   currentCompanyId, 
@@ -71,17 +92,20 @@ export const CompanySwitcher = ({
     if (hasLocalProfile && isCompanyVerified(company.id)) {
       onCompanyChange(company.id);
     } else if (hasLocalProfile) {
-      const verified = JSON.parse(sessionStorage.getItem("verified_companies") || "[]");
-      verified.push(company.id);
-      sessionStorage.setItem("verified_companies", JSON.stringify(verified));
+      markCompanyVerified(company.id);
       onCompanyChange(company.id);
     } else {
-      // No local profile - ALWAYS require authentication modal
-      // Even if previously verified, we need the external profile data
-      // because switchCompany can't find a local profile and silently fails
-      setTimeout(() => {
-        setAuthModal({ open: true, company });
-      }, 150);
+      // No local profile - check if we have cached external profile from previous auth
+      const cached = getCachedExternalProfile(company.id);
+      if (cached && isCompanyVerified(company.id)) {
+        // Reuse cached profile data - no need to re-authenticate
+        onCompanyChangeWithProfile(company.id, cached.profile, cached.company);
+      } else {
+        // First time - require authentication modal
+        setTimeout(() => {
+          setAuthModal({ open: true, company });
+        }, 150);
+      }
     }
   };
 
@@ -89,7 +113,6 @@ export const CompanySwitcher = ({
     setAuthModal({ open: false, company: null });
     
     if (profileData?.profile && profileData?.company) {
-      // Use the profile data returned by the edge function
       const externalProfile: Profile = {
         id: profileData.profile.id,
         user_id: profileData.profile.user_id || '',
@@ -115,8 +138,13 @@ export const CompanySwitcher = ({
         updated_at: profileData.company.updated_at || new Date().toISOString(),
       };
 
+      // Cache for future switches within this session
+      markCompanyVerified(companyId);
+      cacheExternalProfile(companyId, externalProfile, companyData);
+
       onCompanyChangeWithProfile(companyId, externalProfile, companyData);
     } else {
+      markCompanyVerified(companyId);
       onCompanyChange(companyId);
     }
   };
