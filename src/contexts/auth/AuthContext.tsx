@@ -143,52 +143,87 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const savedCompanyId = sessionStorage.getItem('active_company_id');
           const activeCompanyId = preserveCompany ? (company?.id || savedCompanyId) : savedCompanyId;
           
-          let profileData = sortedProfiles[0];
-          if (activeCompanyId) {
-            const savedProfile = sortedProfiles.find(p => p.company_id === activeCompanyId);
-            if (savedProfile) {
-              profileData = savedProfile;
-              console.log('🔐 [AuthContext] Restoring saved company:', activeCompanyId);
+          // Check if the active company is an external one (no local profile)
+          const hasLocalProfileForActive = activeCompanyId 
+            ? sortedProfiles.some(p => p.company_id === activeCompanyId) 
+            : false;
+
+          // If preserving and the active company is external (set via switchCompanyWithProfile),
+          // do NOT overwrite profile/company - just update userProfiles and user basics
+          if (preserveCompany && activeCompanyId && !hasLocalProfileForActive) {
+            console.log('🔐 [AuthContext] Preserving external company, skipping profile/company reset:', activeCompanyId);
+            
+            const mappedProfiles = sortedProfiles.map(p => buildProfileData(p));
+            setUserProfiles(mappedProfiles);
+
+            // Update user basics from session but keep profile/company untouched
+            setUser(prev => prev ? { ...prev, id: session.user.id, email: session.user.email! } : {
+              id: session.user.id,
+              email: session.user.email!,
+              name: sortedProfiles[0].name,
+              created_at: session.user.created_at,
+              updated_at: sortedProfiles[0].updated_at,
+            });
+
+            // Load accessible companies
+            const profileCompanies: AccessibleCompany[] = sortedProfiles
+              .filter(p => p.companies)
+              .map(p => ({
+                id: p.company_id,
+                name: p.companies!.name,
+                logo_url: p.companies!.logo_url || undefined,
+              }));
+            await loadAccessibleCompanies(session.user.id, profileCompanies);
+            console.log('✅ [AuthContext] Auth re-initialized (external company preserved)');
+          } else {
+            // Normal flow: pick the right local profile
+            let profileData = sortedProfiles[0];
+            if (activeCompanyId) {
+              const savedProfile = sortedProfiles.find(p => p.company_id === activeCompanyId);
+              if (savedProfile) {
+                profileData = savedProfile;
+                console.log('🔐 [AuthContext] Restoring saved company:', activeCompanyId);
+              }
             }
+            
+            if (!profileData.companies) {
+              console.error('❌ [AuthContext] Profile has no company data:', profileData);
+              toast.error('Perfil sem empresa associada');
+              return;
+            }
+
+            const mappedProfiles = sortedProfiles.map(p => buildProfileData(p));
+            setUserProfiles(mappedProfiles);
+
+            setUser({
+              id: session.user.id,
+              email: session.user.email!,
+              name: profileData.name,
+              created_at: session.user.created_at,
+              updated_at: profileData.updated_at,
+            });
+            
+            const newProfile = buildProfileData(profileData);
+            setProfile(newProfile);
+            setCompany({
+              ...profileData.companies,
+              plan: profileData.companies.plan as 'free' | 'pro' | 'enterprise',
+              settings: (profileData.companies.settings as any) || {},
+            });
+
+            // Load accessible companies (from profiles + company_access)
+            const profileCompanies: AccessibleCompany[] = sortedProfiles
+              .filter(p => p.companies)
+              .map(p => ({
+                id: p.company_id,
+                name: p.companies!.name,
+                logo_url: p.companies!.logo_url || undefined,
+              }));
+
+            await loadAccessibleCompanies(session.user.id, profileCompanies);
+
+            console.log('✅ [AuthContext] Auth initialized successfully');
           }
-          
-          if (!profileData.companies) {
-            console.error('❌ [AuthContext] Profile has no company data:', profileData);
-            toast.error('Perfil sem empresa associada');
-            return;
-          }
-
-          const mappedProfiles = sortedProfiles.map(p => buildProfileData(p));
-          setUserProfiles(mappedProfiles);
-
-          setUser({
-            id: session.user.id,
-            email: session.user.email!,
-            name: profileData.name,
-            created_at: session.user.created_at,
-            updated_at: profileData.updated_at,
-          });
-          
-          const newProfile = buildProfileData(profileData);
-          setProfile(newProfile);
-          setCompany({
-            ...profileData.companies,
-            plan: profileData.companies.plan as 'free' | 'pro' | 'enterprise',
-            settings: (profileData.companies.settings as any) || {},
-          });
-
-          // Load accessible companies (from profiles + company_access)
-          const profileCompanies: AccessibleCompany[] = sortedProfiles
-            .filter(p => p.companies)
-            .map(p => ({
-              id: p.company_id,
-              name: p.companies!.name,
-              logo_url: p.companies!.logo_url || undefined,
-            }));
-
-          await loadAccessibleCompanies(session.user.id, profileCompanies);
-
-          console.log('✅ [AuthContext] Auth initialized successfully');
         } else {
           console.error('❌ [AuthContext] No profiles found for user:', session.user.id);
           toast.error('Nenhum perfil encontrado. Entre em contato com o suporte.');
