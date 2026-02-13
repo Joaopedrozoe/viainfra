@@ -113,9 +113,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } : undefined,
   });
 
-  const initializeAuth = async () => {
+  const initializeAuth = async (preserveCompany = false) => {
     try {
-      console.log('🔐 [AuthContext] Initializing auth...');
+      console.log('🔐 [AuthContext] Initializing auth...', { preserveCompany });
       const { data: { session } } = await supabase.auth.getSession();
       
       if (session?.user) {
@@ -139,7 +139,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             return 0;
           });
           
-          const profileData = sortedProfiles[0];
+          // If preserving company selection, keep current profile/company
+          const savedCompanyId = sessionStorage.getItem('active_company_id');
+          const activeCompanyId = preserveCompany ? (company?.id || savedCompanyId) : savedCompanyId;
+          
+          let profileData = sortedProfiles[0];
+          if (activeCompanyId) {
+            const savedProfile = sortedProfiles.find(p => p.company_id === activeCompanyId);
+            if (savedProfile) {
+              profileData = savedProfile;
+              console.log('🔐 [AuthContext] Restoring saved company:', activeCompanyId);
+            }
+          }
           
           if (!profileData.companies) {
             console.error('❌ [AuthContext] Profile has no company data:', profileData);
@@ -203,8 +214,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setCompany(null);
         setUserProfiles([]);
         setAccessibleCompanies([]);
+        sessionStorage.removeItem('active_company_id');
       } else if (event === 'SIGNED_IN' && session) {
         initializeAuth();
+      } else if (event === 'TOKEN_REFRESHED' && session) {
+        // Token refresh should NOT reset the active company
+        console.log('🔐 [AuthContext] Token refreshed, preserving company selection');
+        initializeAuth(true);
       }
     });
 
@@ -344,6 +360,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             plan: companyData.plan as 'free' | 'pro' | 'enterprise',
             settings: (companyData.settings as any) || {},
           });
+          sessionStorage.setItem('active_company_id', companyId);
           toast.success(`Alternado para ${companyData.name}`);
         }
       }
@@ -358,6 +375,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const switchCompanyWithProfile = (companyId: string, externalProfile: Profile, companyData: Company) => {
     setProfile(externalProfile);
     setCompany(companyData);
+    sessionStorage.setItem('active_company_id', companyId);
     toast.success(`Alternado para ${companyData.name}`);
   };
 
