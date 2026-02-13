@@ -11,7 +11,10 @@ import {
   LogOut,
   BarChart3,
   Users,
-  Workflow
+  Workflow,
+  Radio,
+  Phone,
+  Lock
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 import { usePlanPermissions } from "@/hooks/usePlanPermissions";
@@ -81,6 +84,8 @@ export const AppSidebar = () => {
     { title: "Construtor de Bots", url: "/bot-builder", icon: Workflow, available: true },
     { title: "Canais", url: "/channels", icon: Share2, available: true },
     { title: "Relacionamento", url: "/contacts", icon: Users, available: true },
+    { title: "Transmissão", url: "/broadcast", icon: Radio, available: true, comingSoon: true },
+    { title: "Ligações", url: "/calls", icon: Phone, available: true, comingSoon: true },
     { 
       title: "Agentes IA", 
       url: "/agents", 
@@ -193,7 +198,12 @@ export const AppSidebar = () => {
                       <item.icon className="h-5 w-5" />
                         <div className="flex items-center justify-between w-full">
                           <span>{item.title}</span>
-                          {item.feature && !collapsed && (
+                          {item.comingSoon && !collapsed && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full ml-2">
+                              <Lock className="h-3 w-3" /> Em breve
+                            </span>
+                          )}
+                          {item.feature && !item.comingSoon && !collapsed && (
                             <PlanBadge feature={item.feature} className="ml-2 text-xs" />
                           )}
                         </div>
