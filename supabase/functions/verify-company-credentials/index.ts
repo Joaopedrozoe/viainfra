@@ -48,7 +48,7 @@ Deno.serve(async (req) => {
 
     const { data: profile, error: profileError } = await adminClient
       .from('profiles')
-      .select('id, name, email')
+      .select('id, user_id, name, email, role, permissions, avatar_url, phone, created_at, updated_at')
       .eq('user_id', signInData.user.id)
       .eq('company_id', targetCompanyId)
       .maybeSingle()
@@ -63,8 +63,19 @@ Deno.serve(async (req) => {
       )
     }
 
+    // Fetch company data
+    const { data: companyData } = await adminClient
+      .from('companies')
+      .select('*')
+      .eq('id', targetCompanyId)
+      .single()
+
     return new Response(
-      JSON.stringify({ success: true, profile: { name: profile.name, email: profile.email } }),
+      JSON.stringify({ 
+        success: true, 
+        profile,
+        company: companyData,
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   } catch (error) {
