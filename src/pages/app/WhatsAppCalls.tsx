@@ -38,7 +38,7 @@ const WhatsAppCalls = () => {
                 <CardContent className="p-4 flex items-center gap-3">
                   <PhoneIncoming className="h-6 w-6 text-green-600" />
                   <div>
-                    <p className="text-xl font-bold">12</p>
+                    <p className="text-xl font-bold">0</p>
                     <p className="text-xs text-muted-foreground">Recebidas</p>
                   </div>
                 </CardContent>
@@ -47,7 +47,7 @@ const WhatsAppCalls = () => {
                 <CardContent className="p-4 flex items-center gap-3">
                   <PhoneOutgoing className="h-6 w-6 text-blue-600" />
                   <div>
-                    <p className="text-xl font-bold">8</p>
+                    <p className="text-xl font-bold">0</p>
                     <p className="text-xs text-muted-foreground">Realizadas</p>
                   </div>
                 </CardContent>
@@ -56,7 +56,7 @@ const WhatsAppCalls = () => {
                 <CardContent className="p-4 flex items-center gap-3">
                   <PhoneMissed className="h-6 w-6 text-destructive" />
                   <div>
-                    <p className="text-xl font-bold">3</p>
+                    <p className="text-xl font-bold">0</p>
                     <p className="text-xs text-muted-foreground">Perdidas</p>
                   </div>
                 </CardContent>
