@@ -1,53 +1,80 @@
 
 
-## Correcao: CompanySwitcher nao aparece para Joicy
+## Novos Modulos: Lista de Transmissao e Ligacoes WhatsApp
 
-### Causa Raiz
+Dois novos modulos serao criados e adicionados ao sidebar com icone de cadeado indicando "Em Desenvolvimento".
 
-A politica RLS da tabela `companies` so permite visualizar empresas onde o usuario tem um **perfil**:
+---
 
-```
-Users can view their own company:
-  id IN (SELECT company_id FROM profiles WHERE user_id = auth.uid())
-```
+### 1. Lista de Transmissao (Broadcast Lists)
 
-Joicy tem perfil apenas na VIAINFRA. Quando o `AuthContext` consulta `company_access` e encontra a VIALOGISTIC, ele tenta buscar os dados da empresa na tabela `companies` -- mas o RLS bloqueia porque Joicy nao tem perfil la.
+Modulo para envio de mensagens em massa via WhatsApp Cloud API.
 
-O resultado: `companiesError` ocorre na linha 75, e o fallback na linha 79 cria uma entrada com nome generico "Empresa". Mas o problema real e que o `CompanySwitcher` so aparece quando `companies.length > 1` no Sidebar -- e essa condicao pode nao estar sendo satisfeita se o erro silencioso impede a montagem correta da lista.
+**Tela principal incluira:**
+- Listagem de listas de transmissao criadas (nome, quantidade de contatos, ultima utilizacao)
+- Botao para criar nova lista de transmissao
+- Selecao de contatos do CRM para adicionar a lista
+- Composer de mensagem com suporte a templates (exigencia da WhatsApp Cloud API)
+- Historico de envios com status de entrega por destinatario
+- Metricas: enviadas, entregues, lidas, falhas
 
-### Solucao
+**Baseado na WhatsApp Cloud API:**
+- Endpoint `POST /{phone_number_id}/messages` com envio individual para cada contato da lista
+- Uso obrigatorio de Message Templates pre-aprovados para iniciar conversas
+- Controle de rate limiting (80 mensagens/segundo no tier padrao)
 
-**1. Adicionar politica RLS na tabela `companies`** (Migracao SQL)
+---
 
-Permitir que usuarios vejam empresas listadas na sua `company_access`:
+### 2. Ligacoes WhatsApp (WhatsApp Calls)
 
-```sql
-CREATE POLICY "Users can view companies via company_access"
-  ON public.companies FOR SELECT
-  USING (
-    id IN (
-      SELECT company_id FROM public.company_access
-      WHERE user_id = auth.uid()
-    )
-  );
-```
+Modulo de chamadas de voz/video via WhatsApp com discador e registro.
 
-**2. Remover cast `as any` no AuthContext** (Limpeza)
+**Tela principal incluira:**
+- Discador numerico (dial pad) para iniciar chamadas
+- Lista de contatos rapidos para ligar com 1 clique
+- Historico de chamadas (recebidas, realizadas, perdidas)
+- Duracao, data/hora, status de cada chamada
+- Filtros por tipo (entrada/saida), periodo, contato
 
-Na linha 41, remover o `as any` de `company_access` ja que o tipo existe no arquivo de tipos gerado.
+**Baseado na WhatsApp Cloud API:**
+- A Cloud API atualmente nao suporta iniciar chamadas programaticamente
+- O modulo registrara chamadas recebidas via webhook `CALL` do Evolution API
+- O discador sera preparado como interface, sinalizando que a funcionalidade de iniciar chamadas depende de atualizacao futura da API
+- Registro automatico de chamadas recebidas a partir dos eventos do webhook
 
-### Arquivos Modificados
+---
+
+### 3. Integracao no Sidebar e Rotas
+
+Ambos os itens aparecerao no sidebar com um badge de cadeado e texto "Em breve" ao lado, sinalizando que estao em desenvolvimento.
+
+**Novos itens no menu:**
+- "Transmissao" com icone `Radio` (lucide) + cadeado
+- "Ligacoes" com icone `Phone` (lucide) + cadeado
+
+**Posicionamento:** Abaixo de "Relacionamento" e antes de "Agentes IA"
+
+---
+
+### Detalhes Tecnicos
 
 | Arquivo | Acao |
 |---|---|
-| Migracao SQL | Adicionar politica RLS em `companies` para `company_access` |
-| `src/contexts/auth/AuthContext.tsx` | Remover `as any` na query de `company_access` (linha 41) |
+| `src/pages/app/BroadcastLists.tsx` | Nova pagina - lista de transmissao com composer, selecao de contatos, historico |
+| `src/pages/app/WhatsAppCalls.tsx` | Nova pagina - discador, historico de chamadas, registros |
+| `src/components/app/broadcast/BroadcastListForm.tsx` | Formulario de criacao/edicao de lista |
+| `src/components/app/broadcast/BroadcastComposer.tsx` | Composer de mensagem com templates |
+| `src/components/app/broadcast/BroadcastHistory.tsx` | Historico de envios |
+| `src/components/app/calls/DialPad.tsx` | Componente de discador numerico |
+| `src/components/app/calls/CallHistory.tsx` | Historico de chamadas |
+| `src/components/app/calls/CallRecord.tsx` | Item individual de registro de chamada |
+| `src/components/app/Sidebar.tsx` | Adicionar 2 novos itens com badge "Em breve" e cadeado |
+| `src/components/app/MobileNavigation.tsx` | Adicionar itens no menu "Mais" do mobile |
+| `src/App.tsx` | Registrar rotas `/broadcast` e `/calls` |
+| `src/types/broadcast.ts` | Tipos para listas de transmissao |
+| `src/types/calls.ts` | Tipos para registros de chamadas |
 
-### Resultado Esperado
+**Badge "Em Desenvolvimento":** Cada item no sidebar tera um badge customizado com icone de cadeado e texto "Em breve" em cor amber/amarela, diferente dos badges de plano existentes, para deixar claro que sao funcionalidades em construcao.
 
-Apos a migracao, quando Joicy fizer login:
-1. `company_access` retorna VIALOGISTIC (ja funciona)
-2. Query em `companies` para buscar nome/logo da VIALOGISTIC **agora permitida** pelo novo RLS
-3. `accessibleCompanies` tera 2 empresas
-4. `CompanySwitcher` aparece no Sidebar
+**Paginas:** Ao acessar, o usuario vera a interface completa do modulo, mas com um banner no topo informando "Modulo em desenvolvimento - disponivel em breve" para contextualizar.
 
