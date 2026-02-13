@@ -140,8 +140,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           });
           
           // If preserving company selection, keep current profile/company
-          const savedCompanyId = sessionStorage.getItem('active_company_id');
-          const activeCompanyId = preserveCompany ? (company?.id || savedCompanyId) : savedCompanyId;
+      const savedCompanyId = sessionStorage.getItem('active_company_id');
+          const activeCompanyId = savedCompanyId;
           
           // Check if the active company is an external one (no local profile)
           const hasLocalProfileForActive = activeCompanyId 
