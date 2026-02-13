@@ -30,6 +30,7 @@ export interface DashboardMetrics {
 
 // Cache para evitar recálculos desnecessários
 let cachedMetrics: DashboardMetrics | null = null;
+let cachedCompanyId: string | null = null;
 let lastCalculation = 0;
 const CACHE_DURATION = 30000; // 30 segundos
 
@@ -79,9 +80,20 @@ export async function fetchTodayMessages(companyId: string) {
   try {
     const today = startOfDay(new Date()).toISOString();
     
+    // Get conversation IDs for this company first
+    const { data: companyConvs, error: convError } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('company_id', companyId);
+
+    if (convError) throw convError;
+    const convIds = (companyConvs || []).map(c => c.id);
+    if (convIds.length === 0) return 0;
+
     const { count, error } = await supabase
       .from('messages')
       .select('id', { count: 'exact', head: true })
+      .in('conversation_id', convIds)
       .gte('created_at', today);
 
     if (error) throw error;
@@ -96,36 +108,48 @@ export async function fetchHourlyActivity(companyId: string): Promise<{ hour: st
   try {
     const today = startOfDay(new Date()).toISOString();
     
+    // Get conversation IDs for this company
+    const { data: companyConvs, error: convError } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('company_id', companyId);
+
+    if (convError) throw convError;
+    const convIds = (companyConvs || []).map(c => c.id);
+
+    // Inicializar todas as horas com 0
+    const hourlyMap: Record<number, number> = {};
+    for (let i = 0; i < 24; i++) {
+      hourlyMap[i] = 0;
+    }
+
+    if (convIds.length === 0) {
+      return Object.entries(hourlyMap).map(([hour, count]) => ({
+        hour: `${hour.padStart(2, '0')}:00`,
+        messages: count
+      }));
+    }
+
     const { data: messages, error } = await supabase
       .from('messages')
       .select('created_at')
+      .in('conversation_id', convIds)
       .gte('created_at', today)
       .order('created_at');
 
     if (error) throw error;
 
-    // Agrupar por hora
-    const hourlyMap: Record<number, number> = {};
-    
-    // Inicializar todas as horas com 0
-    for (let i = 0; i < 24; i++) {
-      hourlyMap[i] = 0;
-    }
-
-    // Contar mensagens por hora
     messages?.forEach(msg => {
       const hour = getHours(new Date(msg.created_at));
       hourlyMap[hour] = (hourlyMap[hour] || 0) + 1;
     });
 
-    // Converter para array formatado
     return Object.entries(hourlyMap).map(([hour, count]) => ({
       hour: `${hour.padStart(2, '0')}:00`,
       messages: count
     }));
   } catch (error) {
     console.error('Error fetching hourly activity:', error);
-    // Retornar array vazio em caso de erro
     return Array.from({ length: 24 }, (_, i) => ({
       hour: `${i.toString().padStart(2, '0')}:00`,
       messages: 0
@@ -137,14 +161,16 @@ export async function fetchWeeklyTrend(companyId: string): Promise<{ day: string
   try {
     const sevenDaysAgo = subDays(startOfDay(new Date()), 6).toISOString();
     
-    // Buscar mensagens dos últimos 7 dias
-    const { data: messages, error: messagesError } = await supabase
-      .from('messages')
-      .select('created_at')
-      .gte('created_at', sevenDaysAgo)
-      .order('created_at');
+    // Get conversation IDs for this company
+    const { data: companyConvs, error: convIdError } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('company_id', companyId);
 
-    // Buscar conversas dos últimos 7 dias
+    if (convIdError) throw convIdError;
+    const convIds = (companyConvs || []).map(c => c.id);
+
+    // Buscar conversas dos últimos 7 dias (already filtered by company)
     const { data: conversations, error: conversationsError } = await supabase
       .from('conversations')
       .select('created_at')
@@ -152,25 +178,34 @@ export async function fetchWeeklyTrend(companyId: string): Promise<{ day: string
       .gte('created_at', sevenDaysAgo)
       .order('created_at');
 
-    if (messagesError) throw messagesError;
     if (conversationsError) throw conversationsError;
 
     // Criar mapa para os últimos 7 dias
     const dailyMap: Record<string, { conversations: number; messages: number }> = {};
-    
     for (let i = 6; i >= 0; i--) {
       const date = subDays(new Date(), i);
       const dateKey = format(date, 'yyyy-MM-dd');
       dailyMap[dateKey] = { conversations: 0, messages: 0 };
     }
 
-    // Contar mensagens por dia
-    messages?.forEach(msg => {
-      const dateKey = format(new Date(msg.created_at), 'yyyy-MM-dd');
-      if (dailyMap[dateKey]) {
-        dailyMap[dateKey].messages += 1;
-      }
-    });
+    // Buscar mensagens filtradas por conversas da empresa
+    if (convIds.length > 0) {
+      const { data: messages, error: messagesError } = await supabase
+        .from('messages')
+        .select('created_at')
+        .in('conversation_id', convIds)
+        .gte('created_at', sevenDaysAgo)
+        .order('created_at');
+
+      if (messagesError) throw messagesError;
+
+      messages?.forEach(msg => {
+        const dateKey = format(new Date(msg.created_at), 'yyyy-MM-dd');
+        if (dailyMap[dateKey]) {
+          dailyMap[dateKey].messages += 1;
+        }
+      });
+    }
 
     // Contar conversas por dia
     conversations?.forEach(conv => {
@@ -180,7 +215,6 @@ export async function fetchWeeklyTrend(companyId: string): Promise<{ day: string
       }
     });
 
-    // Converter para array formatado
     return Object.entries(dailyMap).map(([dateKey, data]) => {
       const date = new Date(dateKey + 'T12:00:00');
       return {
@@ -192,7 +226,6 @@ export async function fetchWeeklyTrend(companyId: string): Promise<{ day: string
     });
   } catch (error) {
     console.error('Error fetching weekly trend:', error);
-    // Retornar array vazio formatado
     return Array.from({ length: 7 }, (_, i) => {
       const date = subDays(new Date(), 6 - i);
       return {
@@ -305,8 +338,8 @@ export async function fetchConnectedChannels(companyId: string): Promise<{ conne
 export async function fetchDashboardMetrics(companyId: string): Promise<DashboardMetrics> {
   const now = Date.now();
   
-  // Verificar cache
-  if (cachedMetrics && (now - lastCalculation) < CACHE_DURATION) {
+  // Verificar cache (must match company)
+  if (cachedMetrics && cachedCompanyId === companyId && (now - lastCalculation) < CACHE_DURATION) {
     return cachedMetrics;
   }
 
@@ -350,6 +383,7 @@ export async function fetchDashboardMetrics(companyId: string): Promise<Dashboar
 
     // Atualizar cache
     cachedMetrics = metrics;
+    cachedCompanyId = companyId;
     lastCalculation = now;
 
     return metrics;
@@ -387,6 +421,7 @@ export async function fetchDashboardMetrics(companyId: string): Promise<Dashboar
 // Função para invalidar cache (usado pelo refresh)
 export function invalidateDashboardCache(): void {
   cachedMetrics = null;
+  cachedCompanyId = null;
   lastCalculation = 0;
 }
 
