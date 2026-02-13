@@ -270,7 +270,7 @@ serve(async (req) => {
         "📞 Atendimento": "Joicy Souza",
         "💼 Comercial": "Elisabete Silva",
         "🔧 Manutenção": "Suelem Souza",
-        "💰 Financeiro": "Giovanna Ferreira",
+        "💰 Financeiro": "Flávia",
         "👥 RH": "Sandra Romano"
       };
 
