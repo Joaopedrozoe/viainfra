@@ -529,7 +529,9 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     const remoteJid = effectiveRemoteJid;
     const isLidFormat = remoteJid.includes('@lid');
     const messageContent = extractMessageContent(message);
-    const contactName = message.pushName || 'Sem Nome';
+    // CRITICAL: Never use pushName from fromMe messages - it's the instance's own name (e.g., "Via Infra")
+    // which would overwrite the real contact name
+    const contactName = message.key.fromMe ? null : (message.pushName || 'Sem Nome');
     
     // ============================================================
     // PROCESSAMENTO DE MENSAGENS @LID
@@ -1386,8 +1388,8 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
             .eq('id', existingLidConv.id);
         }
         
-        // Atualizar nome do contato se mudou
-        if (existingLidConv.contacts && existingLidConv.contacts.name !== contactName && contactName !== 'Sem Nome') {
+        // Atualizar nome do contato se mudou (NUNCA com contactName null = fromMe)
+        if (contactName && existingLidConv.contacts && existingLidConv.contacts.name !== contactName && contactName !== 'Sem Nome') {
           await supabase
             .from('contacts')
             .update({ name: contactName })
@@ -2069,14 +2071,18 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
       const needsUpdate = existingByPhone.phone !== normalizedPhone || 
                           existingByPhone.metadata?.remoteJid !== remoteJid;
       if (needsUpdate) {
+        const updateData: any = { 
+          phone: normalizedPhone,
+          metadata: { ...existingByPhone.metadata, remoteJid: remoteJid },
+          updated_at: new Date().toISOString()
+        };
+        // Only update name if provided (null means fromMe message)
+        if (name && name !== 'Sem Nome') {
+          updateData.name = name;
+        }
         await supabase
           .from('contacts')
-          .update({ 
-            phone: normalizedPhone,
-            metadata: { ...existingByPhone.metadata, remoteJid: remoteJid },
-            name: name || existingByPhone.name,
-            updated_at: new Date().toISOString()
-          })
+          .update(updateData)
           .eq('id', existingByPhone.id);
         existingByPhone.phone = normalizedPhone;
       }
@@ -2096,14 +2102,18 @@ async function getOrCreateContact(supabase: any, phoneNumber: string, name: stri
     console.log('✅ Found existing contact by remoteJid:', existingByRemoteJid.id);
     
     if (normalizedPhone) {
+      const updateData: any = { 
+        phone: normalizedPhone,
+        updated_at: new Date().toISOString()
+      };
+      // Only update name if provided (null means fromMe message)
+      if (name && name !== 'Sem Nome') {
+        updateData.name = name;
+      }
       console.log(`📞 Updating contact ${existingByRemoteJid.id} with phone: ${normalizedPhone}`);
       await supabase
         .from('contacts')
-        .update({ 
-          phone: normalizedPhone,
-          name: name,
-          updated_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq('id', existingByRemoteJid.id);
       existingByRemoteJid.phone = normalizedPhone;
     }
