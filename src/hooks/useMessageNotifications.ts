@@ -28,10 +28,17 @@ export const useMessageNotifications = () => {
           if (lastMessageIdRef.current.has(newMessage.id)) return;
           lastMessageIdRef.current.add(newMessage.id);
 
+          // Limitar tamanho do Set para evitar memory leak
+          if (lastMessageIdRef.current.size > 500) {
+            const entries = Array.from(lastMessageIdRef.current);
+            lastMessageIdRef.current = new Set(entries.slice(-200));
+          }
+
           // Só notificar mensagens de usuários (não de agentes ou bots)
           if (newMessage.sender_type !== 'user') return;
 
           // Buscar informações da conversa e contato
+          // CRÍTICO: Filtrar por company_id para não notificar mensagens de outras empresas
           const { data: conversation } = await supabase
             .from('conversations')
             .select(`
@@ -45,6 +52,7 @@ export const useMessageNotifications = () => {
             .eq('company_id', company.id)
             .single();
 
+          // Se conversation é null, significa que não pertence a esta empresa - ignorar
           if (conversation) {
             const contactName = (conversation.contacts as any)?.name || 'Cliente';
             notifyNewMessage(contactName, newMessage.content);
