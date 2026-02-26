@@ -240,6 +240,11 @@ const Channels = () => {
             </Button>
           </div>
 
+          {/* WhatsApp Instance Manager - always visible for any company */}
+          <div className="mb-6">
+            <WhatsAppInstanceManager />
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {channels.map((channel) => (
               <Card key={channel.id} className="hover:shadow-md transition-shadow">
