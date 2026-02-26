@@ -319,9 +319,9 @@ export const useConversations = () => {
       const conversationIndex = prev.findIndex(c => c.id === newMsg.conversation_id);
       
       if (conversationIndex === -1) {
-        // New conversation not in list - do a single fetch
-        console.log('⚡ Conversation not found, fetching...');
-        setTimeout(() => fetchConversations(true), 100);
+        // Message for a conversation not in our list - could be another company's data
+        // Only fetch if it's plausibly ours (don't trigger fetch for foreign messages)
+        console.log('⚡ Conversation not in current list, ignoring (likely another company)');
         return prev;
       }
       
