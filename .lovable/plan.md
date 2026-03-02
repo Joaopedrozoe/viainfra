@@ -1,24 +1,44 @@
 
 
-## Problem
+## Problem: VIALOGISTIC Inbox Empty - Wrong company_id Assignment
 
-When switching to VIALOGISTIC, the Channels page shows **no cards at all** because:
+The VIALOGISTICOFICIAL instance in the `whatsapp_instances` table has `company_id = da17735c-5a76-4797-b338-f6e63a7b3f8b` (VIAINFRA) instead of `company_id = e3ad9c68-cf12-4e39-a12d-3f3068e975a0` (VIALOGISTIC).
 
-1. `getDemoChannelsExpanded()` returns `[]` for any company that isn't VIAINFRA (line 291)
-2. The `WhatsAppInstanceManager` component is only accessible through a WhatsApp channel card's settings menu (line 397-398)
-3. No card = no way to access WhatsApp instance creation/QR code for VIALOGISTIC
+This means:
+- The webhook creates all conversations and contacts under VIAINFRA's company_id
+- 18 conversations already exist with VIALOGISTICOFICIAL data, but assigned to VIAINFRA
+- When logged into VIALOGISTIC, the inbox query filters by VIALOGISTIC's company_id and finds 0 results
+- The `realtime-sync` also uses the instance's company_id from the database, so it routes everything to VIAINFRA
 
-The frontend filtering rules in `useWhatsAppInstances.ts` and `whatsapp-rules.ts` are already correct — VIALOGISTIC only sees instances with "VIALOGISTIC" in the name. No changes needed there.
+## Root Cause
+
+When the instance was created via `WhatsAppInstanceManager`, the user was authenticated with their primary profile (VIAINFRA). The `evolution-instance` function or the RLS policy assigned the instance to the user's default company_id (VIAINFRA) rather than the currently active company (VIALOGISTIC).
 
 ## Solution
 
-Show the `WhatsAppInstanceManager` **directly on the Channels page**, always visible, independent of demo channel cards. This gives every company immediate access to create/manage WhatsApp instances without needing a pre-existing demo card.
+### 1. Database Migration: Reassign VIALOGISTIC Data
 
-### Changes
+A single SQL migration to:
 
-**`src/pages/app/Channels.tsx`**
-- Add `WhatsAppInstanceManager` as a dedicated section at the top of the page, rendered unconditionally (before the demo channel cards grid)
-- This ensures VIALOGISTIC (and any future company) can immediately create a WhatsApp instance and scan QR code
+1. **Fix the instance**: Update `whatsapp_instances` to set `company_id = e3ad9c68-cf12-4e39-a12d-3f3068e975a0` for VIALOGISTICOFICIAL
+2. **Move 18 conversations**: Update all conversations where `metadata->>'instanceName' = 'VIALOGISTICOFICIAL'` to have the correct VIALOGISTIC company_id
+3. **Move contacts**: Update associated contacts to belong to VIALOGISTIC
 
-No Edge Function changes. No changes to VIAINFRA. The master rule filtering already works correctly in the hook.
+### 2. Fix Instance Creation Logic
+
+Modify `WhatsAppInstanceManager` to pass the currently active `company.id` from the auth context when creating instances, so future instances are assigned to the correct company. Currently, the RLS policy uses the user's profile company_id which defaults to VIAINFRA.
+
+### 3. Fix `evolution-instance` Edge Function
+
+Update the create handler to accept and use a `companyId` parameter from the frontend, ensuring new instances are correctly assigned to the active company context.
+
+### Changes Summary
+
+| File | Change |
+|------|--------|
+| Database migration | Reassign VIALOGISTICOFICIAL instance + 18 conversations + contacts to VIALOGISTIC company_id |
+| `src/components/app/channels/WhatsAppInstanceManager.tsx` | Pass `company.id` when creating instance |
+| `supabase/functions/evolution-instance/index.ts` | Accept `companyId` param in create handler |
+
+No changes to VIAINFRA data or functionality. This fixes the inbox for VIALOGISTIC and prevents future mis-assignment.
 
