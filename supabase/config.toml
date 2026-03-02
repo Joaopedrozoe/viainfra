@@ -264,3 +264,6 @@ verify_jwt = false
 
 [functions.create-vialogistic-users]
 verify_jwt = false
+
+[functions.evolution-webhook-vialogistic]
+verify_jwt = false

@@ -2,8 +2,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import { BotFlowProcessor } from './bot-flow-processor.ts';
 
-// IMPORTANTE: Instâncias autorizadas para processamento - SEM VIALOGISTIC (usa endpoint exclusivo)
-const ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'viainfraoficial', 'Via Infra ', 'Via Infra', 'JUNIORCORRETOR'];
+// IMPORTANTE: Instâncias autorizadas - EXCLUSIVO VIALOGISTIC
+const ALLOWED_INSTANCES = ['VIALOGISTIC', 'vialogistic'];
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
