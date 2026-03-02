@@ -2,8 +2,13 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import { BotFlowProcessor } from './bot-flow-processor.ts';
 
-// IMPORTANTE: Instâncias autorizadas - EXCLUSIVO VIALOGISTIC
-const ALLOWED_INSTANCES = ['VIALOGISTIC', 'vialogistic'];
+// IMPORTANTE: Processar SOMENTE instâncias da VIALOGISTIC (inclui variações como VIALOGISTICOFICIAL)
+const VIALOGISTIC_INSTANCE_KEYWORD = 'VIALOGISTIC';
+
+const isAuthorizedVialogisticInstance = (instanceName: string | null | undefined): boolean => {
+  if (!instanceName) return false;
+  return instanceName.trim().toUpperCase().includes(VIALOGISTIC_INSTANCE_KEYWORD);
+};
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -150,8 +155,8 @@ serve(async (req) => {
       return new Response('Invalid payload', { status: 400, headers: corsHeaders });
     }
 
-    // FILTRO: Ignorar instâncias não autorizadas
-    if (!ALLOWED_INSTANCES.includes(webhook.instance)) {
+    // FILTRO: Ignorar instâncias não autorizadas (somente VIALOGISTIC)
+    if (!isAuthorizedVialogisticInstance(webhook.instance)) {
       console.log(`⛔ Instância ${webhook.instance} não autorizada. Ignorando.`);
       return new Response('Instance not allowed', { status: 200, headers: corsHeaders });
     }
@@ -1705,8 +1710,21 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
 
     console.log(`Processing message from ${phoneNumber || 'NO_PHONE'} (remoteJid: ${remoteJid}): ${messageContent}`);
 
-    // Get or create contact
-    const contact = await getOrCreateContact(supabase, phoneNumber, contactName, remoteJid, webhook.instance);
+    // Get company_id from instance to guarantee strict tenant isolation
+    const { data: instanceData } = await supabase
+      .from('whatsapp_instances')
+      .select('company_id')
+      .eq('instance_name', webhook.instance)
+      .maybeSingle();
+
+    const companyId = instanceData?.company_id;
+    if (!companyId) {
+      console.error(`❌ Company not found for instance ${webhook.instance} - skipping message to avoid cross-company leak`);
+      continue;
+    }
+
+    // Get or create contact (strictly within instance company)
+    const contact = await getOrCreateContact(supabase, phoneNumber, contactName, remoteJid, webhook.instance, companyId);
     
     // Agendar atualização de avatar em background (só se desatualizado)
     if (contact.phone && webhook.instance) {
@@ -2043,13 +2061,30 @@ function getPhoneVariations(phone: string): string[] {
   return [...new Set(variations)];
 }
 
-async function getOrCreateContact(supabase: any, phoneNumber: string, name: string, remoteJid: string, instanceName?: string) {
-  // Get first company
-  const { data: companies } = await supabase
-    .from('companies')
-    .select('id')
-    .limit(1);
-  const companyId = companies?.[0]?.id;
+async function getOrCreateContact(
+  supabase: any,
+  phoneNumber: string,
+  name: string,
+  remoteJid: string,
+  instanceName?: string,
+  providedCompanyId?: string | null
+) {
+  // CRÍTICO: Nunca usar "primeira empresa"; sempre resolver company_id pela instância ativa
+  let companyId = providedCompanyId || null;
+
+  if (!companyId && instanceName) {
+    const { data: instanceData } = await supabase
+      .from('whatsapp_instances')
+      .select('company_id')
+      .eq('instance_name', instanceName)
+      .maybeSingle();
+
+    companyId = instanceData?.company_id || null;
+  }
+
+  if (!companyId) {
+    throw new Error(`Unable to resolve company_id for instance: ${instanceName || 'unknown'}`);
+  }
 
   const normalizedPhone = normalizePhoneNumber(phoneNumber);
   const phoneVariations = getPhoneVariations(phoneNumber);
