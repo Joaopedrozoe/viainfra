@@ -280,7 +280,7 @@ serve(async (req) => {
 });
 
 async function createInstance(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
-  const { instanceName, channel = 'baileys' } = await req.json();
+  const { instanceName, channel = 'baileys', companyId: requestedCompanyId } = await req.json();
   
   if (!instanceName) {
     return new Response(JSON.stringify({ error: 'Instance name is required' }), { 
@@ -289,25 +289,34 @@ async function createInstance(req: Request, supabase: any, evolutionApiUrl: stri
     });
   }
 
-  const authHeader = req.headers.get('Authorization');
-  let companyId = null;
+  // Use companyId from request body (active company context) if provided,
+  // otherwise fall back to user's default profile company_id
+  let companyId = requestedCompanyId || null;
   
-  if (authHeader) {
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user } } = await supabase.auth.getUser(token);
-    
-    if (user) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('user_id', user.id)
-        .single();
+  if (!companyId) {
+    const authHeader = req.headers.get('Authorization');
+    if (authHeader) {
+      const token = authHeader.replace('Bearer ', '');
+      const { data: { user } } = await supabase.auth.getUser(token);
       
-      companyId = profile?.company_id;
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('company_id')
+          .eq('user_id', user.id)
+          .single();
+        
+        companyId = profile?.company_id;
+      }
     }
   }
+  
+  console.log(`📌 Creating instance ${instanceName} for company ${companyId}`);
 
-  const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/evolution-webhook`;
+  // Use dedicated webhook for VIALOGISTIC instances
+  const isVialogistic = instanceName.toUpperCase().includes('VIALOGISTIC');
+  const webhookEndpoint = isVialogistic ? 'evolution-webhook-vialogistic' : 'evolution-webhook';
+  const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/${webhookEndpoint}`;
   
   const payload = {
     instanceName,
