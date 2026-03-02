@@ -697,9 +697,9 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             .eq('id', conversationId)
             .single();
           
-          // Fallback para VIAINFRAOFICIAL se instanceName não estiver presente
+          // Usar instanceName do metadata da conversa - NUNCA fazer fallback para outra empresa
           const conversationMeta = (conversation?.metadata as Record<string, unknown>) || {};
-          const instanceName = conversationMeta.instanceName as string || 'VIAINFRAOFICIAL';
+          const instanceName = conversationMeta.instanceName as string || '';
           
           console.log('✏️ [Edit] Enviando para Evolution API:', {
             instanceName,
@@ -907,7 +907,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           .single();
         
         const conversationMeta = (conversation?.metadata as Record<string, unknown>) || {};
-        const instanceName = conversationMeta.instanceName as string || 'VIAINFRAOFICIAL';
+        const instanceName = conversationMeta.instanceName as string || '';
         
         console.log('🗑️ [Delete] Enviando para Evolution API:', {
           instanceName,

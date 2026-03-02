@@ -213,43 +213,32 @@ serve(async (req) => {
       );
     }
 
-    // Buscar instância WhatsApp conectada
-    // Apenas instâncias autorizadas com prefixo VIAINFRA
-    const AUTHORIZED_INSTANCES = ['VIAINFRAOFICIAL'];
+    // Buscar instância WhatsApp conectada ESTRITAMENTE pela empresa da conversa
+    // REGRA: Cada empresa só pode usar instâncias com seu prefixo no nome
+    // VIAINFRA -> VIAINFRAOFICIAL, VIALOGISTIC -> VIALOGISTICOFICIAL
+    const companyId = conversation.company_id;
     
-    console.log('[send-whatsapp] Searching for instance, company_id:', conversation.company_id);
+    console.log('[send-whatsapp] Searching for instance, company_id:', companyId);
     
+    // Buscar instância conectada que pertence à mesma empresa da conversa
     let { data: instance, error: instanceError } = await supabase
       .from('whatsapp_instances')
       .select('instance_name, status, company_id, phone_number')
-      .eq('company_id', conversation.company_id)
+      .eq('company_id', companyId)
       .eq('status', 'open')
-      .in('instance_name', AUTHORIZED_INSTANCES)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
-    if (!instance) {
-      console.log('[send-whatsapp] No instance for company, searching any authorized...');
-      const { data: authorizedInstance, error: authError } = await supabase
-        .from('whatsapp_instances')
-        .select('instance_name, status, company_id, phone_number')
-        .eq('status', 'open')
-        .in('instance_name', AUTHORIZED_INSTANCES)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      
-      instance = authorizedInstance;
-      instanceError = authError;
-    }
-    
-    if (instance && !AUTHORIZED_INSTANCES.includes(instance.instance_name)) {
-      console.error('[send-whatsapp] SECURITY: Unauthorized instance blocked:', instance.instance_name);
-      return new Response(
-        JSON.stringify({ success: false, error: 'Unauthorized WhatsApp instance' }), 
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    // SEGURANÇA: NUNCA fazer fallback para instância de outra empresa
+    // Se não encontrou instância para esta empresa, é um erro - não usar instância alheia
+    if (instance && instance.company_id !== companyId) {
+      console.error('[send-whatsapp] SECURITY: Cross-company instance blocked:', {
+        instanceCompany: instance.company_id,
+        conversationCompany: companyId,
+        instanceName: instance.instance_name
+      });
+      instance = null;
     }
 
     if (instanceError || !instance) {
