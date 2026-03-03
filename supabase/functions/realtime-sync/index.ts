@@ -6,6 +6,12 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// REGRA MESTRA: Apenas instâncias com VIAINFRA ou VIALOGISTIC no nome são processadas
+function isAllowedInstance(name: string): boolean {
+  const upper = name.toUpperCase();
+  return upper.includes('VIAINFRA') || upper.includes('VIALOGISTIC');
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -34,7 +40,7 @@ serve(async (req) => {
     };
 
     // Get ALL connected instances (include 'open' status)
-    const { data: instances, error: instError } = await supabase
+    const { data: allInstances, error: instError } = await supabase
       .from('whatsapp_instances')
       .select('*')
       .or('connection_state.eq.open,connection_state.eq.connected,status.eq.open');
@@ -44,15 +50,23 @@ serve(async (req) => {
       throw instError;
     }
 
+    // REGRA MESTRA: Filtrar apenas instâncias com prefixo VIAINFRA ou VIALOGISTIC
+    const instances = (allInstances || []).filter(i => isAllowedInstance(i.instance_name));
+    const rejected = (allInstances || []).filter(i => !isAllowedInstance(i.instance_name));
+    
+    if (rejected.length > 0) {
+      console.log(`⛔ REJECTED ${rejected.length} instances (not VIAINFRA/VIALOGISTIC): ${rejected.map(i => i.instance_name).join(', ')}`);
+    }
+
     if (!instances || instances.length === 0) {
-      console.log('⚠️ No connected instances found');
-      return new Response(JSON.stringify({ success: true, stats, message: 'No connected instances' }), {
+      console.log('⚠️ No allowed connected instances found');
+      return new Response(JSON.stringify({ success: true, stats, message: 'No allowed connected instances' }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
-    console.log(`📱 Found ${instances.length} connected instances: ${instances.map(i => i.instance_name).join(', ')}`);
+    console.log(`📱 Processing ${instances.length} allowed instances: ${instances.map(i => i.instance_name).join(', ')}`);
     stats.instances = instances.length;
 
     // Process EACH instance

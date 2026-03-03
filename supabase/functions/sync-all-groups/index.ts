@@ -6,7 +6,11 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'JUNIORCORRETOR'];
+// REGRA MESTRA: Apenas instâncias com VIAINFRA ou VIALOGISTIC no nome
+function isAllowedInstance(name: string): boolean {
+  const upper = name.toUpperCase();
+  return upper.includes('VIAINFRA') || upper.includes('VIALOGISTIC');
+}
 const BUCKET_NAME = 'profile-pictures';
 
 // Helper to download image and upload to storage
@@ -98,17 +102,23 @@ serve(async (req) => {
       .eq('connection_state', 'open');
 
     if (instanceName) {
+      if (!isAllowedInstance(instanceName)) {
+        return new Response(JSON.stringify({ 
+          error: `Instância "${instanceName}" não autorizada. Apenas VIAINFRA ou VIALOGISTIC.`
+        }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
       query = query.eq('instance_name', instanceName);
-    } else {
-      query = query.in('instance_name', ALLOWED_INSTANCES);
     }
 
     const { data: instances } = await query.limit(1);
 
     if (!instances?.length) {
       return new Response(JSON.stringify({ 
-        error: 'No connected instance found',
-        requested: instanceName || ALLOWED_INSTANCES
+        error: 'No connected instance found (requires VIAINFRA or VIALOGISTIC in name)',
+        requested: instanceName || 'any allowed'
       }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }

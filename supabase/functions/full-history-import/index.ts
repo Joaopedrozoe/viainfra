@@ -13,7 +13,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
  * NÃO afeta o inbox: não cria conversas vazias, não desordena
  */
 
-const ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'viainfraoficial'];
+// REGRA MESTRA: Apenas instâncias com VIAINFRA ou VIALOGISTIC no nome
+function isAllowedInstance(name: string): boolean {
+  const upper = name.toUpperCase();
+  return upper.includes('VIAINFRA') || upper.includes('VIALOGISTIC');
+}
 const MESSAGE_LIMIT_PER_CHAT = 2000; // Máximo de mensagens por conversa
 const BATCH_SIZE = 20; // Processar em lotes
 
@@ -38,8 +42,8 @@ serve(async (req) => {
       });
     }
 
-    if (!ALLOWED_INSTANCES.includes(instanceName) && !ALLOWED_INSTANCES.includes(instanceName.toLowerCase())) {
-      return new Response(JSON.stringify({ error: 'Instância não autorizada' }), { 
+    if (!isAllowedInstance(instanceName)) {
+      return new Response(JSON.stringify({ error: `Instância "${instanceName}" não autorizada. Apenas instâncias com VIAINFRA ou VIALOGISTIC no nome.` }), { 
         status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       });
     }

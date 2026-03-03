@@ -50,17 +50,21 @@ serve(async (req) => {
 
     console.log(`[process-queue] Found ${pendingMessages.length} pending messages`);
 
-    // Buscar instância conectada
-    const AUTHORIZED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL'];
-    
-    const { data: instance } = await supabase
+    // REGRA MESTRA: Buscar instância pela empresa da conversa, não por lista hardcoded
+    // Para cada mensagem, resolver a instância correta pela company_id da conversa
+    // Fallback: buscar qualquer instância VIAINFRA/VIALOGISTIC conectada
+    function isAllowedInstance(name: string): boolean {
+      const upper = name.toUpperCase();
+      return upper.includes('VIAINFRA') || upper.includes('VIALOGISTIC');
+    }
+
+    const { data: allConnectedInstances } = await supabase
       .from('whatsapp_instances')
-      .select('instance_name, status')
-      .eq('status', 'open')
-      .in('instance_name', AUTHORIZED_INSTANCES)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .select('instance_name, status, company_id')
+      .eq('status', 'open');
+    
+    const validInstances = (allConnectedInstances || []).filter(i => isAllowedInstance(i.instance_name));
+    const instance = validInstances.length > 0 ? validInstances[0] : null;
 
     if (!instance) {
       console.log('[process-queue] No connected instance available, rescheduling all');
