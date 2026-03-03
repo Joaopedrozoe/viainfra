@@ -1,8 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 
-// IMPORTANTE: Instâncias autorizadas para operações
-const ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'viainfraoficial'];
+// REGRA MESTRA: Apenas instâncias com VIAINFRA ou VIALOGISTIC no nome são permitidas
+function isAllowedInstance(name: string): boolean {
+  const upper = name.toUpperCase();
+  return upper.includes('VIAINFRA') || upper.includes('VIALOGISTIC');
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -1705,7 +1708,7 @@ async function syncMessages(req: Request, supabase: any, evolutionApiUrl: string
       });
     }
 
-    if (!ALLOWED_INSTANCES.includes(instanceName)) {
+    if (!isAllowedInstance(instanceName)) {
       return new Response(JSON.stringify({ 
         error: `Instância ${instanceName} não autorizada`
       }), { 
@@ -1915,7 +1918,7 @@ async function reprocessMedia(req: Request, supabase: any, evolutionApiUrl: stri
     }
 
     // Verificar autorização
-    if (!ALLOWED_INSTANCES.includes(instanceName) && !ALLOWED_INSTANCES.includes(instanceName.toLowerCase())) {
+    if (!isAllowedInstance(instanceName)) {
       return new Response(JSON.stringify({ error: 'Instância não autorizada' }), {
         status: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }

@@ -2,8 +2,12 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import { BotFlowProcessor } from './bot-flow-processor.ts';
 
-// IMPORTANTE: Instâncias autorizadas para processamento - SEM VIALOGISTIC (usa endpoint exclusivo)
-const ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'viainfraoficial', 'Via Infra ', 'Via Infra', 'JUNIORCORRETOR'];
+// REGRA MESTRA: Apenas instâncias com VIAINFRA no nome são processadas aqui
+// VIALOGISTIC usa endpoint exclusivo (evolution-webhook-vialogistic)
+function isAllowedInstance(name: string): boolean {
+  const upper = name.toUpperCase();
+  return upper.includes('VIAINFRA');
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -150,9 +154,9 @@ serve(async (req) => {
       return new Response('Invalid payload', { status: 400, headers: corsHeaders });
     }
 
-    // FILTRO: Ignorar instâncias não autorizadas
-    if (!ALLOWED_INSTANCES.includes(webhook.instance)) {
-      console.log(`⛔ Instância ${webhook.instance} não autorizada. Ignorando.`);
+    // REGRA MESTRA: Ignorar instâncias que NÃO contêm VIAINFRA no nome
+    if (!isAllowedInstance(webhook.instance)) {
+      console.log(`⛔ Instância ${webhook.instance} não autorizada (não contém VIAINFRA). Ignorando.`);
       return new Response('Instance not allowed', { status: 200, headers: corsHeaders });
     }
 

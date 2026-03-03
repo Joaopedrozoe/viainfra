@@ -6,8 +6,11 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Instâncias autorizadas para buscar fotos
-const AUTHORIZED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'JUNIORCORRETOR'];
+// REGRA MESTRA: Apenas instâncias com VIAINFRA ou VIALOGISTIC no nome
+function isAllowedInstance(name: string): boolean {
+  const upper = name.toUpperCase();
+  return upper.includes('VIAINFRA') || upper.includes('VIALOGISTIC');
+}
 const BUCKET_NAME = 'profile-pictures';
 
 // LIMIT: Maximum contacts per run to avoid memory issues
@@ -123,19 +126,18 @@ serve(async (req) => {
 
     const { contactId, forceUpdate = false } = body;
 
-    // Get any authorized WhatsApp instance that is connected
-    const { data: instances } = await supabase
+    // REGRA MESTRA: Buscar instância conectada com prefixo VIAINFRA ou VIALOGISTIC
+    const { data: allInstances } = await supabase
       .from('whatsapp_instances')
       .select('instance_name, company_id')
-      .in('instance_name', AUTHORIZED_INSTANCES)
-      .eq('connection_state', 'open')
-      .limit(1);
+      .eq('connection_state', 'open');
+    
+    const instances = (allInstances || []).filter(i => isAllowedInstance(i.instance_name));
 
     if (!instances?.length) {
-      console.log(`⚠️ No authorized instance connected`);
+      console.log(`⚠️ No allowed instance connected (VIAINFRA/VIALOGISTIC)`);
       return new Response(JSON.stringify({ 
-        error: 'No authorized instance connected',
-        checked: AUTHORIZED_INSTANCES
+        error: 'No allowed instance connected (requires VIAINFRA or VIALOGISTIC in name)'
       }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

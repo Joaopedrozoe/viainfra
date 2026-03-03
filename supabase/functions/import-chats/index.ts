@@ -1,7 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 
-const ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'viainfraoficial'];
+// REGRA MESTRA: Apenas instâncias com VIAINFRA ou VIALOGISTIC no nome
+function isAllowedInstance(name: string): boolean {
+  const upper = name.toUpperCase();
+  return upper.includes('VIAINFRA') || upper.includes('VIALOGISTIC');
+}
 const BATCH_SIZE = 30; // Process chats in batches
 const MESSAGE_LIMIT = 500; // Messages per chat
 
@@ -24,8 +28,8 @@ serve(async (req) => {
       });
     }
 
-    if (!ALLOWED_INSTANCES.includes(instanceName) && !ALLOWED_INSTANCES.includes(instanceName.toLowerCase())) {
-      return new Response(JSON.stringify({ error: 'Instância não autorizada' }), { 
+    if (!isAllowedInstance(instanceName)) {
+      return new Response(JSON.stringify({ error: `Instância "${instanceName}" não autorizada. Apenas instâncias com VIAINFRA ou VIALOGISTIC no nome.` }), { 
         status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       });
     }
