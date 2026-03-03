@@ -1,44 +1,98 @@
 
 
-## Problem: VIALOGISTIC Inbox Empty - Wrong company_id Assignment
+## Audit Completo: Violações da Regra Mestra de Isolamento de Instâncias
 
-The VIALOGISTICOFICIAL instance in the `whatsapp_instances` table has `company_id = da17735c-5a76-4797-b338-f6e63a7b3f8b` (VIAINFRA) instead of `company_id = e3ad9c68-cf12-4e39-a12d-3f3068e975a0` (VIALOGISTIC).
+### Problema Central
 
-This means:
-- The webhook creates all conversations and contacts under VIAINFRA's company_id
-- 18 conversations already exist with VIALOGISTICOFICIAL data, but assigned to VIAINFRA
-- When logged into VIALOGISTIC, the inbox query filters by VIALOGISTIC's company_id and finds 0 results
-- The `realtime-sync` also uses the instance's company_id from the database, so it routes everything to VIAINFRA
+A "Regra Mestra" diz: **apenas instâncias com VIAINFRA no nome para VIAINFRA, apenas com VIALOGISTIC no nome para VIALOGISTIC**. Porém, múltiplos pontos do sistema violam essa regra:
 
-## Root Cause
+### 1. Instâncias no banco com company_id errado
 
-When the instance was created via `WhatsAppInstanceManager`, the user was authenticated with their primary profile (VIAINFRA). The `evolution-instance` function or the RLS policy assigned the instance to the user's default company_id (VIAINFRA) rather than the currently active company (VIALOGISTIC).
+Atualmente no banco, LEGACYTATTOO, JUNIOCORRETOR_ALUGUEL, JUNIOCORRETOR_VENDAS, LEGACYTATTOO_TEST e "Via Infra " estão todas com `company_id = VIAINFRA`. Isso faz com que o `realtime-sync` (que processa TODAS as instâncias com status `open`) importe dados dessas instâncias para o inbox da VIAINFRA.
 
-## Solution
+**Ação**: Desassociar todas essas instâncias (set `company_id = NULL`) para que nenhum processo automático as vincule a VIAINFRA.
 
-### 1. Database Migration: Reassign VIALOGISTIC Data
+### 2. `realtime-sync/index.ts` - ZERO filtro de nome
 
-A single SQL migration to:
+Linha 37-40: busca TODAS as instâncias conectadas sem filtrar por prefixo. Qualquer instância com `status = open` e `company_id` definido é processada.
 
-1. **Fix the instance**: Update `whatsapp_instances` to set `company_id = e3ad9c68-cf12-4e39-a12d-3f3068e975a0` for VIALOGISTICOFICIAL
-2. **Move 18 conversations**: Update all conversations where `metadata->>'instanceName' = 'VIALOGISTICOFICIAL'` to have the correct VIALOGISTIC company_id
-3. **Move contacts**: Update associated contacts to belong to VIALOGISTIC
+**Ação**: Adicionar filtro estrito: só processar instâncias cujo `instance_name` contenha "VIAINFRA" ou "VIALOGISTIC" (case-insensitive).
 
-### 2. Fix Instance Creation Logic
+### 3. `evolution-webhook/index.ts` - JUNIORCORRETOR na lista
 
-Modify `WhatsAppInstanceManager` to pass the currently active `company.id` from the auth context when creating instances, so future instances are assigned to the correct company. Currently, the RLS policy uses the user's profile company_id which defaults to VIAINFRA.
+Linha 6: `ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'viainfraoficial', 'Via Infra ', 'Via Infra', 'JUNIORCORRETOR']`
 
-### 3. Fix `evolution-instance` Edge Function
+**Ação**: Trocar lista hardcoded por validação dinâmica: aceitar apenas instâncias contendo "VIAINFRA" no nome.
 
-Update the create handler to accept and use a `companyId` parameter from the frontend, ensuring new instances are correctly assigned to the active company context.
+### 4. `evolution-instance/index.ts` - Lista restritiva demais
 
-### Changes Summary
+Linha 5: `ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'viainfraoficial']` — bloqueia operações em instâncias VIALOGISTIC.
 
-| File | Change |
-|------|--------|
-| Database migration | Reassign VIALOGISTICOFICIAL instance + 18 conversations + contacts to VIALOGISTIC company_id |
-| `src/components/app/channels/WhatsAppInstanceManager.tsx` | Pass `company.id` when creating instance |
-| `supabase/functions/evolution-instance/index.ts` | Accept `companyId` param in create handler |
+**Ação**: Trocar por validação dinâmica: aceitar qualquer instância contendo "VIAINFRA" ou "VIALOGISTIC".
 
-No changes to VIAINFRA data or functionality. This fixes the inbox for VIALOGISTIC and prevents future mis-assignment.
+### 5. `import-chats/index.ts` - Lista hardcoded
+
+Linha 4: `ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'viainfraoficial']` — bloqueia importação para VIALOGISTIC.
+
+**Ação**: Mesma correção dinâmica.
+
+### 6. `full-history-import/index.ts` - Lista hardcoded
+
+Linha 16: `ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'viainfraoficial']`
+
+**Ação**: Mesma correção dinâmica.
+
+### 7. `sync-all-groups/index.ts` - JUNIORCORRETOR na lista
+
+Linha 9: `ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'JUNIORCORRETOR']`
+
+**Ação**: Mesma correção dinâmica.
+
+### 8. `sync-profile-pictures/index.ts` - JUNIORCORRETOR na lista
+
+Linha 10: `AUTHORIZED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'JUNIORCORRETOR']`
+
+**Ação**: Mesma correção dinâmica.
+
+### 9. `process-message-queue/index.ts` - Lista hardcoded
+
+Linha 54: `AUTHORIZED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL']`
+
+**Ação**: Trocar por busca da instância pela `company_id` da conversa (como já foi feito em `send-whatsapp-message`).
+
+### 10. Dados sujos no banco
+
+Conversas criadas por LEGACYTATTOO e JUNIOCORRETOR_ALUGUEL existem no banco com `company_id = VIAINFRA`. São ~123 conversas que não pertencem à VIAINFRA.
+
+**Ação**: Deletar mensagens e conversas cujo metadata.instanceName seja LEGACYTATTOO, JUNIOCORRETOR_ALUGUEL, JUNIOCORRETOR_VENDAS, ou LEGACYTATTOO_TEST.
+
+---
+
+### Resumo das Mudanças
+
+| Componente | Mudança |
+|-----------|---------|
+| **DB: whatsapp_instances** | Set `company_id = NULL` para LEGACYTATTOO, JUNIOCORRETOR_ALUGUEL, JUNIOCORRETOR_VENDAS, LEGACYTATTOO_TEST, "Via Infra " |
+| **DB: cleanup** | Deletar conversas e mensagens com instanceName de instâncias não-VIA |
+| **realtime-sync** | Filtrar por prefixo VIAINFRA/VIALOGISTIC no nome |
+| **evolution-webhook** | Remover lista hardcoded, aceitar apenas instâncias com "VIAINFRA" |
+| **evolution-instance** | Aceitar instâncias com "VIAINFRA" ou "VIALOGISTIC" |
+| **import-chats** | Mesma validação dinâmica |
+| **full-history-import** | Mesma validação dinâmica |
+| **sync-all-groups** | Mesma validação dinâmica |
+| **sync-profile-pictures** | Mesma validação dinâmica |
+| **process-message-queue** | Buscar instância por company_id da conversa |
+
+### Padrão Unificado
+
+Todas as listas hardcoded serão substituídas por uma função helper:
+
+```typescript
+function isAllowedInstance(name: string): boolean {
+  const upper = name.toUpperCase();
+  return upper.includes('VIAINFRA') || upper.includes('VIALOGISTIC');
+}
+```
+
+Isso garante que qualquer instância futura (ex: VIAINFRA2, VIALOGISTIC_TESTE) seja aceita automaticamente, e qualquer instância externa (LEGACYTATTOO, JUNIORCORRETOR, etc.) seja rejeitada em todos os pontos do sistema.
 
