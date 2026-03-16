@@ -230,13 +230,19 @@ serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    // SEGURANÇA: NUNCA fazer fallback para instância de outra empresa
-    // Se não encontrou instância para esta empresa, é um erro - não usar instância alheia
-    if (instance && instance.company_id !== companyId) {
-      console.error('[send-whatsapp] SECURITY: Cross-company instance blocked:', {
+    // REGRA MESTRA: Validar que a instância tem o prefixo correto (VIAINFRA ou VIALOGISTIC)
+    function isAllowedInstance(name: string): boolean {
+      const upper = name.toUpperCase();
+      return upper.includes('VIAINFRA') || upper.includes('VIALOGISTIC');
+    }
+
+    // SEGURANÇA: NUNCA usar instância de outra empresa ou sem prefixo autorizado
+    if (instance && (!isAllowedInstance(instance.instance_name) || instance.company_id !== companyId)) {
+      console.error('[send-whatsapp] SECURITY: Blocked unauthorized instance:', {
         instanceCompany: instance.company_id,
         conversationCompany: companyId,
-        instanceName: instance.instance_name
+        instanceName: instance.instance_name,
+        reason: !isAllowedInstance(instance.instance_name) ? 'Invalid prefix' : 'Cross-company'
       });
       instance = null;
     }
