@@ -112,13 +112,13 @@ export function ForwardMessageModal({
 
       const { data: insertedMessage, error: insertError } = await supabase
         .from('messages')
-        .insert({
+        .insert([{
           conversation_id: targetConversation.id,
           sender_type: 'agent',
           sender_id: profile.id,
           content: forwardContent || '[Encaminhado]',
-          metadata,
-        })
+          metadata: metadata as any,
+        }])
         .select()
         .single();
 
