@@ -20,6 +20,44 @@ interface SendResult {
   queued?: boolean;
 }
 
+function isAllowedInstance(name: string): boolean {
+  const upper = name.toUpperCase();
+  return upper.includes('VIAINFRA') || upper.includes('VIALOGISTIC');
+}
+
+async function resolveAuthorizedInstanceForConversation(supabase: any, conversationId?: string) {
+  if (!conversationId) return { instanceName: '', error: 'Missing conversation_id' };
+
+  const { data: conversation, error: conversationError } = await supabase
+    .from('conversations')
+    .select('company_id')
+    .eq('id', conversationId)
+    .single();
+
+  if (conversationError || !conversation?.company_id) {
+    return { instanceName: '', error: 'Conversation company not found' };
+  }
+
+  const { data: instance, error: instanceError } = await supabase
+    .from('whatsapp_instances')
+    .select('instance_name, company_id')
+    .eq('company_id', conversation.company_id)
+    .eq('status', 'open')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (instanceError || !instance) {
+    return { instanceName: '', error: 'No connected WhatsApp instance found' };
+  }
+
+  if (instance.company_id !== conversation.company_id || !isAllowedInstance(instance.instance_name)) {
+    return { instanceName: '', error: 'Unauthorized WhatsApp instance for conversation' };
+  }
+
+  return { instanceName: instance.instance_name, error: null };
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -231,11 +269,6 @@ serve(async (req) => {
       .maybeSingle();
 
     // REGRA MESTRA: Validar que a instância tem o prefixo correto (VIAINFRA ou VIALOGISTIC)
-    function isAllowedInstance(name: string): boolean {
-      const upper = name.toUpperCase();
-      return upper.includes('VIAINFRA') || upper.includes('VIALOGISTIC');
-    }
-
     // SEGURANÇA: NUNCA usar instância de outra empresa ou sem prefixo autorizado
     if (instance && (!isAllowedInstance(instance.instance_name) || instance.company_id !== companyId)) {
       console.error('[send-whatsapp] SECURITY: Blocked unauthorized instance:', {
@@ -683,24 +716,32 @@ async function addToRetryQueue(
 
 // Handle editing a message on WhatsApp
 async function handleUpdateMessage(body: {
-  instanceName: string;
+  instanceName?: string;
+  conversation_id?: string;
+  local_message_id?: string;
   remoteJid: string;
   messageId: string;
   newContent: string;
 }): Promise<Response> {
-  const { instanceName, remoteJid, messageId, newContent } = body;
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  );
+
+  const resolvedInstance = body.instanceName || (await resolveAuthorizedInstanceForConversation(supabase, body.conversation_id)).instanceName;
+  const { remoteJid, messageId, newContent } = body;
   
   console.log('[send-whatsapp] ✏️ handleUpdateMessage START:', { 
-    instanceName, 
+    instanceName: resolvedInstance, 
     remoteJid, 
     messageId, 
     newContentLength: newContent?.length,
     messageIdType: typeof messageId
   });
   
-  if (!instanceName || !remoteJid || !messageId || !newContent) {
+  if (!resolvedInstance || !remoteJid || !messageId || !newContent) {
     const missingFields = [];
-    if (!instanceName) missingFields.push('instanceName');
+    if (!resolvedInstance) missingFields.push('instanceName');
     if (!remoteJid) missingFields.push('remoteJid');
     if (!messageId) missingFields.push('messageId');
     if (!newContent) missingFields.push('newContent');
@@ -726,7 +767,7 @@ async function handleUpdateMessage(body: {
   try {
     // Evolution API v2 endpoint for updating messages
     // Documentação: POST /chat/updateMessage/{instance}
-    const updateUrl = `${evolutionApiUrl}/chat/updateMessage/${instanceName}`;
+    const updateUrl = `${evolutionApiUrl}/chat/updateMessage/${resolvedInstance}`;
     
     // Payload conforme documentação oficial da Evolution API v2
     const updatePayload = {
@@ -806,24 +847,32 @@ async function handleUpdateMessage(body: {
 
 // Handle deleting a message on WhatsApp (delete for everyone)
 async function handleDeleteMessage(body: {
-  instanceName: string;
+  instanceName?: string;
+  conversation_id?: string;
+  local_message_id?: string;
   remoteJid: string;
   messageId: string;
   fromMe: boolean;
 }): Promise<Response> {
-  const { instanceName, remoteJid, messageId, fromMe } = body;
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+  );
+
+  const resolvedInstance = body.instanceName || (await resolveAuthorizedInstanceForConversation(supabase, body.conversation_id)).instanceName;
+  const { remoteJid, messageId, fromMe } = body;
   
   console.log('[send-whatsapp] 🗑️ handleDeleteMessage START:', { 
-    instanceName, 
+    instanceName: resolvedInstance, 
     remoteJid, 
     messageId, 
     fromMe,
     messageIdType: typeof messageId
   });
   
-  if (!instanceName || !remoteJid || !messageId) {
+  if (!resolvedInstance || !remoteJid || !messageId) {
     const missingFields = [];
-    if (!instanceName) missingFields.push('instanceName');
+    if (!resolvedInstance) missingFields.push('instanceName');
     if (!remoteJid) missingFields.push('remoteJid');
     if (!messageId) missingFields.push('messageId');
     
@@ -848,7 +897,7 @@ async function handleDeleteMessage(body: {
   try {
     // Evolution API endpoint for deleting messages for everyone
     // Documentação: DELETE /chat/deleteMessageForEveryone/{instance}
-    const deleteUrl = `${evolutionApiUrl}/chat/deleteMessageForEveryone/${instanceName}`;
+    const deleteUrl = `${evolutionApiUrl}/chat/deleteMessageForEveryone/${resolvedInstance}`;
     
     // Payload conforme documentação oficial da Evolution API v2
     const deletePayload = {

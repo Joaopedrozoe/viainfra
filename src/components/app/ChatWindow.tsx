@@ -484,7 +484,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
                 body: {
                   conversation_id: conversationId,
                   message_id: data.id, // Passar ID da mensagem para atualizar metadata
-                  message_content: content || undefined,
+                  message_content: getMeaningfulAttachmentCaption(content, attachmentData),
                   attachment: attachmentData,
                   agent_name: profile?.name || 'Atendente',
                   // Dados para reply/quoted se houver - só envia se tiver messageId válido
