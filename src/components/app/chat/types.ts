@@ -11,7 +11,7 @@ export interface Attachment {
   locationAddress?: string;
 }
 
-export type MessageDeliveryStatus = 'sending' | 'sent' | 'delivered' | 'failed';
+export type MessageDeliveryStatus = 'sending' | 'sent' | 'sent_confirmed' | 'delivered' | 'read' | 'played' | 'pending' | 'failed';
 
 export interface Message {
   id: string;
