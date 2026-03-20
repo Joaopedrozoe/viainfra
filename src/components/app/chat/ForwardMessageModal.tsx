@@ -94,23 +94,31 @@ export function ForwardMessageModal({
 
     setSendingTo(targetConversation.id);
     try {
-      // Criar mensagem encaminhada
-      const forwardContent = `↪️ Encaminhada:\n${message.content}`;
+      const attachment = message.attachment;
+      const hasAttachment = !!attachment;
+      const forwardContent = hasAttachment
+        ? message.content?.trim() || ''
+        : `↪️ Encaminhada:\n${message.content}`;
       
-      // Inserir mensagem no banco de dados
+      const metadata: Record<string, unknown> = {
+        forwarded: true,
+        originalMessageId: message.id,
+        originalTimestamp: message.timestamp,
+      };
+
+      if (attachment) {
+        metadata.attachment = attachment;
+      }
+
       const { data: insertedMessage, error: insertError } = await supabase
         .from('messages')
-        .insert({
+        .insert([{
           conversation_id: targetConversation.id,
           sender_type: 'agent',
           sender_id: profile.id,
-          content: forwardContent,
-          metadata: {
-            forwarded: true,
-            originalMessageId: message.id,
-            originalTimestamp: message.timestamp,
-          },
-        })
+          content: forwardContent || '[Encaminhado]',
+          metadata: metadata as any,
+        }])
         .select()
         .single();
 
@@ -129,7 +137,8 @@ export function ForwardMessageModal({
             body: {
               conversation_id: targetConversation.id,
               message_id: insertedMessage.id,
-              message_content: forwardContent,
+              message_content: forwardContent || undefined,
+              attachment,
               agent_name: profile.name || 'Atendente',
             },
           }
@@ -143,9 +152,7 @@ export function ForwardMessageModal({
             .from('messages')
             .update({
               metadata: {
-                forwarded: true,
-                originalMessageId: message.id,
-                originalTimestamp: message.timestamp,
+                ...metadata,
                 whatsappStatus: 'failed',
                 whatsappError: sendResult?.error || 'Erro desconhecido',
               },

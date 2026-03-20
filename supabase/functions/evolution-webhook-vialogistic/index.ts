@@ -1819,18 +1819,85 @@ function mapAckStatus(status: any): string | null {
   return statusMap[key] || null;
 }
 
+function getProtocolMessage(data: any) {
+  return data?.protocolMessage || data?.message?.protocolMessage || data?.message?.editedMessage?.message?.protocolMessage;
+}
+
+function getEditedContent(data: any): string | null {
+  return data?.editedMessage?.conversation
+    || data?.message?.editedMessage?.message?.conversation
+    || data?.message?.editedMessage?.message?.extendedTextMessage?.text
+    || data?.editedMessage?.extendedTextMessage?.text
+    || null;
+}
+
+async function updateMessageByExternalId(supabase: any, externalId: string, updater: (metadata: Record<string, any>) => { content?: string; metadata: Record<string, any> }) {
+  const { data: messages, error } = await supabase
+    .from('messages')
+    .select('id, content, metadata')
+    .or(`metadata->>whatsappMessageId.eq.${externalId},metadata->>external_id.eq.${externalId}`)
+    .limit(1);
+
+  if (error || !messages?.length) {
+    console.log(`📬 No message found with externalId=${externalId}`);
+    return;
+  }
+
+  const msg = messages[0];
+  const currentMetadata = (msg.metadata as Record<string, any>) || {};
+  const next = updater(currentMetadata);
+
+  const { error: updateError } = await supabase
+    .from('messages')
+    .update(next)
+    .eq('id', msg.id);
+
+  if (updateError) {
+    console.error(`📬 Error updating message ${msg.id}:`, updateError);
+  }
+}
+
 // Process message status updates - ACK tracking + LID resolution
 async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
   const data = webhook.data;
   const remoteJid = data?.remoteJid;
   const keyId = data?.keyId;
   const ackStatus = data?.status;
+  const protocolMessage = getProtocolMessage(data);
+  const protocolType = String(protocolMessage?.type ?? '').toUpperCase();
+  const revokedMessageId = protocolMessage?.key?.id;
+  const editedContent = getEditedContent(data);
   
   console.log(`📬 MESSAGES_UPDATE: remoteJid=${remoteJid}, keyId=${keyId}, status=${ackStatus}, instance=${webhook.instance}`);
   
   if (!remoteJid) {
     console.log('📬 No remoteJid, skipping');
     return;
+  }
+
+  if (revokedMessageId && (protocolType.includes('REVOKE') || protocolType === '0')) {
+    console.log(`📬 REVOKE detected for ${revokedMessageId}`);
+    await updateMessageByExternalId(supabase, revokedMessageId, (currentMetadata) => ({
+      content: '[Mensagem apagada no WhatsApp]',
+      metadata: {
+        ...currentMetadata,
+        isDeleted: true,
+        deletedAt: new Date().toISOString(),
+        deletedFromWhatsApp: true,
+      }
+    }));
+  }
+
+  if (keyId && editedContent) {
+    console.log(`📬 EDIT detected for ${keyId}`);
+    await updateMessageByExternalId(supabase, keyId, (currentMetadata) => ({
+      content: editedContent,
+      metadata: {
+        ...currentMetadata,
+        editedAt: new Date().toISOString(),
+        editedInWhatsApp: true,
+      }
+    }));
   }
 
   // ===== PART 1: ACK STATUS TRACKING =====

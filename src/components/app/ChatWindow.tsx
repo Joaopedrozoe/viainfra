@@ -22,6 +22,43 @@ const getFileType = (file: File): Attachment['type'] => {
   return 'document';
 };
 
+const attachmentPlaceholderLabels = new Set(['[Imagem]', '[Vídeo]', '[Áudio]', '[Documento]']);
+
+const mapDbMessageToChatMessage = (dbMessage: any): Message => {
+  const metadata = (typeof dbMessage?.metadata === 'object' && dbMessage?.metadata !== null)
+    ? dbMessage.metadata as Record<string, any>
+    : {};
+
+  return {
+    id: dbMessage.id,
+    content: dbMessage.content,
+    sender: dbMessage.sender_type === 'user' ? 'user' : dbMessage.sender_type === 'agent' ? 'agent' : 'bot',
+    timestamp: dbMessage.created_at,
+    attachment: metadata.attachment,
+    quotedMessageId: metadata.quotedMessageId,
+    quotedContent: metadata.quotedContent,
+    quotedSender: metadata.quotedSender,
+    quotedAttachmentType: metadata.quotedAttachmentType,
+    whatsappMessageId: metadata.whatsappMessageId || metadata.external_id,
+    mediaUnavailable: metadata.mediaUnavailable || false,
+    mediaType: metadata.mediaType,
+    deliveryStatus: metadata.whatsappStatus,
+    editedAt: metadata.editedAt,
+    isDeleted: metadata.isDeleted,
+    isPinned: metadata.isPinned,
+    isFavorite: metadata.isFavorite,
+  };
+};
+
+const getMeaningfulAttachmentCaption = (content: string, attachment?: Attachment) => {
+  const trimmed = content.trim();
+
+  if (!trimmed) return undefined;
+  if (!attachment) return trimmed;
+
+  return attachmentPlaceholderLabels.has(trimmed) ? undefined : trimmed;
+};
+
 // Cache de posição de scroll por conversa (distância do final)
 const scrollPositionsCache = new Map<string, number>();
 
@@ -92,29 +129,33 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           },
           (payload) => {
             const newMessage = payload.new as any;
-            
-            // Mapear tipo de sender corretamente com attachment se existir
-            const attachmentData = newMessage.metadata?.attachment;
-            const mappedMessage: Message = {
-              id: newMessage.id,
-              content: newMessage.content,
-              sender: newMessage.sender_type === 'user' ? 'user' : newMessage.sender_type === 'agent' ? 'agent' : 'bot',
-              timestamp: newMessage.created_at,
-              attachment: attachmentData,
-              // Campos para citação/reply
-              quotedMessageId: newMessage.metadata?.quotedMessageId,
-              quotedContent: newMessage.metadata?.quotedContent,
-              quotedSender: newMessage.metadata?.quotedSender,
-              quotedAttachmentType: newMessage.metadata?.quotedAttachmentType,
-              // ID do WhatsApp para replies
-              whatsappMessageId: newMessage.metadata?.whatsappMessageId || newMessage.metadata?.external_id,
-              // Campos para mídia indisponível
-              mediaUnavailable: newMessage.metadata?.mediaUnavailable || false,
-              mediaType: newMessage.metadata?.mediaType,
-            };
-            
-            // Usar hook para substituir temporária ou adicionar
-            replaceTemporaryMessage(newMessage.content, mappedMessage);
+            replaceTemporaryMessage(newMessage.content, mapDbMessageToChatMessage(newMessage));
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'messages',
+            filter: `conversation_id=eq.${conversationId}`
+          },
+          (payload) => {
+            const updatedMessage = payload.new as any;
+            updateMessage(updatedMessage.id, mapDbMessageToChatMessage(updatedMessage));
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'DELETE',
+            schema: 'public',
+            table: 'messages',
+            filter: `conversation_id=eq.${conversationId}`
+          },
+          (payload) => {
+            const removedMessage = payload.old as any;
+            deleteMessage(removedMessage.id);
           }
         )
         .subscribe((status) => {
@@ -129,7 +170,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         supabase.removeChannel(channel);
       };
     }
-  }, [conversationId, loadInitialMessages, replaceTemporaryMessage]);
+  }, [conversationId, loadInitialMessages, replaceTemporaryMessage, updateMessage, deleteMessage]);
 
   // Carregar dados da conversa (contato, canal) - sem mensagens
   const loadConversationData = async () => {
@@ -443,7 +484,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
                 body: {
                   conversation_id: conversationId,
                   message_id: data.id, // Passar ID da mensagem para atualizar metadata
-                  message_content: content || undefined,
+                  message_content: getMeaningfulAttachmentCaption(content, attachmentData),
                   attachment: attachmentData,
                   agent_name: profile?.name || 'Atendente',
                   // Dados para reply/quoted se houver - só envia se tiver messageId válido
@@ -493,7 +534,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
               
               // Atualizar status para sent localmente
               updateMessage(data.id, { 
-                deliveryStatus: 'sent', 
+                deliveryStatus: 'pending', 
                 whatsappMessageId: response?.messageId 
               });
               
@@ -659,93 +700,61 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         canEditOnWhatsApp: isAgentMessage && minutesSinceCreation < 15
       });
       
-      // Atualizar no banco local primeiro
+      const isWhatsAppConversation = conversationChannel === 'whatsapp';
+
+      if (isWhatsAppConversation) {
+        if (!isAgentMessage) {
+          toast.error('Apenas mensagens enviadas pelo atendimento podem ser editadas no WhatsApp.');
+          return false;
+        }
+
+        if (!whatsappMessageId || !remoteJid) {
+          toast.error('Não foi possível editar no WhatsApp: mensagem sem identificador remoto.');
+          return false;
+        }
+
+        if (minutesSinceCreation >= 15) {
+          console.warn('⚠️ [Edit] Mensagem muito antiga para edição no WhatsApp:', minutesSinceCreation.toFixed(1), 'minutos');
+          toast.error('O WhatsApp só permite editar mensagens recentes (até ~15 minutos).');
+          return false;
+        }
+
+        const { data: editResult, error: editError } = await supabase.functions.invoke('send-whatsapp-message', {
+          body: {
+            action: 'updateMessage',
+            conversation_id: conversationId,
+            local_message_id: messageId,
+            remoteJid,
+            messageId: whatsappMessageId,
+            newContent,
+          }
+        });
+
+        console.log('✏️ [Edit] Resposta da Evolution API:', editResult, editError);
+
+        if (editError || !editResult?.success) {
+          toast.error(editResult?.error || 'Falha ao editar no WhatsApp.');
+          return false;
+        }
+      }
+
       const { error } = await supabase
         .from('messages')
         .update({ 
           content: newContent,
-          metadata: { ...currentMetadata, editedAt, editedLocally: true }
+          metadata: { ...currentMetadata, editedAt }
         })
         .eq('id', messageId);
       
       if (error) throw error;
-      
-      // Atualizar localmente
+
       updateMessage(messageId, { content: newContent, editedAt });
-      
-      // Tentar editar no WhatsApp se for canal WhatsApp, mensagem do agente e tiver os IDs necessários
-      const canEditOnWhatsApp = conversationChannel === 'whatsapp' && 
-                                 whatsappMessageId && 
-                                 remoteJid && 
-                                 isAgentMessage;
-      
-      if (canEditOnWhatsApp) {
-        // Avisar se passou do limite de tempo
-        if (minutesSinceCreation >= 15) {
-          console.warn('⚠️ [Edit] Mensagem muito antiga para edição no WhatsApp:', minutesSinceCreation.toFixed(1), 'minutos');
-          toast.warning('Mensagem editada localmente. Limite de 15 minutos do WhatsApp excedido.', {
-            duration: 4000,
-          });
-          return;
-        }
-        
-        try {
-          // Buscar instância da conversa
-          const { data: conversation } = await supabase
-            .from('conversations')
-            .select('metadata')
-            .eq('id', conversationId)
-            .single();
-          
-          // Usar instanceName do metadata da conversa - NUNCA fazer fallback para outra empresa
-          const conversationMeta = (conversation?.metadata as Record<string, unknown>) || {};
-          const instanceName = conversationMeta.instanceName as string || '';
-          
-          console.log('✏️ [Edit] Enviando para Evolution API:', {
-            instanceName,
-            remoteJid,
-            messageId: whatsappMessageId,
-            newContentLength: newContent.length
-          });
-          
-          const { data: editResult, error: editError } = await supabase.functions.invoke('send-whatsapp-message', {
-            body: {
-              action: 'updateMessage',
-              instanceName,
-              remoteJid,
-              messageId: whatsappMessageId,
-              newContent
-            }
-          });
-          
-          console.log('✏️ [Edit] Resposta da Evolution API:', editResult, editError);
-          
-          if (editError || !editResult?.success) {
-            console.warn('⚠️ [Edit] Não foi possível editar no WhatsApp:', editError || editResult?.error);
-            toast.warning('Mensagem editada localmente. Edição no WhatsApp não disponível.', {
-              description: editResult?.error || 'O WhatsApp limita edição a ~15 minutos após o envio',
-              duration: 4000,
-            });
-          } else {
-            toast.success('Mensagem editada no WhatsApp!');
-          }
-        } catch (whatsappError) {
-          console.warn('⚠️ [Edit] Erro ao editar no WhatsApp:', whatsappError);
-          toast.warning('Mensagem editada localmente.');
-        }
-      } else {
-        // Mensagem editada apenas localmente
-        if (!whatsappMessageId && conversationChannel === 'whatsapp') {
-          toast.info('Mensagem editada localmente (sem ID do WhatsApp para propagação).');
-        } else if (!isAgentMessage) {
-          toast.info('Apenas mensagens enviadas por você podem ser editadas no WhatsApp.');
-        } else {
-          toast.success('Mensagem editada!');
-        }
-      }
+      toast.success(isWhatsAppConversation ? 'Mensagem editada no WhatsApp!' : 'Mensagem editada!');
+      return true;
     } catch (error) {
       console.error('Erro ao editar mensagem:', error);
       toast.error('Erro ao editar mensagem');
+      return false;
     }
   }, [updateMessage, conversationChannel, conversationId]);
 
@@ -884,79 +893,42 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         conversationChannel,
       });
       
-      let whatsappDeleteSuccess = false;
-      let whatsappDeleteAttempted = false;
+      const isWhatsAppConversation = conversationChannel === 'whatsapp';
       
-      // Se for WhatsApp e tiver messageId, tentar excluir no WhatsApp
-      if (conversationChannel === 'whatsapp' && whatsappMessageId && remoteJid) {
-        whatsappDeleteAttempted = true;
-        
-        // Avisar sobre limitações de tempo
-        if (minutesSinceCreation > 60) {
-          console.warn('⚠️ [Delete] Mensagem muito antiga para exclusão no WhatsApp:', minutesSinceCreation.toFixed(1), 'minutos');
-          toast.warning('Mensagem antiga - exclusão no WhatsApp pode não funcionar (limite: ~1 hora)', {
-            duration: 4000,
-          });
+      if (isWhatsAppConversation) {
+        if (!whatsappMessageId || !remoteJid) {
+          toast.error('Não foi possível apagar no WhatsApp: mensagem sem identificador remoto.');
+          return false;
         }
-        
-        // Buscar instância da conversa
-        const { data: conversation } = await supabase
-          .from('conversations')
-          .select('metadata')
-          .eq('id', conversationId)
-          .single();
-        
-        const conversationMeta = (conversation?.metadata as Record<string, unknown>) || {};
-        const instanceName = conversationMeta.instanceName as string || '';
-        
-        console.log('🗑️ [Delete] Enviando para Evolution API:', {
-          instanceName,
-          remoteJid,
-          messageId: whatsappMessageId,
-          fromMe: isFromAgent
-        });
-        
-        try {
-          const { data: deleteResult, error: deleteError } = await supabase.functions.invoke(
-            'send-whatsapp-message',
-            {
-              body: {
-                action: 'deleteMessage',
-                instanceName,
-                remoteJid,
-                messageId: whatsappMessageId,
-                fromMe: isFromAgent
-              }
+
+        if (!isFromAgent) {
+          toast.error('Mensagens recebidas não podem ser apagadas para todos no WhatsApp.');
+          return false;
+        }
+
+        if (minutesSinceCreation > 60) {
+          console.warn('⚠️ [Delete] Mensagem possivelmente fora da janela de exclusão:', minutesSinceCreation.toFixed(1), 'minutos');
+        }
+
+        const { data: deleteResult, error: deleteError } = await supabase.functions.invoke(
+          'send-whatsapp-message',
+          {
+            body: {
+              action: 'deleteMessage',
+              conversation_id: conversationId,
+              local_message_id: messageId,
+              remoteJid,
+              messageId: whatsappMessageId,
+              fromMe: true,
             }
-          );
-          
-          console.log('🗑️ [Delete] Resposta da Evolution API:', deleteResult, deleteError);
-          
-          if (deleteError || !deleteResult?.success) {
-            // WhatsApp falhou - avisar usuário mas ainda deletar local
-            const errorMessage = deleteResult?.error || 'Exclusão no WhatsApp não disponível';
-            console.warn('⚠️ [Delete] Falha ao excluir no WhatsApp:', errorMessage);
-            
-            if (deleteResult?.isTimeLimit) {
-              toast.warning('Mensagem apagada localmente. Limite de tempo do WhatsApp excedido (~1 hora).', {
-                duration: 4000,
-              });
-            } else if (!isFromAgent) {
-              toast.warning('Mensagem apagada localmente. Mensagens recebidas não podem ser apagadas para todos no WhatsApp.', {
-                duration: 4000,
-              });
-            } else {
-              toast.warning('Mensagem apagada localmente. ' + errorMessage, {
-                duration: 4000,
-              });
-            }
-          } else {
-            whatsappDeleteSuccess = true;
-            toast.success('Mensagem apagada do WhatsApp para todos!');
           }
-        } catch (whatsappError) {
-          console.warn('⚠️ [Delete] Erro ao excluir no WhatsApp:', whatsappError);
-          toast.warning('Mensagem apagada localmente.');
+        );
+        
+        console.log('🗑️ [Delete] Resposta da Evolution API:', deleteResult, deleteError);
+        
+        if (deleteError || !deleteResult?.success) {
+          toast.error(deleteResult?.error || 'Falha ao apagar a mensagem no WhatsApp.');
+          return false;
         }
       }
       
@@ -971,17 +943,12 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       // Remover localmente
       deleteMessage(messageId);
       
-      // Se não for WhatsApp ou não tentou exclusão remota, mostrar sucesso simples
-      if (!whatsappDeleteAttempted) {
-        if (conversationChannel === 'whatsapp' && !whatsappMessageId) {
-          toast.info('Mensagem apagada localmente (sem ID do WhatsApp para exclusão remota).');
-        } else {
-          toast.success('Mensagem apagada!');
-        }
-      }
+      toast.success(isWhatsAppConversation ? 'Mensagem apagada do WhatsApp para todos!' : 'Mensagem apagada!');
+      return true;
     } catch (error) {
       console.error('Erro ao apagar mensagem:', error);
       toast.error('Erro ao apagar mensagem');
+      return false;
     }
   }, [deleteMessage, conversationChannel, conversationId, deletingMessage]);
 

@@ -14,7 +14,7 @@ interface DeleteMessageDialogProps {
   message: Message | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (messageId: string) => void;
+  onConfirm: (messageId: string) => Promise<boolean> | boolean;
 }
 
 export function DeleteMessageDialog({
@@ -23,10 +23,12 @@ export function DeleteMessageDialog({
   onOpenChange,
   onConfirm,
 }: DeleteMessageDialogProps) {
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!message) return;
-    onConfirm(message.id);
-    onOpenChange(false);
+    const confirmed = await onConfirm(message.id);
+    if (confirmed !== false) {
+      onOpenChange(false);
+    }
   };
 
   return (
