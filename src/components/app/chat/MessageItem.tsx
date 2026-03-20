@@ -96,7 +96,21 @@ const DeliveryStatusIcon = ({ status, isAgentMessage }: { status?: MessageDelive
           </Tooltip>
         </TooltipProvider>
       );
+    case 'pending':
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Clock className={cn(iconClass, "text-white/60")} />
+            </TooltipTrigger>
+            <TooltipContent side="left" className="text-xs">
+              Aguardando confirmação do WhatsApp
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
     case 'sent':
+    case 'sent_confirmed':
       return (
         <TooltipProvider>
           <Tooltip>
@@ -104,7 +118,7 @@ const DeliveryStatusIcon = ({ status, isAgentMessage }: { status?: MessageDelive
               <Check className={cn(iconClass, "text-white/80")} />
             </TooltipTrigger>
             <TooltipContent side="left" className="text-xs">
-              Enviado via WhatsApp
+              {status === 'sent_confirmed' ? 'Confirmado pelo servidor WhatsApp' : 'Enviado via WhatsApp'}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -117,7 +131,21 @@ const DeliveryStatusIcon = ({ status, isAgentMessage }: { status?: MessageDelive
               <CheckCheck className={cn(iconClass, "text-white")} />
             </TooltipTrigger>
             <TooltipContent side="left" className="text-xs">
-              Entregue
+              Entregue no dispositivo
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      );
+    case 'read':
+    case 'played':
+      return (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <CheckCheck className={cn(iconClass, "text-blue-300")} />
+            </TooltipTrigger>
+            <TooltipContent side="left" className="text-xs">
+              {status === 'played' ? 'Reproduzido' : 'Lido'}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -136,7 +164,6 @@ const DeliveryStatusIcon = ({ status, isAgentMessage }: { status?: MessageDelive
         </TooltipProvider>
       );
     default:
-      // Mensagem sem status (ainda não confirmada via WhatsApp)
       return (
         <TooltipProvider>
           <Tooltip>
