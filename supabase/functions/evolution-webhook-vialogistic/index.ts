@@ -1805,28 +1805,100 @@ async function processConnectionUpdate(supabase: any, webhook: EvolutionWebhook)
   }
 }
 
-// Process message status updates
+// Map Evolution API ACK status to readable status
+function mapAckStatus(status: any): string | null {
+  const statusMap: Record<string, string> = {
+    '0': 'failed', 'ERROR': 'failed',
+    '1': 'pending', 'PENDING': 'pending',
+    '2': 'sent_confirmed', 'SERVER_ACK': 'sent_confirmed',
+    '3': 'delivered', 'DELIVERY_ACK': 'delivered',
+    '4': 'read', 'READ': 'read',
+    '5': 'played', 'PLAYED': 'played',
+  };
+  const key = String(status);
+  return statusMap[key] || null;
+}
+
+// Process message status updates - ACK tracking + LID resolution
 async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
   const data = webhook.data;
   const remoteJid = data?.remoteJid;
   const keyId = data?.keyId;
+  const ackStatus = data?.status;
   
-  // Skip if no phone or is group
-  if (!remoteJid || remoteJid.includes('@g.us') || remoteJid.includes('@lid')) {
-    console.log(`📬 Message status update (skipped): ${JSON.stringify(data?.status || data)}`);
+  console.log(`📬 MESSAGES_UPDATE: remoteJid=${remoteJid}, keyId=${keyId}, status=${ackStatus}, instance=${webhook.instance}`);
+  
+  if (!remoteJid) {
+    console.log('📬 No remoteJid, skipping');
+    return;
+  }
+
+  // ===== PART 1: ACK STATUS TRACKING =====
+  if (keyId && ackStatus !== undefined) {
+    const mappedStatus = mapAckStatus(ackStatus);
+    if (mappedStatus) {
+      console.log(`📬 ACK: keyId=${keyId}, mapped=${mappedStatus}`);
+      
+      const { data: messages, error: queryError } = await supabase
+        .from('messages')
+        .select('id, metadata')
+        .filter('metadata->>whatsappMessageId', 'eq', keyId)
+        .limit(1);
+      
+      if (queryError) {
+        console.error('📬 Error querying message by keyId:', queryError);
+      } else if (messages && messages.length > 0) {
+        const msg = messages[0];
+        const currentMetadata = (msg.metadata as Record<string, any>) || {};
+        const currentStatus = currentMetadata.whatsappStatus;
+        
+        const statusOrder: Record<string, number> = { 
+          'failed': 0, 'pending': 1, 'sent': 2, 'sent_confirmed': 3, 
+          'delivered': 4, 'read': 5, 'played': 6 
+        };
+        const currentLevel = statusOrder[currentStatus] ?? -1;
+        const newLevel = statusOrder[mappedStatus] ?? -1;
+        
+        if (newLevel > currentLevel) {
+          const { error: updateError } = await supabase
+            .from('messages')
+            .update({
+              metadata: {
+                ...currentMetadata,
+                whatsappStatus: mappedStatus,
+                whatsappAckAt: new Date().toISOString(),
+                whatsappAckRaw: String(ackStatus)
+              }
+            })
+            .eq('id', msg.id);
+          
+          if (updateError) {
+            console.error(`📬 Error updating ACK for message ${msg.id}:`, updateError);
+          } else {
+            console.log(`✅ ACK updated: message ${msg.id} → ${mappedStatus}`);
+          }
+        } else {
+          console.log(`📬 ACK skipped (current=${currentStatus} >= new=${mappedStatus})`);
+        }
+      } else {
+        console.log(`📬 No message found with whatsappMessageId=${keyId}`);
+      }
+    }
+  }
+
+  // ===== PART 2: LID RESOLUTION (individual contacts only) =====
+  if (remoteJid.includes('@g.us') || remoteJid.includes('@lid')) {
     return;
   }
   
-  // Extract phone from remoteJid
   const phone = remoteJid.split('@')[0];
   if (!phone || !/^\d{10,15}$/.test(phone)) {
     console.log(`📬 Message status update (invalid phone): ${remoteJid}`);
     return;
   }
   
-  console.log(`📬 Message status update: phone=${phone}, keyId=${keyId}`);
+  console.log(`📬 LID resolution check: phone=${phone}`);
   
-  // Get company_id from instance
   const { data: instance } = await supabase
     .from('whatsapp_instances')
     .select('company_id')
@@ -1840,7 +1912,6 @@ async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
   
   const companyId = instance.company_id;
   
-  // Check if contact already exists with this phone
   const { data: existingContact } = await supabase
     .from('contacts')
     .select('id, name, phone')
@@ -1849,7 +1920,6 @@ async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
     .maybeSingle();
   
   if (existingContact) {
-    // Contact already exists with phone - check if conversation exists
     const { data: existingConv } = await supabase
       .from('conversations')
       .select('id')
@@ -1858,7 +1928,6 @@ async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
       .maybeSingle();
     
     if (!existingConv) {
-      // Create conversation for existing contact
       console.log(`➕ Creating conversation for existing contact: ${existingContact.name} (${phone})`);
       await supabase.from('conversations').insert({
         contact_id: existingContact.id,
@@ -1875,7 +1944,6 @@ async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
     return;
   }
   
-  // No contact with this phone - try to find placeholder contact without phone
   const { data: placeholderContacts } = await supabase
     .from('contacts')
     .select('id, name, phone, metadata')
@@ -1884,11 +1952,9 @@ async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
     .order('updated_at', { ascending: false })
     .limit(10);
   
-  // If we can find a contact with matching @lid remoteJid, update it
   for (const contact of placeholderContacts || []) {
     const contactJid = contact.metadata?.remoteJid || '';
     if (contactJid.includes('@lid')) {
-      // This is a placeholder @lid contact - update with real phone
       console.log(`🔄 Updating @lid contact ${contact.name} with phone: ${phone}`);
       
       const { error: updateError } = await supabase
@@ -1908,7 +1974,6 @@ async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
       if (!updateError) {
         console.log(`✅ Contact ${contact.name} updated with phone ${phone}`);
         
-        // Also update conversation to enable bot now that we have a phone
         const { data: existingConv } = await supabase
           .from('conversations')
           .select('id, metadata')
@@ -1917,9 +1982,8 @@ async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
           .maybeSingle();
         
         if (existingConv) {
-          // Update conversation with real remoteJid and enable bot
           await supabase.from('conversations').update({
-            bot_active: true, // NOW we can enable bot since we have a phone
+            bot_active: true,
             metadata: {
               ...existingConv.metadata,
               remoteJid,
@@ -1930,7 +1994,6 @@ async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
           }).eq('id', existingConv.id);
           console.log(`✅ Bot enabled for conversation ${existingConv.id} after phone resolved`);
         } else {
-          // Create new conversation with bot enabled
           await supabase.from('conversations').insert({
             contact_id: contact.id,
             company_id: companyId,
@@ -1949,7 +2012,6 @@ async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
     }
   }
   
-  // No placeholder found - create new contact and conversation
   console.log(`➕ Creating new contact from status update: ${phone}`);
   
   const { data: newContact, error: contactError } = await supabase
@@ -1968,7 +2030,6 @@ async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
     return;
   }
   
-  // Create conversation with bot enabled (we have a valid phone)
   await supabase.from('conversations').insert({
     contact_id: newContact.id,
     company_id: companyId,

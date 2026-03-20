@@ -315,7 +315,7 @@ serve(async (req) => {
             ...currentMetadata,
             whatsappMessageId: sendResult.messageId,
             whatsappSentAt: new Date().toISOString(),
-            whatsappStatus: 'sent'
+            whatsappStatus: 'pending'
           }
         })
         .eq('id', message_id);
@@ -445,7 +445,8 @@ async function sendTextMessage(
       // Payload com suporte a quoted/reply
       const sendPayload: Record<string, any> = {
         number: recipientJid,
-        text: text
+        text: text,
+        delay: 1500
       };
       
       // Adicionar quoted se existir
@@ -471,7 +472,8 @@ async function sendTextMessage(
           headers: { 'Content-Type': 'application/json', 'apikey': evolutionKey },
           body: JSON.stringify({
             number: recipientJid,
-            textMessage: { text: text }
+            textMessage: { text: text },
+            delay: 1500
           })
         });
         responseText = await response.text();
