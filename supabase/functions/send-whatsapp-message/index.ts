@@ -315,7 +315,7 @@ serve(async (req) => {
             ...currentMetadata,
             whatsappMessageId: sendResult.messageId,
             whatsappSentAt: new Date().toISOString(),
-            whatsappStatus: 'sent'
+            whatsappStatus: 'pending'
           }
         })
         .eq('id', message_id);
