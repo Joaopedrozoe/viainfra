@@ -15,7 +15,7 @@ interface EditMessageDialogProps {
   message: Message | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (messageId: string, newContent: string) => void;
+  onSave: (messageId: string, newContent: string) => Promise<boolean> | boolean;
 }
 
 export function EditMessageDialog({
@@ -34,10 +34,12 @@ export function EditMessageDialog({
     onOpenChange(newOpen);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!message || !content.trim()) return;
-    onSave(message.id, content.trim());
-    onOpenChange(false);
+    const saved = await onSave(message.id, content.trim());
+    if (saved !== false) {
+      onOpenChange(false);
+    }
   };
 
   return (
