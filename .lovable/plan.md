@@ -1,98 +1,55 @@
 
 
-## Audit Completo: Violações da Regra Mestra de Isolamento de Instâncias
+## Fix: Group Message Delivery + Real ACK-Based Confirmation
 
-### Problema Central
+### Problem
+1. **Group text messages don't actually deliver** — the `sendText` payload for groups lacks `delay: 1500`, causing Evolution API to return success (HTTP 200 + messageId) without actual delivery
+2. **No real delivery confirmation** — the system marks messages as `sent` based on HTTP 200, but never updates status from actual WhatsApp ACK events. The `MESSAGES_UPDATE` event handler (`processMessageUpdate`) is used only for LID contact resolution, and **skips groups entirely** (line 1801)
 
-A "Regra Mestra" diz: **apenas instâncias com VIAINFRA no nome para VIAINFRA, apenas com VIALOGISTIC no nome para VIALOGISTIC**. Porém, múltiplos pontos do sistema violam essa regra:
+### Changes
 
-### 1. Instâncias no banco com company_id errado
+#### 1. Add `delay` to group text payload (`send-whatsapp-message/index.ts`)
 
-Atualmente no banco, LEGACYTATTOO, JUNIOCORRETOR_ALUGUEL, JUNIOCORRETOR_VENDAS, LEGACYTATTOO_TEST e "Via Infra " estão todas com `company_id = VIAINFRA`. Isso faz com que o `realtime-sync` (que processa TODAS as instâncias com status `open`) importe dados dessas instâncias para o inbox da VIAINFRA.
+Line 446-449: add `delay: 1500` to the group sendText payload. Also add it to the fallback `sendMessage` endpoint (line 472-474).
 
-**Ação**: Desassociar todas essas instâncias (set `company_id = NULL`) para que nenhum processo automático as vincule a VIAINFRA.
+Set initial status to `pending` instead of `sent` in the metadata update (line 318).
 
-### 2. `realtime-sync/index.ts` - ZERO filtro de nome
+#### 2. Rewrite `processMessageUpdate` in both webhooks to handle ACK events
 
-Linha 37-40: busca TODAS as instâncias conectadas sem filtrar por prefixo. Qualquer instância com `status = open` e `company_id` definido é processada.
+Currently `processMessageUpdate` in `evolution-webhook/index.ts` (line 1795+) and `evolution-webhook-vialogistic/index.ts` (line 1809+) does LID resolution instead of tracking delivery status. 
 
-**Ação**: Adicionar filtro estrito: só processar instâncias cujo `instance_name` contenha "VIAINFRA" ou "VIALOGISTIC" (case-insensitive).
+**New behavior**: When `MESSAGES_UPDATE` arrives with ACK data (status field like `DELIVERY_ACK`, `READ`, `PLAYED`, or numeric status 2/3/4), find the message by `whatsappMessageId` in the messages table and update its `metadata.whatsappStatus` to the confirmed status.
 
-### 3. `evolution-webhook/index.ts` - JUNIORCORRETOR na lista
+This gives real delivery confirmation from WhatsApp, not just API acceptance.
 
-Linha 6: `ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'viainfraoficial', 'Via Infra ', 'Via Infra', 'JUNIORCORRETOR']`
+**ACK status mapping** (Evolution API v2):
+- `0` / `ERROR` → `failed`
+- `1` / `PENDING` → `pending`  
+- `2` / `SERVER_ACK` → `sent_confirmed` (server received)
+- `3` / `DELIVERY_ACK` → `delivered` (arrived on device)
+- `4` / `READ` → `read`
+- `5` / `PLAYED` → `played` (audio/video)
 
-**Ação**: Trocar lista hardcoded por validação dinâmica: aceitar apenas instâncias contendo "VIAINFRA" no nome.
+The existing LID resolution logic will be preserved as a secondary function within the same handler.
 
-### 4. `evolution-instance/index.ts` - Lista restritiva demais
+**Groups are no longer skipped** — remove the `@g.us` skip at line 1801.
 
-Linha 5: `ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'viainfraoficial']` — bloqueia operações em instâncias VIALOGISTIC.
+#### 3. Update frontend status display (`ChatWindow.tsx` / `MessageItem.tsx`)
 
-**Ação**: Trocar por validação dinâmica: aceitar qualquer instância contendo "VIAINFRA" ou "VIALOGISTIC".
+Update the message status indicator to reflect the new granular statuses:
+- `pending` → spinner
+- `sent_confirmed` → single check  
+- `delivered` → double check
+- `read` → double check (blue)
+- `failed` → red warning
 
-### 5. `import-chats/index.ts` - Lista hardcoded
+#### 4. Deploy both webhooks + send-whatsapp-message
 
-Linha 4: `ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'viainfraoficial']` — bloqueia importação para VIALOGISTIC.
-
-**Ação**: Mesma correção dinâmica.
-
-### 6. `full-history-import/index.ts` - Lista hardcoded
-
-Linha 16: `ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'viainfraoficial']`
-
-**Ação**: Mesma correção dinâmica.
-
-### 7. `sync-all-groups/index.ts` - JUNIORCORRETOR na lista
-
-Linha 9: `ALLOWED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'JUNIORCORRETOR']`
-
-**Ação**: Mesma correção dinâmica.
-
-### 8. `sync-profile-pictures/index.ts` - JUNIORCORRETOR na lista
-
-Linha 10: `AUTHORIZED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL', 'JUNIORCORRETOR']`
-
-**Ação**: Mesma correção dinâmica.
-
-### 9. `process-message-queue/index.ts` - Lista hardcoded
-
-Linha 54: `AUTHORIZED_INSTANCES = ['TESTE2', 'VIAINFRAOFICIAL']`
-
-**Ação**: Trocar por busca da instância pela `company_id` da conversa (como já foi feito em `send-whatsapp-message`).
-
-### 10. Dados sujos no banco
-
-Conversas criadas por LEGACYTATTOO e JUNIOCORRETOR_ALUGUEL existem no banco com `company_id = VIAINFRA`. São ~123 conversas que não pertencem à VIAINFRA.
-
-**Ação**: Deletar mensagens e conversas cujo metadata.instanceName seja LEGACYTATTOO, JUNIOCORRETOR_ALUGUEL, JUNIOCORRETOR_VENDAS, ou LEGACYTATTOO_TEST.
-
----
-
-### Resumo das Mudanças
-
-| Componente | Mudança |
-|-----------|---------|
-| **DB: whatsapp_instances** | Set `company_id = NULL` para LEGACYTATTOO, JUNIOCORRETOR_ALUGUEL, JUNIOCORRETOR_VENDAS, LEGACYTATTOO_TEST, "Via Infra " |
-| **DB: cleanup** | Deletar conversas e mensagens com instanceName de instâncias não-VIA |
-| **realtime-sync** | Filtrar por prefixo VIAINFRA/VIALOGISTIC no nome |
-| **evolution-webhook** | Remover lista hardcoded, aceitar apenas instâncias com "VIAINFRA" |
-| **evolution-instance** | Aceitar instâncias com "VIAINFRA" ou "VIALOGISTIC" |
-| **import-chats** | Mesma validação dinâmica |
-| **full-history-import** | Mesma validação dinâmica |
-| **sync-all-groups** | Mesma validação dinâmica |
-| **sync-profile-pictures** | Mesma validação dinâmica |
-| **process-message-queue** | Buscar instância por company_id da conversa |
-
-### Padrão Unificado
-
-Todas as listas hardcoded serão substituídas por uma função helper:
-
-```typescript
-function isAllowedInstance(name: string): boolean {
-  const upper = name.toUpperCase();
-  return upper.includes('VIAINFRA') || upper.includes('VIALOGISTIC');
-}
-```
-
-Isso garante que qualquer instância futura (ex: VIAINFRA2, VIALOGISTIC_TESTE) seja aceita automaticamente, e qualquer instância externa (LEGACYTATTOO, JUNIORCORRETOR, etc.) seja rejeitada em todos os pontos do sistema.
+### Files Modified
+| File | Change |
+|------|--------|
+| `supabase/functions/send-whatsapp-message/index.ts` | Add `delay: 1500` to group payload; set initial status to `pending` |
+| `supabase/functions/evolution-webhook/index.ts` | Rewrite `processMessageUpdate` to track ACK + keep LID resolution |
+| `supabase/functions/evolution-webhook-vialogistic/index.ts` | Same ACK tracking rewrite |
+| `src/components/app/chat/MessageItem.tsx` | Display granular delivery statuses |
 
