@@ -445,7 +445,8 @@ async function sendTextMessage(
       // Payload com suporte a quoted/reply
       const sendPayload: Record<string, any> = {
         number: recipientJid,
-        text: text
+        text: text,
+        delay: 1500
       };
       
       // Adicionar quoted se existir
