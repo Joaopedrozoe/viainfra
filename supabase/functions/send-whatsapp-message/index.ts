@@ -472,7 +472,8 @@ async function sendTextMessage(
           headers: { 'Content-Type': 'application/json', 'apikey': evolutionKey },
           body: JSON.stringify({
             number: recipientJid,
-            textMessage: { text: text }
+            textMessage: { text: text },
+            delay: 1500
           })
         });
         responseText = await response.text();
