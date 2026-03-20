@@ -238,6 +238,9 @@ verify_jwt = false
 [functions.advanced-group-send]
 verify_jwt = false
 
+[functions.monitoring-health]
+verify_jwt = false
+
 [functions.deep-history-sync]
 verify_jwt = false
 
