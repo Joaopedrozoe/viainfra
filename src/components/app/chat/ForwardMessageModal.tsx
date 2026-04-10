@@ -96,8 +96,11 @@ export function ForwardMessageModal({
     try {
       const attachment = message.attachment;
       const hasAttachment = !!attachment;
+      
+      // Para anexos: usar undefined ao invés de string vazia para que o edge function
+      // use a lógica de caption correta. Para texto puro: prefixar com emoji.
       const forwardContent = hasAttachment
-        ? message.content?.trim() || ''
+        ? (message.content?.trim() || undefined)
         : `↪️ Encaminhada:\n${message.content}`;
       
       const metadata: Record<string, unknown> = {

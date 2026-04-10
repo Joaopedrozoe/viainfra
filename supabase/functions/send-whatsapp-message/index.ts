@@ -448,25 +448,26 @@ async function sendTextMessage(
     
     try {
       // PASSO 1: GET group/participants - força sync dos participantes (método GET)
-      console.log('[send-whatsapp] Passo 1: GET participants');
+      console.log('[send-whatsapp] Passo 1: GET participants for group:', recipientJid);
       const participantsResp = await fetch(
         `${evolutionUrl}/group/participants/${instanceName}?groupJid=${encodeURIComponent(recipientJid)}`,
         { headers: { 'apikey': evolutionKey } }
       );
-      console.log(`[send-whatsapp] participants: ${participantsResp.status}`);
+      const participantsBody = await participantsResp.text();
+      console.log(`[send-whatsapp] participants: ${participantsResp.status}`, participantsBody.substring(0, 200));
       
-      // PASSO 2: sendPresence "composing" (formato simples, sem options)
-      console.log('[send-whatsapp] Passo 2: sendPresence composing');
-      const presenceResp = await fetch(`${evolutionUrl}/chat/sendPresence/${instanceName}`, {
+      // PASSO 2: updatePresence "composing" (endpoint correto para grupos)
+      console.log('[send-whatsapp] Passo 2: updatePresence composing');
+      const presenceResp = await fetch(`${evolutionUrl}/chat/updatePresence/${instanceName}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'apikey': evolutionKey },
         body: JSON.stringify({
           number: recipientJid,
-          presence: 'composing',
-          delay: 1200
+          presence: 'composing'
         })
       });
-      console.log(`[send-whatsapp] sendPresence: ${presenceResp.status}`);
+      const presenceBody = await presenceResp.text();
+      console.log(`[send-whatsapp] updatePresence: ${presenceResp.status}`, presenceBody);
       
       // PASSO 3: Aguardar 2 segundos para sync de sessões
       console.log('[send-whatsapp] Passo 3: Aguardando 2s');
