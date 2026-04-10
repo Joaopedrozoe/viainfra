@@ -52,14 +52,7 @@ export const useInternalChat = () => {
     try {
       const { data, error } = await supabase
         .from('internal_conversations')
-        .select(`
-          *,
-          internal_messages!inner (
-            content,
-            created_at,
-            sender_id
-          )
-        `)
+        .select('*')
         .contains('participants', [user.id])
         .eq('company_id', profile.company_id)
         .order('updated_at', { ascending: false });
