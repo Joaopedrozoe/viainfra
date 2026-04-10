@@ -113,6 +113,13 @@ export function ForwardMessageModal({
         metadata.attachment = attachment;
       }
 
+      // Validar attachment antes de enviar
+      if (hasAttachment && (!attachment.url || !attachment.type)) {
+        toast.error('Anexo inválido: URL ou tipo ausente. Não é possível encaminhar.');
+        setSendingTo(null);
+        return;
+      }
+
       const { data: insertedMessage, error: insertError } = await supabase
         .from('messages')
         .insert([{
