@@ -81,8 +81,8 @@ export const MOCK_USERS: User[] = [
   },
   {
     id: "5",
-    name: "Sandra Romano",
-    email: "sandra.romano@vialogistic.com.br", 
+    name: "Eliane Furtado",
+    email: "eliane.furtado@vialogistic.com.br",
     role: "attendant",
     isActive: true,
     createdAt: "2024-03-01T00:00:00Z",
