@@ -90,9 +90,9 @@ serve(async (req) => {
         role: 'user',
       },
       {
-        email: 'sandra.romano@vialogistic.com.br',
+        email: 'eliane.furtado@vialogistic.com.br',
         password: 'atendimento@25',
-        name: 'Sandra Romano',
+        name: 'Eliane Furtado',
         role: 'user',
       },
       {

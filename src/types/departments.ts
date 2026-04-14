@@ -51,7 +51,7 @@ export const MOCK_DEPARTMENTS: Department[] = [
     id: "rh",
     name: "RH",
     description: "Departamento de Recursos Humanos",
-    members: ["5"], // Sandra Romano
+    members: ["5"], // Eliane Furtado
     isActive: true,
     createdAt: new Date().toISOString()
   }
