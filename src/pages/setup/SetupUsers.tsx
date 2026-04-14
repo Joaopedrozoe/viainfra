@@ -57,10 +57,10 @@ export default function SetupUsers() {
       isAdmin: false,
     },
     {
-      name: 'Sandra Romano',
-      email: 'sandra.romano@vialogistic.com.br',
+      name: 'Eliane Furtado',
+      email: 'eliane.furtado@vialogistic.com.br',
       role: 'Atendente',
-      initials: 'SR',
+      initials: 'EF',
       isAdmin: false,
     },
   ];
