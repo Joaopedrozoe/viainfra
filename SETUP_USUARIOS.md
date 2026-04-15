@@ -20,7 +20,7 @@ Este processo criará:
 1. **Joicy Souza** - atendimento@viainfra.com.br
 2. **Suelem Souza** - manutencao@viainfra.com.br
 3. **Giovanna Ferreira** - gestaofinanceira@vianfra.com.br
-4. **Sandra Romano** - sandra.romano@vialogistic.com.br
+4. **Eliane Furtado** - eliane.furtado@vialogistic.com.br *(apenas VIALOGISTIC)*
 
 **Senha de todos**: `atendimento@25`
 
