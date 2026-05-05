@@ -39,20 +39,21 @@ export function ForwardMessageModal({
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [sendingTo, setSendingTo] = useState<string | null>(null);
-  const { profile } = useAuth();
+  const { profile, company } = useAuth();
 
-  // Carregar conversas
+  // Carregar conversas (filtrando pela empresa atual)
   useEffect(() => {
     if (!open) return;
 
     const loadConversations = async () => {
       setIsLoading(true);
       try {
-        const { data, error } = await supabase
+        let query = supabase
           .from('conversations')
           .select(`
             id,
             channel,
+            company_id,
             contacts (
               name,
               avatar_url
@@ -60,7 +61,13 @@ export function ForwardMessageModal({
           `)
           .eq('status', 'open')
           .order('updated_at', { ascending: false })
-          .limit(50);
+          .limit(100);
+
+        if (company?.id) {
+          query = query.eq('company_id', company.id);
+        }
+
+        const { data, error } = await query;
 
         if (error) throw error;
 
