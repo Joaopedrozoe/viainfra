@@ -135,56 +135,41 @@ const Inbox = () => {
         return;
       }
       
+      // 1. Sincronização principal - aguarda
       let totalNew = 0;
       let totalMessages = 0;
       let totalUpdated = 0;
       
-      // 1. Chamar realtime-sync para sincronização completa
       try {
-        console.log('🔄 Calling realtime-sync...');
         const { data: syncData, error: syncError } = await supabase.functions.invoke('realtime-sync');
-        
         if (syncError) {
           console.error('Realtime sync error:', syncError);
         } else if (syncData?.stats) {
           totalNew = syncData.stats.conversationsCreated || 0;
           totalMessages = syncData.stats.messagesImported || 0;
           totalUpdated = syncData.stats.conversationsUpdated || 0;
-          console.log('✅ Realtime sync complete:', syncData.stats);
         }
       } catch (err) {
         console.error('Error in realtime-sync:', err);
       }
       
-      // 2. Sincronizar fotos de perfil (contatos sem foto ou desatualizados)
-      let photosUpdated = 0;
-      try {
-        const [photoData, avatarData] = await Promise.all([
-          supabase.functions.invoke('sync-profile-pictures', { body: { forceUpdate: false } }),
-          supabase.functions.invoke('auto-sync-avatars', { body: { mode: 'missing', limit: 30 } })
-        ]);
-        
-        if (photoData.data?.updated) {
-          photosUpdated += photoData.data.updated;
-        }
-        if (avatarData.data?.summary?.updated) {
-          photosUpdated += avatarData.data.summary.updated;
-        }
-      } catch (err) {
-        console.error('Photo sync error:', err);
-      }
-      
-      // 3. Refetch para atualizar a UI
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // 2. Refetch e atualizar UI imediatamente (sem aguardar avatares/nomes)
       await refetch();
-      setRefreshKey(prev => prev + 1);
       
-      // Mostrar resultado
-      const parts = [];
+      // 3. Background: avatares + enriquecimento de nomes (não bloqueia o toast)
+      Promise.all([
+        supabase.functions.invoke('sync-profile-pictures', { body: { forceUpdate: false } }),
+        supabase.functions.invoke('auto-sync-avatars', { body: { mode: 'missing', limit: 30 } }),
+        supabase.functions.invoke('enrich-contact-names', { body: { limit: 50 } }),
+      ]).then(() => {
+        console.log('🔄 Background sync (avatars + names) completo');
+        refetch();
+      }).catch(err => console.error('Background sync error:', err));
+      
+      const parts: string[] = [];
       if (totalNew > 0) parts.push(`${totalNew} nova(s)`);
       if (totalMessages > 0) parts.push(`${totalMessages} msg`);
       if (totalUpdated > 0) parts.push(`${totalUpdated} atualizada(s)`);
-      if (photosUpdated > 0) parts.push(`${photosUpdated} foto(s)`);
       
       if (parts.length > 0) {
         toast.success(parts.join(', '));
