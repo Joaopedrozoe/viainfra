@@ -101,27 +101,29 @@ export function ForwardMessageModal({
 
     setSendingTo(targetConversation.id);
     try {
-      const attachment = message.attachment;
-      const hasAttachment = !!attachment;
-      
-      // Para anexos: usar undefined ao invés de string vazia para que o edge function
-      // use a lógica de caption correta. Para texto puro: prefixar com emoji.
+      // Resolver attachment de message.attachment OU message.metadata.attachment
+      const attachment = message.attachment || (message as any).metadata?.attachment;
+      const hasAttachment = !!(attachment && attachment.url && attachment.type);
+
+      // Para anexos: enviar APENAS o conteúdo original como caption (sem prefixo "↪️")
+      // Para texto puro: prefixar com indicador de encaminhamento
       const forwardContent = hasAttachment
         ? (message.content?.trim() || undefined)
         : `↪️ Encaminhada:\n${message.content}`;
-      
+
       const metadata: Record<string, unknown> = {
         forwarded: true,
         originalMessageId: message.id,
         originalTimestamp: message.timestamp,
       };
 
-      if (attachment) {
+      if (hasAttachment) {
         metadata.attachment = attachment;
       }
 
-      // Validar attachment antes de enviar
-      if (hasAttachment && (!attachment.url || !attachment.type)) {
+      // Validar attachment se presente
+      if (attachment && (!attachment.url || !attachment.type)) {
+        console.error('[Forward] Attachment inválido:', attachment);
         toast.error('Anexo inválido: URL ou tipo ausente. Não é possível encaminhar.');
         setSendingTo(null);
         return;
@@ -133,7 +135,7 @@ export function ForwardMessageModal({
           conversation_id: targetConversation.id,
           sender_type: 'agent',
           sender_id: profile.id,
-          content: forwardContent || '[Encaminhado]',
+          content: forwardContent || (hasAttachment ? '' : '[Encaminhado]'),
           metadata: metadata as any,
         }])
         .select()
@@ -143,41 +145,49 @@ export function ForwardMessageModal({
 
       // Se a conversa destino for WhatsApp, enviar mensagem real
       if (targetConversation.channel === 'whatsapp' && insertedMessage) {
+        const payload: Record<string, unknown> = {
+          conversation_id: targetConversation.id,
+          message_id: insertedMessage.id,
+          agent_name: profile.name || 'Atendente',
+        };
+
+        if (hasAttachment) {
+          payload.attachment = attachment;
+          // Para mídia: caption opcional (apenas se houver texto original)
+          if (message.content?.trim()) {
+            payload.message_content = message.content.trim();
+          }
+        } else {
+          payload.message_content = forwardContent;
+        }
+
         console.log('[Forward] Enviando para WhatsApp:', {
           conversationId: targetConversation.id,
-          messageId: insertedMessage.id,
+          hasAttachment,
+          attachmentType: attachment?.type,
         });
 
         const { data: sendResult, error: sendError } = await supabase.functions.invoke(
           'send-whatsapp-message',
-          {
-            body: {
-              conversation_id: targetConversation.id,
-              message_id: insertedMessage.id,
-              message_content: forwardContent || undefined,
-              attachment,
-              agent_name: profile.name || 'Atendente',
-            },
-          }
+          { body: payload }
         );
 
         if (sendError || !sendResult?.success) {
           console.error('[Forward] Erro ao enviar via WhatsApp:', sendError || sendResult?.error);
           
-          // Atualizar metadata com status de erro
           await supabase
             .from('messages')
             .update({
               metadata: {
                 ...metadata,
                 whatsappStatus: 'failed',
-                whatsappError: sendResult?.error || 'Erro desconhecido',
+                whatsappError: sendResult?.error || sendError?.message || 'Erro desconhecido',
               },
             })
             .eq('id', insertedMessage.id);
 
-          toast.warning('Mensagem encaminhada localmente. Falha no envio para WhatsApp.', {
-            description: sendResult?.queued ? 'Será reenviada automaticamente.' : undefined,
+          toast.warning('Encaminhamento parcial: falha no envio para WhatsApp.', {
+            description: sendResult?.error || 'Veja o console para detalhes.',
           });
         } else {
           console.log('[Forward] Mensagem enviada com sucesso via WhatsApp:', sendResult);
