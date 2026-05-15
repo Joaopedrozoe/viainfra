@@ -303,7 +303,7 @@ serve(async (req) => {
         "💼 Comercial": "Elisabete Silva",
         "🔧 Manutenção": "Suelem Souza",
         "💰 Financeiro": "Flávia",
-        "👥 RH": "Sandra Romano"
+        "👥 RH": "Eliane Furtado"
       };
 
       const input = userMessage?.trim();
