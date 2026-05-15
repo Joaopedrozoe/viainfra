@@ -30,7 +30,7 @@ const Inbox = () => {
   const [showChat, setShowChat] = useState(
     shouldShowChat !== undefined ? shouldShowChat : !!conversationFromUrl
   );
-  const [refreshKey, setRefreshKey] = useState(0);
+  // refreshKey removed — useConversations realtime + refetch handle updates
   const [selectedInternalChat, setSelectedInternalChat] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [activeMainTab, setActiveMainTab] = useState<"conversations" | "status">("conversations");
