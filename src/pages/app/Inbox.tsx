@@ -244,7 +244,7 @@ const Inbox = () => {
                 <ConversationList 
                   onSelectConversation={handleSelectConversation}
                   selectedId={selectedConversation}
-                  refreshTrigger={refreshKey}
+                  refreshTrigger={0}
                   onResolveConversation={handleResolveConversation}
                   onSelectInternalChat={handleSelectInternalChat}
                 />
@@ -312,7 +312,7 @@ const Inbox = () => {
                   <ConversationList 
                     onSelectConversation={handleSelectConversation}
                     selectedId={selectedConversation}
-                    refreshTrigger={refreshKey}
+                    refreshTrigger={0}
                     onResolveConversation={handleResolveConversation}
                     onSelectInternalChat={handleSelectInternalChat}
                   />
