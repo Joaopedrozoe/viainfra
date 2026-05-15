@@ -368,11 +368,13 @@ export const useConversations = () => {
     });
   }, [fetchConversations, notifyNewMessage, playNotificationSound]);
   
-  // Stable ref for realtime handler to prevent re-subscriptions
+  // Stable refs for realtime handlers to prevent re-subscriptions
   const handleNewMessageRef = useRef(handleNewMessage);
+  const fetchConversationsRef = useRef(fetchConversations);
   useEffect(() => {
     handleNewMessageRef.current = handleNewMessage;
-  }, [handleNewMessage]);
+    fetchConversationsRef.current = fetchConversations;
+  }, [handleNewMessage, fetchConversations]);
 
   // Clear new message flag - also track in readConversationsRef to persist across refetches
   const clearNewMessageFlag = useCallback((conversationId: string) => {
@@ -402,14 +404,14 @@ export const useConversations = () => {
     }, 10000);
     
     // Initial fetch
-    fetchConversations(false);
+    fetchConversationsRef.current(false);
 
     if (company?.id) {
       console.log('📡 Setting up ROBUST realtime for company:', company.id);
-      
+
       // Use a stable channel ID for better connection reuse
       const channelId = `inbox-rt-${company.id}`;
-      
+
       const realtimeChannel = supabase
         .channel(channelId, {
           config: {
@@ -428,7 +430,7 @@ export const useConversations = () => {
           },
           (payload) => {
             console.log('⚡ NEW conversation (realtime):', payload.new);
-            fetchConversations(true);
+            fetchConversationsRef.current(true);
           }
         )
         // Listen to conversation UPDATES filtered by company
@@ -443,19 +445,16 @@ export const useConversations = () => {
           (payload) => {
             const updated = payload.new as any;
             console.log('⚡ UPDATED conversation (realtime):', updated.id);
-            // Update in place AND move to top if updated_at changed significantly
             setConversations(prev => {
               const index = prev.findIndex(c => c.id === updated.id);
               if (index === -1) {
-                // Conversation not in list, fetch to add it
-                fetchConversations(true);
+                fetchConversationsRef.current(true);
                 return prev;
               }
               const existing = prev[index];
               const updatedConv = { ...existing, ...updated, status: updated.status };
               const newList = [...prev];
               newList.splice(index, 1);
-              // Move to top if updated_at is newer
               if (new Date(updated.updated_at) > new Date(existing.updated_at)) {
                 newList.unshift(updatedConv);
               } else {
@@ -466,7 +465,6 @@ export const useConversations = () => {
           }
         )
         // Listen to ALL message inserts - filter in handleNewMessage
-        // Uses stable ref to prevent re-subscriptions when handler changes
         .on(
           'postgres_changes',
           {
@@ -475,7 +473,6 @@ export const useConversations = () => {
             table: 'messages',
           },
           (payload) => {
-            console.log('⚡ NEW message (realtime):', payload.new);
             handleNewMessageRef.current(payload);
           }
         )
@@ -489,32 +486,36 @@ export const useConversations = () => {
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
             realtimeConnected = false;
             connectionConfirmed = false;
-            console.error('❌ Realtime disconnected:', status);
+            console.error('❌ Realtime disconnected:', status, '— will retry in 5s');
+            // Schedule a single reconnection attempt
+            setTimeout(() => {
+              if (mountedRef.current) {
+                console.log('🔁 Attempting realtime reconnection...');
+                realtimeChannel.subscribe();
+              }
+            }, 5000);
           }
         });
 
-      // Adaptive polling: uses subscription status instead of event timestamp
-      // This avoids false positives during low-activity periods
+      // Adaptive polling
       let pollCounter = 0;
       const pollInterval = setInterval(() => {
         if (!mountedRef.current) return;
-        
         pollCounter++;
-        
-        // Only check connection status, NOT event timestamp
-        // Low activity periods should NOT trigger fast polling
         if (!realtimeConnected) {
-          // Realtime is actually disconnected - poll every 15s
-          console.log('🔄 Fast poll (realtime disconnected)');
-          fetchConversations(true);
+          // Realtime is actually disconnected - poll every 30s
+          if (pollCounter % 2 === 0) {
+            console.log('🔄 Fast poll (realtime disconnected)');
+            fetchConversationsRef.current(true);
+          }
         } else {
-          // Realtime is connected - sync every 60s (every 4th poll)
-          if (pollCounter % 4 === 0) {
+          // Realtime is connected - sync every 120s (every 8th poll)
+          if (pollCounter % 8 === 0) {
             console.log('🔄 Routine sync poll (realtime connected)');
-            fetchConversations(true);
+            fetchConversationsRef.current(true);
           }
         }
-      }, 15000); // Base interval 15s, but only fetches every 60s when realtime is connected
+      }, 15000);
 
       return () => {
         mountedRef.current = false;
@@ -526,11 +527,11 @@ export const useConversations = () => {
         supabase.removeChannel(realtimeChannel);
       };
     }
-    
+
     return () => {
       mountedRef.current = false;
     };
-  }, [company?.id, fetchConversations, handleNewMessage]);
+  }, [company?.id]);
 
   const updateConversationStatus = async (conversationId: string, status: 'open' | 'resolved' | 'pending') => {
     try {

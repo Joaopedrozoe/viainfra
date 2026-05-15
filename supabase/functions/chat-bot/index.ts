@@ -183,6 +183,38 @@ serve(async (req) => {
       }
     }
 
+    // Verificar se atendente humano assumiu — se sim, bot não responde
+    if (chatState.conversationId) {
+      const { data: convCheck } = await supabaseClient
+        .from('conversations')
+        .select('bot_active, metadata, status')
+        .eq('id', chatState.conversationId)
+        .maybeSingle();
+
+      const agentTakeover = (convCheck?.metadata as any)?.agent_takeover === true;
+      const botDisabled = convCheck?.bot_active === false;
+
+      if (agentTakeover || botDisabled) {
+        // Salvar a mensagem do cliente e sair sem gerar resposta automática
+        if (userMessage) {
+          await supabaseClient.from('messages').insert({
+            conversation_id: chatState.conversationId,
+            sender_type: 'user',
+            content: userMessage,
+          });
+        }
+        return new Response(
+          JSON.stringify({
+            response: '',
+            options: [],
+            state: { ...chatState, mode: 'atendente', waitingForAgent: true },
+            silent: true,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
     // Salvar mensagem do usuário (com verificação de duplicata)
     if (userMessage && chatState.conversationId) {
       const { data: recentMessages } = await supabaseClient
@@ -271,7 +303,7 @@ serve(async (req) => {
         "💼 Comercial": "Elisabete Silva",
         "🔧 Manutenção": "Suelem Souza",
         "💰 Financeiro": "Flávia",
-        "👥 RH": "Sandra Romano"
+        "👥 RH": "Eliane Furtado"
       };
 
       const input = userMessage?.trim();

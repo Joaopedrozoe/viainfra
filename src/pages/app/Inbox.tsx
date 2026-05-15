@@ -30,7 +30,7 @@ const Inbox = () => {
   const [showChat, setShowChat] = useState(
     shouldShowChat !== undefined ? shouldShowChat : !!conversationFromUrl
   );
-  const [refreshKey, setRefreshKey] = useState(0);
+  // refreshKey removed — useConversations realtime + refetch handle updates
   const [selectedInternalChat, setSelectedInternalChat] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [activeMainTab, setActiveMainTab] = useState<"conversations" | "status">("conversations");
@@ -106,7 +106,6 @@ const Inbox = () => {
     try {
       await updateConversationStatus(conversationId, 'resolved');
       toast.success("Conversa encerrada com sucesso");
-      setRefreshKey(prev => prev + 1);
       await refetch();
     } catch (error) {
       console.error("Erro ao resolver conversa:", error);
@@ -245,7 +244,7 @@ const Inbox = () => {
                 <ConversationList 
                   onSelectConversation={handleSelectConversation}
                   selectedId={selectedConversation}
-                  refreshTrigger={refreshKey}
+                  refreshTrigger={0}
                   onResolveConversation={handleResolveConversation}
                   onSelectInternalChat={handleSelectInternalChat}
                 />
@@ -313,7 +312,7 @@ const Inbox = () => {
                   <ConversationList 
                     onSelectConversation={handleSelectConversation}
                     selectedId={selectedConversation}
-                    refreshTrigger={refreshKey}
+                    refreshTrigger={0}
                     onResolveConversation={handleResolveConversation}
                     onSelectInternalChat={handleSelectInternalChat}
                   />
