@@ -268,7 +268,7 @@ export class BotFlowProcessor {
         2: { nome: 'Comercial', atendente: 'Elisabete Silva' },
         3: { nome: 'Manutenção', atendente: 'Suelem Souza' },
         4: { nome: 'Financeiro', atendente: 'Flávia' },
-        5: { nome: 'RH', atendente: 'Sandra Romano' },
+        5: { nome: 'RH', atendente: 'Eliane Furtado' },
       };
 
       const escolha = parseInt(userInput);
