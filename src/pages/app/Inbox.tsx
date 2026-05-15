@@ -106,7 +106,6 @@ const Inbox = () => {
     try {
       await updateConversationStatus(conversationId, 'resolved');
       toast.success("Conversa encerrada com sucesso");
-      setRefreshKey(prev => prev + 1);
       await refetch();
     } catch (error) {
       console.error("Erro ao resolver conversa:", error);
