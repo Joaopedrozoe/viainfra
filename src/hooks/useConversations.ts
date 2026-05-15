@@ -368,11 +368,13 @@ export const useConversations = () => {
     });
   }, [fetchConversations, notifyNewMessage, playNotificationSound]);
   
-  // Stable ref for realtime handler to prevent re-subscriptions
+  // Stable refs for realtime handlers to prevent re-subscriptions
   const handleNewMessageRef = useRef(handleNewMessage);
+  const fetchConversationsRef = useRef(fetchConversations);
   useEffect(() => {
     handleNewMessageRef.current = handleNewMessage;
-  }, [handleNewMessage]);
+    fetchConversationsRef.current = fetchConversations;
+  }, [handleNewMessage, fetchConversations]);
 
   // Clear new message flag - also track in readConversationsRef to persist across refetches
   const clearNewMessageFlag = useCallback((conversationId: string) => {
