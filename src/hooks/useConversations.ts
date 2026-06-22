@@ -317,7 +317,7 @@ export const useConversations = () => {
         updated.splice(conversationIndex, 0, updatedConversation);
       }
       
-      console.log(`⚡ [${Date.now() - timestamp}ms] UI updated for message`);
+      void timestamp;
       return updated;
     });
   }, [fetchConversations, notifyNewMessage, playNotificationSound]);
