@@ -162,57 +162,39 @@ export const useConversations = () => {
         }
       }
 
-      // Build conversation list - filter out invalid JIDs
-      // DEBUG: Check raw data for web conversations
-      const rawWebConvs = (convData || []).filter(c => c.channel === 'web');
-      console.log('🔍 RAW web conversations from Supabase:', rawWebConvs.length, rawWebConvs.map(c => ({
-        id: c.id,
-        channel: c.channel,
-        contact: c.contacts,
-        metadata: c.metadata
-      })));
-
       const newConversations = (convData || [])
         .filter(conv => {
           const convRemoteJid = (conv.metadata as any)?.remoteJid;
           const contactRemoteJid = (conv.contacts as any)?.metadata?.remoteJid;
-          
-          // Skip status broadcasts
+
           if (convRemoteJid === 'status@broadcast' || contactRemoteJid === 'status@broadcast') {
             return false;
           }
-          
-          // Skip invalid JIDs (message IDs, etc.) - BUT NEVER filter web conversations
+
           if (conv.channel !== 'web' && convRemoteJid && (
             /^(cmj|wamid|BAE|msg|3EB)[a-zA-Z0-9]+$/i.test(convRemoteJid) ||
             !convRemoteJid.includes('@')
           )) {
             return false;
           }
-          
+
           return true;
         })
         .map(conv => {
           const lastMsg = lastMessages[conv.id];
           const lastRealMsg = lastRealMessages[conv.id];
-          
-          // Detectar se há mensagem não lida:
-          // - Última mensagem é do contato (user) e não é reação
-          // - E a conversa não foi marcada como lida após essa mensagem
+
           const lastRealMsgTime = lastRealMsg?.created_at || '';
-          const isLastFromContact = lastRealMsg?.sender_type === 'user' && 
+          const isLastFromContact = lastRealMsg?.sender_type === 'user' &&
                                     !isReactionMessage(lastRealMsg?.content);
-          
-          // Verificar se o usuário já leu essa conversa após a última mensagem
+
           const readTimestamp = readConversationsRef.current.get(conv.id);
-          const wasReadAfterLastMessage = readTimestamp && lastRealMsgTime && 
+          const wasReadAfterLastMessage = readTimestamp && lastRealMsgTime &&
             new Date(readTimestamp) >= new Date(lastRealMsgTime);
-          
-          // Preservar hasNewMessage existente se já estava setado
-          // MAS não marcar como nova se foi lida após a última mensagem
+
           const existingConv = conversations.find(c => c.id === conv.id);
           const shouldHaveNewMessage = isLastFromContact && !wasReadAfterLastMessage;
-          
+
           return {
             ...conv,
             status: conv.status as 'open' | 'resolved' | 'pending',
@@ -225,41 +207,25 @@ export const useConversations = () => {
               sender_type: lastMsg.sender_type as 'user' | 'agent' | 'bot',
               created_at: lastMsg.created_at
             } : undefined,
-            // Last real message for sorting (excludes reactions)
             lastRealMessage: lastRealMsg ? {
               id: lastRealMsg.id,
               content: lastRealMsg.content,
               sender_type: lastRealMsg.sender_type as 'user' | 'agent' | 'bot',
               created_at: lastRealMsg.created_at
             } : undefined,
-            // Usar o estado existente se houver, caso contrário calcular
-            // IMPORTANTE: Se já existe na lista e está como falso, manter falso
-            // Só marcar como true se for nova mensagem que não foi lida
-            hasNewMessage: existingConv 
-              ? (existingConv.hasNewMessage || false) 
+            hasNewMessage: existingConv
+              ? (existingConv.hasNewMessage || false)
               : shouldHaveNewMessage,
           };
         });
 
       // CRITICAL: Sort by last REAL message time (excludes reactions)
       newConversations.sort((a, b) => {
-        // Use lastRealMessage for sorting (ignores reactions)
         const aTime = a.lastRealMessage?.created_at || a.lastMessage?.created_at || a.updated_at || a.created_at;
         const bTime = b.lastRealMessage?.created_at || b.lastMessage?.created_at || b.updated_at || b.created_at;
-        const diff = new Date(bTime).getTime() - new Date(aTime).getTime();
-        return diff;
+        return new Date(bTime).getTime() - new Date(aTime).getTime();
       });
-      
-      // DEBUG: Check web conversations
-      const webConvs = newConversations.filter(c => c.channel === 'web');
-      console.log('🌐 Web conversations found:', webConvs.length, webConvs.map(c => ({
-        id: c.id,
-        name: c.contact?.name,
-        status: c.status,
-        hasLastMessage: !!c.lastMessage
-      })));
-      
-      console.log('📋 Total conversations:', newConversations.length);
+
 
       // Detect new conversations for notifications
       const currentIds = new Set(newConversations.map(c => c.id));
