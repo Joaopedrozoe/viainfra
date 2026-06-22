@@ -361,8 +361,6 @@ export const useConversations = () => {
     fetchConversationsRef.current(false);
 
     if (company?.id) {
-      console.log('📡 Setting up ROBUST realtime for company:', company.id);
-
       // Use a stable channel ID for better connection reuse
       const channelId = `inbox-rt-${company.id}`;
 
@@ -382,8 +380,7 @@ export const useConversations = () => {
             table: 'conversations',
             filter: `company_id=eq.${company.id}`
           },
-          (payload) => {
-            console.log('⚡ NEW conversation (realtime):', payload.new);
+          () => {
             fetchConversationsRef.current(true);
           }
         )
@@ -398,11 +395,11 @@ export const useConversations = () => {
           },
           (payload) => {
             const updated = payload.new as any;
-            console.log('⚡ UPDATED conversation (realtime):', updated.id);
             setConversations(prev => {
               const index = prev.findIndex(c => c.id === updated.id);
               if (index === -1) {
-                fetchConversationsRef.current(true);
+                // Conversa não está em cache — não dispara refetch para evitar custo;
+                // o próximo poll/realtime de mensagens trará a info se relevante.
                 return prev;
               }
               const existing = prev[index];
@@ -431,45 +428,36 @@ export const useConversations = () => {
           }
         )
         .subscribe((status) => {
-          console.log('📡 Realtime status:', status);
           clearTimeout(connectionTimeout);
           if (status === 'SUBSCRIBED') {
             realtimeConnected = true;
             connectionConfirmed = true;
-            console.log('✅ Realtime CONNECTED - instant updates enabled');
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
             realtimeConnected = false;
             connectionConfirmed = false;
-            console.error('❌ Realtime disconnected:', status, '— will retry in 5s');
-            // Schedule a single reconnection attempt
+            console.warn('Realtime disconnected:', status, '— will retry in 5s');
             setTimeout(() => {
               if (mountedRef.current) {
-                console.log('🔁 Attempting realtime reconnection...');
                 realtimeChannel.subscribe();
               }
             }, 5000);
           }
         });
 
-      // Adaptive polling
+      // Adaptive polling — só dispara fetch quando realtime está desconectado
+      // (60s entre tentativas). Quando conectado faz um sync leve a cada ~5min.
       let pollCounter = 0;
       const pollInterval = setInterval(() => {
         if (!mountedRef.current) return;
         pollCounter++;
         if (!realtimeConnected) {
-          // Realtime is actually disconnected - poll every 30s
           if (pollCounter % 2 === 0) {
-            console.log('🔄 Fast poll (realtime disconnected)');
             fetchConversationsRef.current(true);
           }
-        } else {
-          // Realtime is connected - sync every 120s (every 8th poll)
-          if (pollCounter % 8 === 0) {
-            console.log('🔄 Routine sync poll (realtime connected)');
-            fetchConversationsRef.current(true);
-          }
+        } else if (pollCounter % 10 === 0) {
+          fetchConversationsRef.current(true);
         }
-      }, 15000);
+      }, 30000);
 
       return () => {
         mountedRef.current = false;
