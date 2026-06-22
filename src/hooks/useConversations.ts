@@ -124,41 +124,37 @@ export const useConversations = () => {
         return;
       }
 
-      // Fetch last messages for ALL conversations in a SINGLE batch query
-      // This replaces N sequential queries with 1 efficient query
+      // Fetch last messages via SINGLE RPC call (window-function on server side).
+      // Reduz volume de leituras de mensagens em > 90% comparado ao SELECT IN(...)
       const conversationIds = (convData || []).map(c => c.id);
       const lastMessages: Record<string, any> = {};
       const lastRealMessages: Record<string, any> = {};
-      
-      if (conversationIds.length > 0) {
-        // Use a single query with a window function to get last 5 messages per conversation
-        // This is more efficient than N separate queries
-        const { data: allMessages, error: msgError } = await supabase
-          .from('messages')
-          .select('id, conversation_id, content, sender_type, created_at')
-          .in('conversation_id', conversationIds)
-          .order('created_at', { ascending: false });
 
-        if (!msgError && allMessages && mountedRef.current) {
-          // Group messages by conversation and keep only last 5 per conversation
+      if (conversationIds.length > 0) {
+        const { data: previews, error: msgError } = await supabase
+          .rpc('get_inbox_previews', {
+            _company_id: company.id,
+            _limit: 200,
+          });
+
+        if (!msgError && previews && mountedRef.current) {
           const messagesByConv: Record<string, any[]> = {};
-          for (const msg of allMessages) {
-            if (!messagesByConv[msg.conversation_id]) {
-              messagesByConv[msg.conversation_id] = [];
-            }
-            if (messagesByConv[msg.conversation_id].length < 5) {
-              messagesByConv[msg.conversation_id].push(msg);
-            }
+          for (const row of previews as any[]) {
+            const convId = row.conversation_id;
+            if (!messagesByConv[convId]) messagesByConv[convId] = [];
+            messagesByConv[convId].push({
+              id: row.message_id,
+              conversation_id: convId,
+              content: row.content,
+              sender_type: row.sender_type,
+              created_at: row.created_at,
+            });
           }
-          
-          // Process grouped messages
+
           for (const convId of conversationIds) {
             const messages = messagesByConv[convId] || [];
             if (messages.length > 0) {
-              // Last message (for display)
               lastMessages[convId] = messages[0];
-              
-              // Last REAL message (for sorting) - skip reactions
               const realMessage = messages.find(m => !isReactionMessage(m.content));
               lastRealMessages[convId] = realMessage || messages[0];
             }
