@@ -262,12 +262,6 @@ export const useConversations = () => {
     if (!newMsg?.conversation_id) return;
     
     const timestamp = Date.now();
-    console.log(`⚡ [${timestamp}] NEW MESSAGE RECEIVED:`, {
-      id: newMsg.id,
-      content: newMsg.content?.substring(0, 30),
-      sender: newMsg.sender_type,
-      conversation: newMsg.conversation_id
-    });
     
     const isContactMessage = newMsg.sender_type === 'user';
     const isReaction = isReactionMessage(newMsg.content);
