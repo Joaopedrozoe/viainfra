@@ -275,9 +275,7 @@ export const useConversations = () => {
       const conversationIndex = prev.findIndex(c => c.id === newMsg.conversation_id);
       
       if (conversationIndex === -1) {
-        // Message for a conversation not in our list - could be another company's data
-        // Only fetch if it's plausibly ours (don't trigger fetch for foreign messages)
-        console.log('⚡ Conversation not in current list, ignoring (likely another company)');
+        // Message for a conversation not in our list — ignore (likely another company / not loaded)
         return prev;
       }
       
