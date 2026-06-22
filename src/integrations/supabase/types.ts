@@ -927,6 +927,17 @@ export type Database = {
     }
     Functions: {
       cleanup_expired_typing_status: { Args: never; Returns: undefined }
+      get_inbox_previews: {
+        Args: { _company_id: string; _limit?: number }
+        Returns: {
+          content: string
+          conversation_id: string
+          created_at: string
+          message_id: string
+          rn: number
+          sender_type: string
+        }[]
+      }
       get_user_company_id: { Args: { _user_id: string }; Returns: string }
       get_user_company_ids: { Args: { _user_id: string }; Returns: string[] }
       get_web_conversation_messages: {

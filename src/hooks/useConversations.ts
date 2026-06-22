@@ -124,41 +124,37 @@ export const useConversations = () => {
         return;
       }
 
-      // Fetch last messages for ALL conversations in a SINGLE batch query
-      // This replaces N sequential queries with 1 efficient query
+      // Fetch last messages via SINGLE RPC call (window-function on server side).
+      // Reduz volume de leituras de mensagens em > 90% comparado ao SELECT IN(...)
       const conversationIds = (convData || []).map(c => c.id);
       const lastMessages: Record<string, any> = {};
       const lastRealMessages: Record<string, any> = {};
-      
-      if (conversationIds.length > 0) {
-        // Use a single query with a window function to get last 5 messages per conversation
-        // This is more efficient than N separate queries
-        const { data: allMessages, error: msgError } = await supabase
-          .from('messages')
-          .select('id, conversation_id, content, sender_type, created_at')
-          .in('conversation_id', conversationIds)
-          .order('created_at', { ascending: false });
 
-        if (!msgError && allMessages && mountedRef.current) {
-          // Group messages by conversation and keep only last 5 per conversation
+      if (conversationIds.length > 0) {
+        const { data: previews, error: msgError } = await supabase
+          .rpc('get_inbox_previews', {
+            _company_id: company.id,
+            _limit: 200,
+          });
+
+        if (!msgError && previews && mountedRef.current) {
           const messagesByConv: Record<string, any[]> = {};
-          for (const msg of allMessages) {
-            if (!messagesByConv[msg.conversation_id]) {
-              messagesByConv[msg.conversation_id] = [];
-            }
-            if (messagesByConv[msg.conversation_id].length < 5) {
-              messagesByConv[msg.conversation_id].push(msg);
-            }
+          for (const row of previews as any[]) {
+            const convId = row.conversation_id;
+            if (!messagesByConv[convId]) messagesByConv[convId] = [];
+            messagesByConv[convId].push({
+              id: row.message_id,
+              conversation_id: convId,
+              content: row.content,
+              sender_type: row.sender_type,
+              created_at: row.created_at,
+            });
           }
-          
-          // Process grouped messages
+
           for (const convId of conversationIds) {
             const messages = messagesByConv[convId] || [];
             if (messages.length > 0) {
-              // Last message (for display)
               lastMessages[convId] = messages[0];
-              
-              // Last REAL message (for sorting) - skip reactions
               const realMessage = messages.find(m => !isReactionMessage(m.content));
               lastRealMessages[convId] = realMessage || messages[0];
             }
@@ -166,57 +162,39 @@ export const useConversations = () => {
         }
       }
 
-      // Build conversation list - filter out invalid JIDs
-      // DEBUG: Check raw data for web conversations
-      const rawWebConvs = (convData || []).filter(c => c.channel === 'web');
-      console.log('🔍 RAW web conversations from Supabase:', rawWebConvs.length, rawWebConvs.map(c => ({
-        id: c.id,
-        channel: c.channel,
-        contact: c.contacts,
-        metadata: c.metadata
-      })));
-
       const newConversations = (convData || [])
         .filter(conv => {
           const convRemoteJid = (conv.metadata as any)?.remoteJid;
           const contactRemoteJid = (conv.contacts as any)?.metadata?.remoteJid;
-          
-          // Skip status broadcasts
+
           if (convRemoteJid === 'status@broadcast' || contactRemoteJid === 'status@broadcast') {
             return false;
           }
-          
-          // Skip invalid JIDs (message IDs, etc.) - BUT NEVER filter web conversations
+
           if (conv.channel !== 'web' && convRemoteJid && (
             /^(cmj|wamid|BAE|msg|3EB)[a-zA-Z0-9]+$/i.test(convRemoteJid) ||
             !convRemoteJid.includes('@')
           )) {
             return false;
           }
-          
+
           return true;
         })
         .map(conv => {
           const lastMsg = lastMessages[conv.id];
           const lastRealMsg = lastRealMessages[conv.id];
-          
-          // Detectar se há mensagem não lida:
-          // - Última mensagem é do contato (user) e não é reação
-          // - E a conversa não foi marcada como lida após essa mensagem
+
           const lastRealMsgTime = lastRealMsg?.created_at || '';
-          const isLastFromContact = lastRealMsg?.sender_type === 'user' && 
+          const isLastFromContact = lastRealMsg?.sender_type === 'user' &&
                                     !isReactionMessage(lastRealMsg?.content);
-          
-          // Verificar se o usuário já leu essa conversa após a última mensagem
+
           const readTimestamp = readConversationsRef.current.get(conv.id);
-          const wasReadAfterLastMessage = readTimestamp && lastRealMsgTime && 
+          const wasReadAfterLastMessage = readTimestamp && lastRealMsgTime &&
             new Date(readTimestamp) >= new Date(lastRealMsgTime);
-          
-          // Preservar hasNewMessage existente se já estava setado
-          // MAS não marcar como nova se foi lida após a última mensagem
+
           const existingConv = conversations.find(c => c.id === conv.id);
           const shouldHaveNewMessage = isLastFromContact && !wasReadAfterLastMessage;
-          
+
           return {
             ...conv,
             status: conv.status as 'open' | 'resolved' | 'pending',
@@ -229,41 +207,25 @@ export const useConversations = () => {
               sender_type: lastMsg.sender_type as 'user' | 'agent' | 'bot',
               created_at: lastMsg.created_at
             } : undefined,
-            // Last real message for sorting (excludes reactions)
             lastRealMessage: lastRealMsg ? {
               id: lastRealMsg.id,
               content: lastRealMsg.content,
               sender_type: lastRealMsg.sender_type as 'user' | 'agent' | 'bot',
               created_at: lastRealMsg.created_at
             } : undefined,
-            // Usar o estado existente se houver, caso contrário calcular
-            // IMPORTANTE: Se já existe na lista e está como falso, manter falso
-            // Só marcar como true se for nova mensagem que não foi lida
-            hasNewMessage: existingConv 
-              ? (existingConv.hasNewMessage || false) 
+            hasNewMessage: existingConv
+              ? (existingConv.hasNewMessage || false)
               : shouldHaveNewMessage,
           };
         });
 
       // CRITICAL: Sort by last REAL message time (excludes reactions)
       newConversations.sort((a, b) => {
-        // Use lastRealMessage for sorting (ignores reactions)
         const aTime = a.lastRealMessage?.created_at || a.lastMessage?.created_at || a.updated_at || a.created_at;
         const bTime = b.lastRealMessage?.created_at || b.lastMessage?.created_at || b.updated_at || b.created_at;
-        const diff = new Date(bTime).getTime() - new Date(aTime).getTime();
-        return diff;
+        return new Date(bTime).getTime() - new Date(aTime).getTime();
       });
-      
-      // DEBUG: Check web conversations
-      const webConvs = newConversations.filter(c => c.channel === 'web');
-      console.log('🌐 Web conversations found:', webConvs.length, webConvs.map(c => ({
-        id: c.id,
-        name: c.contact?.name,
-        status: c.status,
-        hasLastMessage: !!c.lastMessage
-      })));
-      
-      console.log('📋 Total conversations:', newConversations.length);
+
 
       // Detect new conversations for notifications
       const currentIds = new Set(newConversations.map(c => c.id));
@@ -300,12 +262,6 @@ export const useConversations = () => {
     if (!newMsg?.conversation_id) return;
     
     const timestamp = Date.now();
-    console.log(`⚡ [${timestamp}] NEW MESSAGE RECEIVED:`, {
-      id: newMsg.id,
-      content: newMsg.content?.substring(0, 30),
-      sender: newMsg.sender_type,
-      conversation: newMsg.conversation_id
-    });
     
     const isContactMessage = newMsg.sender_type === 'user';
     const isReaction = isReactionMessage(newMsg.content);
@@ -319,9 +275,7 @@ export const useConversations = () => {
       const conversationIndex = prev.findIndex(c => c.id === newMsg.conversation_id);
       
       if (conversationIndex === -1) {
-        // Message for a conversation not in our list - could be another company's data
-        // Only fetch if it's plausibly ours (don't trigger fetch for foreign messages)
-        console.log('⚡ Conversation not in current list, ignoring (likely another company)');
+        // Message for a conversation not in our list — ignore (likely another company / not loaded)
         return prev;
       }
       
@@ -363,7 +317,7 @@ export const useConversations = () => {
         updated.splice(conversationIndex, 0, updatedConversation);
       }
       
-      console.log(`⚡ [${Date.now() - timestamp}ms] UI updated for message`);
+      void timestamp;
       return updated;
     });
   }, [fetchConversations, notifyNewMessage, playNotificationSound]);
@@ -407,8 +361,6 @@ export const useConversations = () => {
     fetchConversationsRef.current(false);
 
     if (company?.id) {
-      console.log('📡 Setting up ROBUST realtime for company:', company.id);
-
       // Use a stable channel ID for better connection reuse
       const channelId = `inbox-rt-${company.id}`;
 
@@ -428,8 +380,7 @@ export const useConversations = () => {
             table: 'conversations',
             filter: `company_id=eq.${company.id}`
           },
-          (payload) => {
-            console.log('⚡ NEW conversation (realtime):', payload.new);
+          () => {
             fetchConversationsRef.current(true);
           }
         )
@@ -444,11 +395,11 @@ export const useConversations = () => {
           },
           (payload) => {
             const updated = payload.new as any;
-            console.log('⚡ UPDATED conversation (realtime):', updated.id);
             setConversations(prev => {
               const index = prev.findIndex(c => c.id === updated.id);
               if (index === -1) {
-                fetchConversationsRef.current(true);
+                // Conversa não está em cache — não dispara refetch para evitar custo;
+                // o próximo poll/realtime de mensagens trará a info se relevante.
                 return prev;
               }
               const existing = prev[index];
@@ -477,45 +428,36 @@ export const useConversations = () => {
           }
         )
         .subscribe((status) => {
-          console.log('📡 Realtime status:', status);
           clearTimeout(connectionTimeout);
           if (status === 'SUBSCRIBED') {
             realtimeConnected = true;
             connectionConfirmed = true;
-            console.log('✅ Realtime CONNECTED - instant updates enabled');
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
             realtimeConnected = false;
             connectionConfirmed = false;
-            console.error('❌ Realtime disconnected:', status, '— will retry in 5s');
-            // Schedule a single reconnection attempt
+            console.warn('Realtime disconnected:', status, '— will retry in 5s');
             setTimeout(() => {
               if (mountedRef.current) {
-                console.log('🔁 Attempting realtime reconnection...');
                 realtimeChannel.subscribe();
               }
             }, 5000);
           }
         });
 
-      // Adaptive polling
+      // Adaptive polling — só dispara fetch quando realtime está desconectado
+      // (60s entre tentativas). Quando conectado faz um sync leve a cada ~5min.
       let pollCounter = 0;
       const pollInterval = setInterval(() => {
         if (!mountedRef.current) return;
         pollCounter++;
         if (!realtimeConnected) {
-          // Realtime is actually disconnected - poll every 30s
           if (pollCounter % 2 === 0) {
-            console.log('🔄 Fast poll (realtime disconnected)');
             fetchConversationsRef.current(true);
           }
-        } else {
-          // Realtime is connected - sync every 120s (every 8th poll)
-          if (pollCounter % 8 === 0) {
-            console.log('🔄 Routine sync poll (realtime connected)');
-            fetchConversationsRef.current(true);
-          }
+        } else if (pollCounter % 10 === 0) {
+          fetchConversationsRef.current(true);
         }
-      }, 15000);
+      }, 30000);
 
       return () => {
         mountedRef.current = false;
