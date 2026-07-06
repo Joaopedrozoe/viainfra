@@ -64,8 +64,11 @@ export const useConversations = () => {
   const lastFetchRef = useRef<number>(0);
   const previousConversationsRef = useRef<Set<string>>(new Set());
   const { notifyNewConversation, notifyNewMessage, playNotificationSound } = useNotifications();
-  const isFetchingRef = useRef(false);
+  // Lock por empresa — evita que um fetch da empresa anterior bloqueie o da nova
+  const isFetchingRef = useRef<{ companyId: string | null; running: boolean }>({ companyId: null, running: false });
   const mountedRef = useRef(true);
+  // Guarda a empresa "ativa" para descartar respostas de fetches obsoletos
+  const activeCompanyIdRef = useRef<string | null>(null);
 
   // Core fetch function - no debounce, always fresh data
   const fetchConversations = useCallback(async (silent = false) => {
@@ -74,16 +77,19 @@ export const useConversations = () => {
       return;
     }
 
-    // Prevent concurrent fetches
-    if (isFetchingRef.current) {
+    const requestedCompanyId = company.id;
+
+    // Só bloquear se já houver fetch em andamento PARA A MESMA EMPRESA
+    if (isFetchingRef.current.running && isFetchingRef.current.companyId === requestedCompanyId) {
       return;
     }
 
     try {
-      isFetchingRef.current = true;
+      isFetchingRef.current = { companyId: requestedCompanyId, running: true };
       if (!silent && mountedRef.current) setLoading(true);
       setError(null);
       lastFetchRef.current = Date.now();
+
       
       // Fetch conversations with contacts
       const { data: convData, error: convError } = await supabase
@@ -115,12 +121,14 @@ export const useConversations = () => {
         .limit(200);
 
       if (!mountedRef.current) return;
+      // Descartar resposta se o usuário já trocou de empresa
+      if (activeCompanyIdRef.current !== requestedCompanyId) return;
 
       if (convError) {
         console.error('❌ Fetch error:', convError);
         setError(convError as Error);
         setLoading(false);
-        isFetchingRef.current = false;
+        isFetchingRef.current = { companyId: null, running: false };
         return;
       }
 
@@ -243,7 +251,7 @@ export const useConversations = () => {
       
       previousConversationsRef.current = currentIds;
 
-      if (mountedRef.current) {
+      if (mountedRef.current && activeCompanyIdRef.current === requestedCompanyId) {
         setConversations(newConversations);
         setLastSyncTime(new Date());
       }
@@ -251,8 +259,10 @@ export const useConversations = () => {
       console.warn('Error fetching conversations:', err);
       if (mountedRef.current) setError(null);
     } finally {
-      if (mountedRef.current) setLoading(false);
-      isFetchingRef.current = false;
+      if (mountedRef.current && activeCompanyIdRef.current === requestedCompanyId) {
+        setLoading(false);
+      }
+      isFetchingRef.current = { companyId: null, running: false };
     }
   }, [company?.id, notifyNewConversation]);
 
@@ -345,20 +355,29 @@ export const useConversations = () => {
   // Setup realtime subscriptions and polling
   useEffect(() => {
     mountedRef.current = true;
+    // Marcar empresa ativa e resetar cache local para evitar flash de dados
+    // da empresa anterior durante a troca de contexto.
+    activeCompanyIdRef.current = company?.id ?? null;
+    setConversations([]);
+    setLoading(true);
+    previousConversationsRef.current = new Set();
+    readConversationsRef.current = new Map();
+
     // CRÍTICO: Iniciar como TRUE e só marcar false em erro explícito
     // Isso evita polling desnecessário durante a conexão inicial
     let realtimeConnected = true;
     let connectionConfirmed = false;
-    
+
     // Timeout para detectar se a conexão realmente falhou
     const connectionTimeout = setTimeout(() => {
       if (!connectionConfirmed && mountedRef.current) {
         console.warn('⚠️ Realtime connection timeout - still waiting for SUBSCRIBED status');
       }
     }, 10000);
-    
+
     // Initial fetch
     fetchConversationsRef.current(false);
+
 
     if (company?.id) {
       // Use a stable channel ID for better connection reuse
@@ -398,17 +417,21 @@ export const useConversations = () => {
             setConversations(prev => {
               const index = prev.findIndex(c => c.id === updated.id);
               if (index === -1) {
-                // Conversa não está em cache — não dispara refetch para evitar custo;
-                // o próximo poll/realtime de mensagens trará a info se relevante.
+                // Conversa não está em cache — ignora para não pagar refetch.
                 return prev;
               }
               const existing = prev[index];
               const updatedConv = { ...existing, ...updated, status: updated.status };
-              const newList = [...prev];
+              const shouldMoveToTop =
+                new Date(updated.updated_at).getTime() > new Date(existing.updated_at).getTime();
+
+              const newList = prev.slice();
               newList.splice(index, 1);
-              if (new Date(updated.updated_at) > new Date(existing.updated_at)) {
+              if (shouldMoveToTop) {
                 newList.unshift(updatedConv);
               } else {
+                // Insere na posição original (index continua válido porque
+                // removemos o próprio item nessa mesma posição).
                 newList.splice(index, 0, updatedConv);
               }
               return newList;
