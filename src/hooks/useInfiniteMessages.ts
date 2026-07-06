@@ -244,30 +244,6 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
   };
 }
 
-// Função auxiliar para marcar mensagens como lidas (background)
-async function markMessagesAsRead(messages: any[]) {
-  const unreadMessages = messages.filter(
-    msg => msg.sender_type !== 'agent' && !msg.metadata?.read
-  );
+// Removido: markMessagesAsRead — o campo metadata.read não é consumido em
+// nenhum ponto da aplicação e gerava milhares de UPDATE messages/dia.
 
-  if (unreadMessages.length === 0) return;
-
-  console.log(`📖 [INFINITE] Marcando ${unreadMessages.length} mensagens como lidas`);
-
-  // Fazer updates em paralelo (máximo 10 por vez)
-  const batchSize = 10;
-  for (let i = 0; i < unreadMessages.length; i += batchSize) {
-    const batch = unreadMessages.slice(i, i + batchSize);
-    await Promise.all(
-      batch.map(msg => {
-        const currentMetadata = (typeof msg.metadata === 'object' && msg.metadata !== null)
-          ? msg.metadata
-          : {};
-        return supabase
-          .from('messages')
-          .update({ metadata: { ...currentMetadata, read: true } })
-          .eq('id', msg.id);
-      })
-    );
-  }
-}
