@@ -37,8 +37,8 @@ const Inbox = () => {
   const { updateConversationStatus, refetch } = useConversations();
   const { company } = useAuth();
   
-  // Ativar notificações de mensagens
-  useMessageNotifications();
+  // Notificações de novas mensagens já são disparadas dentro de useConversations,
+  // evitando subscription + query duplicadas por mensagem recebida.
   
   // REMOVED: Auto-refresh redundante - useConversations já tem realtime + polling
   // O realtime do Supabase é a fonte primária de updates agora
