@@ -417,17 +417,21 @@ export const useConversations = () => {
             setConversations(prev => {
               const index = prev.findIndex(c => c.id === updated.id);
               if (index === -1) {
-                // Conversa não está em cache — não dispara refetch para evitar custo;
-                // o próximo poll/realtime de mensagens trará a info se relevante.
+                // Conversa não está em cache — ignora para não pagar refetch.
                 return prev;
               }
               const existing = prev[index];
               const updatedConv = { ...existing, ...updated, status: updated.status };
-              const newList = [...prev];
+              const shouldMoveToTop =
+                new Date(updated.updated_at).getTime() > new Date(existing.updated_at).getTime();
+
+              const newList = prev.slice();
               newList.splice(index, 1);
-              if (new Date(updated.updated_at) > new Date(existing.updated_at)) {
+              if (shouldMoveToTop) {
                 newList.unshift(updatedConv);
               } else {
+                // Insere na posição original (index continua válido porque
+                // removemos o próprio item nessa mesma posição).
                 newList.splice(index, 0, updatedConv);
               }
               return newList;
