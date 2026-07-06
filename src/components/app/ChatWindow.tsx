@@ -158,13 +158,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             deleteMessage(removedMessage.id);
           }
         )
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            console.log('✅ ChatWindow realtime CONNECTED for conversation:', conversationId);
-          } else {
-            console.warn('⚠️ ChatWindow realtime status:', status);
-          }
-        });
+        .subscribe();
 
       return () => {
         supabase.removeChannel(channel);
