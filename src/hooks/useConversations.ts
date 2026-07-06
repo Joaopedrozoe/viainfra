@@ -121,12 +121,14 @@ export const useConversations = () => {
         .limit(200);
 
       if (!mountedRef.current) return;
+      // Descartar resposta se o usuário já trocou de empresa
+      if (activeCompanyIdRef.current !== requestedCompanyId) return;
 
       if (convError) {
         console.error('❌ Fetch error:', convError);
         setError(convError as Error);
         setLoading(false);
-        isFetchingRef.current = false;
+        isFetchingRef.current = { companyId: null, running: false };
         return;
       }
 
