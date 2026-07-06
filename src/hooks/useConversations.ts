@@ -355,20 +355,29 @@ export const useConversations = () => {
   // Setup realtime subscriptions and polling
   useEffect(() => {
     mountedRef.current = true;
+    // Marcar empresa ativa e resetar cache local para evitar flash de dados
+    // da empresa anterior durante a troca de contexto.
+    activeCompanyIdRef.current = company?.id ?? null;
+    setConversations([]);
+    setLoading(true);
+    previousConversationsRef.current = new Set();
+    readConversationsRef.current = new Map();
+
     // CRÍTICO: Iniciar como TRUE e só marcar false em erro explícito
     // Isso evita polling desnecessário durante a conexão inicial
     let realtimeConnected = true;
     let connectionConfirmed = false;
-    
+
     // Timeout para detectar se a conexão realmente falhou
     const connectionTimeout = setTimeout(() => {
       if (!connectionConfirmed && mountedRef.current) {
         console.warn('⚠️ Realtime connection timeout - still waiting for SUBSCRIBED status');
       }
     }, 10000);
-    
+
     // Initial fetch
     fetchConversationsRef.current(false);
+
 
     if (company?.id) {
       // Use a stable channel ID for better connection reuse
