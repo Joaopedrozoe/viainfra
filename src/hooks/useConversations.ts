@@ -433,14 +433,11 @@ export const useConversations = () => {
             realtimeConnected = true;
             connectionConfirmed = true;
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+            // Não reinscrever manualmente — o supabase-js já faz reconnect
+            // automaticamente com backoff. Reinscrições manuais causam
+            // tempestade de conexões e picos de custo em Realtime.
             realtimeConnected = false;
             connectionConfirmed = false;
-            console.warn('Realtime disconnected:', status, '— will retry in 5s');
-            setTimeout(() => {
-              if (mountedRef.current) {
-                realtimeChannel.subscribe();
-              }
-            }, 5000);
           }
         });
 

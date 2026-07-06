@@ -69,24 +69,14 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
     oldestTimestampRef.current = null;
 
     try {
-      console.log('📥 [INFINITE] Carregando mensagens iniciais...');
-
-      // Primeiro, pegar contagem total
-      const { count } = await supabase
-        .from('messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('conversation_id', conversationId);
-
-      setTotalCount(count || 0);
-      console.log(`📊 [INFINITE] Total de mensagens na conversa: ${count}`);
-
-      // Carregar as últimas PAGE_SIZE mensagens (mais recentes)
+      // Carregar as últimas PAGE_SIZE+1 mensagens para descobrir se há mais,
+      // sem custo de um COUNT(*) exato na tabela messages.
       const { data: recentMessages, error } = await supabase
         .from('messages')
         .select('id, content, sender_type, created_at, metadata, sender_id')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: false })
-        .limit(PAGE_SIZE);
+        .limit(PAGE_SIZE + 1);
 
       if (error) {
         console.error('❌ [INFINITE] Erro ao carregar mensagens:', error);
@@ -96,12 +86,16 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
       if (!recentMessages || recentMessages.length === 0) {
         setMessages([]);
         setHasMore(false);
+        setTotalCount(0);
         return;
       }
 
+      const hasMoreThanPage = recentMessages.length > PAGE_SIZE;
+      const pageMessages = hasMoreThanPage ? recentMessages.slice(0, PAGE_SIZE) : recentMessages;
+
       // Reverter ordem para exibição (mais antigas primeiro)
-      const orderedMessages = recentMessages.reverse();
-      
+      const orderedMessages = pageMessages.reverse();
+
       // Mapear e deduplicar
       const mappedMessages: Message[] = [];
       for (const msg of orderedMessages) {
@@ -111,19 +105,16 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
         }
       }
 
-      // Guardar timestamp mais antigo para paginação
       if (mappedMessages.length > 0) {
         oldestTimestampRef.current = mappedMessages[0].timestamp;
       }
 
-      // Verificar se há mais mensagens
-      setHasMore(recentMessages.length === PAGE_SIZE && (count || 0) > PAGE_SIZE);
+      setHasMore(hasMoreThanPage);
+      setTotalCount(mappedMessages.length + (hasMoreThanPage ? 1 : 0));
       setMessages(mappedMessages);
 
-      console.log(`✅ [INFINITE] ${mappedMessages.length} mensagens iniciais carregadas`);
-
-      // Marcar como lidas (background, não bloqueia)
-      markMessagesAsRead(orderedMessages);
+      // Removido: markMessagesAsRead. metadata.read não é utilizado em nenhum
+      // ponto do app e gerava um UPDATE por mensagem a cada abertura do chat.
 
     } catch (error) {
       console.error('💥 [INFINITE] Erro:', error);
@@ -253,30 +244,6 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
   };
 }
 
-// Função auxiliar para marcar mensagens como lidas (background)
-async function markMessagesAsRead(messages: any[]) {
-  const unreadMessages = messages.filter(
-    msg => msg.sender_type !== 'agent' && !msg.metadata?.read
-  );
+// Removido: markMessagesAsRead — o campo metadata.read não é consumido em
+// nenhum ponto da aplicação e gerava milhares de UPDATE messages/dia.
 
-  if (unreadMessages.length === 0) return;
-
-  console.log(`📖 [INFINITE] Marcando ${unreadMessages.length} mensagens como lidas`);
-
-  // Fazer updates em paralelo (máximo 10 por vez)
-  const batchSize = 10;
-  for (let i = 0; i < unreadMessages.length; i += batchSize) {
-    const batch = unreadMessages.slice(i, i + batchSize);
-    await Promise.all(
-      batch.map(msg => {
-        const currentMetadata = (typeof msg.metadata === 'object' && msg.metadata !== null)
-          ? msg.metadata
-          : {};
-        return supabase
-          .from('messages')
-          .update({ metadata: { ...currentMetadata, read: true } })
-          .eq('id', msg.id);
-      })
-    );
-  }
-}
