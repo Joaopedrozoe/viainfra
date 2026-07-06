@@ -251,7 +251,7 @@ export const useConversations = () => {
       
       previousConversationsRef.current = currentIds;
 
-      if (mountedRef.current) {
+      if (mountedRef.current && activeCompanyIdRef.current === requestedCompanyId) {
         setConversations(newConversations);
         setLastSyncTime(new Date());
       }
@@ -259,8 +259,10 @@ export const useConversations = () => {
       console.warn('Error fetching conversations:', err);
       if (mountedRef.current) setError(null);
     } finally {
-      if (mountedRef.current) setLoading(false);
-      isFetchingRef.current = false;
+      if (mountedRef.current && activeCompanyIdRef.current === requestedCompanyId) {
+        setLoading(false);
+      }
+      isFetchingRef.current = { companyId: null, running: false };
     }
   }, [company?.id, notifyNewConversation]);
 
