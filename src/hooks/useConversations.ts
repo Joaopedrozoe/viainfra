@@ -64,8 +64,11 @@ export const useConversations = () => {
   const lastFetchRef = useRef<number>(0);
   const previousConversationsRef = useRef<Set<string>>(new Set());
   const { notifyNewConversation, notifyNewMessage, playNotificationSound } = useNotifications();
-  const isFetchingRef = useRef(false);
+  // Lock por empresa — evita que um fetch da empresa anterior bloqueie o da nova
+  const isFetchingRef = useRef<{ companyId: string | null; running: boolean }>({ companyId: null, running: false });
   const mountedRef = useRef(true);
+  // Guarda a empresa "ativa" para descartar respostas de fetches obsoletos
+  const activeCompanyIdRef = useRef<string | null>(null);
 
   // Core fetch function - no debounce, always fresh data
   const fetchConversations = useCallback(async (silent = false) => {
@@ -74,16 +77,19 @@ export const useConversations = () => {
       return;
     }
 
-    // Prevent concurrent fetches
-    if (isFetchingRef.current) {
+    const requestedCompanyId = company.id;
+
+    // Só bloquear se já houver fetch em andamento PARA A MESMA EMPRESA
+    if (isFetchingRef.current.running && isFetchingRef.current.companyId === requestedCompanyId) {
       return;
     }
 
     try {
-      isFetchingRef.current = true;
+      isFetchingRef.current = { companyId: requestedCompanyId, running: true };
       if (!silent && mountedRef.current) setLoading(true);
       setError(null);
       lastFetchRef.current = Date.now();
+
       
       // Fetch conversations with contacts
       const { data: convData, error: convError } = await supabase
