@@ -98,7 +98,8 @@ Deno.serve(async (req) => {
             const r = await evo(a.path, { method: a.method, body: a.body });
             const arr = Array.isArray(r.data) ? r.data : (r.data?.chats || r.data?.data || []);
             if (discoverOnly) {
-              attemptLog.push({ labelId, path: a.path, method: a.method, status: r.status, ok: r.ok, count: Array.isArray(arr) ? arr.length : null, firstJid: Array.isArray(arr) && arr[0] ? (arr[0].remoteJid || arr[0].id) : null });
+              const withLabels = Array.isArray(arr) ? arr.filter((x: any) => Array.isArray(x?.labels) && x.labels.length > 0) : [];
+              attemptLog.push({ labelId, path: a.path, method: a.method, status: r.status, ok: r.ok, count: Array.isArray(arr) ? arr.length : null, withLabelsCount: withLabels.length, sampleWithLabels: withLabels[0], sample: Array.isArray(arr) ? arr[0] : r.data });
             }
             if (!r.ok) continue;
             if (Array.isArray(arr)) {
