@@ -76,19 +76,34 @@ Deno.serve(async (req) => {
       };
 
       for (const [labelId, label] of labelMap.entries()) {
-        const attempts = [
-          { path: `/label/findChats/${instanceName}?labelId=${encodeURIComponent(labelId)}`, method: 'GET' as const, body: undefined },
-          { path: `/label/findChats/${instanceName}`, method: 'POST' as const, body: JSON.stringify({ labelId }) },
-          { path: `/chat/findChats/${instanceName}`, method: 'POST' as const, body: JSON.stringify({ where: { labels: { has: labelId } } }) },
-        ];
+      const labelEntries = Array.from(labelMap.entries());
+      let workingAttempt: ((id: string) => { path: string; method: 'GET' | 'POST'; body?: string }) | null = null;
+      const attemptBuilders = [
+        (id: string) => ({ path: `/label/findChats/${instanceName}?labelId=${encodeURIComponent(id)}`, method: 'GET' as const }),
+        (id: string) => ({ path: `/label/findChats/${instanceName}`, method: 'POST' as const, body: JSON.stringify({ labelId: id }) }),
+        (id: string) => ({ path: `/chat/findChats/${instanceName}`, method: 'POST' as const, body: JSON.stringify({ where: { labels: { has: id } } }) }),
+      ];
+
+      for (const [labelId, label] of labelEntries) {
         let items: any[] = [];
-        for (const a of attempts) {
+        if (workingAttempt) {
+          const a = workingAttempt(labelId);
           const r = await evo(a.path, { method: a.method, body: a.body });
-          if (!r.ok) continue;
           const arr = Array.isArray(r.data) ? r.data : (r.data?.chats || r.data?.data || []);
-          if (Array.isArray(arr) && arr.length) { items = arr; break; }
+          if (Array.isArray(arr)) items = arr;
+        } else {
+          for (const build of attemptBuilders) {
+            const a = build(labelId);
+            const r = await evo(a.path, { method: a.method, body: a.body });
+            if (!r.ok) continue;
+            const arr = Array.isArray(r.data) ? r.data : (r.data?.chats || r.data?.data || []);
+            if (Array.isArray(arr)) {
+              items = arr;
+              if (arr.length) { workingAttempt = build; break; }
+            }
+          }
         }
-        if (debugSamples.length < 2 && items[0]) debugSamples.push({ labelId, sample: items[0] });
+        if (debugSamples.length < 3 && items[0]) debugSamples.push({ labelId, sample: items[0] });
         for (const it of items) {
           const jid = extractJid(it);
           if (!jid) continue;
