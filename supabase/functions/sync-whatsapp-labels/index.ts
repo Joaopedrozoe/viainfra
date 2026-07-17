@@ -54,9 +54,6 @@ Deno.serve(async (req) => {
       const instanceName = inst.instance_name;
       // 1. Fetch labels list
       const labelsRes = await evo(`/label/findLabels/${instanceName}`);
-      if (discoverOnly) {
-        return new Response(JSON.stringify({ ok: true, labelsRaw: labelsRes.data }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-      }
       const labels: any[] = Array.isArray(labelsRes.data) ? labelsRes.data : (labelsRes.data?.labels || []);
       const labelMap = new Map<string, { id: string; name: string; color: any }>();
       for (const l of labels) {
