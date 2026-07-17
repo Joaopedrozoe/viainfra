@@ -90,7 +90,8 @@ export const MobileNavigation = () => {
               <div className="text-sm font-semibold text-foreground truncate">{company?.name || 'Selecionar'}</div>
             </div>
           </div>
-          <div className="flex-shrink-0">
+          <div className="flex-shrink-0 flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 pl-2 pr-1 py-1 text-primary shadow-sm">
+            <span className="text-xs font-semibold">Alternar</span>
             <CompanySwitcher
               companies={accessibleCompanies}
               currentCompanyId={company?.id || null}
@@ -100,6 +101,7 @@ export const MobileNavigation = () => {
               collapsed={true}
             />
           </div>
+
         </div>
       )}
       <div className="mobile-nav-bar fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-t border-border flex justify-around items-center z-40 pb-safe shadow-elevated" style={{ minHeight: '3.5rem' }}>
