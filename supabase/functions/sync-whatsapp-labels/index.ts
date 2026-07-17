@@ -136,9 +136,9 @@ Deno.serve(async (req) => {
         instance: instanceName,
         company_id: inst.company_id,
         labels: labels.length,
-        chats: chats.length,
+        jidsWithLabels: jidToLabels.size,
         conversationsUpdated: updated,
-        skipped,
+        debugSamples,
       });
     }
 
