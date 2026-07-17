@@ -65,35 +65,63 @@ Deno.serve(async (req) => {
         });
       }
 
-      // 2. Fetch chats (each chat has labels array of ids)
-      let chats: any[] = [];
-      const chatsRes = await evo(`/chat/findChats/${instanceName}`, { method: 'POST', body: JSON.stringify({}) });
-      if (Array.isArray(chatsRes.data)) chats = chatsRes.data;
-      else if (Array.isArray(chatsRes.data?.chats)) chats = chatsRes.data.chats;
+      // 2. Build jid -> labels[] map by asking Evolution which chats belong to each label
+      const jidToLabels = new Map<string, Array<{ id: string; name: string; color: any }>>();
+      const debugSamples: any[] = [];
+
+      const extractJid = (item: any): string | null => {
+        if (!item) return null;
+        if (typeof item === 'string') return item.includes('@') ? item : null;
+        return item.remoteJid || item.id || item.jid || item.chatId || null;
+      };
+
+      for (const [labelId, label] of labelMap.entries()) {
+        const attempts = [
+          { path: `/label/findChats/${instanceName}?labelId=${encodeURIComponent(labelId)}`, method: 'GET' as const, body: undefined },
+          { path: `/label/findChats/${instanceName}`, method: 'POST' as const, body: JSON.stringify({ labelId }) },
+          { path: `/chat/findChats/${instanceName}`, method: 'POST' as const, body: JSON.stringify({ where: { labels: { has: labelId } } }) },
+        ];
+        let items: any[] = [];
+        for (const a of attempts) {
+          const r = await evo(a.path, { method: a.method, body: a.body });
+          if (!r.ok) continue;
+          const arr = Array.isArray(r.data) ? r.data : (r.data?.chats || r.data?.data || []);
+          if (Array.isArray(arr) && arr.length) { items = arr; break; }
+        }
+        if (debugSamples.length < 2 && items[0]) debugSamples.push({ labelId, sample: items[0] });
+        for (const it of items) {
+          const jid = extractJid(it);
+          if (!jid) continue;
+          const arr = jidToLabels.get(jid) || [];
+          if (!arr.find((l) => l.id === label.id)) arr.push(label);
+          jidToLabels.set(jid, arr);
+        }
+      }
+
+      // Fallback: also try /chat/findChats to inspect if labels come embedded
+      if (jidToLabels.size === 0) {
+        const chatsRes = await evo(`/chat/findChats/${instanceName}`, { method: 'POST', body: JSON.stringify({}) });
+        const chats = Array.isArray(chatsRes.data) ? chatsRes.data : (chatsRes.data?.chats || []);
+        for (const chat of chats) {
+          const jid = extractJid(chat);
+          const ids: string[] = (chat.labels || chat.labelIds || []).map((x: any) => String(x?.id ?? x));
+          if (!jid || !ids.length) continue;
+          const arr = ids.map((id) => labelMap.get(id)).filter(Boolean) as any[];
+          if (arr.length) jidToLabels.set(jid, arr);
+        }
+        if (debugSamples.length < 2 && chats[0]) debugSamples.push({ fallback: true, sample: chats[0] });
+      }
 
       let updated = 0;
-      let skipped = 0;
 
-      // 3. Update conversations
-      for (const chat of chats) {
-        const remoteJid: string | undefined =
-          chat.remoteJid || chat.id || chat.jid || chat.chatId;
-        if (!remoteJid) { skipped++; continue; }
-        const chatLabelIds: string[] = (chat.labels || chat.labelIds || []).map((x: any) => String(x?.id ?? x));
-        const resolved = chatLabelIds
-          .map((id) => labelMap.get(id))
-          .filter(Boolean);
-
-        if (!resolved.length && !chatLabelIds.length) continue;
-
-        // Find conversation by company + remoteJid
+      // 3. Update conversations for each jid with labels
+      for (const [jid, resolved] of jidToLabels.entries()) {
         const { data: convs } = await supabase
           .from('conversations')
           .select('id, metadata')
           .eq('company_id', inst.company_id)
-          .filter('metadata->>remoteJid', 'eq', remoteJid)
+          .filter('metadata->>remoteJid', 'eq', jid)
           .limit(5);
-
         for (const conv of convs || []) {
           const meta = { ...(conv.metadata || {}), labels: resolved };
           const { error: upErr } = await supabase
