@@ -8,6 +8,7 @@ import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/s
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileNavigation } from "@/components/app/MobileNavigation";
 
+
 export const PrivateRoute = () => {
   const { isAuthenticated, isLoading } = useAuth();
   const [hasWaited, setHasWaited] = useState(false);
