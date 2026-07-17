@@ -84,9 +84,9 @@ Deno.serve(async (req) => {
         (id: string) => ({ path: `/label/findChats/${instanceName}`, method: 'POST' as const, body: JSON.stringify({ labelId: id }) }),
         (id: string) => ({ path: `/chat/findChats/${instanceName}`, method: 'POST' as const, body: JSON.stringify({ where: { labels: { has: id } } }) }),
       ];
-
-      for (const [labelId, label] of labelEntries) {
-        let items: any[] = [];
+      const labelsToScan = discoverOnly ? labelEntries.slice(0, 3) : labelEntries;
+      const attemptLog: any[] = [];
+      for (const [labelId, label] of labelsToScan) {
         if (workingAttempt) {
           const a = workingAttempt(labelId);
           const r = await evo(a.path, { method: a.method, body: a.body });
