@@ -136,6 +136,20 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Meta/WhatsApp Cloud API webhook verification (GET hub.challenge)
+  if (req.method === 'GET') {
+    const url = new URL(req.url);
+    const mode = url.searchParams.get('hub.mode');
+    const token = url.searchParams.get('hub.verify_token');
+    const challenge = url.searchParams.get('hub.challenge');
+    const expected = Deno.env.get('META_VERIFY_TOKEN_VIALOGISTIC');
+    if (mode === 'subscribe' && token && expected && token === expected) {
+      return new Response(challenge ?? '', { status: 200, headers: { ...corsHeaders, 'Content-Type': 'text/plain' } });
+    }
+    return new Response('Forbidden', { status: 403, headers: corsHeaders });
+  }
+
+
   console.log('Evolution webhook received:', req.method, req.url);
 
   try {
