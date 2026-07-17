@@ -1078,7 +1078,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           <div ref={messagesEndRef} />
         </div>
       </div>
-      <div className="flex-shrink-0 border-t bg-background">
+      <div className="flex-shrink-0 border-t border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 shadow-elevated">
         <ChatInput 
           onSendMessage={handleSendMessage} 
           replyToMessage={replyToMessage}
