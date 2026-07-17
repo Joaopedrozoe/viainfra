@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
         return item.remoteJid || item.id || item.jid || item.chatId || null;
       };
 
-      for (const [labelId, label] of labelMap.entries()) {
+      
       const labelEntries = Array.from(labelMap.entries());
       let workingAttempt: ((id: string) => { path: string; method: 'GET' | 'POST'; body?: string }) | null = null;
       const attemptBuilders = [
