@@ -87,7 +87,8 @@ Deno.serve(async (req) => {
       const labelsToScan = discoverOnly ? labelEntries.slice(0, 3) : labelEntries;
       const attemptLog: any[] = [];
       for (const [labelId, label] of labelsToScan) {
-        if (workingAttempt) {
+        let items: any[] = [];
+        if (workingAttempt && !discoverOnly) {
           const a = workingAttempt(labelId);
           const r = await evo(a.path, { method: a.method, body: a.body });
           const arr = Array.isArray(r.data) ? r.data : (r.data?.chats || r.data?.data || []);
@@ -96,8 +97,11 @@ Deno.serve(async (req) => {
           for (const build of attemptBuilders) {
             const a = build(labelId);
             const r = await evo(a.path, { method: a.method, body: a.body });
-            if (!r.ok) continue;
             const arr = Array.isArray(r.data) ? r.data : (r.data?.chats || r.data?.data || []);
+            if (discoverOnly) {
+              attemptLog.push({ labelId, path: a.path, method: a.method, status: r.status, ok: r.ok, sample: (Array.isArray(arr) ? arr[0] : r.data) });
+            }
+            if (!r.ok) continue;
             if (Array.isArray(arr)) {
               items = arr;
               if (arr.length) { workingAttempt = build; break; }
