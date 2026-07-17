@@ -57,7 +57,7 @@ export const PrivateRoute = () => {
             </header>
           )}
           
-          <main className={`flex-1 overflow-y-auto ${isMobile ? 'pb-mobile-nav' : ''}`}>
+          <main className={`flex-1 overflow-y-auto ${isMobile ? 'pb-mobile-nav' : ''} ${isMobile && hasMultipleCompanies ? 'pt-14' : ''}`}>
             <Outlet />
           </main>
         </SidebarInset>
