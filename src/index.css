@@ -203,6 +203,51 @@
   .pb-safe {
     padding-bottom: env(safe-area-inset-bottom, 16px);
   }
+
+  /* Luxury shadows used across inbox */
+  .shadow-elevated {
+    box-shadow:
+      0 1px 2px hsl(0 0% 0% / 0.04),
+      0 4px 12px -2px hsl(0 0% 0% / 0.08),
+      0 12px 32px -8px hsl(0 0% 0% / 0.10);
+  }
+  .shadow-soft-inset {
+    box-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.6), inset 0 -1px 0 hsl(0 0% 0% / 0.04);
+  }
+  .text-shadow-sm {
+    text-shadow: 0 1px 2px hsl(0 0% 0% / 0.06);
+  }
+
+  /* Ensure body content clears fixed mobile bottom nav */
+  .pb-mobile-nav {
+    padding-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+  }
+  @media (min-width: 768px) {
+    .pb-mobile-nav { padding-bottom: 0; }
+  }
+}
+
+/* WhatsApp-style chat background using uploaded doodle pattern */
+.chat-bg {
+  background-color: #efeae2;
+  background-image:
+    linear-gradient(180deg, rgba(239, 234, 226, 0.55), rgba(239, 234, 226, 0.85)),
+    url("/__l5e/assets-v1/e88c3ad7-55b4-4fc9-8d74-b2b3cad215f1/whatsapp-doodle-bg.png");
+  background-repeat: no-repeat, repeat;
+  background-size: cover, 420px auto;
+  background-attachment: local, local;
+}
+.dark .chat-bg {
+  background-color: #0b141a;
+  background-image:
+    linear-gradient(180deg, rgba(11, 20, 26, 0.78), rgba(11, 20, 26, 0.92)),
+    url("/__l5e/assets-v1/e88c3ad7-55b4-4fc9-8d74-b2b3cad215f1/whatsapp-doodle-bg.png");
+  background-blend-mode: normal, luminosity;
+}
+
+/* Hide fixed bottom mobile nav when a chat is open (WhatsApp-like) */
+body[data-hide-mobile-nav="true"] .mobile-nav-bar {
+  display: none !important;
 }
 
 /* Custom styles */
@@ -221,30 +266,10 @@
 }
 
 /* React Flow Minimap Custom Colors */
-.react-flow__minimap .react-flow__minimap-node {
-  fill: #e2e8f0;
-}
-
-.react-flow__minimap .react-flow__minimap-node[data-testid="rf__minimap-node-start"] {
-  fill: #22c55e !important; /* Verde para start */
-}
-
-.react-flow__minimap .react-flow__minimap-node[data-testid="rf__minimap-node-message"] {
-  fill: #3b82f6 !important; /* Azul para message */
-}
-
-.react-flow__minimap .react-flow__minimap-node[data-testid="rf__minimap-node-question"] {
-  fill: #8b5cf6 !important; /* Roxo para question */
-}
-
-.react-flow__minimap .react-flow__minimap-node[data-testid="rf__minimap-node-condition"] {
-  fill: #eab308 !important; /* Amarelo para condition */
-}
-
-.react-flow__minimap .react-flow__minimap-node[data-testid="rf__minimap-node-action"] {
-  fill: #f97316 !important; /* Laranja para action */
-}
-
-.react-flow__minimap .react-flow__minimap-node[data-testid="rf__minimap-node-end"] {
-  fill: #ef4444 !important; /* Vermelho para end */
-}
+.react-flow__minimap .react-flow__minimap-node { fill: #e2e8f0; }
+.react-flow__minimap .react-flow__minimap-node[data-testid="rf__minimap-node-start"] { fill: #22c55e !important; }
+.react-flow__minimap .react-flow__minimap-node[data-testid="rf__minimap-node-message"] { fill: #3b82f6 !important; }
+.react-flow__minimap .react-flow__minimap-node[data-testid="rf__minimap-node-question"] { fill: #8b5cf6 !important; }
+.react-flow__minimap .react-flow__minimap-node[data-testid="rf__minimap-node-condition"] { fill: #eab308 !important; }
+.react-flow__minimap .react-flow__minimap-node[data-testid="rf__minimap-node-action"] { fill: #f97316 !important; }
+.react-flow__minimap .react-flow__minimap-node[data-testid="rf__minimap-node-end"] { fill: #ef4444 !important; }
