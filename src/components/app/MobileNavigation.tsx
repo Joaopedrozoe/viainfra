@@ -74,9 +74,35 @@ const moreNavItems = [
 export const MobileNavigation = () => {
   const location = useLocation();
   const [isMoreOpen, setIsMoreOpen] = useState(false);
-  
+  const { accessibleCompanies, company, switchCompany, switchCompanyWithProfile, userProfiles } = useAuth();
+  const hasMultipleCompanies = (accessibleCompanies?.length || 0) > 1;
+
   return (
-    <div className="mobile-nav-bar fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-t border-border flex justify-around items-center z-40 pb-safe shadow-elevated" style={{ minHeight: '3.5rem' }}>
+    <>
+      {hasMultipleCompanies && (
+        <div className="mobile-company-bar fixed top-0 left-0 right-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b border-border shadow-elevated px-3 py-2 flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
+              <Building2 size={16} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Empresa ativa</div>
+              <div className="text-sm font-semibold text-foreground truncate">{company?.name || 'Selecionar'}</div>
+            </div>
+          </div>
+          <div className="flex-shrink-0">
+            <CompanySwitcher
+              companies={accessibleCompanies}
+              currentCompanyId={company?.id || null}
+              onCompanyChange={switchCompany}
+              onCompanyChangeWithProfile={switchCompanyWithProfile}
+              userProfiles={userProfiles}
+              collapsed={true}
+            />
+          </div>
+        </div>
+      )}
+      <div className="mobile-nav-bar fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-t border-border flex justify-around items-center z-40 pb-safe shadow-elevated" style={{ minHeight: '3.5rem' }}>
       {mainNavItems.map((item) => {
         const isActive = location.pathname.startsWith(item.path);
         return (
