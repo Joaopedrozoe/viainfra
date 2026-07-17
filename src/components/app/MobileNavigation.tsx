@@ -97,14 +97,14 @@ export const MobileNavigation = () => {
         <SheetTrigger asChild>
           <button
             className={cn(
-              "flex flex-col items-center justify-center py-1 px-3",
-              isMoreOpen ? "text-viainfra-primary" : "text-[#888888]"
+              "flex flex-col items-center justify-center py-1.5 px-3 transition-colors",
+              isMoreOpen ? "text-primary" : "text-muted-foreground hover:text-foreground"
             )}
           >
             <div className="flex items-center justify-center">
               <MoreHorizontal size={24} />
             </div>
-            <span className="text-xs mt-0.5">Mais</span>
+            <span className="text-[11px] mt-0.5 font-medium">Mais</span>
           </button>
         </SheetTrigger>
         <SheetContent side="bottom" className="h-[50vh] px-4 pb-20 focus:outline-none z-50">
