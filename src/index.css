@@ -58,17 +58,18 @@
 
   /* ViaLogistic Theme Override */
   body[data-theme="vialogistic"] {
-    --primary: 45 100% 42%;                /* Amarelo escurecido para melhor legibilidade */
-    --primary-foreground: 0 0% 100%;       /* Branco para texto no amarelo */
+    --primary: 42 96% 38%;                 /* Dourado profundo para melhor contraste */
+    --primary-foreground: 45 100% 97%;     /* Off-white para texto sobre dourado */
     
-    --sidebar-primary: 45 100% 42%;
-    --sidebar-ring: 45 100% 42%;
+    --sidebar-primary: 42 96% 38%;
+    --sidebar-ring: 42 96% 38%;
     
-    --ring: 45 100% 42%;
+    --ring: 42 96% 38%;
     
     --accent: 45 100% 95%;                 /* Amarelo muito claro para backgrounds */
-    --accent-foreground: 45 96% 25%;       /* Amarelo muito escuro para texto */
+    --accent-foreground: 42 96% 22%;       /* Dourado bem escuro para texto */
   }
+
 
   .dark {
     --background: 222.2 84% 4.9%;
