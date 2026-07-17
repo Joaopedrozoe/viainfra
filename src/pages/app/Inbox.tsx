@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/auth";
 import { StatusTab, StatusIcon } from "@/components/app/status";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 
 const Inbox = () => {
   const location = useLocation();
@@ -188,10 +189,19 @@ const Inbox = () => {
 
   const selectedInternalConversation = internalConversations.find(c => c.id === selectedInternalChat);
 
+  // Ocultar barra inferior fixa quando estiver dentro de um chat no mobile (WhatsApp-like)
+  useEffect(() => {
+    if (!isMobile) return;
+    const hide = showChat && activeMainTab === "conversations";
+    document.body.dataset.hideMobileNav = hide ? "true" : "false";
+    return () => { document.body.dataset.hideMobileNav = "false"; };
+  }, [isMobile, showChat, activeMainTab]);
+
   // Mobile Layout
   if (isMobile) {
     return (
-      <div className="h-full w-full overflow-hidden">
+      <div className={cn("h-full w-full overflow-hidden", !(showChat && activeMainTab === "conversations") && "pb-mobile-nav")}>
+
         {showChat && activeMainTab === "conversations" ? (
           <ChatWindow 
             conversationId={selectedConversation || ""} 

@@ -1026,7 +1026,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       <div 
         ref={messagesContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto bg-muted/30 p-4"
+        className="flex-1 overflow-y-auto chat-bg p-4"
       >
         <div className="space-y-3">
           {/* Indicador de carregamento de mensagens antigas */}
@@ -1078,7 +1078,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           <div ref={messagesEndRef} />
         </div>
       </div>
-      <div className="flex-shrink-0 border-t bg-background">
+      <div className="flex-shrink-0 border-t border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 shadow-elevated">
         <ChatInput 
           onSendMessage={handleSendMessage} 
           replyToMessage={replyToMessage}

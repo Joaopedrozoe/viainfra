@@ -73,7 +73,7 @@ export const MobileNavigation = () => {
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   
   return (
-    <div className="fixed bottom-0 left-0 right-0 h-14 bg-white border-t border-gray-200 flex justify-around items-center z-40 pb-safe">
+    <div className="mobile-nav-bar fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-t border-border flex justify-around items-center z-40 pb-safe shadow-elevated" style={{ minHeight: '3.5rem' }}>
       {mainNavItems.map((item) => {
         const isActive = location.pathname.startsWith(item.path);
         return (
@@ -81,14 +81,14 @@ export const MobileNavigation = () => {
             key={item.path}
             to={item.path}
             className={cn(
-              "flex flex-col items-center justify-center py-1 px-3",
-              isActive ? "text-viainfra-primary" : "text-[#888888]"
+              "flex flex-col items-center justify-center py-1.5 px-3 transition-colors",
+              isActive ? "text-primary" : "text-muted-foreground hover:text-foreground"
             )}
           >
             <div className="flex items-center justify-center">
               {item.icon}
             </div>
-            <span className="text-xs mt-0.5">{item.title}</span>
+            <span className="text-[11px] mt-0.5 font-medium">{item.title}</span>
           </Link>
         );
       })}
@@ -97,14 +97,14 @@ export const MobileNavigation = () => {
         <SheetTrigger asChild>
           <button
             className={cn(
-              "flex flex-col items-center justify-center py-1 px-3",
-              isMoreOpen ? "text-viainfra-primary" : "text-[#888888]"
+              "flex flex-col items-center justify-center py-1.5 px-3 transition-colors",
+              isMoreOpen ? "text-primary" : "text-muted-foreground hover:text-foreground"
             )}
           >
             <div className="flex items-center justify-center">
               <MoreHorizontal size={24} />
             </div>
-            <span className="text-xs mt-0.5">Mais</span>
+            <span className="text-[11px] mt-0.5 font-medium">Mais</span>
           </button>
         </SheetTrigger>
         <SheetContent side="bottom" className="h-[50vh] px-4 pb-20 focus:outline-none z-50">
