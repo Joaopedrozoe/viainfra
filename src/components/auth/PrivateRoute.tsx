@@ -10,9 +10,11 @@ import { MobileNavigation } from "@/components/app/MobileNavigation";
 
 
 export const PrivateRoute = () => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, accessibleCompanies } = useAuth();
   const [hasWaited, setHasWaited] = useState(false);
   const isMobile = useIsMobile();
+  const hasMultipleCompanies = (accessibleCompanies?.length || 0) > 1;
+
   
   // Add a small delay to ensure auth state is properly loaded
   useEffect(() => {
