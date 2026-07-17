@@ -35,6 +35,7 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const companyId: string | undefined = body.companyId;
+    const discoverOnly: boolean = !!body.discover;
 
     // Resolver instância
     const { data: instances, error: instErr } = await supabase
