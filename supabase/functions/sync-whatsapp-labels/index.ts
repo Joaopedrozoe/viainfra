@@ -119,7 +119,7 @@ Deno.serve(async (req) => {
       }
 
       // Fallback: also try /chat/findChats to inspect if labels come embedded
-      if (jidToLabels.size === 0) {
+      if (jidToLabels.size === 0 && !discoverOnly) {
         const chatsRes = await evo(`/chat/findChats/${instanceName}`, { method: 'POST', body: JSON.stringify({}) });
         const chats = Array.isArray(chatsRes.data) ? chatsRes.data : (chatsRes.data?.chats || []);
         for (const chat of chats) {
@@ -134,21 +134,23 @@ Deno.serve(async (req) => {
 
       let updated = 0;
 
-      // 3. Update conversations for each jid with labels
-      for (const [jid, resolved] of jidToLabels.entries()) {
-        const { data: convs } = await supabase
-          .from('conversations')
-          .select('id, metadata')
-          .eq('company_id', inst.company_id)
-          .filter('metadata->>remoteJid', 'eq', jid)
-          .limit(5);
-        for (const conv of convs || []) {
-          const meta = { ...(conv.metadata || {}), labels: resolved };
-          const { error: upErr } = await supabase
+      if (!discoverOnly) {
+        // 3. Update conversations for each jid with labels
+        for (const [jid, resolved] of jidToLabels.entries()) {
+          const { data: convs } = await supabase
             .from('conversations')
-            .update({ metadata: meta })
-            .eq('id', conv.id);
-          if (!upErr) updated++;
+            .select('id, metadata')
+            .eq('company_id', inst.company_id)
+            .filter('metadata->>remoteJid', 'eq', jid)
+            .limit(5);
+          for (const conv of convs || []) {
+            const meta = { ...(conv.metadata || {}), labels: resolved };
+            const { error: upErr } = await supabase
+              .from('conversations')
+              .update({ metadata: meta })
+              .eq('id', conv.id);
+            if (!upErr) updated++;
+          }
         }
       }
 
@@ -159,6 +161,7 @@ Deno.serve(async (req) => {
         jidsWithLabels: jidToLabels.size,
         conversationsUpdated: updated,
         debugSamples,
+        attemptLog: discoverOnly ? attemptLog : undefined,
       });
     }
 
