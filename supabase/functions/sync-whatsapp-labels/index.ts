@@ -81,8 +81,11 @@ Deno.serve(async (req) => {
       let workingAttempt: ((id: string) => { path: string; method: 'GET' | 'POST'; body?: string }) | null = null;
       const attemptBuilders = [
         (id: string) => ({ path: `/label/findChats/${instanceName}?labelId=${encodeURIComponent(id)}`, method: 'GET' as const }),
-        (id: string) => ({ path: `/label/findChats/${instanceName}`, method: 'POST' as const, body: JSON.stringify({ labelId: id }) }),
-        (id: string) => ({ path: `/chat/findChats/${instanceName}`, method: 'POST' as const, body: JSON.stringify({ where: { labels: { has: id } } }) }),
+        (id: string) => ({ path: `/label/getChatsByLabel/${instanceName}/${encodeURIComponent(id)}`, method: 'GET' as const }),
+        (id: string) => ({ path: `/label/findChats/${instanceName}/${encodeURIComponent(id)}`, method: 'GET' as const }),
+        (id: string) => ({ path: `/chat/findChats/${instanceName}`, method: 'POST' as const, body: JSON.stringify({ where: { labels: { some: { labelId: id } } } }) }),
+        (id: string) => ({ path: `/chat/findChats/${instanceName}`, method: 'POST' as const, body: JSON.stringify({ where: { labels: { some: { id } } } }) }),
+        (id: string) => ({ path: `/chat/findChats/${instanceName}`, method: 'POST' as const, body: JSON.stringify({ where: { labels: { hasSome: [id] } } }) }),
       ];
       const labelsToScan = discoverOnly ? labelEntries.slice(0, 3) : labelEntries;
       const attemptLog: any[] = [];
