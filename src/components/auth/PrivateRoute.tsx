@@ -8,10 +8,13 @@ import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/s
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileNavigation } from "@/components/app/MobileNavigation";
 
+
 export const PrivateRoute = () => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, accessibleCompanies } = useAuth();
   const [hasWaited, setHasWaited] = useState(false);
   const isMobile = useIsMobile();
+  const hasMultipleCompanies = (accessibleCompanies?.length || 0) > 1;
+
   
   // Add a small delay to ensure auth state is properly loaded
   useEffect(() => {
@@ -54,7 +57,7 @@ export const PrivateRoute = () => {
             </header>
           )}
           
-          <main className={`flex-1 overflow-y-auto ${isMobile ? 'pb-mobile-nav' : ''}`}>
+          <main className={`flex-1 overflow-y-auto ${isMobile ? 'pb-mobile-nav' : ''} ${isMobile && hasMultipleCompanies ? 'pt-14' : ''}`}>
             <Outlet />
           </main>
         </SidebarInset>
