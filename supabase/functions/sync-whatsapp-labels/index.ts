@@ -80,9 +80,8 @@ Deno.serve(async (req) => {
       const labelEntries = Array.from(labelMap.entries());
       let workingAttempt: ((id: string) => { path: string; method: 'GET' | 'POST'; body?: string }) | null = null;
       const attemptBuilders = [
-        (id: string) => ({ path: `/chat/findChats/${instanceName}`, method: 'POST' as const, body: JSON.stringify({ where: { labels: { hasSome: [id] } } }) }),
-        (id: string) => ({ path: `/chat/findChats/${instanceName}`, method: 'POST' as const, body: JSON.stringify({ where: { labels: { has: id } } }) }),
-        (id: string) => ({ path: `/chat/findChats/${instanceName}`, method: 'POST' as const, body: JSON.stringify({ where: { labels: { array_contains: [id] } } }) }),
+        (id: string) => ({ path: `/chat/findChats/${instanceName}`, method: 'POST' as const, body: JSON.stringify({ select: { remoteJid: true, labels: true } }) }),
+        (id: string) => ({ path: `/chat/findChats/${instanceName}`, method: 'POST' as const, body: JSON.stringify({}) }),
       ];
       const labelsToScan = discoverOnly ? labelEntries.slice(0, 3) : labelEntries;
       const attemptLog: any[] = [];
