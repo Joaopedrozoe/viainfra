@@ -1,7 +1,7 @@
 
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { MessageSquare, MoreHorizontal, Users, Calendar, Settings, ExternalLink, Layers, BarChart3, Plug, HelpCircle, Radio, Phone } from "lucide-react";
+import { MessageSquare, MoreHorizontal, Users, Calendar, Settings, ExternalLink, Layers, BarChart3, Plug, HelpCircle, Radio, Phone, Building2, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Sheet,
@@ -9,6 +9,9 @@ import {
   SheetContent,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { useAuth } from "@/contexts/auth";
+import { CompanySwitcher } from "@/components/app/CompanySwitcher";
+
 
 // Navigation items for the bottom bar
 const mainNavItems = [
