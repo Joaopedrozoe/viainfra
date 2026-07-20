@@ -63,17 +63,22 @@ export function useCalls() {
 }
 
 export async function initiateCall(params: { phone: string; contactId?: string; conversationId?: string; callType?: "voice" | "video" }) {
-  const { data, error } = await supabase.functions.invoke("initiate-whatsapp-call", { body: params });
-  const payload = (data as any) || {};
-  if (payload?.error) throw new Error(payload.error);
-  if (error) {
-    // Try to extract underlying edge error body
-    const ctx: any = (error as any).context;
-    try {
-      const body = ctx?.body ? await new Response(ctx.body).json() : null;
-      if (body?.error) throw new Error(body.error);
-    } catch (_) { /* ignore */ }
-    throw error;
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) throw new Error("Sessão expirada. Faça login novamente.");
+  const url = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/initiate-whatsapp-call`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    },
+    body: JSON.stringify(params),
+  });
+  const body = await resp.json().catch(() => ({}));
+  if (!resp.ok || body?.error) {
+    throw new Error(body?.error || `HTTP ${resp.status}`);
   }
-  return data;
+  return body;
 }

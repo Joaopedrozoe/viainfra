@@ -12,7 +12,9 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
+    console.log("📞 initiate-whatsapp-call invoked");
     const authHeader = req.headers.get("Authorization");
+    console.log("Auth header present:", !!authHeader);
     if (!authHeader) return json({ error: "Missing auth" }, 401);
 
     const supabase = createClient(
@@ -20,8 +22,9 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_ANON_KEY")!,
       { global: { headers: { Authorization: authHeader } } },
     );
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return json({ error: "Unauthorized" }, 401);
+    const { data: { user }, error: userErr } = await supabase.auth.getUser();
+    console.log("User:", user?.id, "err:", userErr?.message);
+    if (!user) return json({ error: "Unauthorized: sessão inválida" }, 401);
 
     const body = await req.json().catch(() => ({}));
     const rawPhone: string = (body.phone || "").toString().replace(/\D/g, "");
@@ -53,6 +56,7 @@ serve(async (req) => {
       to: phone,
       action: "connect",
     };
+    console.log("Calling Meta:", url, "to:", phone);
     const resp = await fetch(url, {
       method: "POST",
       headers: {
@@ -62,6 +66,7 @@ serve(async (req) => {
       body: JSON.stringify(payload),
     });
     const respData = await resp.json().catch(() => ({}));
+    console.log("Meta response:", resp.status, JSON.stringify(respData));
     if (!resp.ok) {
       const errMsg = respData?.error?.message || `HTTP ${resp.status}`;
       // Persist a failed record for visibility
