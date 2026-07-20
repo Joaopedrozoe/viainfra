@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing } from "lucide-react";
 import { DialPad } from "@/components/app/calls/DialPad";
 import { CallHistory } from "@/components/app/calls/CallHistory";
+import { CallSettings } from "@/components/app/calls/CallSettings";
 import { useCalls } from "@/hooks/useCalls";
 
 const WhatsAppCalls = () => {
@@ -58,6 +59,7 @@ const WhatsAppCalls = () => {
               <TabsList>
                 <TabsTrigger value="dialpad">Discador</TabsTrigger>
                 <TabsTrigger value="history">Histórico</TabsTrigger>
+                <TabsTrigger value="settings">Configurações</TabsTrigger>
               </TabsList>
               <TabsContent value="dialpad" className="mt-4">
                 <Card>
@@ -72,6 +74,9 @@ const WhatsAppCalls = () => {
                     <CallHistory />
                   </CardContent>
                 </Card>
+              </TabsContent>
+              <TabsContent value="settings" className="mt-4">
+                <CallSettings />
               </TabsContent>
             </Tabs>
           </div>
