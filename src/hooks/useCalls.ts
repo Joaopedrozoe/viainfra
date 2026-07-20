@@ -64,7 +64,16 @@ export function useCalls() {
 
 export async function initiateCall(params: { phone: string; contactId?: string; conversationId?: string; callType?: "voice" | "video" }) {
   const { data, error } = await supabase.functions.invoke("initiate-whatsapp-call", { body: params });
-  if (error) throw error;
-  if ((data as any)?.error) throw new Error((data as any).error);
+  const payload = (data as any) || {};
+  if (payload?.error) throw new Error(payload.error);
+  if (error) {
+    // Try to extract underlying edge error body
+    const ctx: any = (error as any).context;
+    try {
+      const body = ctx?.body ? await new Response(ctx.body).json() : null;
+      if (body?.error) throw new Error(body.error);
+    } catch (_) { /* ignore */ }
+    throw error;
+  }
   return data;
 }
