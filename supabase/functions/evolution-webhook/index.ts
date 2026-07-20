@@ -443,6 +443,11 @@ async function processStatusBroadcast(supabase: any, webhook: EvolutionWebhook) 
 
 function parseWebhookPayload(payload: any): EvolutionWebhook | null {
   try {
+    // Meta Cloud API (WhatsApp Business Platform) — mesmo endpoint, formato diferente
+    if (payload?.object === 'whatsapp_business_account' && Array.isArray(payload?.entry)) {
+      return convertMetaPayloadToEvolution(payload);
+    }
+
     if (!payload.event || !payload.instance) {
       return null;
     }
@@ -454,6 +459,81 @@ function parseWebhookPayload(payload: any): EvolutionWebhook | null {
     };
   } catch (error) {
     console.error('Failed to parse webhook payload:', error);
+    return null;
+  }
+}
+
+// Meta Cloud API → Evolution-like format (para reaproveitar processNewMessage)
+function convertMetaPayloadToEvolution(payload: any): EvolutionWebhook | null {
+  try {
+    const value = payload.entry?.[0]?.changes?.[0]?.value;
+    if (!value) return null;
+
+    const instance = 'VIAINFRA';
+    const messages = Array.isArray(value.messages) ? value.messages : [];
+
+    if (messages.length === 0) {
+      console.log('📨 [Meta] Payload sem messages (status/delivery). Ignorando.');
+      return { event: 'IGNORED', instance, data: null };
+    }
+
+    const contactMap = new Map<string, string>();
+    for (const c of (value.contacts || [])) {
+      if (c?.wa_id) contactMap.set(c.wa_id, c?.profile?.name || '');
+    }
+
+    const converted = messages.map((m: any) => {
+      const waId: string = m.from;
+      const remoteJid = `${waId}@s.whatsapp.net`;
+      const evoMessage: any = {};
+
+      switch (m.type) {
+        case 'text':
+          evoMessage.conversation = m.text?.body ?? '';
+          break;
+        case 'image':
+          evoMessage.imageMessage = { caption: m.image?.caption ?? '', mimetype: m.image?.mime_type, _metaMediaId: m.image?.id };
+          break;
+        case 'video':
+          evoMessage.videoMessage = { caption: m.video?.caption ?? '', mimetype: m.video?.mime_type, _metaMediaId: m.video?.id };
+          break;
+        case 'audio':
+          evoMessage.audioMessage = { mimetype: m.audio?.mime_type, ptt: !!m.audio?.voice, _metaMediaId: m.audio?.id };
+          break;
+        case 'document':
+          evoMessage.documentMessage = { fileName: m.document?.filename || 'documento', title: m.document?.caption, mimetype: m.document?.mime_type, _metaMediaId: m.document?.id };
+          break;
+        case 'sticker':
+          evoMessage.stickerMessage = { mimetype: m.sticker?.mime_type, _metaMediaId: m.sticker?.id };
+          break;
+        case 'location':
+          evoMessage.locationMessage = { degreesLatitude: m.location?.latitude, degreesLongitude: m.location?.longitude, name: m.location?.name, address: m.location?.address };
+          break;
+        case 'button':
+          evoMessage.conversation = m.button?.text || m.button?.payload || '';
+          break;
+        case 'interactive':
+          evoMessage.conversation = m.interactive?.button_reply?.title || m.interactive?.list_reply?.title || '';
+          break;
+        default:
+          evoMessage.conversation = `[${m.type || 'mensagem'} não suportada]`;
+      }
+
+      return {
+        key: { id: m.id, remoteJid, fromMe: false },
+        message: evoMessage,
+        messageTimestamp: Number(m.timestamp) || Math.floor(Date.now() / 1000),
+        pushName: contactMap.get(waId) || '',
+      };
+    });
+
+    return {
+      event: 'MESSAGES_UPSERT',
+      instance,
+      data: converted.length === 1 ? converted[0] : converted,
+    };
+  } catch (e) {
+    console.error('❌ [Meta] Falha ao converter payload:', e);
     return null;
   }
 }
