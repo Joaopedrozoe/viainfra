@@ -29,6 +29,8 @@ interface ChatHeaderProps {
   className?: string;
   conversationId?: string;
   conversationStatus?: string;
+  contactPhone?: string | null;
+  contactId?: string | null;
   onViewContactDetails?: () => void;
   onBackToList?: () => void;
   onEndConversation?: () => void;
@@ -43,6 +45,8 @@ export const ChatHeader = memo(({
   className, 
   conversationId,
   conversationStatus,
+  contactPhone,
+  contactId,
   onViewContactDetails,
   onBackToList,
   onEndConversation,
@@ -50,12 +54,33 @@ export const ChatHeader = memo(({
   onForceLoadHistory
 }: ChatHeaderProps) => {
   const isMobile = useIsMobile();
+  const { company } = useAuth();
   const { departments, getDepartmentByUser } = useDepartments();
   const [showTransferDialog, setShowTransferDialog] = useState(false);
   const [selectedDepartment, setSelectedDepartment] = useState<string>("");
   const [imageError, setImageError] = useState(false);
   const [botActive, setBotActive] = useState<boolean>(true);
   const [botLoading, setBotLoading] = useState(false);
+  const [callingLoading, setCallingLoading] = useState(false);
+  const canCall = channel === "whatsapp" && !!contactPhone && /viainfra/i.test(company?.name || "");
+
+  const handleCall = async () => {
+    if (!contactPhone) return;
+    setCallingLoading(true);
+    try {
+      await initiateCall({
+        phone: contactPhone,
+        contactId: contactId ?? undefined,
+        conversationId,
+        callType: "voice",
+      });
+      toast.success("Ligação iniciada. Aguardando atendimento.");
+    } catch (e: any) {
+      toast.error(e?.message || "Falha ao iniciar ligação");
+    } finally {
+      setCallingLoading(false);
+    }
+  };
   
   // Carregar estado do bot e subscription para atualizações em tempo real
   useEffect(() => {
