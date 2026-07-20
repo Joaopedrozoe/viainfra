@@ -250,13 +250,12 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     } else if (activeTab === "resolved") {
       result = result.filter((conversation) => (conversation as any).status === 'resolved' && !(conversation as any).archived);
     } else if (activeTab === "all") {
-      // Show every non-resolved, non-archived conversation returned by the fetch.
-      // Não filtrar por hasMessages: conversas reais podem perder o preview
-      // temporariamente durante rajadas de update e não devem sumir da lista.
+      // Filter out resolved, archived AND empty conversations without messages
       result = result.filter((conversation) => {
         const isResolved = (conversation as any).status === 'resolved';
         const isArchived = (conversation as any).archived;
-        return !isResolved && !isArchived;
+        const hasMessages = (conversation as any).hasMessages !== false; // Default true for backward compat
+        return !isResolved && !isArchived && hasMessages;
       });
     }
 
