@@ -56,6 +56,7 @@ serve(async (req) => {
       to: phone,
       action: "connect",
     };
+    console.log("Calling Meta:", url, "to:", phone);
     const resp = await fetch(url, {
       method: "POST",
       headers: {
@@ -65,6 +66,7 @@ serve(async (req) => {
       body: JSON.stringify(payload),
     });
     const respData = await resp.json().catch(() => ({}));
+    console.log("Meta response:", resp.status, JSON.stringify(respData));
     if (!resp.ok) {
       const errMsg = respData?.error?.message || `HTTP ${resp.status}`;
       // Persist a failed record for visibility
