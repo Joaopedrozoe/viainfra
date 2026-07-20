@@ -995,12 +995,15 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         channel={conversationChannel} 
         conversationId={conversationId}
         conversationStatus={conversationStatus}
+        contactPhone={contactPhone}
+        contactId={contactId}
         onViewContactDetails={handleViewContactDetails}
         onBackToList={handleBackToList}
         onEndConversation={onEndConversation ? () => onEndConversation(conversationId) : undefined}
         onReopenConversation={handleReopenConversation}
         onForceLoadHistory={handleForceLoadHistory}
       />
+      
       
       {/* Seção de mensagens fixadas */}
       {messages.some(m => m.isPinned) && (
