@@ -1,6 +1,8 @@
 
 import { memo, useState, useEffect } from "react";
-import { ArrowLeft, MoreVertical, User, X, ArrowRightLeft, Bot, BotOff, RotateCcw, History } from "lucide-react";
+import { ArrowLeft, MoreVertical, User, X, ArrowRightLeft, Bot, BotOff, RotateCcw, History, Phone } from "lucide-react";
+import { initiateCall } from "@/hooks/useCalls";
+import { useAuth } from "@/contexts/auth";
 import { cn } from "@/lib/utils";
 import { ChannelIcon } from "../conversation/ChannelIcon";
 import { Channel } from "@/types/conversation";
