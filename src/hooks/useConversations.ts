@@ -118,7 +118,7 @@ export const useConversations = () => {
         // Filter out status broadcasts but allow web conversations (which don't have remoteJid)
         .or('metadata->>remoteJid.is.null,metadata->>remoteJid.neq.status@broadcast')
         .order('updated_at', { ascending: false })
-        .limit(200);
+        .limit(500);
 
       if (!mountedRef.current) return;
       // Descartar resposta se o usuário já trocou de empresa
@@ -142,7 +142,7 @@ export const useConversations = () => {
         const { data: previews, error: msgError } = await supabase
           .rpc('get_inbox_previews', {
             _company_id: company.id,
-            _limit: 200,
+            _limit: 500,
           });
 
         if (!msgError && previews && mountedRef.current) {
@@ -421,7 +421,18 @@ export const useConversations = () => {
                 return prev;
               }
               const existing = prev[index];
-              const updatedConv = { ...existing, ...updated, status: updated.status };
+              // Preservar campos derivados locais (lastMessage, contact, hasNewMessage)
+              // e não deixar um payload parcial sobrescrever metadata/contatos válidos.
+              const updatedConv = {
+                ...existing,
+                status: updated.status ?? existing.status,
+                assigned_to: updated.assigned_to ?? existing.assigned_to,
+                archived: updated.archived ?? (existing as any).archived,
+                updated_at: updated.updated_at ?? existing.updated_at,
+                metadata: updated.metadata && Object.keys(updated.metadata).length > 0
+                  ? updated.metadata
+                  : existing.metadata,
+              };
               const shouldMoveToTop =
                 new Date(updated.updated_at).getTime() > new Date(existing.updated_at).getTime();
 
