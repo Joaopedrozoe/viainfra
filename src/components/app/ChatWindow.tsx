@@ -526,9 +526,10 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
                 whatsappMessageId: response?.messageId
               });
               
-              // Atualizar status para sent localmente
+              // API confirmou o messageId → marcar como enviado (✓)
+              // Updates posteriores (delivered/read) chegam via webhook e sobem o status
               updateMessage(data.id, { 
-                deliveryStatus: 'pending', 
+                deliveryStatus: response?.messageId ? 'sent' : 'sending', 
                 whatsappMessageId: response?.messageId 
               });
               
