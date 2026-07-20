@@ -27,10 +27,16 @@ serve(async (req) => {
       });
     }
 
-    const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/evolution-webhook`;
-    
+    const supabaseBaseUrl = Deno.env.get('SUPABASE_URL');
+    const defaultWebhookUrl = `${supabaseBaseUrl}/functions/v1/evolution-webhook`;
+    const vialogisticWebhookUrl = `${supabaseBaseUrl}/functions/v1/evolution-webhook-vialogistic`;
+
+    const resolveWebhookUrl = (instanceName: string) =>
+      instanceName?.toUpperCase().includes('VIALOGISTIC')
+        ? vialogisticWebhookUrl
+        : defaultWebhookUrl;
+
     console.log('Starting webhook configuration for all instances');
-    console.log('Webhook URL:', webhookUrl);
 
     // Get all instances from database
     const { data: instances, error: dbError } = await supabase
