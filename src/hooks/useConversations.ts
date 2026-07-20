@@ -146,13 +146,31 @@ export const useConversations = () => {
       const lastRealMessages: Record<string, any> = {};
 
       if (conversationIds.length > 0) {
-        const { data: previews, error: msgError } = await supabase
-          .rpc('get_inbox_previews', {
-            _company_id: company.id,
-            _limit: INBOX_CONVERSATION_LIMIT,
-          });
+        // A RPC pode retornar até 5 previews por conversa. Buscar em páginas
+        // impede o limite de 1.000 linhas do PostgREST de truncar previews e,
+        // consequentemente, esconder conversas que de fato têm mensagens.
+        const previews: any[] = [];
+        let msgError: any = null;
+        const previewPageSize = 1000;
 
-        if (!msgError && previews && mountedRef.current) {
+        for (let from = 0; from < conversationIds.length * 5; from += previewPageSize) {
+          const { data: page, error: pageError } = await supabase
+            .rpc('get_inbox_previews', {
+              _company_id: company.id,
+              _limit: INBOX_CONVERSATION_LIMIT,
+            })
+            .range(from, from + previewPageSize - 1);
+
+          if (pageError) {
+            msgError = pageError;
+            break;
+          }
+
+          previews.push(...(page || []));
+          if (!page || page.length < previewPageSize) break;
+        }
+
+        if (!msgError && mountedRef.current) {
           const messagesByConv: Record<string, any[]> = {};
           for (const row of previews as any[]) {
             const convId = row.conversation_id;
