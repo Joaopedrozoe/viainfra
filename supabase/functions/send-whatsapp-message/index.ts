@@ -189,21 +189,27 @@ serve(async (req) => {
       recipientJid = remoteJid;
       console.log(`[send-whatsapp] Sending to BROADCAST: ${recipientJid}`);
     }
-    // PRIORIDADE 3: Se tem telefone válido no contato
-    else if (contactPhone && isValidPhone(contactPhone)) {
-      recipientJid = `${contactPhone}@s.whatsapp.net`;
-      console.log(`[send-whatsapp] Using contact phone: ${contactPhone}`);
-    } 
+    // PRIORIDADE 3: Se remoteJid já é um JID s.whatsapp.net válido, usar diretamente
+    // (evita problemas com contactPhone salvo sem código do país)
+    else if (remoteJid && remoteJid.includes('@s.whatsapp.net')) {
+      recipientJid = remoteJid;
+      console.log(`[send-whatsapp] Using remoteJid: ${recipientJid}`);
+    }
     // PRIORIDADE 4: Se tem telefone resolvido no metadata
     else if (resolvedPhone && isValidPhone(resolvedPhone)) {
       recipientJid = `${resolvedPhone}@s.whatsapp.net`;
       console.log(`[send-whatsapp] Using resolved phone: ${resolvedPhone}`);
     }
-    // PRIORIDADE 5: Se remoteJid é formato s.whatsapp.net
-    else if (remoteJid && remoteJid.includes('@s.whatsapp.net')) {
-      recipientJid = remoteJid;
-      console.log(`[send-whatsapp] Using remoteJid: ${recipientJid}`);
-    } 
+    // PRIORIDADE 5: Se tem telefone válido no contato (normalizar código país BR)
+    else if (contactPhone && isValidPhone(contactPhone)) {
+      let normalized = String(contactPhone).replace(/\D/g, '');
+      // Se não começa com 55 e tem 10-11 dígitos, prepend 55 (Brasil)
+      if (!normalized.startsWith('55') && normalized.length >= 10 && normalized.length <= 11) {
+        normalized = `55${normalized}`;
+      }
+      recipientJid = `${normalized}@s.whatsapp.net`;
+      console.log(`[send-whatsapp] Using contact phone (normalized): ${normalized}`);
+    }
     // PRIORIDADE 6: Se é LID, buscar no lid_phone_mapping
     else if (isLid) {
       const lidId = extractPhoneFromJid(remoteJid);
