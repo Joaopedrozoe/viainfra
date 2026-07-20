@@ -49,6 +49,11 @@ export interface Conversation {
   hasNewMessage?: boolean;
 }
 
+// Supabase limita respostas a 1.000 linhas por padrão. Usar o mesmo limite
+// para conversas e previews evita que atualizações em massa de updated_at
+// (ex.: reconexão da instância) removam conversas válidas do inbox.
+const INBOX_CONVERSATION_LIMIT = 1000;
+
 export const useConversations = () => {
   const { company } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -69,6 +74,8 @@ export const useConversations = () => {
   const mountedRef = useRef(true);
   // Guarda a empresa "ativa" para descartar respostas de fetches obsoletos
   const activeCompanyIdRef = useRef<string | null>(null);
+  // Evita limpar uma lista válida quando o efeito remonta para a mesma empresa.
+  const loadedCompanyIdRef = useRef<string | null>(null);
 
   // Core fetch function - no debounce, always fresh data
   const fetchConversations = useCallback(async (silent = false) => {
@@ -118,7 +125,7 @@ export const useConversations = () => {
         // Filter out status broadcasts but allow web conversations (which don't have remoteJid)
         .or('metadata->>remoteJid.is.null,metadata->>remoteJid.neq.status@broadcast')
         .order('updated_at', { ascending: false })
-        .limit(200);
+        .limit(INBOX_CONVERSATION_LIMIT);
 
       if (!mountedRef.current) return;
       // Descartar resposta se o usuário já trocou de empresa
@@ -142,7 +149,7 @@ export const useConversations = () => {
         const { data: previews, error: msgError } = await supabase
           .rpc('get_inbox_previews', {
             _company_id: company.id,
-            _limit: 200,
+            _limit: INBOX_CONVERSATION_LIMIT,
           });
 
         if (!msgError && previews && mountedRef.current) {
@@ -355,13 +362,20 @@ export const useConversations = () => {
   // Setup realtime subscriptions and polling
   useEffect(() => {
     mountedRef.current = true;
-    // Marcar empresa ativa e resetar cache local para evitar flash de dados
-    // da empresa anterior durante a troca de contexto.
-    activeCompanyIdRef.current = company?.id ?? null;
-    setConversations([]);
-    setLoading(true);
-    previousConversationsRef.current = new Set();
-    readConversationsRef.current = new Map();
+    const nextCompanyId = company?.id ?? null;
+    const companyChanged = loadedCompanyIdRef.current !== nextCompanyId;
+    activeCompanyIdRef.current = nextCompanyId;
+
+    // Limpar somente em uma troca real de empresa. Remontagens do efeito para
+    // a mesma empresa preservam a lista atual até o fetch silenciosamente
+    // confirmar os dados, eliminando o flash de conversas desaparecendo.
+    if (companyChanged) {
+      loadedCompanyIdRef.current = nextCompanyId;
+      setConversations([]);
+      setLoading(true);
+      previousConversationsRef.current = new Set();
+      readConversationsRef.current = new Map();
+    }
 
     // CRÍTICO: Iniciar como TRUE e só marcar false em erro explícito
     // Isso evita polling desnecessário durante a conexão inicial
