@@ -1,6 +1,8 @@
 
 import { memo, useState, useEffect } from "react";
-import { ArrowLeft, MoreVertical, User, X, ArrowRightLeft, Bot, BotOff, RotateCcw, History } from "lucide-react";
+import { ArrowLeft, MoreVertical, User, X, ArrowRightLeft, Bot, BotOff, RotateCcw, History, Phone } from "lucide-react";
+import { initiateCall } from "@/hooks/useCalls";
+import { useAuth } from "@/contexts/auth";
 import { cn } from "@/lib/utils";
 import { ChannelIcon } from "../conversation/ChannelIcon";
 import { Channel } from "@/types/conversation";
@@ -27,6 +29,8 @@ interface ChatHeaderProps {
   className?: string;
   conversationId?: string;
   conversationStatus?: string;
+  contactPhone?: string | null;
+  contactId?: string | null;
   onViewContactDetails?: () => void;
   onBackToList?: () => void;
   onEndConversation?: () => void;
@@ -41,6 +45,8 @@ export const ChatHeader = memo(({
   className, 
   conversationId,
   conversationStatus,
+  contactPhone,
+  contactId,
   onViewContactDetails,
   onBackToList,
   onEndConversation,
@@ -48,12 +54,33 @@ export const ChatHeader = memo(({
   onForceLoadHistory
 }: ChatHeaderProps) => {
   const isMobile = useIsMobile();
+  const { company } = useAuth();
   const { departments, getDepartmentByUser } = useDepartments();
   const [showTransferDialog, setShowTransferDialog] = useState(false);
   const [selectedDepartment, setSelectedDepartment] = useState<string>("");
   const [imageError, setImageError] = useState(false);
   const [botActive, setBotActive] = useState<boolean>(true);
   const [botLoading, setBotLoading] = useState(false);
+  const [callingLoading, setCallingLoading] = useState(false);
+  const canCall = channel === "whatsapp" && !!contactPhone && /viainfra/i.test(company?.name || "");
+
+  const handleCall = async () => {
+    if (!contactPhone) return;
+    setCallingLoading(true);
+    try {
+      await initiateCall({
+        phone: contactPhone,
+        contactId: contactId ?? undefined,
+        conversationId,
+        callType: "voice",
+      });
+      toast.success("Ligação iniciada. Aguardando atendimento.");
+    } catch (e: any) {
+      toast.error(e?.message || "Falha ao iniciar ligação");
+    } finally {
+      setCallingLoading(false);
+    }
+  };
   
   // Carregar estado do bot e subscription para atualizações em tempo real
   useEffect(() => {
@@ -197,6 +224,19 @@ export const ChatHeader = memo(({
         <p className="text-sm text-muted-foreground">Ver detalhes do contato</p>
       </div>
       
+      {canCall && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleCall}
+          disabled={callingLoading}
+          title="Ligar via WhatsApp"
+          className="text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950/30"
+        >
+          <Phone className="h-5 w-5" />
+        </Button>
+      )}
+
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="icon">

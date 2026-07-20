@@ -65,6 +65,8 @@ const scrollPositionsCache = new Map<string, number>();
 export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: ChatWindowProps) => {
   const [contactName, setContactName] = useState<string>("");
   const [contactAvatar, setContactAvatar] = useState<string | null>(null);
+  const [contactPhone, setContactPhone] = useState<string | null>(null);
+  const [contactId, setContactId] = useState<string | null>(null);
   const [conversationChannel, setConversationChannel] = useState<Channel>("web");
   const [conversationStatus, setConversationStatus] = useState<string>("open");
   const [isLoadingConversation, setIsLoadingConversation] = useState(true);
@@ -196,6 +198,11 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       if (conversation?.contacts) {
         setContactName(conversation.contacts.name || 'Cliente Web');
         setContactAvatar(conversation.contacts.avatar_url || null);
+        setContactPhone(conversation.contacts.phone || null);
+        setContactId(conversation.contacts.id || null);
+      } else {
+        setContactPhone(null);
+        setContactId(null);
       }
       setConversationChannel(conversation?.channel as Channel || 'web');
       setConversationStatus(conversation?.status || 'open');
@@ -988,12 +995,15 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         channel={conversationChannel} 
         conversationId={conversationId}
         conversationStatus={conversationStatus}
+        contactPhone={contactPhone}
+        contactId={contactId}
         onViewContactDetails={handleViewContactDetails}
         onBackToList={handleBackToList}
         onEndConversation={onEndConversation ? () => onEndConversation(conversationId) : undefined}
         onReopenConversation={handleReopenConversation}
         onForceLoadHistory={handleForceLoadHistory}
       />
+      
       
       {/* Seção de mensagens fixadas */}
       {messages.some(m => m.isPinned) && (
