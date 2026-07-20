@@ -60,6 +60,9 @@ serve(async (req) => {
       console.log(`\n=== Configuring webhook for ${instance.instance_name} ===`);
       
       try {
+        const webhookUrl = resolveWebhookUrl(instance.instance_name);
+        console.log(`Webhook URL for ${instance.instance_name}: ${webhookUrl}`);
+
         // Formato correto para Evolution API v2
         const webhookPayload = {
           webhook: {
