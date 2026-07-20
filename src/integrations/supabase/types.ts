@@ -99,6 +99,94 @@ export type Database = {
           },
         ]
       }
+      calls: {
+        Row: {
+          agent_id: string | null
+          call_type: string
+          company_id: string
+          connected_at: string | null
+          contact_id: string | null
+          contact_name: string | null
+          conversation_id: string | null
+          created_at: string
+          direction: string
+          duration: number
+          ended_at: string | null
+          error: string | null
+          id: string
+          metadata: Json | null
+          phone: string
+          started_at: string
+          status: string
+          updated_at: string
+          wa_call_id: string | null
+        }
+        Insert: {
+          agent_id?: string | null
+          call_type?: string
+          company_id: string
+          connected_at?: string | null
+          contact_id?: string | null
+          contact_name?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          direction: string
+          duration?: number
+          ended_at?: string | null
+          error?: string | null
+          id?: string
+          metadata?: Json | null
+          phone: string
+          started_at?: string
+          status?: string
+          updated_at?: string
+          wa_call_id?: string | null
+        }
+        Update: {
+          agent_id?: string | null
+          call_type?: string
+          company_id?: string
+          connected_at?: string | null
+          contact_id?: string | null
+          contact_name?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          direction?: string
+          duration?: number
+          ended_at?: string | null
+          error?: string | null
+          id?: string
+          metadata?: Json | null
+          phone?: string
+          started_at?: string
+          status?: string
+          updated_at?: string
+          wa_call_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calls_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calls_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calls_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chamados: {
         Row: {
           agendamento: string | null
