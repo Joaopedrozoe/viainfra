@@ -513,9 +513,10 @@ export const MessageItem = memo(({
   const isEdited = !!message.editedAt;
   
   // Determinar status efetivo
+  // Se persistida (não temp) e sem status explícito mas com whatsappMessageId → considerar enviada
   const effectiveStatus: MessageDeliveryStatus | undefined = isTempMessage 
     ? 'sending' 
-    : deliveryStatus;
+    : (deliveryStatus ?? (message.whatsappMessageId ? 'sent' : undefined));
 
   // Se não houver handlers, renderizar sem ContextMenu
   const hasActions = onCopy || onEdit || onPin || onFavorite || onForward || onDelete || onReply;
