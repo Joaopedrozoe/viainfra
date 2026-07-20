@@ -441,10 +441,103 @@ async function processStatusBroadcast(supabase: any, webhook: EvolutionWebhook) 
   }
 }
 
+async function processMetaCallEvent(payload: any): Promise<boolean> {
+  try {
+    const value = payload.entry?.[0]?.changes?.[0]?.value;
+    const calls = Array.isArray(value?.calls) ? value.calls : [];
+    if (calls.length === 0) return false;
+
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // VIAINFRA company
+    const { data: company } = await supabase.from('companies').select('id').ilike('name', '%viainfra%').maybeSingle();
+    if (!company) { console.warn('[Meta calls] Empresa VIAINFRA não encontrada'); return true; }
+
+    for (const c of calls) {
+      const waCallId = c.id;
+      const event = c.event; // 'connect' | 'terminate' | 'permission_update'
+      const from = c.from as string | undefined;
+      const direction = c.direction === 'business_initiated' ? 'outgoing' : 'incoming';
+      const ts = c.timestamp ? new Date(Number(c.timestamp) * 1000).toISOString() : new Date().toISOString();
+
+      if (!waCallId) continue;
+
+      const { data: existing } = await supabase.from('calls').select('id, started_at, status').eq('wa_call_id', waCallId).maybeSingle();
+
+      // Try to link contact/conversation by phone
+      let contactId: string | null = null;
+      let conversationId: string | null = null;
+      let contactName: string | null = null;
+      if (from) {
+        const phoneVar = from.replace(/^55/, '');
+        const { data: contact } = await supabase.from('contacts').select('id, name').eq('company_id', company.id)
+          .or(`phone.eq.${from},phone.eq.${phoneVar}`).maybeSingle();
+        if (contact) { contactId = contact.id; contactName = contact.name; }
+        const { data: conv } = await supabase.from('conversations').select('id').eq('company_id', company.id)
+          .contains('metadata', { remoteJid: `${from}@s.whatsapp.net` }).maybeSingle();
+        if (conv) conversationId = conv.id;
+      }
+
+      if (event === 'connect' || (!existing && event !== 'terminate')) {
+        if (existing) {
+          await supabase.from('calls').update({ status: 'connected', connected_at: ts }).eq('id', existing.id);
+        } else {
+          await supabase.from('calls').insert({
+            company_id: company.id,
+            contact_id: contactId,
+            conversation_id: conversationId,
+            wa_call_id: waCallId,
+            phone: from || 'unknown',
+            contact_name: contactName,
+            direction,
+            status: event === 'connect' ? 'connected' : 'ringing',
+            call_type: 'voice',
+            started_at: ts,
+            connected_at: event === 'connect' ? ts : null,
+            metadata: c,
+          });
+        }
+      } else if (event === 'terminate') {
+        const endedAt = ts;
+        const startedAt = existing?.started_at || ts;
+        const duration = Math.max(0, Math.floor((new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000));
+        const finalStatus = existing?.status === 'connected' ? 'completed' : (direction === 'incoming' ? 'missed' : 'no_answer');
+        if (existing) {
+          await supabase.from('calls').update({ status: finalStatus, ended_at: endedAt, duration }).eq('id', existing.id);
+        } else {
+          await supabase.from('calls').insert({
+            company_id: company.id, contact_id: contactId, conversation_id: conversationId,
+            wa_call_id: waCallId, phone: from || 'unknown', contact_name: contactName,
+            direction, status: finalStatus, call_type: 'voice',
+            started_at: startedAt, ended_at: endedAt, duration, metadata: c,
+          });
+        }
+      } else if (event === 'permission_update') {
+        if (existing) {
+          await supabase.from('calls').update({ status: 'permission_pending', metadata: c }).eq('id', existing.id);
+        }
+      }
+      console.log(`📞 [Meta calls] ${event} ${waCallId} (${direction}) processado`);
+    }
+    return true;
+  } catch (e) {
+    console.error('[Meta calls] Erro:', e);
+    return true;
+  }
+}
+
 function parseWebhookPayload(payload: any): EvolutionWebhook | null {
   try {
     // Meta Cloud API (WhatsApp Business Platform) — mesmo endpoint, formato diferente
     if (payload?.object === 'whatsapp_business_account' && Array.isArray(payload?.entry)) {
+      const value = payload.entry?.[0]?.changes?.[0]?.value;
+      if (Array.isArray(value?.calls) && value.calls.length > 0) {
+        // fire-and-forget; caller resolves 200 imediatamente
+        processMetaCallEvent(payload).catch(err => console.error('call processing failed', err));
+        return { event: 'IGNORED', instance: 'VIAINFRA', data: null };
+      }
       return convertMetaPayloadToEvolution(payload);
     }
 
@@ -462,6 +555,7 @@ function parseWebhookPayload(payload: any): EvolutionWebhook | null {
     return null;
   }
 }
+
 
 // Meta Cloud API → Evolution-like format (para reaproveitar processNewMessage)
 function convertMetaPayloadToEvolution(payload: any): EvolutionWebhook | null {

@@ -1,9 +1,9 @@
-
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Phone, Delete, Video, AlertCircle } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Phone, Delete, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { initiateCall } from "@/hooks/useCalls";
+import { useAuth } from "@/contexts/auth";
 
 const keys = [
   ["1", "2", "3"],
@@ -13,27 +13,39 @@ const keys = [
 ];
 
 export const DialPad = () => {
+  const { company } = useAuth();
   const [number, setNumber] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const isViainfra = /viainfra/i.test(company?.name || "");
 
   const handleKey = (key: string) => setNumber(prev => prev + key);
   const handleDelete = () => setNumber(prev => prev.slice(0, -1));
-  const handleCall = (type: 'voice' | 'video') => {
+
+  const handleCall = async () => {
     if (!number.trim()) return;
-    toast.info("Funcionalidade de chamadas em desenvolvimento. Aguarde atualização da API.");
+    if (!isViainfra) {
+      toast.error("Ligações estão disponíveis apenas para a VIAINFRA (WhatsApp Cloud API).");
+      return;
+    }
+    setLoading(true);
+    try {
+      await initiateCall({ phone: number, callType: "voice" });
+      toast.success("Ligação iniciada. Aguardando o destinatário atender.");
+      setNumber("");
+    } catch (e: any) {
+      toast.error(e?.message || "Falha ao iniciar ligação");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="flex flex-col items-center gap-4 p-4">
-      <Alert className="border-amber-300 bg-amber-50 text-amber-800">
-        <AlertCircle className="h-4 w-4 text-amber-600" />
-        <AlertDescription className="text-xs">
-          A WhatsApp Cloud API ainda não suporta iniciar chamadas programaticamente.
-          O discador está preparado para quando a funcionalidade for disponibilizada.
-        </AlertDescription>
-      </Alert>
-
       <div className="w-full max-w-xs bg-muted rounded-lg p-4 text-center min-h-[3rem] flex items-center justify-center">
-        <span className="text-2xl font-mono tracking-widest">{number || <span className="text-muted-foreground text-lg">Digite o número</span>}</span>
+        <span className="text-2xl font-mono tracking-widest">
+          {number || <span className="text-muted-foreground text-lg">Digite o número</span>}
+        </span>
       </div>
 
       <div className="grid grid-cols-3 gap-3 w-full max-w-xs">
@@ -43,6 +55,7 @@ export const DialPad = () => {
             variant="outline"
             className="h-14 text-xl font-semibold rounded-full"
             onClick={() => handleKey(key)}
+            disabled={loading}
           >
             {key}
           </Button>
@@ -52,26 +65,26 @@ export const DialPad = () => {
       <div className="flex gap-3 w-full max-w-xs">
         <Button
           className="flex-1 h-14 rounded-full bg-green-600 hover:bg-green-700 text-white"
-          onClick={() => handleCall('voice')}
-          disabled={!number.trim()}
+          onClick={handleCall}
+          disabled={!number.trim() || loading}
         >
-          <Phone className="h-6 w-6" />
+          {loading ? <Loader2 className="h-6 w-6 animate-spin" /> : <Phone className="h-6 w-6" />}
         </Button>
         <Button
           variant="outline"
           className="h-14 w-14 rounded-full"
           onClick={handleDelete}
+          disabled={loading}
         >
           <Delete className="h-5 w-5" />
         </Button>
-        <Button
-          className="flex-1 h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white"
-          onClick={() => handleCall('video')}
-          disabled={!number.trim()}
-        >
-          <Video className="h-6 w-6" />
-        </Button>
       </div>
+
+      {!isViainfra && (
+        <p className="text-xs text-muted-foreground text-center max-w-xs">
+          Este recurso usa a WhatsApp Business Calling API (Meta Cloud) e está ativo apenas para VIAINFRA.
+        </p>
+      )}
     </div>
   );
 };
