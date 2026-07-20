@@ -65,6 +65,8 @@ const scrollPositionsCache = new Map<string, number>();
 export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: ChatWindowProps) => {
   const [contactName, setContactName] = useState<string>("");
   const [contactAvatar, setContactAvatar] = useState<string | null>(null);
+  const [contactPhone, setContactPhone] = useState<string | null>(null);
+  const [contactId, setContactId] = useState<string | null>(null);
   const [conversationChannel, setConversationChannel] = useState<Channel>("web");
   const [conversationStatus, setConversationStatus] = useState<string>("open");
   const [isLoadingConversation, setIsLoadingConversation] = useState(true);
