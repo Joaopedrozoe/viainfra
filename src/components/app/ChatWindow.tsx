@@ -198,6 +198,11 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       if (conversation?.contacts) {
         setContactName(conversation.contacts.name || 'Cliente Web');
         setContactAvatar(conversation.contacts.avatar_url || null);
+        setContactPhone(conversation.contacts.phone || null);
+        setContactId(conversation.contacts.id || null);
+      } else {
+        setContactPhone(null);
+        setContactId(null);
       }
       setConversationChannel(conversation?.channel as Channel || 'web');
       setConversationStatus(conversation?.status || 'open');
