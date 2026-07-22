@@ -587,28 +587,9 @@ async function syncInstances(req: Request, supabase: any, evolutionApiUrl: strin
       
       if (!instanceName) continue;
 
-      try {
-        await fetch(`${evolutionApiUrl}/webhook/set/${instanceName}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-          body: JSON.stringify({
-            enabled: true,
-            url: webhookUrl,
-            webhookByEvents: false,
-            webhookBase64: true,
-            events: [
-              'MESSAGES_UPSERT',
-              'MESSAGES_UPDATE',
-              'CONNECTION_UPDATE',
-              'PRESENCE_UPDATE',
-              'QRCODE_UPDATED'
-            ]
-          }),
-        });
-        console.log(`📡 Webhook configurado para ${instanceName}`);
-      } catch (webhookError) {
-        console.error(`Error configuring webhook for ${instanceName}:`, webhookError);
-      }
+      // 🔒 BLOQUEIO: NÃO alterar webhook da Evolution durante sync. Gerenciado manualmente.
+      console.log(`⛔ Skip webhook configuration for ${instanceName} (locked by policy).`);
+
 
       const instanceData = {
         company_id: companyId,
@@ -642,17 +623,27 @@ async function syncInstances(req: Request, supabase: any, evolutionApiUrl: strin
   }
 }
 
-async function configureWebhook(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
+async function configureWebhook(_req: Request, _supabase: any, _evolutionApiUrl: string, _evolutionApiKey: string) {
+  // 🔒 BLOQUEIO PERMANENTE: alteração de webhook da Evolution é proibida.
+  // Endpoints são gerenciados MANUALMENTE pelo administrador.
+  console.warn('⛔ configureWebhook chamada, mas está desativada por política.');
+  return new Response(
+    JSON.stringify({
+      success: false,
+      disabled: true,
+      error: 'Alteração de webhook da Evolution está desativada. Endpoints gerenciados manualmente.',
+    }),
+    { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+  );
+}
+
+async function _configureWebhookDISABLED(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
   try {
     const { instanceName } = await req.json();
-    
     if (!instanceName) {
       return new Response('Instance name is required', { status: 400, headers: corsHeaders });
     }
-
     const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/evolution-webhook`;
-    
-    // Formato correto para Evolution API - estrutura aninhada
     const response = await fetch(`${evolutionApiUrl}/webhook/set/${instanceName}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
@@ -662,22 +653,14 @@ async function configureWebhook(req: Request, supabase: any, evolutionApiUrl: st
           url: webhookUrl,
           webhookByEvents: false,
           webhookBase64: true,
-          events: [
-            'MESSAGES_UPSERT',
-            'MESSAGES_UPDATE', 
-            'CONNECTION_UPDATE',
-            'PRESENCE_UPDATE',
-            'QRCODE_UPDATED'
-          ]
+          events: ['MESSAGES_UPSERT','MESSAGES_UPDATE','CONNECTION_UPDATE','PRESENCE_UPDATE','QRCODE_UPDATED']
         }
       }),
     });
-    
     console.log(`📡 Webhook configurado para ${instanceName}: ${response.status}`);
-
     const data = await response.json();
-
     if (response.ok) {
+
       await supabase
         .from('whatsapp_instances')
         .update({ webhook_url: webhookUrl, updated_at: new Date().toISOString() })

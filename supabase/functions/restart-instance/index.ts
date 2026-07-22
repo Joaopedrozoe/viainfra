@@ -66,46 +66,22 @@ serve(async (req) => {
       results.steps.push({ step: 'newState', data: newState })
       console.log('New state:', JSON.stringify(newState))
       
-      // Step 4: Re-configure webhook
-      console.log('🔗 Re-configuring webhook...')
-      const webhookUrl = 'https://xxojpfhnkxpbznbmhmua.supabase.co/functions/v1/evolution-webhook'
-      const webhookRes = await fetch(
-        `${evolutionApiUrl}/webhook/set/${instanceName}`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': evolutionApiKey,
-          },
-          body: JSON.stringify({
-            url: webhookUrl,
-            enabled: true,
-            webhookByEvents: false,
-            webhookBase64: false,
-            events: [
-              'MESSAGES_UPSERT',
-              'MESSAGES_UPDATE',
-              'CONNECTION_UPDATE',
-              'PRESENCE_UPDATE',
-              'QRCODE_UPDATED'
-            ]
-          }),
-        }
-      )
-      const webhookData = await webhookRes.json()
-      results.steps.push({ step: 'webhook', status: webhookRes.status, data: webhookData })
-      console.log('Webhook configured:', JSON.stringify(webhookData))
+      // 🔒 BLOQUEIO: NÃO alterar webhook da Evolution. Endpoints são gerenciados manualmente.
+      console.log('⛔ Skip webhook reconfiguration (locked by policy).');
+      results.steps.push({ step: 'webhook', skipped: true, reason: 'Webhook mutation disabled by policy — managed manually.' });
+      const webhookUrl: string | null = null;
+
       
-      // Update DB
+      // Update DB (sem tocar em webhook_url — gerenciado manualmente)
       await supabase
         .from('whatsapp_instances')
         .update({ 
           status: newState?.instance?.state || 'reconnecting',
           connection_state: newState?.instance?.state || 'reconnecting',
-          webhook_url: webhookUrl,
           updated_at: new Date().toISOString()
         })
         .eq('instance_name', instanceName)
+
       
       results.success = true
       results.finalState = newState?.instance?.state
