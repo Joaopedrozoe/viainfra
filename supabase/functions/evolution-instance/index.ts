@@ -637,45 +637,8 @@ async function configureWebhook(_req: Request, _supabase: any, _evolutionApiUrl:
   );
 }
 
-async function _configureWebhookDISABLED(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
-  try {
-    const { instanceName } = await req.json();
-    if (!instanceName) {
-      return new Response('Instance name is required', { status: 400, headers: corsHeaders });
-    }
-    const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/evolution-webhook`;
-    const response = await fetch(`${evolutionApiUrl}/webhook/set/${instanceName}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': evolutionApiKey },
-      body: JSON.stringify({
-        webhook: {
-          enabled: true,
-          url: webhookUrl,
-          webhookByEvents: false,
-          webhookBase64: true,
-          events: ['MESSAGES_UPSERT','MESSAGES_UPDATE','CONNECTION_UPDATE','PRESENCE_UPDATE','QRCODE_UPDATED']
-        }
-      }),
-    });
-    console.log(`📡 Webhook configurado para ${instanceName}: ${response.status}`);
-    const data = await response.json();
-    if (response.ok) {
+// (código legado de mutação de webhook removido — política de bloqueio permanente)
 
-      await supabase
-        .from('whatsapp_instances')
-        .update({ webhook_url: webhookUrl, updated_at: new Date().toISOString() })
-        .eq('instance_name', instanceName);
-    }
-
-    return new Response(JSON.stringify(data), {
-      status: response.status,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  } catch (error) {
-    console.error('Error configuring webhook:', error);
-    return new Response('Failed to configure webhook', { status: 500, headers: corsHeaders });
-  }
-}
 
 async function toggleBot(req: Request, supabase: any, evolutionApiUrl: string, evolutionApiKey: string) {
   try {
