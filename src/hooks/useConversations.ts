@@ -500,20 +500,18 @@ export const useConversations = () => {
           }
         });
 
-      // Adaptive polling — só dispara fetch quando realtime está desconectado
-      // (60s entre tentativas). Quando conectado faz um sync leve a cada ~5min.
+      // Adaptive polling: quando realtime desconectado, refetch a cada 20s;
+      // quando conectado, sync leve a cada ~2min como safety net.
       let pollCounter = 0;
       const pollInterval = setInterval(() => {
         if (!mountedRef.current) return;
         pollCounter++;
         if (!realtimeConnected) {
-          if (pollCounter % 2 === 0) {
-            fetchConversationsRef.current(true);
-          }
-        } else if (pollCounter % 10 === 0) {
+          fetchConversationsRef.current(true);
+        } else if (pollCounter % 6 === 0) {
           fetchConversationsRef.current(true);
         }
-      }, 30000);
+      }, 20000);
 
       return () => {
         mountedRef.current = false;
