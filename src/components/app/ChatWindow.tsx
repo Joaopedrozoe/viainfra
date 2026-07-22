@@ -237,28 +237,38 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     if (isLoadingHistoryRef.current) {
       return;
     }
-    
+
     const container = messagesContainerRef.current;
     if (!container) return;
-    
+
     // Verificar se temos posição salva para esta conversa
     const savedDistance = scrollPositionsCache.get(conversationId || '');
-    
+
+    const scrollToBottom = () => {
+      const c = messagesContainerRef.current;
+      if (!c) return;
+      c.scrollTop = c.scrollHeight;
+    };
+
     if (savedDistance !== undefined) {
-      // Restaurar posição salva (distância do final)
       requestAnimationFrame(() => {
-        const targetScroll = container.scrollHeight - container.clientHeight - savedDistance;
-        container.scrollTop = Math.max(0, targetScroll);
+        const c = messagesContainerRef.current;
+        if (!c) return;
+        const targetScroll = c.scrollHeight - c.clientHeight - savedDistance;
+        c.scrollTop = Math.max(0, targetScroll);
       });
-      // Limpar cache após usar (uma vez só)
       scrollPositionsCache.delete(conversationId || '');
     } else {
-      // Comportamento padrão: scroll para o final
+      // Double rAF + timeouts garantem que imagens/áudios já mediram altura
+      // antes do scroll — evita abrir a conversa em mensagens antigas.
       requestAnimationFrame(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+        scrollToBottom();
+        requestAnimationFrame(scrollToBottom);
+        setTimeout(scrollToBottom, 120);
+        setTimeout(scrollToBottom, 400);
       });
     }
-  }, [messages.length, conversationId]);
+  }, [messages.length, conversationId, isLoadingMessages]);
 
   // Infinite scroll: detectar quando o usuário rola para cima
   const handleScroll = useCallback(() => {
