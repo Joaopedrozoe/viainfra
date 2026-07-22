@@ -1,169 +1,27 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// 🔒 BLOQUEIO PERMANENTE
+// Endpoints da Evolution são controlados MANUALMENTE pelo administrador.
+// É estritamente proibido que qualquer função deste projeto altere webhooks
+// via /webhook/set/{instance}. Esta função está desativada intencionalmente.
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
-  try {
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    );
+  console.warn('⛔ setup-webhooks foi chamada, mas está DESATIVADA por política de segurança.');
 
-    const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL');
-    const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
-
-    if (!evolutionApiUrl || !evolutionApiKey) {
-      return new Response('Evolution API configuration missing', { 
-        status: 500, 
-        headers: corsHeaders 
-      });
-    }
-
-    const supabaseBaseUrl = Deno.env.get('SUPABASE_URL');
-    const defaultWebhookUrl = `${supabaseBaseUrl}/functions/v1/evolution-webhook`;
-    const vialogisticWebhookUrl = `${supabaseBaseUrl}/functions/v1/evolution-webhook-vialogistic`;
-
-    const resolveWebhookUrl = (instanceName: string) =>
-      instanceName?.toUpperCase().includes('VIALOGISTIC')
-        ? vialogisticWebhookUrl
-        : defaultWebhookUrl;
-
-    console.log('Starting webhook configuration for all instances');
-
-    // Get all instances from database
-    const { data: instances, error: dbError } = await supabase
-      .from('whatsapp_instances')
-      .select('*')
-      .eq('status', 'open');
-
-    if (dbError) {
-      console.error('Database error:', dbError);
-      return new Response(JSON.stringify({ error: 'Database error', details: dbError }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-
-    console.log(`Found ${instances?.length || 0} instances to configure`);
-
-    const results = [];
-
-    for (const instance of instances || []) {
-      console.log(`\n=== Configuring webhook for ${instance.instance_name} ===`);
-      
-      try {
-        const webhookUrl = resolveWebhookUrl(instance.instance_name);
-        console.log(`Webhook URL for ${instance.instance_name}: ${webhookUrl}`);
-
-        // Formato correto para Evolution API v2
-        const webhookPayload = {
-          webhook: {
-            enabled: true,
-            url: webhookUrl,
-            webhookByEvents: false,
-            webhookBase64: true,
-            events: [
-              'MESSAGES_UPSERT',
-              'MESSAGES_UPDATE',
-              'CONNECTION_UPDATE',
-              'PRESENCE_UPDATE',
-              'QRCODE_UPDATED'
-            ]
-          }
-        };
-
-        console.log('Webhook payload:', JSON.stringify(webhookPayload, null, 2));
-
-        const response = await fetch(`${evolutionApiUrl}/webhook/set/${instance.instance_name}`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': evolutionApiKey,
-          },
-          body: JSON.stringify(webhookPayload),
-        });
-
-        const responseText = await response.text();
-        console.log(`Response status: ${response.status}`);
-        console.log('Response body:', responseText);
-
-        let data;
-        try {
-          data = JSON.parse(responseText);
-        } catch {
-          data = { raw: responseText };
-        }
-
-        if (response.ok) {
-          console.log(`✅ Webhook configured successfully for ${instance.instance_name}`);
-          
-          // Update database
-          await supabase
-            .from('whatsapp_instances')
-            .update({ 
-              webhook_url: webhookUrl,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', instance.id);
-
-          results.push({
-            instance: instance.instance_name,
-            success: true,
-            data
-          });
-        } else {
-          console.error(`❌ Failed to configure webhook for ${instance.instance_name}`);
-          results.push({
-            instance: instance.instance_name,
-            success: false,
-            error: data,
-            status: response.status
-          });
-        }
-      } catch (error) {
-        console.error(`Error configuring ${instance.instance_name}:`, error);
-        results.push({
-          instance: instance.instance_name,
-          success: false,
-          error: error.message
-        });
-      }
-    }
-
-    console.log('\n=== Configuration Summary ===');
-    console.log(`Total instances: ${results.length}`);
-    console.log(`Successful: ${results.filter(r => r.success).length}`);
-    console.log(`Failed: ${results.filter(r => !r.success).length}`);
-
-    return new Response(JSON.stringify({
-      success: true,
-      results,
-      summary: {
-        total: results.length,
-        successful: results.filter(r => r.success).length,
-        failed: results.filter(r => !r.success).length
-      }
-    }, null, 2), {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
-
-  } catch (error) {
-    console.error('Fatal error:', error);
-    return new Response(JSON.stringify({ 
-      error: 'Internal server error', 
-      details: error.message 
-    }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
-  }
+  return new Response(
+    JSON.stringify({
+      success: false,
+      disabled: true,
+      error: 'Alteração de webhook da Evolution está desativada. Endpoints são gerenciados manualmente.',
+    }),
+    { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+  );
 });
