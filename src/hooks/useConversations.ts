@@ -310,7 +310,9 @@ export const useConversations = () => {
       const conversationIndex = prev.findIndex(c => c.id === newMsg.conversation_id);
       
       if (conversationIndex === -1) {
-        // Message for a conversation not in our list — ignore (likely another company / not loaded)
+        // Conversa ainda não está no cache (novo contato). Dispara refetch
+        // silencioso para trazê-la para a lista imediatamente.
+        fetchConversationsRef.current?.(true);
         return prev;
       }
       
@@ -337,7 +339,9 @@ export const useConversations = () => {
         lastRealMessage: isReaction ? conversation.lastRealMessage : newLastMessage,
         // Only update updated_at if NOT a reaction (prevents re-ordering)
         updated_at: isReaction ? conversation.updated_at : newMsg.created_at,
-        hasNewMessage: isContactMessage && !isReaction,
+        hasNewMessage: isContactMessage && !isReaction
+          ? true
+          : (conversation.hasNewMessage || false),
       };
       
       // Remove from current position and add to appropriate position
@@ -355,7 +359,7 @@ export const useConversations = () => {
       void timestamp;
       return updated;
     });
-  }, [fetchConversations, notifyNewMessage, playNotificationSound]);
+  }, [notifyNewMessage, playNotificationSound]);
   
   // Stable refs for realtime handlers to prevent re-subscriptions
   const handleNewMessageRef = useRef(handleNewMessage);
