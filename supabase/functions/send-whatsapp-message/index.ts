@@ -352,9 +352,11 @@ serve(async (req) => {
         .update({
           metadata: {
             ...currentMetadata,
+            external_id: sendResult.messageId,
             whatsappMessageId: sendResult.messageId,
+            messageId: sendResult.messageId,
             whatsappSentAt: new Date().toISOString(),
-            whatsappStatus: 'pending'
+            whatsappStatus: 'sent'
           }
         })
         .eq('id', message_id);
