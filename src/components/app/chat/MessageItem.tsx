@@ -225,8 +225,8 @@ const ImageAttachment = ({ url, alt }: { url: string; alt?: string }) => {
           onLoad={() => setIsLoading(false)}
           onError={handleError}
           onClick={() => window.open(url, '_blank')}
-          />
         />
+
       )}
     </div>
   );
