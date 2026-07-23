@@ -3083,14 +3083,21 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
 
 // Verificar se a mensagem já foi processada
 async function isMessageAlreadyProcessed(supabase: any, externalId: string): Promise<boolean> {
+  if (!externalId) return false;
+  // Considerar já processada se qualquer mensagem já tem esse ID salvo em
+  // external_id, whatsappMessageId ou messageId — evita duplicar o echo fromMe
+  // de mensagens que a própria UI inseriu ao enviar via send-whatsapp-message.
   const { data: existingMessage } = await supabase
     .from('messages')
     .select('id')
-    .contains('metadata', { external_id: externalId })
+    .or(
+      `metadata->>external_id.eq.${externalId},metadata->>whatsappMessageId.eq.${externalId},metadata->>messageId.eq.${externalId}`
+    )
+    .limit(1)
     .maybeSingle();
-  
+
   if (existingMessage) {
-    console.log(`⚠️ Mensagem ${externalId} já foi processada anteriormente.`);
+    console.log(`⚠️ Mensagem ${externalId} já foi processada (match em external_id/whatsappMessageId).`);
     return true;
   }
   return false;
