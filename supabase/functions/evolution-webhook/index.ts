@@ -3374,10 +3374,47 @@ async function extractQuotedInfo(supabase: any, message: EvolutionMessage, rawDa
 async function saveMessage(supabase: any, conversationId: string, message: EvolutionMessage, content: string, phoneNumber: string, instanceName: string, isOutgoing: boolean = false, rawData?: any) {
   const externalId = message.key.id;
   
-  // Check for duplicate
+  // Check for duplicate by ID (external_id / whatsappMessageId / messageId)
   const alreadyProcessed = await isMessageAlreadyProcessed(supabase, externalId);
   if (alreadyProcessed) {
     return null;
+  }
+
+  // FALLBACK DEDUP para eco fromMe: quando o agente envia pela UI,
+  // a mensagem é inserida ANTES do send-whatsapp-message estampar o
+  // whatsappMessageId. Se o webhook chegar nesse meio-tempo, o match por ID
+  // falha e duplicamos. Aqui procuramos uma mensagem 'agent' recente com o
+  // mesmo conteúdo na mesma conversa e apenas anexamos o external_id nela.
+  if ((isOutgoing || message.key.fromMe) && content) {
+    const twoMinAgo = new Date(Date.now() - 120000).toISOString();
+    const { data: recentAgentMsg } = await supabase
+      .from('messages')
+      .select('id, metadata')
+      .eq('conversation_id', conversationId)
+      .eq('sender_type', 'agent')
+      .eq('content', content)
+      .gte('created_at', twoMinAgo)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (recentAgentMsg?.id) {
+      const meta = (recentAgentMsg.metadata as Record<string, any>) || {};
+      if (!meta.external_id && !meta.whatsappMessageId) {
+        await supabase
+          .from('messages')
+          .update({
+            metadata: {
+              ...meta,
+              external_id: externalId,
+              whatsappMessageId: externalId,
+              whatsappStatus: 'sent',
+            },
+          })
+          .eq('id', recentAgentMsg.id);
+        console.log(`🔗 Echo fromMe vinculado à mensagem agent existente ${recentAgentMsg.id} (evitou duplicata).`);
+        return null;
+      }
+    }
   }
   
   // Extract attachment if any
