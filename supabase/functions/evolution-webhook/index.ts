@@ -3502,8 +3502,8 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
   // Extract attachment if any
   let attachment = extractAttachment(message);
   
-  if (attachment && attachment.url) {
-    console.log('📎 Attachment detected:', attachment.type, attachment.url);
+  if (attachment && (attachment.url || getMetaMediaId(message))) {
+    console.log('📎 Attachment detected:', attachment.type, attachment.url || '(meta media id)');
     
     const storageUrl = await downloadAndUploadMedia(supabase, attachment, message, conversationId, instanceName);
     
