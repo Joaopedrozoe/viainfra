@@ -3122,8 +3122,90 @@ async function shouldSkipBotResponse(supabase: any, conversationId: string): Pro
   return false;
 }
 
+// Extract Meta Cloud media id (if this message came from Meta webhook)
+function getMetaMediaId(message: EvolutionMessage): string | null {
+  const m: any = message.message || {};
+  return (
+    m.imageMessage?._metaMediaId ||
+    m.videoMessage?._metaMediaId ||
+    m.audioMessage?._metaMediaId ||
+    m.documentMessage?._metaMediaId ||
+    m.stickerMessage?._metaMediaId ||
+    null
+  );
+}
+
+// Download media via Meta Cloud API (Graph) and upload to Supabase Storage
+async function downloadMetaMediaAndUpload(
+  supabase: any,
+  mediaId: string,
+  mimeTypeHint: string | undefined,
+  conversationId: string
+): Promise<string | null> {
+  try {
+    const token = Deno.env.get('META_ACCESS_TOKEN_VIAINFRA');
+    if (!token) {
+      console.error('❌ META_ACCESS_TOKEN_VIAINFRA not configured');
+      return null;
+    }
+
+    // Step 1: resolve media URL
+    const metaRes = await fetch(`https://graph.facebook.com/v20.0/${mediaId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!metaRes.ok) {
+      console.error('❌ Meta media metadata fetch failed:', metaRes.status, await metaRes.text());
+      return null;
+    }
+    const metaJson = await metaRes.json();
+    const url: string | undefined = metaJson.url;
+    const mimeType: string = metaJson.mime_type || mimeTypeHint || 'application/octet-stream';
+    if (!url) {
+      console.error('❌ Meta media response missing url');
+      return null;
+    }
+
+    // Step 2: download binary
+    const binRes = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!binRes.ok) {
+      console.error('❌ Meta media binary fetch failed:', binRes.status);
+      return null;
+    }
+    const buf = new Uint8Array(await binRes.arrayBuffer());
+
+    const extension = getExtensionFromMimeType(mimeType);
+    const fileName = `${conversationId}/${Date.now()}-${Math.random().toString(36).substring(7)}.${extension}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('chat-attachments')
+      .upload(fileName, buf, { contentType: mimeType, upsert: false });
+
+    if (uploadError) {
+      console.error('❌ Meta media upload error:', uploadError);
+      return null;
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from('chat-attachments')
+      .getPublicUrl(fileName);
+
+    console.log('✅ Meta media uploaded:', publicUrlData.publicUrl);
+    return publicUrlData.publicUrl;
+  } catch (e) {
+    console.error('❌ Error in downloadMetaMediaAndUpload:', e);
+    return null;
+  }
+}
+
 // Download media from WhatsApp
 async function downloadAndUploadMedia(supabase: any, attachment: Attachment, message: EvolutionMessage, conversationId: string, instanceName: string): Promise<string | null> {
+  // Meta Cloud API path: no url is provided by the webhook, only a media id
+  const metaMediaId = getMetaMediaId(message);
+  if (metaMediaId) {
+    console.log('📥 Downloading media from Meta Cloud API, media_id:', metaMediaId);
+    return await downloadMetaMediaAndUpload(supabase, metaMediaId, attachment.mimeType, conversationId);
+  }
+
   if (!attachment.url || !attachment.url.startsWith('http')) {
     return null;
   }
@@ -3420,8 +3502,8 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
   // Extract attachment if any
   let attachment = extractAttachment(message);
   
-  if (attachment && attachment.url) {
-    console.log('📎 Attachment detected:', attachment.type, attachment.url);
+  if (attachment && (attachment.url || getMetaMediaId(message))) {
+    console.log('📎 Attachment detected:', attachment.type, attachment.url || '(meta media id)');
     
     const storageUrl = await downloadAndUploadMedia(supabase, attachment, message, conversationId, instanceName);
     
@@ -3507,8 +3589,8 @@ async function saveGroupMessage(supabase: any, conversationId: string, message: 
   // Extract attachment if any - CRITICAL: This was missing in groups!
   let attachment = extractAttachment(message);
   
-  if (attachment && attachment.url) {
-    console.log('📎 [GROUP] Attachment detected:', attachment.type, attachment.url);
+  if (attachment && (attachment.url || getMetaMediaId(message))) {
+    console.log('📎 [GROUP] Attachment detected:', attachment.type, attachment.url || '(meta media id)');
     
     const storageUrl = await downloadAndUploadMedia(supabase, attachment, message, conversationId, instanceName);
     
