@@ -3589,8 +3589,8 @@ async function saveGroupMessage(supabase: any, conversationId: string, message: 
   // Extract attachment if any - CRITICAL: This was missing in groups!
   let attachment = extractAttachment(message);
   
-  if (attachment && attachment.url) {
-    console.log('📎 [GROUP] Attachment detected:', attachment.type, attachment.url);
+  if (attachment && (attachment.url || getMetaMediaId(message))) {
+    console.log('📎 [GROUP] Attachment detected:', attachment.type, attachment.url || '(meta media id)');
     
     const storageUrl = await downloadAndUploadMedia(supabase, attachment, message, conversationId, instanceName);
     
