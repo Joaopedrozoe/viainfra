@@ -444,6 +444,11 @@ async function processStatusBroadcast(supabase: any, webhook: EvolutionWebhook) 
 
 function parseWebhookPayload(payload: any): EvolutionWebhook | null {
   try {
+    // Meta Cloud API (WhatsApp Business Platform) — mesmo endpoint, formato diferente
+    if (payload?.object === 'whatsapp_business_account' && Array.isArray(payload?.entry)) {
+      return convertMetaPayloadToEvolution(payload);
+    }
+
     if (!payload.event || !payload.instance) {
       return null;
     }
@@ -458,6 +463,82 @@ function parseWebhookPayload(payload: any): EvolutionWebhook | null {
     return null;
   }
 }
+
+// Meta Cloud API → formato Evolution (reaproveita processNewMessage)
+function convertMetaPayloadToEvolution(payload: any): EvolutionWebhook | null {
+  try {
+    const value = payload.entry?.[0]?.changes?.[0]?.value;
+    if (!value) return null;
+
+    const instance = 'VIALOGISTIC';
+    const messages = Array.isArray(value.messages) ? value.messages : [];
+
+    if (messages.length === 0) {
+      console.log('📨 [Meta] Payload sem messages (status/delivery). Ignorando.');
+      return { event: 'IGNORED', instance, data: null };
+    }
+
+    const contactMap = new Map<string, string>();
+    for (const c of (value.contacts || [])) {
+      if (c?.wa_id) contactMap.set(c.wa_id, c?.profile?.name || '');
+    }
+
+    const converted = messages.map((m: any) => {
+      const waId: string = m.from;
+      const remoteJid = `${waId}@s.whatsapp.net`;
+      const evoMessage: any = {};
+
+      switch (m.type) {
+        case 'text':
+          evoMessage.conversation = m.text?.body ?? '';
+          break;
+        case 'image':
+          evoMessage.imageMessage = { caption: m.image?.caption ?? '', mimetype: m.image?.mime_type, _metaMediaId: m.image?.id };
+          break;
+        case 'video':
+          evoMessage.videoMessage = { caption: m.video?.caption ?? '', mimetype: m.video?.mime_type, _metaMediaId: m.video?.id };
+          break;
+        case 'audio':
+          evoMessage.audioMessage = { mimetype: m.audio?.mime_type, ptt: !!m.audio?.voice, _metaMediaId: m.audio?.id };
+          break;
+        case 'document':
+          evoMessage.documentMessage = { fileName: m.document?.filename || 'documento', title: m.document?.caption, mimetype: m.document?.mime_type, _metaMediaId: m.document?.id };
+          break;
+        case 'sticker':
+          evoMessage.stickerMessage = { mimetype: m.sticker?.mime_type, _metaMediaId: m.sticker?.id };
+          break;
+        case 'location':
+          evoMessage.locationMessage = { degreesLatitude: m.location?.latitude, degreesLongitude: m.location?.longitude, name: m.location?.name, address: m.location?.address };
+          break;
+        case 'button':
+          evoMessage.conversation = m.button?.text || m.button?.payload || '';
+          break;
+        case 'interactive':
+          evoMessage.conversation = m.interactive?.button_reply?.title || m.interactive?.list_reply?.title || '';
+          break;
+        default:
+          evoMessage.conversation = `[${m.type || 'mensagem'} não suportada]`;
+      }
+
+      return {
+        key: { id: m.id, remoteJid, fromMe: false },
+        message: evoMessage,
+        messageTimestamp: Number(m.timestamp) || Math.floor(Date.now() / 1000),
+        pushName: contactMap.get(waId) || '',
+      };
+    });
+
+    return {
+      event: 'MESSAGES_UPSERT',
+      instance,
+      data: converted.length === 1 ? converted[0] : converted,
+    };
+  } catch (e) {
+    console.error('❌ [Meta] Falha ao converter payload:', e);
+    return null;
+  }
+}
+
 
 async function processNewMessage(supabase: any, webhook: EvolutionWebhook, payload?: any) {
   console.log('Processing new message...');
@@ -2963,10 +3044,91 @@ async function shouldSkipBotResponse(supabase: any, conversationId: string): Pro
   return false;
 }
 
+// Extract Meta Cloud media id (if this message came from Meta webhook)
+function getMetaMediaId(message: EvolutionMessage): string | null {
+  const m: any = message.message || {};
+  return (
+    m.imageMessage?._metaMediaId ||
+    m.videoMessage?._metaMediaId ||
+    m.audioMessage?._metaMediaId ||
+    m.documentMessage?._metaMediaId ||
+    m.stickerMessage?._metaMediaId ||
+    null
+  );
+}
+
+// Download media via Meta Cloud API (Graph) and upload to Supabase Storage
+async function downloadMetaMediaAndUpload(
+  supabase: any,
+  mediaId: string,
+  mimeTypeHint: string | undefined,
+  conversationId: string
+): Promise<string | null> {
+  try {
+    const token = Deno.env.get('META_ACCESS_TOKEN_VIALOGISTIC') || Deno.env.get('META_ACCESS_TOKEN_VIAINFRA');
+    if (!token) {
+      console.error('❌ META_ACCESS_TOKEN_VIALOGISTIC not configured');
+      return null;
+    }
+
+    const metaRes = await fetch(`https://graph.facebook.com/v20.0/${mediaId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!metaRes.ok) {
+      console.error('❌ Meta media metadata fetch failed:', metaRes.status, await metaRes.text());
+      return null;
+    }
+    const metaJson = await metaRes.json();
+    const url: string | undefined = metaJson.url;
+    const mimeType: string = metaJson.mime_type || mimeTypeHint || 'application/octet-stream';
+    if (!url) {
+      console.error('❌ Meta media response missing url');
+      return null;
+    }
+
+    const binRes = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    if (!binRes.ok) {
+      console.error('❌ Meta media binary fetch failed:', binRes.status);
+      return null;
+    }
+    const buf = new Uint8Array(await binRes.arrayBuffer());
+
+    const extension = getExtensionFromMimeType(mimeType);
+    const fileName = `${conversationId}/${Date.now()}-${Math.random().toString(36).substring(7)}.${extension}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('chat-attachments')
+      .upload(fileName, buf, { contentType: mimeType, upsert: false });
+
+    if (uploadError) {
+      console.error('❌ Meta media upload error:', uploadError);
+      return null;
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from('chat-attachments')
+      .getPublicUrl(fileName);
+
+    console.log('✅ Meta media uploaded:', publicUrlData.publicUrl);
+    return publicUrlData.publicUrl;
+  } catch (e) {
+    console.error('❌ Error in downloadMetaMediaAndUpload:', e);
+    return null;
+  }
+}
+
 // Download media from WhatsApp
 async function downloadAndUploadMedia(supabase: any, attachment: Attachment, message: EvolutionMessage, conversationId: string, instanceName: string): Promise<string | null> {
+  // Meta Cloud API path: webhook only provides a media id
+  const metaMediaId = getMetaMediaId(message);
+  if (metaMediaId) {
+    console.log('📥 Downloading media from Meta Cloud API, media_id:', metaMediaId);
+    return await downloadMetaMediaAndUpload(supabase, metaMediaId, attachment.mimeType, conversationId);
+  }
+
   if (!attachment.url || !attachment.url.startsWith('http')) {
     return null;
+
   }
   
   try {
@@ -3224,7 +3386,7 @@ async function saveMessage(supabase: any, conversationId: string, message: Evolu
   // Extract attachment if any
   let attachment = extractAttachment(message);
   
-  if (attachment && attachment.url) {
+  if (attachment && (attachment.url || getMetaMediaId(message))) {
     console.log('📎 Attachment detected:', attachment.type, attachment.url);
     
     const storageUrl = await downloadAndUploadMedia(supabase, attachment, message, conversationId, instanceName);
@@ -3311,7 +3473,7 @@ async function saveGroupMessage(supabase: any, conversationId: string, message: 
   // Extract attachment if any - CRITICAL: This was missing in groups!
   let attachment = extractAttachment(message);
   
-  if (attachment && attachment.url) {
+  if (attachment && (attachment.url || getMetaMediaId(message))) {
     console.log('📎 [GROUP] Attachment detected:', attachment.type, attachment.url);
     
     const storageUrl = await downloadAndUploadMedia(supabase, attachment, message, conversationId, instanceName);
