@@ -2474,7 +2474,7 @@ async function getOrCreateContact(
               phone: normalizedPhone,
               contact_id: lidContact.id,
               company_id: companyId,
-              instance_name: instanceName || 'VIAINFRAOFICIAL'
+              instance_name: instanceName || 'VIALOGISTIC'
             }, { onConflict: 'lid,company_id' });
           console.log(`✅ Mapeamento LID->telefone criado: ${lidContact.metadata.lidId} -> ${normalizedPhone}`);
         }
