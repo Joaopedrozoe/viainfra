@@ -62,7 +62,8 @@ export function groupFilesIntoChats(files: File[]): ChatFolder[] {
 
     if (HTML_RE.test(file.name)) {
       const folderPath = parts.slice(0, -1).join("/");
-      const entry = byFolder.get(folderPath) || { media: new Map() };
+      const entry: { html?: File; media: Map<string, File> } =
+        byFolder.get(folderPath) || { media: new Map<string, File>() };
       // mantém o maior html caso existam vários
       if (!entry.html || file.size > entry.html.size) entry.html = file;
       byFolder.set(folderPath, entry);
