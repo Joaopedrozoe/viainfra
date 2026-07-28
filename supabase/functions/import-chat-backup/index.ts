@@ -335,17 +335,31 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (!conv) return json({ error: "Conversa não pertence à empresa" }, 403);
 
-      // índice de deduplicação da conversa
-      const { data: existing } = await supabase
-        .from("messages")
-        .select("content, sender_type, created_at, metadata")
-        .eq("conversation_id", conversationId)
-        .limit(20000);
+      // índice de deduplicação da conversa (paginado: PostgREST corta em 1000 linhas)
+      const existing: Array<{
+        content: string | null;
+        sender_type: string;
+        created_at: string;
+        metadata: Record<string, unknown> | null;
+      }> = [];
+      const PAGE = 1000;
+      for (let page = 0; page < 60; page++) {
+        const { data, error: pageError } = await supabase
+          .from("messages")
+          .select("content, sender_type, created_at, metadata")
+          .eq("conversation_id", conversationId)
+          .order("created_at", { ascending: true })
+          .range(page * PAGE, page * PAGE + PAGE - 1);
+        if (pageError) throw pageError;
+        if (!data?.length) break;
+        existing.push(...(data as typeof existing));
+        if (data.length < PAGE) break;
+      }
 
       const existingIds = new Set<string>();
       const existingFingerprints: Array<{ key: string; time: number }> = [];
 
-      for (const row of existing || []) {
+      for (const row of existing) {
         const meta = (row.metadata || {}) as Record<string, unknown>;
         for (const key of ["external_id", "messageId", "whatsappMessageId", "message_id"]) {
           const value = meta[key];
@@ -356,6 +370,7 @@ Deno.serve(async (req) => {
           time: new Date(row.created_at).getTime(),
         });
       }
+
 
       const toInsert: Record<string, unknown>[] = [];
       let skipped = 0;
