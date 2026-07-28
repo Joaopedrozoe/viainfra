@@ -432,6 +432,12 @@ const Settings = () => {
               </Card>
             </TabsContent>
 
+            <TabsContent value="backup">
+              <BackupImport />
+            </TabsContent>
+
+
+
             <TabsContent value="integrations">
               <div className="space-y-6">
                 <Tabs value={integrationsTab} onValueChange={setIntegrationsTab} className="space-y-6">
