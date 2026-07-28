@@ -270,3 +270,6 @@ verify_jwt = false
 
 [functions.evolution-webhook-vialogistic]
 verify_jwt = false
+
+[functions.import-chat-backup]
+verify_jwt = false

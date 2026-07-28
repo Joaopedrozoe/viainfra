@@ -10,6 +10,7 @@ import { PermissionsSettings } from "@/components/app/settings/PermissionsSettin
 import { UsersManagement } from "@/components/app/settings/UsersManagement";
 import { DepartmentsManagement } from "@/components/app/settings/DepartmentsManagement";
 import { NotificationsTab } from "@/components/app/schedule/settings/NotificationsTab";
+import { BackupImport } from "@/components/app/settings/BackupImport";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -115,7 +116,8 @@ const Settings = () => {
     { id: "integrations", label: "Integrações", adminOnly: false },
     { id: "api", label: "API", adminOnly: false },
     { id: "billing", label: "Faturas", adminOnly: false },
-    { id: "schedule", label: "Agenda", adminOnly: false }
+    { id: "schedule", label: "Agenda", adminOnly: false },
+    { id: "backup", label: "Importar Backup", adminOnly: true }
   ];
   
   // Filter tabs based on admin permission
@@ -429,6 +431,12 @@ const Settings = () => {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            <TabsContent value="backup">
+              <BackupImport />
+            </TabsContent>
+
+
 
             <TabsContent value="integrations">
               <div className="space-y-6">
