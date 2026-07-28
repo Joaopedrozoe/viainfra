@@ -23,6 +23,39 @@ export function resolveMetaCreds(companyName: string) {
   };
 }
 
+// Erros da Meta que indicam falta de permissão de ligação do usuário
+function isPermissionError(respData: any): boolean {
+  const code = respData?.error?.code;
+  const sub = respData?.error?.error_subcode;
+  const msg = `${respData?.error?.message || ""} ${respData?.error?.error_data?.details || ""}`.toLowerCase();
+  return code === 138007 || code === 138010 || sub === 2494100 || msg.includes("permission");
+}
+
+async function sendCallPermissionRequest(token: string, phoneNumberId: string, to: string) {
+  try {
+    const resp = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "interactive",
+        interactive: {
+          type: "call_permission_request",
+          action: { name: "call_permission_request" },
+        },
+      }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    console.log("Call permission request:", resp.status, JSON.stringify(data));
+    return resp.ok;
+  } catch (e) {
+    console.error("Falha ao enviar pedido de permissão:", e);
+    return false;
+  }
+}
+
 // Meta Cloud API — WhatsApp Business Calling API
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -46,7 +79,11 @@ serve(async (req) => {
     const conversationId: string | null = body.conversationId ?? null;
     const companyId: string | null = body.companyId ?? null;
     const callType: "voice" | "video" = body.callType === "video" ? "video" : "voice";
+    const sdp: string = (body.sdp || "").toString();
     if (!rawPhone || rawPhone.length < 10) return json({ error: "Telefone inválido" }, 400);
+    if (!sdp || !sdp.startsWith("v=")) {
+      return json({ error: "Sessão de áudio ausente. A ligação precisa ser iniciada pelo discador do app (WebRTC)." }, 400);
+    }
 
     let phone = rawPhone;
     if (phone.length <= 11) phone = `55${phone}`;
@@ -73,8 +110,13 @@ serve(async (req) => {
     }
 
     const url = `https://graph.facebook.com/v21.0/${creds.phoneNumberId}/calls`;
-    const payload = { messaging_product: "whatsapp", to: phone, action: "connect" };
-    console.log("Calling Meta:", creds.key, url, "to:", phone);
+    const payload = {
+      messaging_product: "whatsapp",
+      to: phone,
+      action: "connect",
+      session: { sdp_type: "offer", sdp },
+    };
+    console.log("Calling Meta:", creds.key, url, "to:", phone, "sdp bytes:", sdp.length);
     const resp = await fetch(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${creds.token}`, "Content-Type": "application/json" },
@@ -82,8 +124,20 @@ serve(async (req) => {
     });
     const respData = await resp.json().catch(() => ({}));
     console.log("Meta response:", resp.status, JSON.stringify(respData));
+
     if (!resp.ok) {
-      const errMsg = respData?.error?.message || `HTTP ${resp.status}`;
+      let errMsg = respData?.error?.message || `HTTP ${resp.status}`;
+      const details = respData?.error?.error_data?.details;
+      if (details) errMsg = `${errMsg} — ${details}`;
+
+      let permissionRequested = false;
+      if (isPermissionError(respData)) {
+        permissionRequested = await sendCallPermissionRequest(creds.token, creds.phoneNumberId, phone);
+        errMsg = permissionRequested
+          ? "O contato ainda não autorizou ligações. Enviamos o pedido de permissão no WhatsApp — tente novamente após a autorização."
+          : "O contato ainda não autorizou ligações e não foi possível enviar o pedido de permissão.";
+      }
+
       await admin.from("calls").insert({
         company_id: company.id,
         contact_id: contactId,
@@ -96,7 +150,7 @@ serve(async (req) => {
         error: errMsg,
         metadata: respData,
       });
-      return json({ error: errMsg, details: respData }, resp.status);
+      return json({ error: errMsg, permissionRequested, details: respData }, resp.status);
     }
 
     const waCallId: string | undefined = respData?.calls?.[0]?.id || respData?.id;
