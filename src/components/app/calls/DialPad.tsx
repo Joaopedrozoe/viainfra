@@ -80,6 +80,12 @@ export const DialPad = () => {
           Este recurso usa a WhatsApp Business Calling API (Meta Cloud) e está ativo para contas na API oficial (VIAINFRA e VIALOGISTIC).
         </p>
       )}
+
+      <ActiveCallDialog
+        open={callOpen}
+        phone={callPhone}
+        onClose={() => { setCallOpen(false); setNumber(""); }}
+      />
     </div>
   );
 };
