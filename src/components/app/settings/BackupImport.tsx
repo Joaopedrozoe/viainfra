@@ -216,6 +216,46 @@ export function BackupImport() {
 
   return (
     <div className="space-y-6">
+      {lastJob && phase !== "importing" && (
+        <Card className="border-primary/40">
+          <CardHeader>
+            <CardTitle className="text-base">
+              Último lote de importação —{" "}
+              {lastJob.status === "running"
+                ? "em andamento"
+                : lastJob.status === "completed"
+                  ? "concluído"
+                  : "interrompido"}
+            </CardTitle>
+            <CardDescription>
+              Atualizado em {new Date(lastJob.updatedAt).toLocaleString("pt-BR")}
+              {lastJob.currentChat ? ` • última conversa: ${lastJob.currentChat}` : ""}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <Progress
+              value={lastJob.total ? (lastJob.processed / lastJob.total) * 100 : 0}
+              className="h-2"
+            />
+            <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+              <span>
+                {lastJob.processed}/{lastJob.total} conversas
+              </span>
+              <span>{lastJob.imported} mensagens importadas</span>
+              <span>{lastJob.skipped} duplicadas/ignoradas</span>
+              <span>{lastJob.mediaUploaded} mídias enviadas</span>
+              <span>{lastJob.errors} erros</span>
+            </div>
+            {lastJob.status !== "completed" && (
+              <p className="text-xs text-muted-foreground">
+                Para continuar, selecione a mesma pasta do backup abaixo — as conversas já concluídas
+                são puladas automaticamente.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Importar backup de conversas</CardTitle>
