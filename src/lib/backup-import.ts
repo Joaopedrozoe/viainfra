@@ -538,6 +538,7 @@ export async function runImport({
 
       await invoke("finalize", { companyId, conversationId });
       markFolderDone(companyId, analysis.folder.folderPath);
+      await updateImportJob(jobId, progress, "running");
 
       results.push({
         folderName: analysis.folder.folderName,
@@ -549,6 +550,12 @@ export async function runImport({
     } catch (err) {
       progress.errors++;
       onProgress({ ...progress });
+      await updateImportJob(
+        jobId,
+        progress,
+        "running",
+        err instanceof Error ? err.message : String(err),
+      );
       results.push({
         folderName: analysis.folder.folderName,
         imported: 0,
@@ -558,6 +565,8 @@ export async function runImport({
       });
     }
   }
+
+  await updateImportJob(jobId, progress, shouldStop() ? "interrupted" : "completed");
 
   return results;
 }
