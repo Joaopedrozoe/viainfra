@@ -74,11 +74,28 @@ const Contacts = () => {
 
       console.log('[Contacts] Fetching contacts for company:', activeCompanyId);
 
-      const { data: contactsData, error } = await supabase
-        .from('contacts')
-        .select('*')
-        .eq('company_id', activeCompanyId)
-        .order('created_at', { ascending: false });
+      // Busca paginada: o PostgREST corta em 1000 linhas por requisição
+      const PAGE_SIZE = 1000;
+      const contactsData: any[] = [];
+      let error: any = null;
+
+      for (let page = 0; page < 50; page++) {
+        const { data, error: pageError } = await supabase
+          .from('contacts')
+          .select('*')
+          .eq('company_id', activeCompanyId)
+          .order('created_at', { ascending: false })
+          .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+
+        if (pageError) {
+          error = pageError;
+          break;
+        }
+        if (!data?.length) break;
+        contactsData.push(...data);
+        if (data.length < PAGE_SIZE) break;
+      }
+
 
       if (error) {
         console.error('Error loading contacts:', error);
