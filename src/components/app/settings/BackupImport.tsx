@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -28,12 +28,15 @@ import {
 import {
   ChatAnalysis,
   ChatImportResult,
+  ImportJobState,
   ImportProgress,
   analyzeChats,
   buildCsvReport,
   clearResumeState,
   getCompletedFolders,
+  getLatestImportJob,
   groupFilesIntoChats,
+  markJobInterrupted,
   runImport,
 } from "@/lib/backup-import";
 
@@ -67,6 +70,35 @@ export function BackupImport() {
   const [results, setResults] = useState<ChatImportResult[]>([]);
   const [withMedia, setWithMedia] = useState(true);
   const [limitPilot, setLimitPilot] = useState(true);
+  const [lastJob, setLastJob] = useState<ImportJobState | null>(null);
+  const jobIdRef = useRef<string | null>(null);
+
+  // Recupera o andamento do último lote gravado no banco (sobrevive a recarregar a aba)
+  useEffect(() => {
+    if (!companyId) return;
+    let active = true;
+
+    const load = async () => {
+      const job = await getLatestImportJob(companyId);
+      if (active) setLastJob(job);
+    };
+
+    load();
+    const timer = window.setInterval(load, 10000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [companyId]);
+
+  // Se a aba fechar durante a importação, o job fica marcado como interrompido
+  useEffect(() => {
+    const onUnload = () => {
+      if (jobIdRef.current) void markJobInterrupted(jobIdRef.current);
+    };
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
+  }, []);
 
   const totals = useMemo(() => {
     const selected = analyses.filter((a) => a.selected);
@@ -151,13 +183,19 @@ export function BackupImport() {
         uploadMediaFiles: withMedia,
         onProgress: setProgress,
         shouldStop: () => stopRef.current,
+        onJobCreated: (id) => {
+          jobIdRef.current = id;
+        },
       });
       setResults(res);
       setPhase("done");
+      jobIdRef.current = null;
+      setLastJob(await getLatestImportJob(companyId));
       const totalImported = res.reduce((s, r) => s + r.imported, 0);
       toast.success(`Importação concluída: ${totalImported} mensagens novas`);
     } catch (error) {
       console.error(error);
+      jobIdRef.current = null;
       toast.error("Falha na importação", {
         description: error instanceof Error ? error.message : undefined,
       });
@@ -178,6 +216,46 @@ export function BackupImport() {
 
   return (
     <div className="space-y-6">
+      {lastJob && phase !== "importing" && (
+        <Card className="border-primary/40">
+          <CardHeader>
+            <CardTitle className="text-base">
+              Último lote de importação —{" "}
+              {lastJob.status === "running"
+                ? "em andamento"
+                : lastJob.status === "completed"
+                  ? "concluído"
+                  : "interrompido"}
+            </CardTitle>
+            <CardDescription>
+              Atualizado em {new Date(lastJob.updatedAt).toLocaleString("pt-BR")}
+              {lastJob.currentChat ? ` • última conversa: ${lastJob.currentChat}` : ""}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <Progress
+              value={lastJob.total ? (lastJob.processed / lastJob.total) * 100 : 0}
+              className="h-2"
+            />
+            <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+              <span>
+                {lastJob.processed}/{lastJob.total} conversas
+              </span>
+              <span>{lastJob.imported} mensagens importadas</span>
+              <span>{lastJob.skipped} duplicadas/ignoradas</span>
+              <span>{lastJob.mediaUploaded} mídias enviadas</span>
+              <span>{lastJob.errors} erros</span>
+            </div>
+            {lastJob.status !== "completed" && (
+              <p className="text-xs text-muted-foreground">
+                Para continuar, selecione a mesma pasta do backup abaixo — as conversas já concluídas
+                são puladas automaticamente.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Importar backup de conversas</CardTitle>
