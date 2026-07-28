@@ -436,6 +436,7 @@ export interface RunImportOptions {
   uploadMediaFiles: boolean;
   onProgress: (progress: ImportProgress) => void;
   shouldStop: () => boolean;
+  onJobCreated?: (jobId: string | null) => void;
 }
 
 export async function runImport({
@@ -444,6 +445,7 @@ export async function runImport({
   uploadMediaFiles,
   onProgress,
   shouldStop,
+  onJobCreated,
 }: RunImportOptions): Promise<ChatImportResult[]> {
   const selected = analyses.filter((a) => a.selected && a.chat.messages.length > 0);
   const done = getCompletedFolders(companyId);
