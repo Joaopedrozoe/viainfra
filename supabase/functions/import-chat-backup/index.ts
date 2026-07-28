@@ -29,13 +29,54 @@ function json(body: unknown, status = 200) {
 }
 
 function normalizeName(value: string): string {
-  return value
+  return String(value || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+}
+
+/** Nome "núcleo": sem trechos entre parênteses e sem sufixos de função. */
+function coreName(value: string): string {
+  const withoutParens = String(value || "").replace(/\([^)]*\)/g, " ");
+  let base = normalizeName(withoutParens);
+  const suffixes = [
+    "colaborador","colaboradora","funcionario","funcionaria","motorista",
+    "vendedor","vendedora","atendente","cliente","fornecedor","fornecedora",
+    "mecanico","mecanica","gerente","socio","socia","adm","rh",
+  ];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const suffix of suffixes) {
+      if (base.endsWith(` ${suffix}`)) {
+        base = base.slice(0, -(suffix.length + 1)).trim();
+        changed = true;
+      }
+    }
+  }
+  return base;
+}
+
+/** Considera igual quando o núcleo bate ou um nome é prefixo do outro. */
+function namesMatch(a: string, b: string): boolean {
+  const na = normalizeName(a);
+  const nb = normalizeName(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+
+  const ca = coreName(a);
+  const cb = coreName(b);
+  if (!ca || !cb) return false;
+  if (ca === cb) return true;
+
+  const shorter = ca.length <= cb.length ? ca : cb;
+  const longer = ca.length <= cb.length ? cb : ca;
+  if (shorter.length < 10) return false;
+  // só aceita prefixo em limite de palavra ("lukas miranda primetrac" x "lukas miranda primetrac autotrac")
+  return longer.startsWith(`${shorter} `);
 }
 
 function normalizePhone(value?: string | null): string {
@@ -45,6 +86,32 @@ function normalizePhone(value?: string | null): string {
   if (digits.length <= 11 && !digits.startsWith("55")) digits = `55${digits}`;
   return digits;
 }
+
+/** Variantes do mesmo número BR: com/sem 55 e com/sem o nono dígito. */
+function phoneVariants(value?: string | null): string[] {
+  const base = normalizePhone(value);
+  if (!base) return [];
+  const set = new Set<string>([base]);
+  const raw = String(value).replace(/\D/g, "");
+  if (raw) set.add(raw);
+
+  if (base.startsWith("55")) {
+    const national = base.slice(2);
+    set.add(national);
+    if (national.length === 11 && national[2] === "9") {
+      const without9 = national.slice(0, 2) + national.slice(3);
+      set.add(without9);
+      set.add(`55${without9}`);
+    }
+    if (national.length === 10) {
+      const with9 = `${national.slice(0, 2)}9${national.slice(2)}`;
+      set.add(with9);
+      set.add(`55${with9}`);
+    }
+  }
+  return [...set].filter(Boolean);
+}
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
