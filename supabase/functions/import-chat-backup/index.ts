@@ -29,13 +29,54 @@ function json(body: unknown, status = 200) {
 }
 
 function normalizeName(value: string): string {
-  return value
+  return String(value || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-zA-Z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+}
+
+/** Nome "núcleo": sem trechos entre parênteses e sem sufixos de função. */
+function coreName(value: string): string {
+  const withoutParens = String(value || "").replace(/\([^)]*\)/g, " ");
+  let base = normalizeName(withoutParens);
+  const suffixes = [
+    "colaborador","colaboradora","funcionario","funcionaria","motorista",
+    "vendedor","vendedora","atendente","cliente","fornecedor","fornecedora",
+    "mecanico","mecanica","gerente","socio","socia","adm","rh",
+  ];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const suffix of suffixes) {
+      if (base.endsWith(` ${suffix}`)) {
+        base = base.slice(0, -(suffix.length + 1)).trim();
+        changed = true;
+      }
+    }
+  }
+  return base;
+}
+
+/** Considera igual quando o núcleo bate ou um nome é prefixo do outro. */
+function namesMatch(a: string, b: string): boolean {
+  const na = normalizeName(a);
+  const nb = normalizeName(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+
+  const ca = coreName(a);
+  const cb = coreName(b);
+  if (!ca || !cb) return false;
+  if (ca === cb) return true;
+
+  const shorter = ca.length <= cb.length ? ca : cb;
+  const longer = ca.length <= cb.length ? cb : ca;
+  if (shorter.length < 10) return false;
+  // só aceita prefixo em limite de palavra ("lukas miranda primetrac" x "lukas miranda primetrac autotrac")
+  return longer.startsWith(`${shorter} `);
 }
 
 function normalizePhone(value?: string | null): string {
@@ -45,6 +86,32 @@ function normalizePhone(value?: string | null): string {
   if (digits.length <= 11 && !digits.startsWith("55")) digits = `55${digits}`;
   return digits;
 }
+
+/** Variantes do mesmo número BR: com/sem 55 e com/sem o nono dígito. */
+function phoneVariants(value?: string | null): string[] {
+  const base = normalizePhone(value);
+  if (!base) return [];
+  const set = new Set<string>([base]);
+  const raw = String(value).replace(/\D/g, "");
+  if (raw) set.add(raw);
+
+  if (base.startsWith("55")) {
+    const national = base.slice(2);
+    set.add(national);
+    if (national.length === 11 && national[2] === "9") {
+      const without9 = national.slice(0, 2) + national.slice(3);
+      set.add(without9);
+      set.add(`55${without9}`);
+    }
+    if (national.length === 10) {
+      const with9 = `${national.slice(0, 2)}9${national.slice(2)}`;
+      set.add(with9);
+      set.add(`55${with9}`);
+    }
+  }
+  return [...set].filter(Boolean);
+}
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -108,26 +175,64 @@ Deno.serve(async (req) => {
         }
       }
 
-      // procura contato por telefone ou nome
+      // procura contato por telefone (variantes), remoteJid ou nome
       if (!conversationId && !contactId) {
-        if (phone) {
+        const variants = phoneVariants(body?.phone);
+
+        if (variants.length) {
           const { data } = await supabase
             .from("contacts")
             .select("id")
             .eq("company_id", companyId)
-            .eq("phone", phone)
+            .in("phone", variants)
             .limit(1);
           if (data?.length) contactId = data[0].id;
         }
+
+        if (!contactId && variants.length) {
+          for (const variant of variants) {
+            const { data } = await supabase
+              .from("contacts")
+              .select("id")
+              .eq("company_id", companyId)
+              .eq("metadata->>remoteJid", `${variant}@s.whatsapp.net`)
+              .limit(1);
+            if (data?.length) {
+              contactId = data[0].id;
+              break;
+            }
+          }
+        }
+
         if (!contactId) {
-          const { data } = await supabase
-            .from("contacts")
-            .select("id, name")
-            .eq("company_id", companyId)
-            .ilike("name", name)
-            .limit(5);
-          const hit = (data || []).find((c) => normalizeName(c.name) === normalizeName(name));
-          if (hit) contactId = hit.id;
+          // busca por nome: exato, depois pelo núcleo do nome
+          const core = coreName(name);
+          const patterns = [name, core, core.split(" ").slice(0, 2).join(" ")]
+            .map((value) => value.trim())
+            .filter((value, index, all) => value.length >= 3 && all.indexOf(value) === index);
+
+          const candidates: Array<{ id: string; name: string }> = [];
+          for (const pattern of patterns) {
+            const { data } = await supabase
+              .from("contacts")
+              .select("id, name")
+              .eq("company_id", companyId)
+              .ilike("name", `%${pattern}%`)
+              .limit(25);
+            for (const row of data || []) {
+              if (!candidates.some((c) => c.id === row.id)) candidates.push(row);
+            }
+            if (candidates.length >= 50) break;
+          }
+
+          const exact = candidates.find((c) => normalizeName(c.name) === normalizeName(name));
+          if (exact) {
+            contactId = exact.id;
+          } else {
+            const fuzzy = candidates.filter((c) => namesMatch(c.name, name));
+            // só aceita quando não há ambiguidade
+            if (fuzzy.length === 1) contactId = fuzzy[0].id;
+          }
         }
       }
 
@@ -141,6 +246,7 @@ Deno.serve(async (req) => {
             metadata: {
               source: "backup-import",
               isGroup,
+              remoteJid: phone ? `${phone}@s.whatsapp.net` : null,
               importedAt: new Date().toISOString(),
             },
           })
@@ -158,7 +264,8 @@ Deno.serve(async (req) => {
       }
 
       if (!conversationId) {
-        const { data: existing } = await supabase
+        // 1) conversa já ligada a este contato
+        const { data: byContact } = await supabase
           .from("conversations")
           .select("id")
           .eq("company_id", companyId)
@@ -166,9 +273,26 @@ Deno.serve(async (req) => {
           .order("updated_at", { ascending: false })
           .limit(1);
 
-        if (existing?.length) {
-          conversationId = existing[0].id;
-        } else {
+        if (byContact?.length) conversationId = byContact[0].id;
+
+        // 2) conversa com o mesmo remoteJid (mesmo telefone em outro contato)
+        if (!conversationId) {
+          for (const variant of phoneVariants(body?.phone)) {
+            const { data } = await supabase
+              .from("conversations")
+              .select("id")
+              .eq("company_id", companyId)
+              .eq("metadata->>remoteJid", `${variant}@s.whatsapp.net`)
+              .order("updated_at", { ascending: false })
+              .limit(1);
+            if (data?.length) {
+              conversationId = data[0].id;
+              break;
+            }
+          }
+        }
+
+        if (!conversationId) {
           const { data: createdConv, error: convError } = await supabase
             .from("conversations")
             .insert({
@@ -191,6 +315,7 @@ Deno.serve(async (req) => {
         }
       }
 
+
       return json({ conversationId, contactId });
     }
 
@@ -210,17 +335,31 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (!conv) return json({ error: "Conversa não pertence à empresa" }, 403);
 
-      // índice de deduplicação da conversa
-      const { data: existing } = await supabase
-        .from("messages")
-        .select("content, sender_type, created_at, metadata")
-        .eq("conversation_id", conversationId)
-        .limit(20000);
+      // índice de deduplicação da conversa (paginado: PostgREST corta em 1000 linhas)
+      const existing: Array<{
+        content: string | null;
+        sender_type: string;
+        created_at: string;
+        metadata: Record<string, unknown> | null;
+      }> = [];
+      const PAGE = 1000;
+      for (let page = 0; page < 60; page++) {
+        const { data, error: pageError } = await supabase
+          .from("messages")
+          .select("content, sender_type, created_at, metadata")
+          .eq("conversation_id", conversationId)
+          .order("created_at", { ascending: true })
+          .range(page * PAGE, page * PAGE + PAGE - 1);
+        if (pageError) throw pageError;
+        if (!data?.length) break;
+        existing.push(...(data as typeof existing));
+        if (data.length < PAGE) break;
+      }
 
       const existingIds = new Set<string>();
       const existingFingerprints: Array<{ key: string; time: number }> = [];
 
-      for (const row of existing || []) {
+      for (const row of existing) {
         const meta = (row.metadata || {}) as Record<string, unknown>;
         for (const key of ["external_id", "messageId", "whatsappMessageId", "message_id"]) {
           const value = meta[key];
@@ -231,6 +370,7 @@ Deno.serve(async (req) => {
           time: new Date(row.created_at).getTime(),
         });
       }
+
 
       const toInsert: Record<string, unknown>[] = [];
       let skipped = 0;
@@ -256,8 +396,10 @@ Deno.serve(async (req) => {
             ? createdAt.toISOString()
             : new Date().toISOString();
 
-        // fallback: mesmo remetente + mesmo texto dentro de ±90s
-        if (!stanzaId && content) {
+        // dedupe por conteúdo: mesmo remetente + mesmo texto dentro de ±90s
+        // (vale também quando há stanzaId, pois a API oficial grava ids wamid.* diferentes)
+        if (content) {
+
           const key = `${senderType}|${content.trim().toLowerCase()}`;
           const time = new Date(createdAtIso).getTime();
           const duplicate = existingFingerprints.some(
