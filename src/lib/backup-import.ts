@@ -315,6 +315,121 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+/* ---------- Progresso persistido no banco (import_jobs) ---------- */
+
+export interface ImportJobState {
+  id: string;
+  status: string;
+  phase: string;
+  total: number;
+  processed: number;
+  currentChat: string;
+  imported: number;
+  skipped: number;
+  mediaUploaded: number;
+  errors: number;
+  updatedAt: string;
+}
+
+const JOB_INSTANCE = "backup-import";
+
+function mapJob(row: {
+  id: string;
+  status: string;
+  phase: string;
+  total_items: number | null;
+  processed_items: number | null;
+  last_cursor: string | null;
+  metadata: unknown;
+  updated_at: string;
+}): ImportJobState {
+  const meta = (row.metadata || {}) as Record<string, number>;
+  return {
+    id: row.id,
+    status: row.status,
+    phase: row.phase,
+    total: row.total_items ?? 0,
+    processed: row.processed_items ?? 0,
+    currentChat: row.last_cursor || "",
+    imported: Number(meta.imported ?? 0),
+    skipped: Number(meta.skipped ?? 0),
+    mediaUploaded: Number(meta.mediaUploaded ?? 0),
+    errors: Number(meta.errors ?? 0),
+    updatedAt: row.updated_at,
+  };
+}
+
+/** Último job de importação de backup da empresa (para retomar a visão do progresso). */
+export async function getLatestImportJob(companyId: string): Promise<ImportJobState | null> {
+  const { data } = await supabase
+    .from("import_jobs")
+    .select("id, status, phase, total_items, processed_items, last_cursor, metadata, updated_at")
+    .eq("company_id", companyId)
+    .eq("instance_name", JOB_INSTANCE)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return data ? mapJob(data) : null;
+}
+
+async function createImportJob(companyId: string, total: number): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("import_jobs")
+    .insert({
+      company_id: companyId,
+      instance_name: JOB_INSTANCE,
+      phase: "messages",
+      status: "running",
+      total_items: total,
+      processed_items: 0,
+      metadata: { imported: 0, skipped: 0, mediaUploaded: 0, errors: 0 },
+    })
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[backup-import] não foi possível registrar o job:", error.message);
+    return null;
+  }
+  return data?.id ?? null;
+}
+
+async function updateImportJob(
+  jobId: string | null,
+  progress: ImportProgress,
+  status: string,
+  errorMessage?: string,
+) {
+  if (!jobId) return;
+  await supabase
+    .from("import_jobs")
+    .update({
+      status,
+      processed_items: progress.currentIndex,
+      total_items: progress.total,
+      last_cursor: progress.currentChat,
+      error_message: errorMessage ?? null,
+      metadata: {
+        imported: progress.imported,
+        skipped: progress.skipped,
+        mediaUploaded: progress.mediaUploaded,
+        errors: progress.errors,
+      },
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", jobId);
+}
+
+/** Marca um job travado (aba fechada) como interrompido. */
+export async function markJobInterrupted(jobId: string) {
+  await supabase
+    .from("import_jobs")
+    .update({ status: "interrupted", updated_at: new Date().toISOString() })
+    .eq("id", jobId)
+    .eq("status", "running");
+}
+
 export interface RunImportOptions {
   companyId: string;
   analyses: ChatAnalysis[];
