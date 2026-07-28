@@ -116,7 +116,8 @@ const Settings = () => {
     { id: "integrations", label: "Integrações", adminOnly: false },
     { id: "api", label: "API", adminOnly: false },
     { id: "billing", label: "Faturas", adminOnly: false },
-    { id: "schedule", label: "Agenda", adminOnly: false }
+    { id: "schedule", label: "Agenda", adminOnly: false },
+    { id: "backup", label: "Importar Backup", adminOnly: true }
   ];
   
   // Filter tabs based on admin permission
