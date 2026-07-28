@@ -396,8 +396,10 @@ Deno.serve(async (req) => {
             ? createdAt.toISOString()
             : new Date().toISOString();
 
-        // fallback: mesmo remetente + mesmo texto dentro de ±90s
-        if (!stanzaId && content) {
+        // dedupe por conteúdo: mesmo remetente + mesmo texto dentro de ±90s
+        // (vale também quando há stanzaId, pois a API oficial grava ids wamid.* diferentes)
+        if (content) {
+
           const key = `${senderType}|${content.trim().toLowerCase()}`;
           const time = new Date(createdAtIso).getTime();
           const duplicate = existingFingerprints.some(
