@@ -17,20 +17,20 @@ export const DialPad = () => {
   const [number, setNumber] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const isViainfra = /viainfra/i.test(company?.name || "");
+  const callsEnabled = /viainfra|vialogistic/i.test(company?.name || "");
 
   const handleKey = (key: string) => setNumber(prev => prev + key);
   const handleDelete = () => setNumber(prev => prev.slice(0, -1));
 
   const handleCall = async () => {
     if (!number.trim()) return;
-    if (!isViainfra) {
-      toast.error("Ligações estão disponíveis apenas para a VIAINFRA (WhatsApp Cloud API).");
+    if (!callsEnabled) {
+      toast.error("Ligações disponíveis apenas para contas na WhatsApp Cloud API (Meta).");
       return;
     }
     setLoading(true);
     try {
-      await initiateCall({ phone: number, callType: "voice" });
+      await initiateCall({ phone: number, callType: "voice", companyId: company?.id });
       toast.success("Ligação iniciada. Aguardando o destinatário atender.");
       setNumber("");
     } catch (e: any) {
@@ -80,9 +80,9 @@ export const DialPad = () => {
         </Button>
       </div>
 
-      {!isViainfra && (
+      {!callsEnabled && (
         <p className="text-xs text-muted-foreground text-center max-w-xs">
-          Este recurso usa a WhatsApp Business Calling API (Meta Cloud) e está ativo apenas para VIAINFRA.
+          Este recurso usa a WhatsApp Business Calling API (Meta Cloud) e está ativo para contas na API oficial (VIAINFRA e VIALOGISTIC).
         </p>
       )}
     </div>

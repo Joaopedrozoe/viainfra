@@ -62,7 +62,7 @@ export function useCalls() {
   return { calls, loading, stats, reload: load };
 }
 
-export async function initiateCall(params: { phone: string; contactId?: string; conversationId?: string; callType?: "voice" | "video" }) {
+export async function initiateCall(params: { phone: string; contactId?: string; conversationId?: string; callType?: "voice" | "video"; companyId?: string }) {
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData.session?.access_token;
   if (!token) throw new Error("Sessão expirada. Faça login novamente.");

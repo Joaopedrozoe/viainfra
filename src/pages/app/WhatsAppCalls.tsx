@@ -21,7 +21,7 @@ const WhatsAppCalls = () => {
               <Phone className="h-7 w-7 text-primary" />
               <div>
                 <h1 className="text-2xl font-bold">Ligações WhatsApp</h1>
-                <p className="text-sm text-muted-foreground">Discador e registro de chamadas (VIAINFRA · WhatsApp Cloud API)</p>
+                <p className="text-sm text-muted-foreground">Discador e registro de chamadas (WhatsApp Cloud API · Meta)</p>
               </div>
             </div>
 

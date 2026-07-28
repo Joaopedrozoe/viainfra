@@ -62,7 +62,7 @@ export const ChatHeader = memo(({
   const [botActive, setBotActive] = useState<boolean>(true);
   const [botLoading, setBotLoading] = useState(false);
   const [callingLoading, setCallingLoading] = useState(false);
-  const canCall = channel === "whatsapp" && !!contactPhone && /viainfra/i.test(company?.name || "");
+  const canCall = channel === "whatsapp" && !!contactPhone && /viainfra|vialogistic/i.test(company?.name || "");
 
   const handleCall = async () => {
     if (!contactPhone) return;
