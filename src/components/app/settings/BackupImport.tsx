@@ -28,12 +28,15 @@ import {
 import {
   ChatAnalysis,
   ChatImportResult,
+  ImportJobState,
   ImportProgress,
   analyzeChats,
   buildCsvReport,
   clearResumeState,
   getCompletedFolders,
+  getLatestImportJob,
   groupFilesIntoChats,
+  markJobInterrupted,
   runImport,
 } from "@/lib/backup-import";
 
