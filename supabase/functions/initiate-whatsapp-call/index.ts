@@ -6,15 +6,30 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Resolve credenciais Meta por empresa (VIAINFRA / VIALOGISTIC)
+export function resolveMetaCreds(companyName: string) {
+  const isVialogistic = /vialogistic/i.test(companyName || "");
+  if (isVialogistic) {
+    return {
+      key: "VIALOGISTIC",
+      token: Deno.env.get("META_ACCESS_TOKEN_VIALOGISTIC") || Deno.env.get("META_ACCESS_TOKEN_VIAINFRA"),
+      phoneNumberId: Deno.env.get("META_PHONE_NUMBER_ID_VIALOGISTIC"),
+    };
+  }
+  return {
+    key: "VIAINFRA",
+    token: Deno.env.get("META_ACCESS_TOKEN_VIAINFRA"),
+    phoneNumberId: Deno.env.get("META_PHONE_NUMBER_ID_VIAINFRA") || "1221458467717278",
+  };
+}
+
 // Meta Cloud API — WhatsApp Business Calling API
-// Docs: https://developers.facebook.com/docs/whatsapp/cloud-api/reference/calling
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
     console.log("📞 initiate-whatsapp-call invoked");
     const authHeader = req.headers.get("Authorization");
-    console.log("Auth header present:", !!authHeader);
     if (!authHeader) return json({ error: "Missing auth" }, 401);
 
     const supabase = createClient(
@@ -22,54 +37,53 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_ANON_KEY")!,
       { global: { headers: { Authorization: authHeader } } },
     );
-    const { data: { user }, error: userErr } = await supabase.auth.getUser();
-    console.log("User:", user?.id, "err:", userErr?.message);
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) return json({ error: "Unauthorized: sessão inválida" }, 401);
 
     const body = await req.json().catch(() => ({}));
     const rawPhone: string = (body.phone || "").toString().replace(/\D/g, "");
     const contactId: string | null = body.contactId ?? null;
     const conversationId: string | null = body.conversationId ?? null;
+    const companyId: string | null = body.companyId ?? null;
     const callType: "voice" | "video" = body.callType === "video" ? "video" : "voice";
     if (!rawPhone || rawPhone.length < 10) return json({ error: "Telefone inválido" }, 400);
 
-    // Normalize BR
     let phone = rawPhone;
     if (phone.length <= 11) phone = `55${phone}`;
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const { data: company } = await admin.from("companies").select("id, name").ilike("name", "%viainfra%").maybeSingle();
-    if (!company) return json({ error: "Empresa VIAINFRA não encontrada" }, 404);
 
-    const token = Deno.env.get("META_ACCESS_TOKEN_VIAINFRA");
-    const phoneNumberId = Deno.env.get("META_PHONE_NUMBER_ID_VIAINFRA") || "1221458467717278";
-    if (!token) {
-      return json({
-        error: "META_ACCESS_TOKEN_VIAINFRA não configurado. Salve o token permanente da Meta (System User) nos secrets.",
-      }, 500);
+    let company: { id: string; name: string } | null = null;
+    if (companyId) {
+      const { data } = await admin.from("companies").select("id, name").eq("id", companyId).maybeSingle();
+      company = data as any;
+    }
+    if (!company) {
+      const { data } = await admin.from("companies").select("id, name").ilike("name", "%viainfra%").maybeSingle();
+      company = data as any;
+    }
+    if (!company) return json({ error: "Empresa não encontrada" }, 404);
+
+    const creds = resolveMetaCreds(company.name);
+    if (!creds.token) {
+      return json({ error: `META_ACCESS_TOKEN_${creds.key} não configurado nos secrets.` }, 500);
+    }
+    if (!creds.phoneNumberId) {
+      return json({ error: `META_PHONE_NUMBER_ID_${creds.key} não configurado nos secrets.` }, 500);
     }
 
-    // POST /{PHONE_NUMBER_ID}/calls
-    const url = `https://graph.facebook.com/v21.0/${phoneNumberId}/calls`;
-    const payload = {
-      messaging_product: "whatsapp",
-      to: phone,
-      action: "connect",
-    };
-    console.log("Calling Meta:", url, "to:", phone);
+    const url = `https://graph.facebook.com/v21.0/${creds.phoneNumberId}/calls`;
+    const payload = { messaging_product: "whatsapp", to: phone, action: "connect" };
+    console.log("Calling Meta:", creds.key, url, "to:", phone);
     const resp = await fetch(url, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
+      headers: { Authorization: `Bearer ${creds.token}`, "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     const respData = await resp.json().catch(() => ({}));
     console.log("Meta response:", resp.status, JSON.stringify(respData));
     if (!resp.ok) {
       const errMsg = respData?.error?.message || `HTTP ${resp.status}`;
-      // Persist a failed record for visibility
       await admin.from("calls").insert({
         company_id: company.id,
         contact_id: contactId,
