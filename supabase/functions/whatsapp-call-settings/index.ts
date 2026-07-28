@@ -7,8 +7,23 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
+function resolveMetaCreds(companyName: string) {
+  const isVialogistic = /vialogistic/i.test(companyName || "");
+  if (isVialogistic) {
+    return {
+      key: "VIALOGISTIC",
+      token: Deno.env.get("META_ACCESS_TOKEN_VIALOGISTIC") || Deno.env.get("META_ACCESS_TOKEN_VIAINFRA"),
+      phoneNumberId: Deno.env.get("META_PHONE_NUMBER_ID_VIALOGISTIC") || "1157997970738498",
+    };
+  }
+  return {
+    key: "VIAINFRA",
+    token: Deno.env.get("META_ACCESS_TOKEN_VIAINFRA"),
+    phoneNumberId: Deno.env.get("META_PHONE_NUMBER_ID_VIAINFRA") || "1221458467717278",
+  };
+}
+
 // Meta WhatsApp Business Calling API — Call Settings
-// Docs: https://developers.facebook.com/docs/whatsapp/cloud-api/reference/settings
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -24,31 +39,46 @@ serve(async (req) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return json({ error: "Unauthorized" }, 401);
 
-    const token = Deno.env.get("META_ACCESS_TOKEN_VIAINFRA");
-    const phoneNumberId = Deno.env.get("META_PHONE_NUMBER_ID_VIAINFRA") || "1221458467717278";
-    if (!token) return json({ error: "META_ACCESS_TOKEN_VIAINFRA não configurado" }, 500);
+    const url = new URL(req.url);
+    let companyId = url.searchParams.get("companyId");
 
-    const base = `https://graph.facebook.com/v21.0/${phoneNumberId}/settings`;
+    let body: any = {};
+    if (req.method === "POST") {
+      body = await req.json().catch(() => ({}));
+      companyId = body.companyId || companyId;
+    }
+
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    let company: { id: string; name: string } | null = null;
+    if (companyId) {
+      const { data } = await admin.from("companies").select("id, name").eq("id", companyId).maybeSingle();
+      company = data as any;
+    }
+    if (!company) {
+      const { data } = await admin.from("companies").select("id, name").ilike("name", "%viainfra%").maybeSingle();
+      company = data as any;
+    }
+
+    const creds = resolveMetaCreds(company?.name || "");
+    if (!creds.token) return json({ error: `META_ACCESS_TOKEN_${creds.key} não configurado` }, 500);
+    if (!creds.phoneNumberId) return json({ error: `META_PHONE_NUMBER_ID_${creds.key} não configurado` }, 500);
+
+    const base = `https://graph.facebook.com/v21.0/${creds.phoneNumberId}/settings`;
 
     if (req.method === "GET") {
-      const resp = await fetch(base, { headers: { Authorization: `Bearer ${token}` } });
+      const resp = await fetch(base, { headers: { Authorization: `Bearer ${creds.token}` } });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) return json({ error: data?.error?.message || `HTTP ${resp.status}`, details: data }, resp.status);
       return json({ success: true, settings: data });
     }
 
     if (req.method === "POST") {
-      const body = await req.json().catch(() => ({}));
-      // Expect { calling: {...} }
       if (!body?.calling) return json({ error: "Payload deve conter { calling: {...} }" }, 400);
 
       const resp = await fetch(base, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
+        headers: { Authorization: `Bearer ${creds.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ calling: body.calling }),
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) return json({ error: data?.error?.message || `HTTP ${resp.status}`, details: data }, resp.status);

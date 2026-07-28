@@ -25,7 +25,7 @@ const TIMEZONES = [
 
 export const CallSettings = () => {
   const { company } = useAuth();
-  const isViainfra = /viainfra/i.test(company?.name || "");
+  const callsEnabled = /viainfra|vialogistic/i.test(company?.name || "");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -42,7 +42,7 @@ export const CallSettings = () => {
     const { data: session } = await supabase.auth.getSession();
     const token = session.session?.access_token;
     if (!token) throw new Error("Sessão expirada");
-    const url = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/whatsapp-call-settings`;
+    const url = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/whatsapp-call-settings?companyId=${company?.id ?? ""}`;
     const resp = await fetch(url, {
       method,
       headers: {
@@ -50,7 +50,7 @@ export const CallSettings = () => {
         Authorization: `Bearer ${token}`,
         apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
       },
-      body: body ? JSON.stringify(body) : undefined,
+      body: body ? JSON.stringify({ ...(body as object), companyId: company?.id }) : undefined,
     });
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok || data?.error) throw new Error(data?.error || `HTTP ${resp.status}`);
@@ -58,7 +58,7 @@ export const CallSettings = () => {
   };
 
   const load = async () => {
-    if (!isViainfra) return;
+    if (!callsEnabled) return;
     setLoading(true);
     try {
       const { settings } = await invoke("GET");
@@ -79,7 +79,7 @@ export const CallSettings = () => {
     }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [isViainfra]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [callsEnabled, company?.id]);
 
   const save = async () => {
     setSaving(true);
@@ -119,8 +119,8 @@ export const CallSettings = () => {
   const updHoliday = (i: number, patch: Partial<Holiday>) =>
     setHolidays(holidays.map((h, idx) => idx === i ? { ...h, ...patch } : h));
 
-  if (!isViainfra) {
-    return <p className="text-sm text-muted-foreground p-4">Disponível apenas para VIAINFRA (Meta Cloud API).</p>;
+  if (!callsEnabled) {
+    return <p className="text-sm text-muted-foreground p-4">Disponível apenas para contas na Meta Cloud API.</p>;
   }
 
   if (loading) return <div className="flex items-center justify-center p-8"><Loader2 className="h-6 w-6 animate-spin" /></div>;
