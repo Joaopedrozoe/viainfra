@@ -61,27 +61,14 @@ export const ChatHeader = memo(({
   const [imageError, setImageError] = useState(false);
   const [botActive, setBotActive] = useState<boolean>(true);
   const [botLoading, setBotLoading] = useState(false);
-  const [callingLoading, setCallingLoading] = useState(false);
+  const [callOpen, setCallOpen] = useState(false);
   const canCall = channel === "whatsapp" && !!contactPhone && /viainfra|vialogistic/i.test(company?.name || "");
 
-  const handleCall = async () => {
+  const handleCall = () => {
     if (!contactPhone) return;
-    setCallingLoading(true);
-    try {
-      await initiateCall({
-        phone: contactPhone,
-        contactId: contactId ?? undefined,
-        conversationId,
-        callType: "voice",
-        companyId: company?.id,
-      });
-      toast.success("Ligação iniciada. Aguardando atendimento.");
-    } catch (e: any) {
-      toast.error(e?.message || "Falha ao iniciar ligação");
-    } finally {
-      setCallingLoading(false);
-    }
+    setCallOpen(true);
   };
+
   
   // Carregar estado do bot e subscription para atualizações em tempo real
   useEffect(() => {
