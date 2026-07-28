@@ -175,26 +175,64 @@ Deno.serve(async (req) => {
         }
       }
 
-      // procura contato por telefone ou nome
+      // procura contato por telefone (variantes), remoteJid ou nome
       if (!conversationId && !contactId) {
-        if (phone) {
+        const variants = phoneVariants(body?.phone);
+
+        if (variants.length) {
           const { data } = await supabase
             .from("contacts")
             .select("id")
             .eq("company_id", companyId)
-            .eq("phone", phone)
+            .in("phone", variants)
             .limit(1);
           if (data?.length) contactId = data[0].id;
         }
+
+        if (!contactId && variants.length) {
+          for (const variant of variants) {
+            const { data } = await supabase
+              .from("contacts")
+              .select("id")
+              .eq("company_id", companyId)
+              .eq("metadata->>remoteJid", `${variant}@s.whatsapp.net`)
+              .limit(1);
+            if (data?.length) {
+              contactId = data[0].id;
+              break;
+            }
+          }
+        }
+
         if (!contactId) {
-          const { data } = await supabase
-            .from("contacts")
-            .select("id, name")
-            .eq("company_id", companyId)
-            .ilike("name", name)
-            .limit(5);
-          const hit = (data || []).find((c) => normalizeName(c.name) === normalizeName(name));
-          if (hit) contactId = hit.id;
+          // busca por nome: exato, depois pelo núcleo do nome
+          const core = coreName(name);
+          const patterns = [name, core, core.split(" ").slice(0, 2).join(" ")]
+            .map((value) => value.trim())
+            .filter((value, index, all) => value.length >= 3 && all.indexOf(value) === index);
+
+          const candidates: Array<{ id: string; name: string }> = [];
+          for (const pattern of patterns) {
+            const { data } = await supabase
+              .from("contacts")
+              .select("id, name")
+              .eq("company_id", companyId)
+              .ilike("name", `%${pattern}%`)
+              .limit(25);
+            for (const row of data || []) {
+              if (!candidates.some((c) => c.id === row.id)) candidates.push(row);
+            }
+            if (candidates.length >= 50) break;
+          }
+
+          const exact = candidates.find((c) => normalizeName(c.name) === normalizeName(name));
+          if (exact) {
+            contactId = exact.id;
+          } else {
+            const fuzzy = candidates.filter((c) => namesMatch(c.name, name));
+            // só aceita quando não há ambiguidade
+            if (fuzzy.length === 1) contactId = fuzzy[0].id;
+          }
         }
       }
 
@@ -208,6 +246,7 @@ Deno.serve(async (req) => {
             metadata: {
               source: "backup-import",
               isGroup,
+              remoteJid: phone ? `${phone}@s.whatsapp.net` : null,
               importedAt: new Date().toISOString(),
             },
           })
@@ -225,7 +264,8 @@ Deno.serve(async (req) => {
       }
 
       if (!conversationId) {
-        const { data: existing } = await supabase
+        // 1) conversa já ligada a este contato
+        const { data: byContact } = await supabase
           .from("conversations")
           .select("id")
           .eq("company_id", companyId)
@@ -233,9 +273,26 @@ Deno.serve(async (req) => {
           .order("updated_at", { ascending: false })
           .limit(1);
 
-        if (existing?.length) {
-          conversationId = existing[0].id;
-        } else {
+        if (byContact?.length) conversationId = byContact[0].id;
+
+        // 2) conversa com o mesmo remoteJid (mesmo telefone em outro contato)
+        if (!conversationId) {
+          for (const variant of phoneVariants(body?.phone)) {
+            const { data } = await supabase
+              .from("conversations")
+              .select("id")
+              .eq("company_id", companyId)
+              .eq("metadata->>remoteJid", `${variant}@s.whatsapp.net`)
+              .order("updated_at", { ascending: false })
+              .limit(1);
+            if (data?.length) {
+              conversationId = data[0].id;
+              break;
+            }
+          }
+        }
+
+        if (!conversationId) {
           const { data: createdConv, error: convError } = await supabase
             .from("conversations")
             .insert({
@@ -257,6 +314,7 @@ Deno.serve(async (req) => {
           conversationId = createdConv.id;
         }
       }
+
 
       return json({ conversationId, contactId });
     }
