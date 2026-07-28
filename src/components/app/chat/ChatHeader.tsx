@@ -1,7 +1,7 @@
 
 import { memo, useState, useEffect } from "react";
 import { ArrowLeft, MoreVertical, User, X, ArrowRightLeft, Bot, BotOff, RotateCcw, History, Phone } from "lucide-react";
-import { initiateCall } from "@/hooks/useCalls";
+import { ActiveCallDialog } from "@/components/app/calls/ActiveCallDialog";
 import { useAuth } from "@/contexts/auth";
 import { cn } from "@/lib/utils";
 import { ChannelIcon } from "../conversation/ChannelIcon";
@@ -61,27 +61,14 @@ export const ChatHeader = memo(({
   const [imageError, setImageError] = useState(false);
   const [botActive, setBotActive] = useState<boolean>(true);
   const [botLoading, setBotLoading] = useState(false);
-  const [callingLoading, setCallingLoading] = useState(false);
+  const [callOpen, setCallOpen] = useState(false);
   const canCall = channel === "whatsapp" && !!contactPhone && /viainfra|vialogistic/i.test(company?.name || "");
 
-  const handleCall = async () => {
+  const handleCall = () => {
     if (!contactPhone) return;
-    setCallingLoading(true);
-    try {
-      await initiateCall({
-        phone: contactPhone,
-        contactId: contactId ?? undefined,
-        conversationId,
-        callType: "voice",
-        companyId: company?.id,
-      });
-      toast.success("Ligação iniciada. Aguardando atendimento.");
-    } catch (e: any) {
-      toast.error(e?.message || "Falha ao iniciar ligação");
-    } finally {
-      setCallingLoading(false);
-    }
+    setCallOpen(true);
   };
+
   
   // Carregar estado do bot e subscription para atualizações em tempo real
   useEffect(() => {
@@ -230,13 +217,24 @@ export const ChatHeader = memo(({
           variant="ghost"
           size="icon"
           onClick={handleCall}
-          disabled={callingLoading}
           title="Ligar via WhatsApp"
           className="text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950/30"
         >
           <Phone className="h-5 w-5" />
         </Button>
       )}
+
+      {canCall && (
+        <ActiveCallDialog
+          open={callOpen}
+          phone={contactPhone as string}
+          contactName={userName}
+          contactId={contactId}
+          conversationId={conversationId}
+          onClose={() => setCallOpen(false)}
+        />
+      )}
+
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

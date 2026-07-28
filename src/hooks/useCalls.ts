@@ -62,11 +62,11 @@ export function useCalls() {
   return { calls, loading, stats, reload: load };
 }
 
-export async function initiateCall(params: { phone: string; contactId?: string; conversationId?: string; callType?: "voice" | "video"; companyId?: string }) {
+async function callFunction(name: string, params: Record<string, unknown>) {
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData.session?.access_token;
   if (!token) throw new Error("Sessão expirada. Faça login novamente.");
-  const url = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/initiate-whatsapp-call`;
+  const url = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/${name}`;
   const resp = await fetch(url, {
     method: "POST",
     headers: {
@@ -82,3 +82,19 @@ export async function initiateCall(params: { phone: string; contactId?: string; 
   }
   return body;
 }
+
+export async function initiateCall(params: {
+  phone: string;
+  sdp: string;
+  contactId?: string;
+  conversationId?: string;
+  callType?: "voice" | "video";
+  companyId?: string;
+}) {
+  return callFunction("initiate-whatsapp-call", params);
+}
+
+export async function terminateCall(params: { waCallId: string; callId?: string; companyId?: string }) {
+  return callFunction("whatsapp-call-action", { ...params, action: "terminate" });
+}
+
