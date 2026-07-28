@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Phone, Delete, Loader2 } from "lucide-react";
+import { Phone, Delete } from "lucide-react";
 import { toast } from "sonner";
-import { initiateCall } from "@/hooks/useCalls";
 import { useAuth } from "@/contexts/auth";
+import { ActiveCallDialog } from "./ActiveCallDialog";
 
 const keys = [
   ["1", "2", "3"],
@@ -15,30 +15,25 @@ const keys = [
 export const DialPad = () => {
   const { company } = useAuth();
   const [number, setNumber] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [callOpen, setCallOpen] = useState(false);
+  const [callPhone, setCallPhone] = useState("");
+  const loading = false;
 
   const callsEnabled = /viainfra|vialogistic/i.test(company?.name || "");
 
   const handleKey = (key: string) => setNumber(prev => prev + key);
   const handleDelete = () => setNumber(prev => prev.slice(0, -1));
 
-  const handleCall = async () => {
+  const handleCall = () => {
     if (!number.trim()) return;
     if (!callsEnabled) {
       toast.error("Ligações disponíveis apenas para contas na WhatsApp Cloud API (Meta).");
       return;
     }
-    setLoading(true);
-    try {
-      await initiateCall({ phone: number, callType: "voice", companyId: company?.id });
-      toast.success("Ligação iniciada. Aguardando o destinatário atender.");
-      setNumber("");
-    } catch (e: any) {
-      toast.error(e?.message || "Falha ao iniciar ligação");
-    } finally {
-      setLoading(false);
-    }
+    setCallPhone(number.trim());
+    setCallOpen(true);
   };
+
 
   return (
     <div className="flex flex-col items-center gap-4 p-4">
