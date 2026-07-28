@@ -13,7 +13,7 @@ export function resolveMetaCreds(companyName: string) {
     return {
       key: "VIALOGISTIC",
       token: Deno.env.get("META_ACCESS_TOKEN_VIALOGISTIC") || Deno.env.get("META_ACCESS_TOKEN_VIAINFRA"),
-      phoneNumberId: Deno.env.get("META_PHONE_NUMBER_ID_VIALOGISTIC"),
+      phoneNumberId: Deno.env.get("META_PHONE_NUMBER_ID_VIALOGISTIC") || "1157997970738498",
     };
   }
   return {
