@@ -1,7 +1,7 @@
 
 import { memo, useState, useEffect } from "react";
 import { ArrowLeft, MoreVertical, User, X, ArrowRightLeft, Bot, BotOff, RotateCcw, History, Phone } from "lucide-react";
-import { initiateCall } from "@/hooks/useCalls";
+import { ActiveCallDialog } from "@/components/app/calls/ActiveCallDialog";
 import { useAuth } from "@/contexts/auth";
 import { cn } from "@/lib/utils";
 import { ChannelIcon } from "../conversation/ChannelIcon";
