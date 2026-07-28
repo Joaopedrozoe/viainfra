@@ -10,6 +10,7 @@ import { PermissionsSettings } from "@/components/app/settings/PermissionsSettin
 import { UsersManagement } from "@/components/app/settings/UsersManagement";
 import { DepartmentsManagement } from "@/components/app/settings/DepartmentsManagement";
 import { NotificationsTab } from "@/components/app/schedule/settings/NotificationsTab";
+import { BackupImport } from "@/components/app/settings/BackupImport";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
