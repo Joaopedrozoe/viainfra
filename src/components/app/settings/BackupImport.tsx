@@ -70,6 +70,35 @@ export function BackupImport() {
   const [results, setResults] = useState<ChatImportResult[]>([]);
   const [withMedia, setWithMedia] = useState(true);
   const [limitPilot, setLimitPilot] = useState(true);
+  const [lastJob, setLastJob] = useState<ImportJobState | null>(null);
+  const jobIdRef = useRef<string | null>(null);
+
+  // Recupera o andamento do último lote gravado no banco (sobrevive a recarregar a aba)
+  useEffect(() => {
+    if (!companyId) return;
+    let active = true;
+
+    const load = async () => {
+      const job = await getLatestImportJob(companyId);
+      if (active) setLastJob(job);
+    };
+
+    load();
+    const timer = window.setInterval(load, 10000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [companyId]);
+
+  // Se a aba fechar durante a importação, o job fica marcado como interrompido
+  useEffect(() => {
+    const onUnload = () => {
+      if (jobIdRef.current) void markJobInterrupted(jobIdRef.current);
+    };
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
+  }, []);
 
   const totals = useMemo(() => {
     const selected = analyses.filter((a) => a.selected);
