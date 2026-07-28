@@ -73,6 +73,7 @@ export const ChatHeader = memo(({
         contactId: contactId ?? undefined,
         conversationId,
         callType: "voice",
+        companyId: company?.id,
       });
       toast.success("Ligação iniciada. Aguardando atendimento.");
     } catch (e: any) {
