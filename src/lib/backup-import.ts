@@ -459,12 +459,16 @@ export async function runImport({
     errors: 0,
   };
 
+  const jobId = await createImportJob(companyId, selected.length);
+  onJobCreated?.(jobId);
+
   for (let i = 0; i < selected.length; i++) {
     if (shouldStop()) break;
     const analysis = selected[i];
     progress.currentIndex = i + 1;
     progress.currentChat = analysis.chat.htmlTitle || analysis.folder.folderName;
     onProgress({ ...progress });
+    await updateImportJob(jobId, progress, "running");
 
     if (done.has(analysis.folder.folderPath)) {
       results.push({
