@@ -183,13 +183,19 @@ export function BackupImport() {
         uploadMediaFiles: withMedia,
         onProgress: setProgress,
         shouldStop: () => stopRef.current,
+        onJobCreated: (id) => {
+          jobIdRef.current = id;
+        },
       });
       setResults(res);
       setPhase("done");
+      jobIdRef.current = null;
+      setLastJob(await getLatestImportJob(companyId));
       const totalImported = res.reduce((s, r) => s + r.imported, 0);
       toast.success(`Importação concluída: ${totalImported} mensagens novas`);
     } catch (error) {
       console.error(error);
+      jobIdRef.current = null;
       toast.error("Falha na importação", {
         description: error instanceof Error ? error.message : undefined,
       });
