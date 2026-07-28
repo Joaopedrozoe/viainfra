@@ -480,9 +480,16 @@ async function processMetaCallEvent(payload: any): Promise<boolean> {
         if (conv) conversationId = conv.id;
       }
 
+      // SDP answer devolvido pela Meta (necessário para o WebRTC do navegador conectar)
+      const answerSdp: string | null = c?.session?.sdp_type === 'answer' ? (c?.session?.sdp || null) : null;
+
       if (event === 'connect' || (!existing && event !== 'terminate')) {
         if (existing) {
-          await supabase.from('calls').update({ status: 'connected', connected_at: ts }).eq('id', existing.id);
+          await supabase.from('calls').update({
+            status: 'connected',
+            connected_at: ts,
+            metadata: answerSdp ? { ...c, answer_sdp: answerSdp } : c,
+          }).eq('id', existing.id);
         } else {
           await supabase.from('calls').insert({
             company_id: company.id,
