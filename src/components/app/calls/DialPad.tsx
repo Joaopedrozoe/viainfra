@@ -63,7 +63,7 @@ export const DialPad = () => {
           onClick={handleCall}
           disabled={!number.trim() || loading}
         >
-          {loading ? <Loader2 className="h-6 w-6 animate-spin" /> : <Phone className="h-6 w-6" />}
+          <Phone className="h-6 w-6" />
         </Button>
         <Button
           variant="outline"
