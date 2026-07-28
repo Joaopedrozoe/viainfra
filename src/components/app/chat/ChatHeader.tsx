@@ -217,13 +217,24 @@ export const ChatHeader = memo(({
           variant="ghost"
           size="icon"
           onClick={handleCall}
-          disabled={callingLoading}
           title="Ligar via WhatsApp"
           className="text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950/30"
         >
           <Phone className="h-5 w-5" />
         </Button>
       )}
+
+      {canCall && (
+        <ActiveCallDialog
+          open={callOpen}
+          phone={contactPhone as string}
+          contactName={userName}
+          contactId={contactId}
+          conversationId={conversationId}
+          onClose={() => setCallOpen(false)}
+        />
+      )}
+
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
