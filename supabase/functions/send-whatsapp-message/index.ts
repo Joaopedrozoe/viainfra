@@ -99,9 +99,10 @@ serve(async (req) => {
     console.log('[send-whatsapp] Quoted isFromAgent:', quoted?.isFromAgent);
     console.log('[send-whatsapp] Will send with quoted:', !!(quoted?.messageId));
 
-    // Formatar mensagem com identificação do atendente em negrito
-    const formattedMessage = message_content 
-      ? `*${agent_name || 'Atendente'}*\n${message_content}`
+    // Identificação do atendente: prioridade para o usuário autenticado (não confiar só no cliente)
+    let effectiveAgentName: string = agent_name || 'Atendente';
+    let formattedMessage = message_content
+      ? `*${effectiveAgentName}*\n${message_content}`
       : message_content;
 
     console.log('[send-whatsapp] Processing:', {
