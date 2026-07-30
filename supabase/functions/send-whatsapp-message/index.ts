@@ -99,9 +99,10 @@ serve(async (req) => {
     console.log('[send-whatsapp] Quoted isFromAgent:', quoted?.isFromAgent);
     console.log('[send-whatsapp] Will send with quoted:', !!(quoted?.messageId));
 
-    // Formatar mensagem com identificação do atendente em negrito
-    const formattedMessage = message_content 
-      ? `*${agent_name || 'Atendente'}*\n${message_content}`
+    // Identificação do atendente: prioridade para o usuário autenticado (não confiar só no cliente)
+    let effectiveAgentName: string = agent_name || 'Atendente';
+    let formattedMessage = message_content
+      ? `*${effectiveAgentName}*\n${message_content}`
       : message_content;
 
     console.log('[send-whatsapp] Processing:', {
@@ -127,6 +128,48 @@ serve(async (req) => {
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    // Resolver o nome do atendente pelo JWT do usuário autenticado (evita assinatura errada)
+    try {
+      const authHeader = req.headers.get('Authorization') || '';
+      const jwt = authHeader.replace(/^Bearer\s+/i, '');
+      if (jwt) {
+        const { data: userData } = await supabase.auth.getUser(jwt);
+        const authUserId = userData?.user?.id;
+        if (authUserId) {
+          const { data: profileRow } = await supabase
+            .from('profiles')
+            .select('name, company_id')
+            .eq('user_id', authUserId)
+            .eq('company_id', conversation.company_id)
+            .maybeSingle();
+
+          const { data: anyProfile } = profileRow?.name
+            ? { data: profileRow }
+            : await supabase
+                .from('profiles')
+                .select('name, company_id')
+                .eq('user_id', authUserId)
+                .limit(1)
+                .maybeSingle();
+
+          const resolvedName = (profileRow?.name || anyProfile?.name || '').trim();
+          if (resolvedName) {
+            effectiveAgentName = resolvedName;
+            formattedMessage = message_content
+              ? `*${effectiveAgentName}*\n${message_content}`
+              : message_content;
+          }
+          if (agent_name && resolvedName && agent_name !== resolvedName) {
+            console.warn('[send-whatsapp] agent_name do cliente divergente, usando perfil autenticado:', { agent_name, resolvedName });
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[send-whatsapp] Falha ao resolver atendente pelo JWT:', e);
+    }
+
+
 
     // Verificar se é canal WhatsApp
     if (conversation.channel !== 'whatsapp') {
@@ -334,7 +377,7 @@ serve(async (req) => {
         .from('messages')
         .select('created_at')
         .eq('conversation_id', conversation_id)
-        .eq('sender_type', 'contact')
+        .in('sender_type', ['contact', 'user'])
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -351,7 +394,7 @@ serve(async (req) => {
     }
 
     if (attachment) {
-      sendResult = await sendMediaMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, attachment, formattedMessage, agent_name, isGroup, quotedData);
+      sendResult = await sendMediaMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, attachment, message_content, effectiveAgentName, isGroup, quotedData);
     } else {
       sendResult = await sendTextMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, formattedMessage, isGroup, quotedData);
     }
