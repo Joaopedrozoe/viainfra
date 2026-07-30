@@ -377,7 +377,7 @@ serve(async (req) => {
         .from('messages')
         .select('created_at')
         .eq('conversation_id', conversation_id)
-        .eq('sender_type', 'contact')
+        .in('sender_type', ['contact', 'user'])
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -394,7 +394,7 @@ serve(async (req) => {
     }
 
     if (attachment) {
-      sendResult = await sendMediaMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, attachment, formattedMessage, agent_name, isGroup, quotedData);
+      sendResult = await sendMediaMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, attachment, message_content, effectiveAgentName, isGroup, quotedData);
     } else {
       sendResult = await sendTextMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, formattedMessage, isGroup, quotedData);
     }
