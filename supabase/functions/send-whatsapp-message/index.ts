@@ -327,11 +327,35 @@ serve(async (req) => {
     
     console.log('[send-whatsapp] QuotedData montado:', quotedData ? JSON.stringify(quotedData) : 'null');
 
+    // Janela de atendimento de 24h (API Oficial Meta): fora dela só templates são entregues
+    let outside24hWindow = false;
+    try {
+      const { data: lastInbound } = await supabase
+        .from('messages')
+        .select('created_at')
+        .eq('conversation_id', conversation_id)
+        .eq('sender_type', 'contact')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const lastInboundAt = lastInbound?.created_at ? new Date(lastInbound.created_at).getTime() : 0;
+      outside24hWindow = !lastInboundAt || (Date.now() - lastInboundAt) > 24 * 60 * 60 * 1000;
+      if (outside24hWindow) {
+        console.warn('[send-whatsapp] Fora da janela de 24h — a Meta pode não entregar esta mensagem', {
+          conversation_id, lastInboundAt: lastInbound?.created_at || null
+        });
+      }
+    } catch (e) {
+      console.error('[send-whatsapp] Falha ao checar janela de 24h:', e);
+    }
+
     if (attachment) {
       sendResult = await sendMediaMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, attachment, formattedMessage, agent_name, isGroup, quotedData);
     } else {
       sendResult = await sendTextMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, formattedMessage, isGroup, quotedData);
     }
+
 
     // Se enviou com sucesso, atualizar metadata da mensagem com o messageId
     if (sendResult.success && sendResult.messageId && message_id) {
@@ -356,7 +380,9 @@ serve(async (req) => {
             whatsappMessageId: sendResult.messageId,
             messageId: sendResult.messageId,
             whatsappSentAt: new Date().toISOString(),
-            whatsappStatus: 'sent'
+            whatsappStatus: 'sent',
+            outside24hWindow
+
           }
         })
         .eq('id', message_id);
@@ -421,8 +447,13 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         success: true, 
-        messageId: sendResult.messageId 
+        messageId: sendResult.messageId,
+        outside24hWindow,
+        warning: outside24hWindow
+          ? 'Fora da janela de 24h do WhatsApp: a Meta pode não entregar esta mensagem até o contato responder.'
+          : undefined
       }), 
+
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
