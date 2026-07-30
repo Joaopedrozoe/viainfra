@@ -601,7 +601,12 @@ function parseWebhookPayload(payload: any): EvolutionWebhook | null {
         processMetaCallEvent(payload).catch(err => console.error('call processing failed', err));
         return { event: 'IGNORED', instance: 'VIAINFRA', data: null };
       }
+      if (Array.isArray(value?.statuses) && value.statuses.length > 0) {
+        processMetaStatuses(payload).catch(err => console.error('status processing failed', err));
+        return { event: 'IGNORED', instance: 'VIAINFRA', data: null };
+      }
       return convertMetaPayloadToEvolution(payload);
+
     }
 
     if (!payload.event || !payload.instance) {
