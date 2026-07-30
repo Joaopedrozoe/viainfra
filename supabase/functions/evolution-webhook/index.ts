@@ -4244,7 +4244,57 @@ async function handleCreateChamado(supabase: any, conversationId: string, remote
 // ============================================================
 // FUNÇÃO SEGURA PARA ENVIO - SEMPRE USA NUMBER, NUNCA REMOTEJID
 // ============================================================
+// Envia texto do bot pela API OFICIAL da Meta (Cloud API) quando disponível.
+// Retorna true se a Meta aceitou a mensagem.
+async function sendMetaTextMessage(phoneNumber: string, text: string): Promise<boolean> {
+  const token = Deno.env.get('META_ACCESS_TOKEN_VIAINFRA');
+  const phoneNumberId = META_PHONE_NUMBER_ID_VIAINFRA;
+
+  if (!token || !phoneNumberId) return false;
+
+  try {
+    const res = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: phoneNumber,
+        type: 'text',
+        text: { preview_url: false, body: text },
+      }),
+    });
+
+    const raw = await res.text();
+    if (!res.ok) {
+      console.error('❌ [Meta] Falha ao enviar resposta do bot:', res.status, raw);
+      return false;
+    }
+    console.log('✅ [Meta] Resposta do bot enviada:', raw.substring(0, 200));
+    return true;
+  } catch (e) {
+    console.error('❌ [Meta] Erro no envio da resposta do bot:', e);
+    return false;
+  }
+}
+
 async function sendEvolutionMessageSafe(instanceName: string, phoneNumber: string, text: string) {
+  // VALIDAÇÃO: Telefone deve existir e ser numérico
+  if (!phoneNumber || phoneNumber.length < 10 || !/^\d+$/.test(phoneNumber)) {
+    console.error(`🚫 BLOQUEADO: Telefone inválido: ${phoneNumber || 'vazio'}`);
+    return;
+  }
+
+  console.log(`📤 Sending message to: ${phoneNumber} (instance ${instanceName})`);
+
+  // 1) API oficial da Meta (canal atual da VIAINFRA)
+  const sentViaMeta = await sendMetaTextMessage(phoneNumber, text);
+  if (sentViaMeta) return;
+
+  // 2) Fallback: Evolution API (instâncias legadas)
   const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL');
   const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
 
@@ -4253,22 +4303,12 @@ async function sendEvolutionMessageSafe(instanceName: string, phoneNumber: strin
     return;
   }
 
-  // VALIDAÇÃO: Telefone deve existir e ser numérico
-  if (!phoneNumber || phoneNumber.length < 10 || !/^\d+$/.test(phoneNumber)) {
-    console.error(`🚫 BLOQUEADO: Telefone inválido: ${phoneNumber || 'vazio'}`);
-    return;
-  }
-
-  console.log(`📤 Sending message to: ${phoneNumber} via instance ${instanceName}`);
-
   try {
     // SEMPRE usar campo "number", NUNCA "remoteJid"
     const body = { 
       number: phoneNumber, 
       text: text 
     };
-    
-    console.log(`📤 Body:`, JSON.stringify(body));
     
     const response = await fetch(`${evolutionApiUrl}/message/sendText/${instanceName}`, {
       method: 'POST',
