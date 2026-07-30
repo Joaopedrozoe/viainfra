@@ -550,11 +550,20 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
                 whatsappMessageId: response?.messageId 
               });
               
+              // Aviso quando está fora da janela de 24h da API Oficial (Meta)
+              if (response?.outside24hWindow) {
+                toast.warning('Fora da janela de 24h do WhatsApp', {
+                  description: 'A Meta pode não entregar esta mensagem até o contato responder. Use um template aprovado se for urgente.',
+                  duration: 8000,
+                });
+              }
+
               // Toast de sucesso para grupos (feedback positivo importante)
               if (response?.messageId) {
                 // Silencioso para mensagens normais, mas pode ser útil para debug
                 console.log('✅ [WhatsApp] MessageId confirmado:', response.messageId);
               }
+
             }
           } catch (whatsappError) {
             console.error('💥 [WhatsApp] Exceção ao chamar função:', {
