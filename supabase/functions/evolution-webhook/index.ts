@@ -535,7 +535,63 @@ async function processMetaCallEvent(payload: any): Promise<boolean> {
   }
 }
 
+// Meta Cloud API — eventos de status de entrega (sent / delivered / read / failed)
+async function processMetaStatuses(payload: any): Promise<boolean> {
+  try {
+    const value = payload.entry?.[0]?.changes?.[0]?.value;
+    const statuses = Array.isArray(value?.statuses) ? value.statuses : [];
+    if (statuses.length === 0) return false;
+
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    );
+
+    for (const s of statuses) {
+      const wamid: string | undefined = s?.id;
+      if (!wamid) continue;
+
+      const mapped =
+        s.status === 'sent' ? 'sent_confirmed' :
+        s.status === 'delivered' ? 'delivered' :
+        s.status === 'read' ? 'read' :
+        s.status === 'failed' ? 'failed' : null;
+      if (!mapped) continue;
+
+      const { data: msg } = await supabase
+        .from('messages')
+        .select('id, metadata')
+        .or(`metadata->>messageId.eq.${wamid},metadata->>whatsappMessageId.eq.${wamid},metadata->>external_id.eq.${wamid}`)
+        .limit(1)
+        .maybeSingle();
+
+      if (!msg) {
+        console.log(`[Meta status] Mensagem não encontrada para ${wamid} (${s.status})`);
+        continue;
+      }
+
+      const err = Array.isArray(s.errors) ? s.errors[0] : null;
+      const meta = { ...(msg.metadata as any || {}), status: mapped };
+      if (mapped === 'failed' && err) {
+        meta.error = err?.title || err?.message || 'Falha no envio';
+        meta.errorCode = err?.code;
+        meta.errorDetails = err?.error_data?.details || err?.message || null;
+      }
+
+      await supabase.from('messages').update({ metadata: meta }).eq('id', msg.id);
+      if (mapped === 'failed') {
+        console.error(`❌ [Meta status] Envio falhou ${wamid}: ${meta.errorCode} - ${meta.error} | ${meta.errorDetails}`);
+      }
+    }
+    return true;
+  } catch (e) {
+    console.error('[Meta status] Erro:', e);
+    return true;
+  }
+}
+
 function parseWebhookPayload(payload: any): EvolutionWebhook | null {
+
   try {
     // Meta Cloud API (WhatsApp Business Platform) — mesmo endpoint, formato diferente
     if (payload?.object === 'whatsapp_business_account' && Array.isArray(payload?.entry)) {
