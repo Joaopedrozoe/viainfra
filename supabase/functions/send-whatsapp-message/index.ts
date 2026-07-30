@@ -129,6 +129,48 @@ serve(async (req) => {
       );
     }
 
+    // Resolver o nome do atendente pelo JWT do usuário autenticado (evita assinatura errada)
+    try {
+      const authHeader = req.headers.get('Authorization') || '';
+      const jwt = authHeader.replace(/^Bearer\s+/i, '');
+      if (jwt) {
+        const { data: userData } = await supabase.auth.getUser(jwt);
+        const authUserId = userData?.user?.id;
+        if (authUserId) {
+          const { data: profileRow } = await supabase
+            .from('profiles')
+            .select('name, company_id')
+            .eq('user_id', authUserId)
+            .eq('company_id', conversation.company_id)
+            .maybeSingle();
+
+          const { data: anyProfile } = profileRow?.name
+            ? { data: profileRow }
+            : await supabase
+                .from('profiles')
+                .select('name, company_id')
+                .eq('user_id', authUserId)
+                .limit(1)
+                .maybeSingle();
+
+          const resolvedName = (profileRow?.name || anyProfile?.name || '').trim();
+          if (resolvedName) {
+            effectiveAgentName = resolvedName;
+            formattedMessage = message_content
+              ? `*${effectiveAgentName}*\n${message_content}`
+              : message_content;
+          }
+          if (agent_name && resolvedName && agent_name !== resolvedName) {
+            console.warn('[send-whatsapp] agent_name do cliente divergente, usando perfil autenticado:', { agent_name, resolvedName });
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[send-whatsapp] Falha ao resolver atendente pelo JWT:', e);
+    }
+
+
+
     // Verificar se é canal WhatsApp
     if (conversation.channel !== 'whatsapp') {
       console.log('[send-whatsapp] Not a WhatsApp conversation, skipping');
