@@ -380,7 +380,9 @@ serve(async (req) => {
             whatsappMessageId: sendResult.messageId,
             messageId: sendResult.messageId,
             whatsappSentAt: new Date().toISOString(),
-            whatsappStatus: 'sent'
+            whatsappStatus: 'sent',
+            outside24hWindow
+
           }
         })
         .eq('id', message_id);
