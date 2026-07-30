@@ -273,3 +273,6 @@ verify_jwt = false
 
 [functions.import-chat-backup]
 verify_jwt = false
+
+[functions.provision-access-users]
+verify_jwt = false
