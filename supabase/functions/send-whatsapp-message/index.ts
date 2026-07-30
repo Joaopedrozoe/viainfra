@@ -447,8 +447,13 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         success: true, 
-        messageId: sendResult.messageId 
+        messageId: sendResult.messageId,
+        outside24hWindow,
+        warning: outside24hWindow
+          ? 'Fora da janela de 24h do WhatsApp: a Meta pode não entregar esta mensagem até o contato responder.'
+          : undefined
       }), 
+
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
