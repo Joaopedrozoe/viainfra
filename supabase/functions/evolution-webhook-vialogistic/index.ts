@@ -581,11 +581,29 @@ async function processMetaStatuses(payload: any): Promise<boolean> {
   }
 }
 
+// Phone Number ID da conta Meta desta empresa (VIALOGISTIC).
+// Qualquer payload de outro número é de outra empresa e DEVE ser ignorado aqui.
+const META_PHONE_NUMBER_ID_VIALOGISTIC =
+  Deno.env.get('META_PHONE_NUMBER_ID_VIALOGISTIC') || '1157997970738498';
+
+function isPayloadForThisCompany(value: any): boolean {
+  const phoneNumberId = value?.metadata?.phone_number_id;
+  if (!phoneNumberId) return true;
+  const ok = String(phoneNumberId) === String(META_PHONE_NUMBER_ID_VIALOGISTIC);
+  if (!ok) {
+    console.log(`⛔ [Meta] Payload do phone_number_id ${phoneNumberId} não pertence à VIALOGISTIC. Ignorando.`);
+  }
+  return ok;
+}
+
 function parseWebhookPayload(payload: any): EvolutionWebhook | null {
   try {
     // Meta Cloud API (WhatsApp Business Platform) — mesmo endpoint, formato diferente
     if (payload?.object === 'whatsapp_business_account' && Array.isArray(payload?.entry)) {
       const value = payload.entry?.[0]?.changes?.[0]?.value;
+      if (!isPayloadForThisCompany(value)) {
+        return { event: 'IGNORED', instance: 'VIALOGISTIC', data: null };
+      }
       if (Array.isArray(value?.calls) && value.calls.length > 0) {
         processMetaCallEvent(payload).catch(err => console.error('call processing failed', err));
         return { event: 'IGNORED', instance: 'VIALOGISTIC', data: null };
