@@ -590,12 +590,30 @@ async function processMetaStatuses(payload: any): Promise<boolean> {
   }
 }
 
+// Phone Number ID da conta Meta desta empresa (VIAINFRA).
+// Qualquer payload de outro número é de outra empresa e DEVE ser ignorado aqui.
+const META_PHONE_NUMBER_ID_VIAINFRA =
+  Deno.env.get('META_PHONE_NUMBER_ID_VIAINFRA') || '1221458467717278';
+
+function isPayloadForThisCompany(value: any): boolean {
+  const phoneNumberId = value?.metadata?.phone_number_id;
+  if (!phoneNumberId) return true; // sem metadata não há como discriminar
+  const ok = String(phoneNumberId) === String(META_PHONE_NUMBER_ID_VIAINFRA);
+  if (!ok) {
+    console.log(`⛔ [Meta] Payload do phone_number_id ${phoneNumberId} não pertence à VIAINFRA. Ignorando.`);
+  }
+  return ok;
+}
+
 function parseWebhookPayload(payload: any): EvolutionWebhook | null {
 
   try {
     // Meta Cloud API (WhatsApp Business Platform) — mesmo endpoint, formato diferente
     if (payload?.object === 'whatsapp_business_account' && Array.isArray(payload?.entry)) {
       const value = payload.entry?.[0]?.changes?.[0]?.value;
+      if (!isPayloadForThisCompany(value)) {
+        return { event: 'IGNORED', instance: 'VIAINFRA', data: null };
+      }
       if (Array.isArray(value?.calls) && value.calls.length > 0) {
         // fire-and-forget; caller resolves 200 imediatamente
         processMetaCallEvent(payload).catch(err => console.error('call processing failed', err));
@@ -608,6 +626,7 @@ function parseWebhookPayload(payload: any): EvolutionWebhook | null {
       return convertMetaPayloadToEvolution(payload);
 
     }
+
 
     if (!payload.event || !payload.instance) {
       return null;
