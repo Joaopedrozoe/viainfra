@@ -974,7 +974,6 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     }
   }, [deleteMessage, conversationChannel, conversationId, deletingMessage]);
 
-  if (!conversationId) {
   const [sendingTemplate, setSendingTemplate] = useState(false);
 
   const handleSendOpeningTemplate = useCallback(async () => {
@@ -1001,6 +1000,9 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       setSendingTemplate(false);
     }
   }, [conversationId, sendingTemplate]);
+
+  if (!conversationId) {
+
 
     return (
       <div className="flex-1 flex items-center justify-center bg-muted p-4">
