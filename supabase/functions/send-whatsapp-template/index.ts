@@ -106,6 +106,30 @@ serve(async (req) => {
       const wabaScope = scopes.find((s: any) => s.scope === "whatsapp_business_messaging" || s.scope === "whatsapp_business_management");
       const wabaId = wabaScope?.target_ids?.[0];
       out.wabaId = wabaId;
+      if (!wabaId) {
+        const bizResp = await fetch(`https://graph.facebook.com/v21.0/me/businesses?limit=25`, {
+          headers: { Authorization: `Bearer ${c.token}` },
+        });
+        const bizData = await bizResp.json().catch(() => ({}));
+        out.businesses = bizData;
+        const bizId = bizData?.data?.[0]?.id;
+        if (bizId) {
+          const wResp = await fetch(
+            `https://graph.facebook.com/v21.0/${bizId}/owned_whatsapp_business_accounts?limit=25`,
+            { headers: { Authorization: `Bearer ${c.token}` } },
+          );
+          const wData = await wResp.json().catch(() => ({}));
+          out.wabas = wData;
+          for (const w of wData?.data || []) {
+            const tResp = await fetch(
+              `https://graph.facebook.com/v21.0/${w.id}/message_templates?limit=100&fields=name,language,status,category`,
+              { headers: { Authorization: `Bearer ${c.token}` } },
+            );
+            const td = await tResp.json().catch(() => ({}));
+            (out as any)[`templates_${w.id}`] = (td?.data || []).map((t: any) => `${t.name}|${t.language}|${t.status}|${t.category}`);
+          }
+        }
+      }
       if (wabaId) {
         const tResp = await fetch(
           `https://graph.facebook.com/v21.0/${wabaId}/message_templates?limit=100&fields=name,language,status,category`,
