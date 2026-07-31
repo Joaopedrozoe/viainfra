@@ -1,7 +1,7 @@
 import { useState, useCallback, memo, useMemo, useRef, useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Mic, MicOff, FileUp, X, Image, FileText, Film, Music, Reply, Smile } from "lucide-react";
+import { Mic, MicOff, FileUp, X, Image, FileText, Film, Music, Reply, Smile, MessageSquarePlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Attachment, ChatInputProps, Message } from "./types";
 import EmojiPicker, { EmojiClickData, Theme, EmojiStyle } from 'emoji-picker-react';
