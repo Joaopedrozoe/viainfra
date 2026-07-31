@@ -85,6 +85,28 @@ serve(async (req) => {
     );
 
     const body = await req.json().catch(() => ({}));
+
+    // Diagnóstico: lista templates aprovados da WABA da empresa
+    if (body?.action === "list") {
+      const cname = /vialogistic/i.test(String(body.company || "")) ? "VIALOGISTIC" : "VIAINFRA";
+      const c = resolveMetaCreds(cname);
+      const out: Record<string, unknown> = { company: c.key };
+      const idResp = await fetch(
+        `https://graph.facebook.com/v21.0/${c.phoneNumberId}?fields=id,display_phone_number,verified_name,whatsapp_business_account`,
+        { headers: { Authorization: `Bearer ${c.token}` } },
+      );
+      const idData = await idResp.json().catch(() => ({}));
+      out.phoneInfo = idData;
+      const wabaId = idData?.whatsapp_business_account?.id;
+      if (wabaId) {
+        const tResp = await fetch(
+          `https://graph.facebook.com/v21.0/${wabaId}/message_templates?limit=100&fields=name,language,status,category`,
+          { headers: { Authorization: `Bearer ${c.token}` } },
+        );
+        out.templates = await tResp.json().catch(() => ({}));
+      }
+      return json(out);
+    }
     const {
       conversation_id,
       phone,
