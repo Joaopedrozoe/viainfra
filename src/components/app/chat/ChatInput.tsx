@@ -75,6 +75,8 @@ export const ChatInput = memo(({
   replyToMessage, 
   onCancelReply,
   contactName,
+  onSendTemplate,
+  sendingTemplate,
 }: ChatInputProps) => {
   const [newMessage, setNewMessage] = useState("");
   const [isRecording, setIsRecording] = useState(false);
