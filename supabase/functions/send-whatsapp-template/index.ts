@@ -112,6 +112,21 @@ serve(async (req) => {
         });
         const bizData = await bizResp.json().catch(() => ({}));
         out.businesses = bizData;
+        const suId = dbgData?.data?.user_id;
+        const assignResp = await fetch(
+          `https://graph.facebook.com/v21.0/${suId}/assigned_whatsapp_business_accounts?limit=25`,
+          { headers: { Authorization: `Bearer ${c.token}` } },
+        );
+        const assignData = await assignResp.json().catch(() => ({}));
+        out.assigned = assignData;
+        for (const w of assignData?.data || []) {
+          const tResp = await fetch(
+            `https://graph.facebook.com/v21.0/${w.id}/message_templates?limit=100&fields=name,language,status,category`,
+            { headers: { Authorization: `Bearer ${c.token}` } },
+          );
+          const td = await tResp.json().catch(() => ({}));
+          (out as any)[`tpl_${w.id}`] = (td?.data || []).map((t: any) => `${t.name}|${t.language}|${t.status}|${t.category}`);
+        }
         const bizId = bizData?.data?.[0]?.id;
         if (bizId) {
           const wResp = await fetch(
