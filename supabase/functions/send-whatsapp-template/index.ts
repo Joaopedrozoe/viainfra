@@ -90,91 +90,18 @@ serve(async (req) => {
     if (body?.action === "list") {
       const cname = /vialogistic/i.test(String(body.company || "")) ? "VIALOGISTIC" : "VIAINFRA";
       const c = resolveMetaCreds(cname);
-      const out: Record<string, unknown> = { company: c.key };
-      const idResp = await fetch(
-        `https://graph.facebook.com/v21.0/${c.phoneNumberId}?fields=id,display_phone_number,verified_name`,
+      const wabaId = String(body.waba_id || "");
+      const tResp = await fetch(
+        `https://graph.facebook.com/v21.0/${wabaId}/message_templates?limit=100&fields=name,language,status,category`,
         { headers: { Authorization: `Bearer ${c.token}` } },
       );
-      const idData = await idResp.json().catch(() => ({}));
-      out.phoneInfo = idData;
-      const dbg = await fetch(
-        `https://graph.facebook.com/v21.0/debug_token?input_token=${c.token}&access_token=${c.token}`,
-      );
-      const dbgData = await dbg.json().catch(() => ({}));
-      out.debug = dbgData;
-      const scopes = dbgData?.data?.granular_scopes || [];
-      const wabaScope = scopes.find((s: any) => s.scope === "whatsapp_business_messaging" || s.scope === "whatsapp_business_management");
-      const wabaId = wabaScope?.target_ids?.[0];
-      out.wabaId = wabaId;
-      if (!wabaId) {
-        const bizResp = await fetch(`https://graph.facebook.com/v21.0/me/businesses?limit=25`, {
-          headers: { Authorization: `Bearer ${c.token}` },
-        });
-        const bizData = await bizResp.json().catch(() => ({}));
-        out.businesses = bizData;
-        const suId = dbgData?.data?.user_id;
-        const suResp = await fetch(
-          `https://graph.facebook.com/v21.0/${suId}?fields=id,name,business{id,name}`,
-          { headers: { Authorization: `Bearer ${c.token}` } },
-        );
-        out.systemUser = await suResp.json().catch(() => ({}));
-        const suBizId = (out.systemUser as any)?.business?.id;
-        if (suBizId) {
-          const wResp = await fetch(
-            `https://graph.facebook.com/v21.0/${suBizId}/owned_whatsapp_business_accounts?limit=25`,
-            { headers: { Authorization: `Bearer ${c.token}` } },
-          );
-          const wData = await wResp.json().catch(() => ({}));
-          out.ownedWabas = wData;
-          for (const w of wData?.data || []) {
-            const tResp = await fetch(
-              `https://graph.facebook.com/v21.0/${w.id}/message_templates?limit=100&fields=name,language,status,category`,
-              { headers: { Authorization: `Bearer ${c.token}` } },
-            );
-            const td = await tResp.json().catch(() => ({}));
-            (out as any)[`tpl_${w.id}`] = (td?.data || []).map((t: any) => `${t.name}|${t.language}|${t.status}|${t.category}`);
-          }
-        }
-        const assignResp = await fetch(
-          `https://graph.facebook.com/v21.0/${suId}/assigned_whatsapp_business_accounts?limit=25`,
-          { headers: { Authorization: `Bearer ${c.token}` } },
-        );
-        const assignData = await assignResp.json().catch(() => ({}));
-        out.assigned = assignData;
-        for (const w of assignData?.data || []) {
-          const tResp = await fetch(
-            `https://graph.facebook.com/v21.0/${w.id}/message_templates?limit=100&fields=name,language,status,category`,
-            { headers: { Authorization: `Bearer ${c.token}` } },
-          );
-          const td = await tResp.json().catch(() => ({}));
-          (out as any)[`tpl_${w.id}`] = (td?.data || []).map((t: any) => `${t.name}|${t.language}|${t.status}|${t.category}`);
-        }
-        const bizId = bizData?.data?.[0]?.id;
-        if (bizId) {
-          const wResp = await fetch(
-            `https://graph.facebook.com/v21.0/${bizId}/owned_whatsapp_business_accounts?limit=25`,
-            { headers: { Authorization: `Bearer ${c.token}` } },
-          );
-          const wData = await wResp.json().catch(() => ({}));
-          out.wabas = wData;
-          for (const w of wData?.data || []) {
-            const tResp = await fetch(
-              `https://graph.facebook.com/v21.0/${w.id}/message_templates?limit=100&fields=name,language,status,category`,
-              { headers: { Authorization: `Bearer ${c.token}` } },
-            );
-            const td = await tResp.json().catch(() => ({}));
-            (out as any)[`templates_${w.id}`] = (td?.data || []).map((t: any) => `${t.name}|${t.language}|${t.status}|${t.category}`);
-          }
-        }
-      }
-      if (wabaId) {
-        const tResp = await fetch(
-          `https://graph.facebook.com/v21.0/${wabaId}/message_templates?limit=100&fields=name,language,status,category`,
-          { headers: { Authorization: `Bearer ${c.token}` } },
-        );
-        out.templates = await tResp.json().catch(() => ({}));
-      }
-      return json(out);
+      const td = await tResp.json().catch(() => ({}));
+      return json({
+        company: c.key,
+        wabaId,
+        templates: (td?.data || []).map((t: any) => `${t.name}|${t.language}|${t.status}|${t.category}`),
+        error: td?.error || null,
+      });
     }
     const {
       conversation_id,
