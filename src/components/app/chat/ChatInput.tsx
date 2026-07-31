@@ -266,6 +266,21 @@ export const ChatInput = memo(({
         >
           <FileUp size={20} />
         </button>
+
+        {onSendTemplate && (
+          <button
+            className="p-2 text-muted-foreground hover:text-foreground rounded-full transition-colors disabled:opacity-50"
+            onClick={onSendTemplate}
+            disabled={sendingTemplate}
+            aria-label="Enviar template de abertura"
+            title="Enviar template de abertura"
+            type="button"
+          >
+            <MessageSquarePlus size={20} className={cn(sendingTemplate && "animate-pulse")} />
+          </button>
+        )}
+        
+
         
         {/* Emoji Picker Button */}
         <Popover open={isEmojiPickerOpen} onOpenChange={setIsEmojiPickerOpen}>
