@@ -983,6 +983,17 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     [messages]
   );
 
+  // Janela de 24h aberta? (última mensagem recebida do contato há menos de 24h)
+  const isWindowOpen = useMemo(() => {
+    const userMessages = messages.filter(m => m.sender === 'user');
+    const last = userMessages[userMessages.length - 1];
+    const raw = (last as any)?.timestamp || (last as any)?.createdAt;
+    if (!raw) return false;
+    const ts = new Date(raw).getTime();
+    if (Number.isNaN(ts)) return false;
+    return Date.now() - ts < 24 * 60 * 60 * 1000;
+  }, [messages]);
+
   // Contato respondeu após o envio do template?
   const contactRepliedAfterTemplate = useMemo(
     () => userCountAtSend !== null && userMessagesCount > userCountAtSend,
@@ -1161,7 +1172,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           <div ref={messagesEndRef} />
         </div>
       </div>
-      {conversationChannel === 'whatsapp' && !contactRepliedAfterTemplate && (
+      {conversationChannel === 'whatsapp' && !isWindowOpen && !contactRepliedAfterTemplate && (
         <div className="flex-shrink-0 border-t border-border/60 bg-muted/40 px-4 py-2 flex items-center justify-between gap-3">
           {templateSentAt ? (
             <span className="text-xs text-muted-foreground">

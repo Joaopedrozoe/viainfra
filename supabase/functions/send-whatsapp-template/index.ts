@@ -195,9 +195,8 @@ serve(async (req) => {
     if (conversation_id) {
       const { error: insertError } = await supabase.from("messages").insert({
         conversation_id,
-        content: `📨 Template enviado: ${template_name}`,
+        content: "oi",
         sender_type: "agent",
-        message_type: "text",
         metadata: {
           template: template_name,
           template_language: result.language,
