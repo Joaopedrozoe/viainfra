@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, memo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import { ChatHeader } from "./chat/ChatHeader";
 import { MessageItem } from "./chat/MessageItem";
 import { ChatInput } from "./chat/ChatInput";
