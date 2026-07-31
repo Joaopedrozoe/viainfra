@@ -1161,11 +1161,17 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           <div ref={messagesEndRef} />
         </div>
       </div>
-      {conversationChannel === 'whatsapp' && (
+      {conversationChannel === 'whatsapp' && !contactRepliedAfterTemplate && (
         <div className="flex-shrink-0 border-t border-border/60 bg-muted/40 px-4 py-2 flex items-center justify-between gap-3">
-          <span className="text-xs text-muted-foreground">
-            Fora da janela de 24h? Envie o template aprovado para reabrir a conversa.
-          </span>
+          {templateSentAt ? (
+            <span className="text-xs text-muted-foreground">
+              Template enviado às {templateSentAt}. A janela de conversa de 24h será aberta assim que o contato responder.
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              Fora da janela de 24h? Envie o template aprovado para reabrir a conversa.
+            </span>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -1174,7 +1180,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             className="gap-2 flex-shrink-0"
           >
             {sendingTemplate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            Template de abertura
+            {templateSentAt ? 'Reenviar template' : 'Template de abertura'}
           </Button>
         </div>
       )}
@@ -1185,8 +1191,11 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           replyToMessage={replyToMessage}
           onCancelReply={handleCancelReply}
           contactName={contactName}
+          onSendTemplate={conversationChannel === 'whatsapp' ? handleSendOpeningTemplate : undefined}
+          sendingTemplate={sendingTemplate}
         />
       </div>
+
 
       {/* Modais de ações */}
       <EditMessageDialog
