@@ -153,7 +153,7 @@ serve(async (req) => {
     }
 
     // Tenta os idiomas mais comuns para o template aprovado
-    const languages = language ? [language] : ["pt_BR", "pt", "en_US"];
+    const languages = language ? [language] : ["en", "pt_BR", "pt", "en_US"];
     let result: any = null;
     for (const lang of languages) {
       result = await sendTemplate(
