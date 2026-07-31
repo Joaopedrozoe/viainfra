@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, memo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import { ChatHeader } from "./chat/ChatHeader";
 import { MessageItem } from "./chat/MessageItem";
 import { ChatInput } from "./chat/ChatInput";
@@ -975,6 +975,25 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   }, [deleteMessage, conversationChannel, conversationId, deletingMessage]);
 
   const [sendingTemplate, setSendingTemplate] = useState(false);
+  const [templateSentAt, setTemplateSentAt] = useState<string | null>(null);
+  const [userCountAtSend, setUserCountAtSend] = useState<number | null>(null);
+
+  const userMessagesCount = useMemo(
+    () => messages.filter(m => m.sender === 'user').length,
+    [messages]
+  );
+
+  // Contato respondeu após o envio do template?
+  const contactRepliedAfterTemplate = useMemo(
+    () => userCountAtSend !== null && userMessagesCount > userCountAtSend,
+    [userCountAtSend, userMessagesCount]
+  );
+
+  // Reset ao trocar de conversa
+  useEffect(() => {
+    setTemplateSentAt(null);
+    setUserCountAtSend(null);
+  }, [conversationId]);
 
   const handleSendOpeningTemplate = useCallback(async () => {
     if (sendingTemplate || !conversationId) return;
@@ -990,8 +1009,11 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         return;
       }
 
+      setTemplateSentAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+      setUserCountAtSend(userMessagesCount);
+
       toast.success('Template de abertura enviado!', {
-        description: 'A conversa pode ser reaberta assim que o contato responder.'
+        description: 'A janela de conversa será aberta assim que o contato responder.'
       });
     } catch (e) {
       console.error('[ChatWindow] Erro ao enviar template:', e);
@@ -999,7 +1021,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     } finally {
       setSendingTemplate(false);
     }
-  }, [conversationId, sendingTemplate]);
+  }, [conversationId, sendingTemplate, userMessagesCount]);
+
 
   if (!conversationId) {
 
@@ -1138,11 +1161,17 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           <div ref={messagesEndRef} />
         </div>
       </div>
-      {conversationChannel === 'whatsapp' && (
+      {conversationChannel === 'whatsapp' && !contactRepliedAfterTemplate && (
         <div className="flex-shrink-0 border-t border-border/60 bg-muted/40 px-4 py-2 flex items-center justify-between gap-3">
-          <span className="text-xs text-muted-foreground">
-            Fora da janela de 24h? Envie o template aprovado para reabrir a conversa.
-          </span>
+          {templateSentAt ? (
+            <span className="text-xs text-muted-foreground">
+              Template enviado às {templateSentAt}. A janela de conversa de 24h será aberta assim que o contato responder.
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              Fora da janela de 24h? Envie o template aprovado para reabrir a conversa.
+            </span>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -1151,7 +1180,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             className="gap-2 flex-shrink-0"
           >
             {sendingTemplate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            Template de abertura
+            {templateSentAt ? 'Reenviar template' : 'Template de abertura'}
           </Button>
         </div>
       )}
@@ -1162,8 +1191,11 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           replyToMessage={replyToMessage}
           onCancelReply={handleCancelReply}
           contactName={contactName}
+          onSendTemplate={conversationChannel === 'whatsapp' ? handleSendOpeningTemplate : undefined}
+          sendingTemplate={sendingTemplate}
         />
       </div>
+
 
       {/* Modais de ações */}
       <EditMessageDialog
