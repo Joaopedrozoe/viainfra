@@ -92,12 +92,20 @@ serve(async (req) => {
       const c = resolveMetaCreds(cname);
       const out: Record<string, unknown> = { company: c.key };
       const idResp = await fetch(
-        `https://graph.facebook.com/v21.0/${c.phoneNumberId}?fields=id,display_phone_number,verified_name,whatsapp_business_account`,
+        `https://graph.facebook.com/v21.0/${c.phoneNumberId}?fields=id,display_phone_number,verified_name`,
         { headers: { Authorization: `Bearer ${c.token}` } },
       );
       const idData = await idResp.json().catch(() => ({}));
       out.phoneInfo = idData;
-      const wabaId = idData?.whatsapp_business_account?.id;
+      const dbg = await fetch(
+        `https://graph.facebook.com/v21.0/debug_token?input_token=${c.token}&access_token=${c.token}`,
+      );
+      const dbgData = await dbg.json().catch(() => ({}));
+      out.debug = dbgData;
+      const scopes = dbgData?.data?.granular_scopes || [];
+      const wabaScope = scopes.find((s: any) => s.scope === "whatsapp_business_messaging" || s.scope === "whatsapp_business_management");
+      const wabaId = wabaScope?.target_ids?.[0];
+      out.wabaId = wabaId;
       if (wabaId) {
         const tResp = await fetch(
           `https://graph.facebook.com/v21.0/${wabaId}/message_templates?limit=100&fields=name,language,status,category`,
