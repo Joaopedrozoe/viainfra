@@ -13,7 +13,8 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { useInfiniteMessages } from "@/hooks/useInfiniteMessages";
-import { Loader2, Pin } from "lucide-react";
+import { Loader2, Pin, Send } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 const getFileType = (file: File): Attachment['type'] => {
   if (file.type.startsWith('image/')) return 'image';
@@ -1006,6 +1007,33 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     );
   }
   
+  const [sendingTemplate, setSendingTemplate] = useState(false);
+
+  const handleSendOpeningTemplate = useCallback(async () => {
+    if (sendingTemplate || !conversationId) return;
+    setSendingTemplate(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-whatsapp-template', {
+        body: { conversation_id: conversationId, template_name: 'aberturadeconversa' }
+      });
+
+      if (error || !data?.success) {
+        const msg = (data as any)?.error || error?.message || 'Falha ao enviar template';
+        toast.error(`Não foi possível enviar o template: ${msg}`);
+        return;
+      }
+
+      toast.success('Template de abertura enviado!', {
+        description: 'A conversa pode ser reaberta assim que o contato responder.'
+      });
+    } catch (e) {
+      console.error('[ChatWindow] Erro ao enviar template:', e);
+      toast.error('Erro ao enviar template');
+    } finally {
+      setSendingTemplate(false);
+    }
+  }, [conversationId, sendingTemplate]);
+
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
       <ChatHeader 
@@ -1108,6 +1136,24 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           <div ref={messagesEndRef} />
         </div>
       </div>
+      {conversationChannel === 'whatsapp' && (
+        <div className="flex-shrink-0 border-t border-border/60 bg-muted/40 px-4 py-2 flex items-center justify-between gap-3">
+          <span className="text-xs text-muted-foreground">
+            Fora da janela de 24h? Envie o template aprovado para reabrir a conversa.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleSendOpeningTemplate}
+            disabled={sendingTemplate}
+            className="gap-2 flex-shrink-0"
+          >
+            {sendingTemplate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            Template de abertura
+          </Button>
+        </div>
+      )}
+
       <div className="flex-shrink-0 border-t border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 shadow-elevated">
         <ChatInput 
           onSendMessage={handleSendMessage} 
