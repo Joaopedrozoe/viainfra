@@ -48,4 +48,6 @@ export interface ChatInputProps {
   replyToMessage?: Message | null;
   onCancelReply?: () => void;
   contactName?: string;
+  onSendTemplate?: () => void;
+  sendingTemplate?: boolean;
 }
