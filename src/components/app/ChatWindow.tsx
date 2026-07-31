@@ -974,7 +974,36 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     }
   }, [deleteMessage, conversationChannel, conversationId, deletingMessage]);
 
+  const [sendingTemplate, setSendingTemplate] = useState(false);
+
+  const handleSendOpeningTemplate = useCallback(async () => {
+    if (sendingTemplate || !conversationId) return;
+    setSendingTemplate(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-whatsapp-template', {
+        body: { conversation_id: conversationId, template_name: 'aberturadeconversa' }
+      });
+
+      if (error || !data?.success) {
+        const msg = (data as any)?.error || error?.message || 'Falha ao enviar template';
+        toast.error(`Não foi possível enviar o template: ${msg}`);
+        return;
+      }
+
+      toast.success('Template de abertura enviado!', {
+        description: 'A conversa pode ser reaberta assim que o contato responder.'
+      });
+    } catch (e) {
+      console.error('[ChatWindow] Erro ao enviar template:', e);
+      toast.error('Erro ao enviar template');
+    } finally {
+      setSendingTemplate(false);
+    }
+  }, [conversationId, sendingTemplate]);
+
   if (!conversationId) {
+
+
     return (
       <div className="flex-1 flex items-center justify-center bg-muted p-4">
         <div className="text-center">
@@ -1007,33 +1036,6 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     );
   }
   
-  const [sendingTemplate, setSendingTemplate] = useState(false);
-
-  const handleSendOpeningTemplate = useCallback(async () => {
-    if (sendingTemplate || !conversationId) return;
-    setSendingTemplate(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('send-whatsapp-template', {
-        body: { conversation_id: conversationId, template_name: 'aberturadeconversa' }
-      });
-
-      if (error || !data?.success) {
-        const msg = (data as any)?.error || error?.message || 'Falha ao enviar template';
-        toast.error(`Não foi possível enviar o template: ${msg}`);
-        return;
-      }
-
-      toast.success('Template de abertura enviado!', {
-        description: 'A conversa pode ser reaberta assim que o contato responder.'
-      });
-    } catch (e) {
-      console.error('[ChatWindow] Erro ao enviar template:', e);
-      toast.error('Erro ao enviar template');
-    } finally {
-      setSendingTemplate(false);
-    }
-  }, [conversationId, sendingTemplate]);
-
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
       <ChatHeader 
