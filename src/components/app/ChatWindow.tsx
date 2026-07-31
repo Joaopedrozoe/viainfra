@@ -975,6 +975,25 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   }, [deleteMessage, conversationChannel, conversationId, deletingMessage]);
 
   const [sendingTemplate, setSendingTemplate] = useState(false);
+  const [templateSentAt, setTemplateSentAt] = useState<string | null>(null);
+  const [userCountAtSend, setUserCountAtSend] = useState<number | null>(null);
+
+  const userMessagesCount = useMemo(
+    () => messages.filter(m => m.sender === 'user').length,
+    [messages]
+  );
+
+  // Contato respondeu após o envio do template?
+  const contactRepliedAfterTemplate = useMemo(
+    () => userCountAtSend !== null && userMessagesCount > userCountAtSend,
+    [userCountAtSend, userMessagesCount]
+  );
+
+  // Reset ao trocar de conversa
+  useEffect(() => {
+    setTemplateSentAt(null);
+    setUserCountAtSend(null);
+  }, [conversationId]);
 
   const handleSendOpeningTemplate = useCallback(async () => {
     if (sendingTemplate || !conversationId) return;
@@ -990,8 +1009,11 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         return;
       }
 
+      setTemplateSentAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+      setUserCountAtSend(userMessagesCount);
+
       toast.success('Template de abertura enviado!', {
-        description: 'A conversa pode ser reaberta assim que o contato responder.'
+        description: 'A janela de conversa será aberta assim que o contato responder.'
       });
     } catch (e) {
       console.error('[ChatWindow] Erro ao enviar template:', e);
@@ -999,7 +1021,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     } finally {
       setSendingTemplate(false);
     }
-  }, [conversationId, sendingTemplate]);
+  }, [conversationId, sendingTemplate, userMessagesCount]);
+
 
   if (!conversationId) {
 
