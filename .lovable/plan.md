@@ -57,3 +57,23 @@ Situação atual verificada no banco: Viainfra tem 3.867 de 5.091 contatos sem t
 6. Recebimento de ligações (7).
 
 Cada etapa é entregue para sua validação antes da próxima.
+
+## Reforços aprovados (conformidade, idempotência e reversão)
+
+### Conformidade total com a API oficial da Meta
+- Revisão completa do inventário de recursos suportados pela Cloud API e mapeamento do que o app cobre: mensagens de texto, mídia (imagem, vídeo, áudio/PTT, documento, sticker), localização, contatos, reações, respostas/citação, templates, marcação de lida, indicador de digitação, chamadas e status de entrega (sent/delivered/read/failed).
+- Tratamento explícito dos códigos de erro da Meta (janela de 24h, template inválido, mídia expirada, número inválido), com mensagem clara no inbox em vez de falha silenciosa.
+
+### Idempotência dos webhooks
+- Chave de idempotência por `message_id` da Meta/Evolution: nenhum evento reprocessado cria mensagem, contato, conversa, chamada ou reação duplicada.
+- Restrição de unicidade no banco para o id externo da mensagem e para reação (mensagem + autor), garantindo a proteção no nível do dado e não apenas no código.
+- Atualizações de status aplicadas apenas quando avançam o estado (não regridem `read` para `sent`), e eventos fora de ordem descartados com segurança.
+
+### Prevenção definitiva de recorrência
+- Regras no banco (unicidade, normalização e validação por trigger) para que telefone ausente/mal formatado e duplicidade não voltem a ser possíveis, independentemente da origem (webhook, importação, criação manual).
+- Roteamento por `phone_number_id` validado em todas as entradas, evitando cruzamento entre VIAINFRA e VIALOGISTIC.
+
+### Reversão rápida
+- Cada etapa entregue de forma isolada e independente, podendo ser revertida pelo histórico do projeto sem desfazer as demais.
+- Alterações de banco pensadas como aditivas (novas colunas/tabelas e restrições), sem remover dados existentes, para que a reversão de código não deixe o banco inconsistente.
+- Antes de cada etapa que toca dados, registro do estado atual para permitir retorno.
