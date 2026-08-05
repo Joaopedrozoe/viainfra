@@ -6,13 +6,15 @@ import { cn } from "@/lib/utils";
 import { Attachment, ChatInputProps, Message } from "./types";
 import EmojiPicker, { EmojiClickData, Theme, EmojiStyle } from 'emoji-picker-react';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { toast } from "sonner";
+import {
+  validateWhatsAppFile,
+  getWhatsAppAttachmentType,
+  WHATSAPP_ACCEPT_ATTRIBUTE,
+} from "@/lib/whatsapp-media";
 
-const getFileType = (file: File): Attachment['type'] => {
-  if (file.type.startsWith('image/')) return 'image';
-  if (file.type.startsWith('video/')) return 'video';
-  if (file.type.startsWith('audio/')) return 'audio';
-  return 'document';
-};
+const getFileType = (file: File): Attachment['type'] => getWhatsAppAttachmentType(file);
+
 
 const getFileIcon = (type: Attachment['type']) => {
   switch (type) {
