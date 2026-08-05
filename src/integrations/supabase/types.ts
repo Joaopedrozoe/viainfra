@@ -671,6 +671,60 @@ export type Database = {
           },
         ]
       }
+      message_reactions: {
+        Row: {
+          conversation_id: string | null
+          created_at: string
+          emoji: string
+          external_id: string | null
+          id: string
+          message_id: string
+          reactor_id: string | null
+          reactor_name: string | null
+          reactor_type: string
+          updated_at: string
+        }
+        Insert: {
+          conversation_id?: string | null
+          created_at?: string
+          emoji: string
+          external_id?: string | null
+          id?: string
+          message_id: string
+          reactor_id?: string | null
+          reactor_name?: string | null
+          reactor_type?: string
+          updated_at?: string
+        }
+        Update: {
+          conversation_id?: string | null
+          created_at?: string
+          emoji?: string
+          external_id?: string | null
+          id?: string
+          message_id?: string
+          reactor_id?: string | null
+          reactor_name?: string | null
+          reactor_type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_reactions_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_reactions_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       messages: {
         Row: {
           content: string
