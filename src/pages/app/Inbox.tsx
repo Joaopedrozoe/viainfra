@@ -217,6 +217,8 @@ const Inbox = () => {
   if (isMobile) {
     return (
       <div className={cn("h-full w-full overflow-hidden", !(showChat && activeMainTab === "conversations") && "pb-mobile-nav")}>
+        <IncomingCallListener />
+
 
         {showChat && activeMainTab === "conversations" ? (
           <ChatWindow 
