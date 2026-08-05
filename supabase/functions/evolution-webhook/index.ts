@@ -2043,6 +2043,12 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
     
     // Verificar se é uma reação - reações NÃO devem atualizar updated_at
     const isReaction = isReactionMessage(message);
+
+    // Reações são gravadas em message_reactions (não geram mensagem)
+    if (isReaction) {
+      await handleReactionMessage(supabase, conversation.id, message);
+      continue;
+    }
     
     // Save message - returns null if duplicate
     const savedMessage = await saveMessage(supabase, conversation.id, message, messageContent, contactPhone, webhook.instance, (message as any)._isOutgoing, messageData);
@@ -4491,6 +4497,87 @@ function extractMessageContent(message: EvolutionMessage): string {
   }
   
   return '[Mensagem não suportada]';
+}
+
+
+// ============================================================
+// REAÇÕES (emoji) — API oficial WhatsApp/Meta
+// Reações NÃO são mensagens: são gravadas em message_reactions
+// e são idempotentes (mesma reação reenviada não duplica).
+// ============================================================
+async function handleReactionMessage(
+  supabase: any,
+  conversationId: string,
+  message: EvolutionMessage,
+): Promise<boolean> {
+  const reaction = (message.message as any)?.reactionMessage;
+  if (!reaction) return false;
+
+  const targetExternalId: string | undefined = reaction.key?.id;
+  const emoji: string = (reaction.text || '').trim();
+  const reactorType = message.key.fromMe ? 'agent' : 'user';
+
+  if (!targetExternalId) {
+    console.log('⚡ Reação sem id da mensagem original - ignorando');
+    return true;
+  }
+
+  // Localizar a mensagem alvo pelo external_id dentro da conversa
+  const { data: target } = await supabase
+    .from('messages')
+    .select('id')
+    .eq('conversation_id', conversationId)
+    .or(`metadata->>external_id.eq.${targetExternalId},metadata->>whatsappMessageId.eq.${targetExternalId}`)
+    .limit(1)
+    .maybeSingle();
+
+  if (!target?.id) {
+    console.log(`⚡ Reação ignorada: mensagem original ${targetExternalId} não encontrada`);
+    return true;
+  }
+
+  const { data: existing } = await supabase
+    .from('message_reactions')
+    .select('id, emoji')
+    .eq('message_id', target.id)
+    .eq('reactor_type', reactorType)
+    .is('reactor_id', null)
+    .limit(1)
+    .maybeSingle();
+
+  // Emoji vazio = reação removida no WhatsApp
+  if (!emoji) {
+    if (existing?.id) {
+      await supabase.from('message_reactions').delete().eq('id', existing.id);
+      console.log('⚡ Reação removida');
+    }
+    return true;
+  }
+
+  if (existing?.id) {
+    if (existing.emoji === emoji) {
+      console.log('⚡ Reação idêntica já registrada - idempotente');
+      return true;
+    }
+    await supabase
+      .from('message_reactions')
+      .update({ emoji, external_id: targetExternalId })
+      .eq('id', existing.id);
+    console.log(`⚡ Reação atualizada para ${emoji}`);
+    return true;
+  }
+
+  const { error } = await supabase.from('message_reactions').insert({
+    message_id: target.id,
+    conversation_id: conversationId,
+    emoji,
+    reactor_type: reactorType,
+    reactor_name: message.key.fromMe ? null : (message.pushName || null),
+    external_id: targetExternalId,
+  });
+  if (error) console.error('Erro ao salvar reação:', error);
+  else console.log(`⚡ Reação ${emoji} registrada na mensagem ${target.id}`);
+  return true;
 }
 
 // Verificar se a mensagem é uma reação
