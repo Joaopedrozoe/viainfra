@@ -124,15 +124,17 @@ export const ChatInput = memo(({
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Limite de 10MB
-      if (file.size > 10 * 1024 * 1024) {
-        alert('Arquivo muito grande. Máximo: 10MB');
+      // Validação conforme limites e formatos da API oficial do WhatsApp
+      const validation = validateWhatsAppFile(file);
+      if (!validation.ok) {
+        toast.error(validation.error || 'Arquivo não suportado pela API oficial do WhatsApp');
+        if (fileInputRef.current) fileInputRef.current.value = '';
         return;
       }
-      
+
       setSelectedFile(file);
-      
-      // Preview para imagens
+
+      // Preview para imagens e stickers
       if (file.type.startsWith('image/')) {
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -148,6 +150,7 @@ export const ChatInput = memo(({
       fileInputRef.current.value = '';
     }
   }, []);
+
 
   const handleFileUpload = useCallback(() => {
     fileInputRef.current?.click();

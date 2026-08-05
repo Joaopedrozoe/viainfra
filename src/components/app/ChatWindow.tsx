@@ -375,8 +375,17 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       // Definir conteúdo da mensagem
       let messageContent = content;
       if (attachmentData && !content) {
-        const typeLabels = { image: 'Imagem', video: 'Vídeo', audio: 'Áudio', document: 'Documento' };
-        messageContent = `[${typeLabels[attachmentData.type]}]`;
+        const typeLabels: Record<Attachment['type'], string> = {
+          image: 'Imagem',
+          video: 'Vídeo',
+          audio: 'Áudio',
+          document: 'Documento',
+          location: 'Localização',
+          sticker: 'Sticker',
+          contact: 'Contato',
+        };
+        messageContent = `[${typeLabels[attachmentData.type] || 'Mídia'}]`;
+
       }
       
       // Adicionar mensagem localmente primeiro para feedback instantâneo
