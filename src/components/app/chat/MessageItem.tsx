@@ -750,6 +750,7 @@ export const MessageItem = memo(({
           onForward={onForward || (() => {})}
           onDelete={onDelete || (() => {})}
           onReply={onReply}
+          onReact={onReact}
         >
           {messageBubble}
         </MessageActions>

@@ -4,6 +4,9 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import {
@@ -23,8 +26,10 @@ import {
   Trash2,
   Reply,
   Info,
+  SmilePlus,
 } from "lucide-react";
 import { Message } from "./types";
+import { QUICK_REACTIONS } from "./MessageReactions";
 
 export interface MessageActionsProps {
   message: Message;
@@ -36,6 +41,7 @@ export interface MessageActionsProps {
   onForward: (message: Message) => void;
   onDelete: (message: Message) => void;
   onReply?: (message: Message) => void;
+  onReact?: (message: Message, emoji: string) => void;
 }
 
 // Helper component for menu items with tooltips
@@ -89,6 +95,7 @@ export const MessageActions = memo(({
   onForward,
   onDelete,
   onReply,
+  onReact,
 }: MessageActionsProps) => {
   const isAgentMessage = message.sender === 'agent';
   const isPinned = message.isPinned;
@@ -106,6 +113,30 @@ export const MessageActions = memo(({
             <Reply className="w-4 h-4 mr-2" />
             Responder
           </ContextMenuItem>
+        )}
+
+        {/* Reagir - envia reação pela API oficial */}
+        {onReact && !message.id.startsWith('temp-') && (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              <SmilePlus className="w-4 h-4 mr-2" />
+              Reagir
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-auto p-1">
+              <div className="flex gap-1">
+                {QUICK_REACTIONS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => onReact(message, emoji)}
+                    className="emoji-text rounded-full px-1.5 py-1 text-lg leading-none hover:bg-muted"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
         )}
 
         {/* Copiar - disponível para todas as mensagens com conteúdo */}

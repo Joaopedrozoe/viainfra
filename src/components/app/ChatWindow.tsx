@@ -535,15 +535,16 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
               // Atualizar status para failed localmente
               updateMessage(data.id, { deliveryStatus: 'failed' });
               
-              // Mensagem de erro específica para grupos
+              // Mensagem de erro clara (a função já traduz os códigos da Meta)
               const isGroupError = response?.error?.includes('grupo') || response?.error?.includes('@g.us');
-              const errorMsg = isGroupError
-                ? 'Falha ao enviar para o grupo. Será reenviada automaticamente.'
-                : 'Falha ao enviar via WhatsApp. Será reenviada automaticamente.';
-              
+              const errorMsg = response?.error
+                || (isGroupError
+                  ? 'Falha ao enviar para o grupo. Será reenviada automaticamente.'
+                  : 'Falha ao enviar via WhatsApp. Será reenviada automaticamente.');
+
               toast.error(errorMsg, {
-                description: response?.queued ? 'Adicionada à fila de retry' : response?.error?.substring(0, 100),
-                duration: 5000,
+                description: response?.queued ? 'Adicionada à fila de reenvio automático' : undefined,
+                duration: 6000,
               });
             } else {
               console.log('✅ [WhatsApp] Mensagem enviada com sucesso!', {

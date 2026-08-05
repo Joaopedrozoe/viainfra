@@ -58,6 +58,40 @@ async function resolveAuthorizedInstanceForConversation(supabase: any, conversat
   return { instanceName: instance.instance_name, error: null };
 }
 
+
+/**
+ * Traduz erros da API oficial (Cloud API / Evolution) para mensagens claras no inbox.
+ * Mantém o erro técnico original em `details` para diagnóstico.
+ */
+function friendlyMetaError(raw?: string | null): string {
+  const text = (raw || '').toString();
+  const lower = text.toLowerCase();
+
+  if (/131047|re-?engagement|24 hours|24h/.test(lower)) {
+    return 'A janela de 24h desta conversa expirou. Envie o template de abertura e aguarde a resposta do contato.';
+  }
+  if (/131026|not a whatsapp user|invalid.*(phone|number)|131051/.test(lower)) {
+    return 'Este número não está disponível no WhatsApp ou está inválido.';
+  }
+  if (/132000|132001|132005|132007|132012|132015|template/.test(lower)) {
+    return 'O template informado é inválido, não foi aprovado ou está com parâmetros incorretos.';
+  }
+  if (/media.*(expired|not found)|131052|130472/.test(lower)) {
+    return 'A mídia não está mais disponível na Meta (link expirado). Envie o arquivo novamente.';
+  }
+  if (/rate limit|too many|130429|131048|4 ?\(#4\)/.test(lower)) {
+    return 'Limite de envio da Meta atingido no momento. A mensagem foi enfileirada e será reenviada.';
+  }
+  if (/(^|\D)401(\D|$)|unauthor|invalid.*token|190/.test(lower)) {
+    return 'Credenciais da conexão WhatsApp inválidas ou expiradas. Reconecte a instância.';
+  }
+  if (/connection closed|disconnected|not connected|close/.test(lower)) {
+    return 'A conexão do WhatsApp está indisponível. A mensagem foi enfileirada para reenvio.';
+  }
+  if (!text) return 'Não foi possível enviar a mensagem. Ela foi enfileirada para reenvio.';
+  return `Falha no envio pelo WhatsApp: ${text.substring(0, 180)}`;
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -473,6 +507,7 @@ serve(async (req) => {
               ...currentMetadata,
               whatsappStatus: 'failed',
               whatsappError: sendResult.error,
+              whatsappErrorFriendly: friendlyMetaError(sendResult.error),
               whatsappFailedAt: new Date().toISOString()
             }
           })
@@ -482,7 +517,8 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({ 
           success: false, 
-          error: sendResult.error,
+          error: friendlyMetaError(sendResult.error),
+          details: sendResult.error,
           queued: true,
           message: 'Message queued for retry'
         }), 
