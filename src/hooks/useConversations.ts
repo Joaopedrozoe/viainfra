@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/auth';
 import { useNotifications } from './useNotifications';
+import { isConversationInFocus } from '@/lib/notification-focus';
+
 
 // Helper function to detect if a message is a reaction (should not affect ordering)
 const isReactionMessage = (content: string | null | undefined): boolean => {
