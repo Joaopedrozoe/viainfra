@@ -1,9 +1,10 @@
 import { memo, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
-import { Message, MessageDeliveryStatus } from "./types";
+import { Message, MessageDeliveryStatus, AttachmentType } from "./types";
 import { format, isThisYear } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { FileText, Download, Play, Pause, Volume2, Check, CheckCheck, Clock, AlertCircle, Loader2, Pin, Star, Reply, Image, Video, Mic, File, MapPin, ExternalLink } from "lucide-react";
+import { FileText, Download, Play, Pause, Volume2, Check, CheckCheck, Clock, AlertCircle, Loader2, Pin, Star, Reply, Image, Video, Mic, File, MapPin, ExternalLink, User } from "lucide-react";
+
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { MessageActions } from "./MessageActions";
 
