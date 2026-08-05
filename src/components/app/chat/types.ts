@@ -1,5 +1,14 @@
+export type AttachmentType =
+  | 'image'
+  | 'video'
+  | 'audio'
+  | 'document'
+  | 'location'
+  | 'sticker'
+  | 'contact';
+
 export interface Attachment {
-  type: 'image' | 'video' | 'audio' | 'document' | 'location';
+  type: AttachmentType;
   url: string;
   filename?: string;
   mimeType?: string;
@@ -9,7 +18,12 @@ export interface Attachment {
   longitude?: number;
   locationName?: string;
   locationAddress?: string;
+  // Campos específicos para contato (vCard)
+  contactName?: string;
+  contactPhones?: string[];
+  vcard?: string;
 }
+
 
 export type MessageDeliveryStatus = 'sending' | 'sent' | 'sent_confirmed' | 'delivered' | 'read' | 'played' | 'pending' | 'failed';
 
