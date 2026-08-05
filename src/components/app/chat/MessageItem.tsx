@@ -660,6 +660,16 @@ export const MessageItem = memo(({
               address={attachment.locationAddress}
             />
           )}
+          {attachment.type === 'sticker' && (
+            <StickerAttachment url={attachment.url} />
+          )}
+          {attachment.type === 'contact' && (
+            <ContactAttachment
+              name={attachment.contactName || attachment.filename}
+              phones={attachment.contactPhones}
+              vcard={attachment.vcard}
+            />
+          )}
         </>
       )}
       
@@ -674,11 +684,13 @@ export const MessageItem = memo(({
               {message.mediaType === 'audio' && 'Áudio não disponível'}
               {message.mediaType === 'video' && 'Vídeo não disponível'}
               {message.mediaType === 'document' && 'Documento não disponível'}
+              {message.mediaType === 'sticker' && 'Sticker não disponível'}
               {!message.mediaType && 'Mídia não disponível'}
             </p>
           </div>
         </div>
       )}
+
       
       {/* Placeholder para mídia sem URL - mensagens antigas sem attachment e não processadas */}
       {!attachment && !message.mediaUnavailable && isMediaPlaceholder(message.content) && (
