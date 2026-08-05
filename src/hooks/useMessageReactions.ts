@@ -5,6 +5,7 @@ import { Message, MessageReaction } from "@/components/app/chat/types";
 
 interface UseMessageReactionsParams {
   conversationId?: string;
+  /** Opcional: se não informado, é resolvido a partir da metadata da conversa */
   remoteJid?: string;
 }
 
@@ -14,6 +15,7 @@ interface UseMessageReactionsParams {
  */
 export const useMessageReactions = ({ conversationId, remoteJid }: UseMessageReactionsParams) => {
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
+  const [resolvedJid, setResolvedJid] = useState<string | undefined>(remoteJid);
   const conversationIdRef = useRef<string | undefined>(conversationId);
   conversationIdRef.current = conversationId;
 
@@ -49,6 +51,22 @@ export const useMessageReactions = ({ conversationId, remoteJid }: UseMessageRea
 
     load();
 
+    // Resolver remoteJid da conversa quando não informado
+    if (remoteJid) {
+      setResolvedJid(remoteJid);
+    } else {
+      supabase
+        .from('conversations')
+        .select('metadata')
+        .eq('id', conversationId)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (cancelled) return;
+          const metadata = (data?.metadata || {}) as Record<string, unknown>;
+          setResolvedJid(typeof metadata.remoteJid === 'string' ? metadata.remoteJid : undefined);
+        });
+    }
+
     const channel = supabase
       .channel(`message-reactions-${conversationId}`)
       .on(
@@ -76,7 +94,7 @@ export const useMessageReactions = ({ conversationId, remoteJid }: UseMessageRea
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [conversationId, mapRow]);
+  }, [conversationId, remoteJid, mapRow]);
 
   const reactionsByMessage = useMemo(() => {
     const map = new Map<string, MessageReaction[]>();
@@ -92,7 +110,8 @@ export const useMessageReactions = ({ conversationId, remoteJid }: UseMessageRea
     if (!conversationId) return;
 
     const whatsappId = message.whatsappMessageId;
-    if (!whatsappId || !remoteJid) {
+    const targetJid = remoteJid || resolvedJid;
+    if (!whatsappId || !targetJid) {
       toast.error('Não é possível reagir a esta mensagem');
       return;
     }
@@ -116,7 +135,7 @@ export const useMessageReactions = ({ conversationId, remoteJid }: UseMessageRea
         action: 'reactMessage',
         conversation_id: conversationId,
         local_message_id: message.id,
-        remoteJid,
+        remoteJid: targetJid,
         messageId: whatsappId,
         fromMe: message.sender === 'agent',
         emoji: nextEmoji,
@@ -132,7 +151,7 @@ export const useMessageReactions = ({ conversationId, remoteJid }: UseMessageRea
         return mine ? [...others, mine] : others;
       });
     }
-  }, [conversationId, remoteJid, reactions]);
+  }, [conversationId, remoteJid, resolvedJid, reactions]);
 
   return { reactionsByMessage, toggleReaction };
 };
