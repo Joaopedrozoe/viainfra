@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { useInfiniteMessages } from "@/hooks/useInfiniteMessages";
+import { useMessageReactions } from "@/hooks/useMessageReactions";
 import { Loader2, Pin, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getWhatsAppAttachmentType } from "@/lib/whatsapp-media";
@@ -1171,6 +1172,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
                   onForward={handleForwardMessage}
                   onDelete={handleDeleteMessageClick}
                   onReply={handleReplyMessage}
+                  reactions={reactionsByMessage.get(message.id)}
+                  onReact={conversationChannel === 'whatsapp' ? toggleReaction : undefined}
                 />
               </div>
             );
