@@ -1,9 +1,10 @@
 import { memo, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
-import { Message, MessageDeliveryStatus } from "./types";
+import { Message, MessageDeliveryStatus, AttachmentType } from "./types";
 import { format, isThisYear } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { FileText, Download, Play, Pause, Volume2, Check, CheckCheck, Clock, AlertCircle, Loader2, Pin, Star, Reply, Image, Video, Mic, File, MapPin, ExternalLink } from "lucide-react";
+import { FileText, Download, Play, Pause, Volume2, Check, CheckCheck, Clock, AlertCircle, Loader2, Pin, Star, Reply, Image, Video, Mic, File, MapPin, ExternalLink, User } from "lucide-react";
+
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { MessageActions } from "./MessageActions";
 
@@ -38,7 +39,7 @@ const formatMessageTimestamp = (dateString: string) => {
 };
 
 // Padrões de placeholder de mídia
-const MEDIA_PLACEHOLDERS = ['[Imagem]', '[Áudio]', '[Áudio de voz]', '[Vídeo]', '[Documento', '[Sticker]', '[Mídia]', '[Localização]', '📍'];
+const MEDIA_PLACEHOLDERS = ['[Imagem]', '[Áudio]', '[Áudio de voz]', '[Vídeo]', '[Documento', '[Sticker]', '[Mídia]', '[Localização]', '[Contato', '📍'];
 
 // Verifica se o conteúdo é apenas um placeholder de mídia (com ou sem nome de participante de grupo)
 const isMediaPlaceholder = (content: string): boolean => {
@@ -408,6 +409,72 @@ const LocationAttachment = ({
   );
 };
 
+// Componente para exibir sticker (sem bolha, como no WhatsApp)
+const StickerAttachment = ({ url }: { url: string }) => {
+  const [error, setError] = useState(false);
+
+  if (error) {
+    return (
+      <div className="mt-2 text-xs text-muted-foreground italic">Sticker não disponível</div>
+    );
+  }
+
+  return (
+    <img
+      src={url}
+      alt="Sticker"
+      loading="lazy"
+      onError={() => setError(true)}
+      className="mt-2 w-32 h-32 object-contain"
+    />
+  );
+};
+
+// Componente para exibir contato compartilhado (vCard)
+const ContactAttachment = ({
+  name,
+  phones,
+  vcard,
+}: {
+  name?: string;
+  phones?: string[];
+  vcard?: string;
+}) => {
+  const displayPhones = phones && phones.length > 0 ? phones : [];
+  const vcardHref = vcard
+    ? `data:text/vcard;charset=utf-8,${encodeURIComponent(vcard)}`
+    : undefined;
+
+  return (
+    <div className="mt-2 rounded-lg border border-border/50 bg-muted/50 p-3">
+      <div className="flex items-center gap-2">
+        <User size={20} className="text-muted-foreground flex-shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium truncate">{name || 'Contato'}</div>
+          {displayPhones.map((p) => (
+            <a
+              key={p}
+              href={`tel:${p.replace(/[^\d+]/g, '')}`}
+              className="block text-xs text-muted-foreground hover:underline truncate"
+            >
+              {p}
+            </a>
+          ))}
+        </div>
+      </div>
+      {vcardHref && (
+        <a
+          href={vcardHref}
+          download={`${(name || 'contato').replace(/[^\w\-]+/g, '_')}.vcf`}
+          className="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+        >
+          <Download size={14} /> Salvar contato
+        </a>
+      )}
+    </div>
+  );
+};
+
 // Componente para exibir mensagem citada (reply/quote)
 const QuotedMessage = ({ 
   content, 
@@ -417,13 +484,15 @@ const QuotedMessage = ({
 }: {
   content?: string;
   sender?: string;
-  attachmentType?: 'image' | 'video' | 'audio' | 'document' | 'location';
+  attachmentType?: AttachmentType;
   isAgentMessage: boolean;
 }) => {
   // Ícone baseado no tipo de anexo
   const AttachmentIcon = () => {
     switch (attachmentType) {
       case 'image':
+        return <Image size={14} className="flex-shrink-0" />;
+      case 'sticker':
         return <Image size={14} className="flex-shrink-0" />;
       case 'video':
         return <Video size={14} className="flex-shrink-0" />;
@@ -433,6 +502,8 @@ const QuotedMessage = ({
         return <File size={14} className="flex-shrink-0" />;
       case 'location':
         return <MapPin size={14} className="flex-shrink-0" />;
+      case 'contact':
+        return <User size={14} className="flex-shrink-0" />;
       default:
         return null;
     }
@@ -444,8 +515,11 @@ const QuotedMessage = ({
     video: 'Vídeo',
     audio: 'Áudio',
     document: 'Documento',
-    location: 'Localização'
+    location: 'Localização',
+    sticker: 'Sticker',
+    contact: 'Contato'
   }[attachmentType || ''] || '';
+
 
   return (
     <div 
@@ -586,6 +660,16 @@ export const MessageItem = memo(({
               address={attachment.locationAddress}
             />
           )}
+          {attachment.type === 'sticker' && (
+            <StickerAttachment url={attachment.url} />
+          )}
+          {attachment.type === 'contact' && (
+            <ContactAttachment
+              name={attachment.contactName || attachment.filename}
+              phones={attachment.contactPhones}
+              vcard={attachment.vcard}
+            />
+          )}
         </>
       )}
       
@@ -600,11 +684,13 @@ export const MessageItem = memo(({
               {message.mediaType === 'audio' && 'Áudio não disponível'}
               {message.mediaType === 'video' && 'Vídeo não disponível'}
               {message.mediaType === 'document' && 'Documento não disponível'}
+              {message.mediaType === 'sticker' && 'Sticker não disponível'}
               {!message.mediaType && 'Mídia não disponível'}
             </p>
           </div>
         </div>
       )}
+
       
       {/* Placeholder para mídia sem URL - mensagens antigas sem attachment e não processadas */}
       {!attachment && !message.mediaUnavailable && isMediaPlaceholder(message.content) && (

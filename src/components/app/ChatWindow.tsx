@@ -15,15 +15,20 @@ import { cn } from "@/lib/utils";
 import { useInfiniteMessages } from "@/hooks/useInfiniteMessages";
 import { Loader2, Pin, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { getWhatsAppAttachmentType } from "@/lib/whatsapp-media";
 
-const getFileType = (file: File): Attachment['type'] => {
-  if (file.type.startsWith('image/')) return 'image';
-  if (file.type.startsWith('video/')) return 'video';
-  if (file.type.startsWith('audio/')) return 'audio';
-  return 'document';
-};
 
-const attachmentPlaceholderLabels = new Set(['[Imagem]', '[Vídeo]', '[Áudio]', '[Documento]']);
+const getFileType = (file: File): Attachment['type'] => getWhatsAppAttachmentType(file);
+
+const attachmentPlaceholderLabels = new Set([
+  '[Imagem]',
+  '[Vídeo]',
+  '[Áudio]',
+  '[Documento]',
+  '[Sticker]',
+  '[Contato]',
+]);
+
 
 const mapDbMessageToChatMessage = (dbMessage: any): Message => {
   const metadata = (typeof dbMessage?.metadata === 'object' && dbMessage?.metadata !== null)
@@ -370,8 +375,17 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       // Definir conteúdo da mensagem
       let messageContent = content;
       if (attachmentData && !content) {
-        const typeLabels = { image: 'Imagem', video: 'Vídeo', audio: 'Áudio', document: 'Documento' };
-        messageContent = `[${typeLabels[attachmentData.type]}]`;
+        const typeLabels: Record<Attachment['type'], string> = {
+          image: 'Imagem',
+          video: 'Vídeo',
+          audio: 'Áudio',
+          document: 'Documento',
+          location: 'Localização',
+          sticker: 'Sticker',
+          contact: 'Contato',
+        };
+        messageContent = `[${typeLabels[attachmentData.type] || 'Mídia'}]`;
+
       }
       
       // Adicionar mensagem localmente primeiro para feedback instantâneo

@@ -19,7 +19,7 @@ const corsHeaders = {
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz0viYlAJ_-v00BzqRgMROE0wdvixohvQ4d949mTvRQk_eRdqN-CsxQeAldpV6HR2xlBQ/exec';
 
 interface Attachment {
-  type: 'image' | 'video' | 'audio' | 'document' | 'location';
+  type: 'image' | 'video' | 'audio' | 'document' | 'location' | 'sticker' | 'contact';
   url: string;
   filename?: string;
   mimeType?: string;
@@ -28,6 +28,10 @@ interface Attachment {
   longitude?: number;
   locationName?: string;
   locationAddress?: string;
+  // Campos específicos para contato (vCard)
+  contactName?: string;
+  contactPhones?: string[];
+  vcard?: string;
 }
 
 // Interface para contextInfo (mensagens de reply/citação)
@@ -676,6 +680,37 @@ function convertMetaPayloadToEvolution(payload: any): EvolutionWebhook | null {
           break;
         case 'location':
           evoMessage.locationMessage = { degreesLatitude: m.location?.latitude, degreesLongitude: m.location?.longitude, name: m.location?.name, address: m.location?.address };
+          break;
+        case 'contacts': {
+          const list = Array.isArray(m.contacts) ? m.contacts : [];
+          const contacts = list.map((c: any) => {
+            const displayName = c?.name?.formatted_name
+              || [c?.name?.first_name, c?.name?.last_name].filter(Boolean).join(' ')
+              || 'Contato';
+            const phones: string[] = (c?.phones || []).map((p: any) => p?.wa_id || p?.phone).filter(Boolean);
+            const vcard = [
+              'BEGIN:VCARD',
+              'VERSION:3.0',
+              `FN:${displayName}`,
+              ...phones.map((p: string) => `TEL;type=CELL;waid=${String(p).replace(/\D/g, '')}:${p}`),
+              'END:VCARD',
+            ].join('\n');
+            return { displayName, vcard };
+          });
+          if (contacts.length === 1) {
+            evoMessage.contactMessage = contacts[0];
+          } else if (contacts.length > 1) {
+            evoMessage.contactsArrayMessage = { contacts };
+          } else {
+            evoMessage.conversation = '[Contato]';
+          }
+          break;
+        }
+        case 'reaction':
+          evoMessage.reactionMessage = {
+            key: { id: m.reaction?.message_id },
+            text: m.reaction?.emoji || '',
+          };
           break;
         case 'button':
           evoMessage.conversation = m.button?.text || m.button?.payload || '';
@@ -3376,16 +3411,44 @@ function getExtensionFromMimeType(mimeType: string): string {
     'image/png': 'png',
     'image/gif': 'gif',
     'image/webp': 'webp',
+    'image/bmp': 'bmp',
+    'image/tiff': 'tiff',
     'video/mp4': 'mp4',
     'video/3gpp': '3gp',
+    'video/3gp': '3gp',
+    'video/quicktime': 'mov',
+    'video/webm': 'webm',
     'audio/ogg': 'ogg',
+    'audio/opus': 'opus',
     'audio/mpeg': 'mp3',
+    'audio/mp3': 'mp3',
     'audio/mp4': 'm4a',
+    'audio/aac': 'aac',
+    'audio/amr': 'amr',
+    'audio/wav': 'wav',
+    'audio/x-wav': 'wav',
+    'audio/webm': 'webm',
     'application/pdf': 'pdf',
     'application/msword': 'doc',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.ms-excel': 'xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+    'application/vnd.ms-powerpoint': 'ppt',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+    'application/zip': 'zip',
+    'application/x-rar-compressed': 'rar',
+    'application/json': 'json',
+    'text/plain': 'txt',
+    'text/csv': 'csv',
+    'text/vcard': 'vcf',
+    'text/x-vcard': 'vcf',
   };
-  return mimeToExt[mimeType] || 'bin';
+  const normalized = (mimeType || '').split(';')[0].trim().toLowerCase();
+  if (mimeToExt[normalized]) return mimeToExt[normalized];
+  // Fallback: usar o subtipo quando for simples (ex.: image/heic -> heic)
+  const subtype = normalized.split('/')[1];
+  if (subtype && /^[a-z0-9]{2,5}$/.test(subtype)) return subtype;
+  return 'bin';
 }
 
 // Extrai informações de mensagem citada (reply/quote) do contextInfo
@@ -4381,6 +4444,13 @@ function extractMessageContent(message: EvolutionMessage): string {
   if (msgContent.stickerMessage) {
     return '[Sticker]';
   }
+
+  // Contato compartilhado (vCard)
+  const sharedContact: any = (msgContent as any).contactMessage
+    || ((msgContent as any).contactsArrayMessage?.contacts || [])[0];
+  if (sharedContact) {
+    return `[Contato: ${sharedContact.displayName || 'sem nome'}]`;
+  }
   
   return '[Mensagem não suportada]';
 }
@@ -4455,6 +4525,34 @@ function extractAttachment(message: EvolutionMessage): Attachment | null {
     };
   }
   
+  // Sticker (tratado como mídia própria; download igual às demais)
+  if ((msgContent as any).stickerMessage) {
+    const st: any = (msgContent as any).stickerMessage;
+    return {
+      type: 'sticker',
+      url: st.url || st.directPath || '',
+      mimeType: st.mimetype || 'image/webp',
+    };
+  }
+
+  // Contato compartilhado (vCard) — único ou lista
+  const contactMsg: any = (msgContent as any).contactMessage
+    || ((msgContent as any).contactsArrayMessage?.contacts || [])[0];
+  if (contactMsg) {
+    const vcard: string = contactMsg.vcard || '';
+    const phones = Array.from(vcard.matchAll(/TEL[^:]*:([+\d\s()-]+)/gi))
+      .map((m) => String(m[1]).trim())
+      .filter(Boolean);
+    return {
+      type: 'contact',
+      url: '',
+      contactName: contactMsg.displayName || 'Contato',
+      contactPhones: phones,
+      vcard: vcard || undefined,
+      mimeType: 'text/vcard',
+    };
+  }
+
   return null;
 }
 

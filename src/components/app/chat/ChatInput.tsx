@@ -6,22 +6,27 @@ import { cn } from "@/lib/utils";
 import { Attachment, ChatInputProps, Message } from "./types";
 import EmojiPicker, { EmojiClickData, Theme, EmojiStyle } from 'emoji-picker-react';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { toast } from "sonner";
+import {
+  validateWhatsAppFile,
+  getWhatsAppAttachmentType,
+  WHATSAPP_ACCEPT_ATTRIBUTE,
+} from "@/lib/whatsapp-media";
 
-const getFileType = (file: File): Attachment['type'] => {
-  if (file.type.startsWith('image/')) return 'image';
-  if (file.type.startsWith('video/')) return 'video';
-  if (file.type.startsWith('audio/')) return 'audio';
-  return 'document';
-};
+const getFileType = (file: File): Attachment['type'] => getWhatsAppAttachmentType(file);
+
 
 const getFileIcon = (type: Attachment['type']) => {
   switch (type) {
-    case 'image': return Image;
+    case 'image':
+    case 'sticker':
+      return Image;
     case 'video': return Film;
     case 'audio': return Music;
     default: return FileText;
   }
 };
+
 
 // Component for reply preview bar
 const ReplyPreview = memo(({
@@ -124,15 +129,17 @@ export const ChatInput = memo(({
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Limite de 10MB
-      if (file.size > 10 * 1024 * 1024) {
-        alert('Arquivo muito grande. Máximo: 10MB');
+      // Validação conforme limites e formatos da API oficial do WhatsApp
+      const validation = validateWhatsAppFile(file);
+      if (!validation.ok) {
+        toast.error(validation.error || 'Arquivo não suportado pela API oficial do WhatsApp');
+        if (fileInputRef.current) fileInputRef.current.value = '';
         return;
       }
-      
+
       setSelectedFile(file);
-      
-      // Preview para imagens
+
+      // Preview para imagens e stickers
       if (file.type.startsWith('image/')) {
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -148,6 +155,7 @@ export const ChatInput = memo(({
       fileInputRef.current.value = '';
     }
   }, []);
+
 
   const handleFileUpload = useCallback(() => {
     fileInputRef.current?.click();
@@ -250,7 +258,7 @@ export const ChatInput = memo(({
           type="file"
           className="hidden"
           onChange={handleFileSelect}
-          accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+          accept={WHATSAPP_ACCEPT_ATTRIBUTE}
         />
         <button
           className={recordingButtonClass}
