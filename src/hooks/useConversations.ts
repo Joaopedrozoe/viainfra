@@ -318,12 +318,14 @@ export const useConversations = () => {
       
       const conversation = prev[conversationIndex];
       
-      // Notify IMMEDIATELY for contact messages (not reactions)
-      if (isContactMessage && !isReaction) {
+      // Notify IMMEDIATELY for contact messages (not reactions),
+      // exceto quando a conversa já está aberta e a aba está em foco
+      if (isContactMessage && !isReaction && !isConversationInFocus(newMsg.conversation_id)) {
         const contactName = conversation.contact?.name || 'Cliente';
         notifyNewMessage(contactName, newMsg.content);
         playNotificationSound();
       }
+
       
       const newLastMessage = {
         id: newMsg.id,
