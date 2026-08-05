@@ -4451,6 +4451,13 @@ function extractMessageContent(message: EvolutionMessage): string {
   if (msgContent.stickerMessage) {
     return '[Sticker]';
   }
+
+  // Contato compartilhado (vCard)
+  const sharedContact: any = (msgContent as any).contactMessage
+    || ((msgContent as any).contactsArrayMessage?.contacts || [])[0];
+  if (sharedContact) {
+    return `[Contato: ${sharedContact.displayName || 'sem nome'}]`;
+  }
   
   return '[Mensagem não suportada]';
 }
@@ -4525,6 +4532,34 @@ function extractAttachment(message: EvolutionMessage): Attachment | null {
     };
   }
   
+  // Sticker (tratado como mídia própria; download igual às demais)
+  if ((msgContent as any).stickerMessage) {
+    const st: any = (msgContent as any).stickerMessage;
+    return {
+      type: 'sticker',
+      url: st.url || st.directPath || '',
+      mimeType: st.mimetype || 'image/webp',
+    };
+  }
+
+  // Contato compartilhado (vCard) — único ou lista
+  const contactMsg: any = (msgContent as any).contactMessage
+    || ((msgContent as any).contactsArrayMessage?.contacts || [])[0];
+  if (contactMsg) {
+    const vcard: string = contactMsg.vcard || '';
+    const phones = Array.from(vcard.matchAll(/TEL[^:]*:([+\d\s()-]+)/gi))
+      .map((m) => String(m[1]).trim())
+      .filter(Boolean);
+    return {
+      type: 'contact',
+      url: '',
+      contactName: contactMsg.displayName || 'Contato',
+      contactPhones: phones,
+      vcard: vcard || undefined,
+      mimeType: 'text/vcard',
+    };
+  }
+
   return null;
 }
 
