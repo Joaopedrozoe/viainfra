@@ -1,6 +1,7 @@
 import { memo, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
-import { Message, MessageDeliveryStatus, AttachmentType } from "./types";
+import { Message, MessageDeliveryStatus, AttachmentType, MessageReaction } from "./types";
+import { ReactionChips, ReactionPicker } from "./MessageReactions";
 import { format, isThisYear } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { FileText, Download, Play, Pause, Volume2, Check, CheckCheck, Clock, AlertCircle, Loader2, Pin, Star, Reply, Image, Video, Mic, File, MapPin, ExternalLink, User } from "lucide-react";
@@ -17,6 +18,8 @@ export type MessageItemProps = {
   onForward?: (message: Message) => void;
   onDelete?: (message: Message) => void;
   onReply?: (message: Message) => void;
+  reactions?: MessageReaction[];
+  onReact?: (message: Message, emoji: string) => void;
 };
 
 const formatMessageTimestamp = (dateString: string) => {
@@ -573,6 +576,8 @@ export const MessageItem = memo(({
   onForward,
   onDelete,
   onReply,
+  reactions,
+  onReact,
 }: MessageItemProps) => {
   if (!message || !message.timestamp) {
     return null;
@@ -709,6 +714,22 @@ export const MessageItem = memo(({
         <span>{formattedTimestamp}</span>
         <DeliveryStatusIcon status={effectiveStatus} isAgentMessage={isAgentMessage} />
       </div>
+
+      {/* Reações (emoji) */}
+      {!!reactions?.length && (
+        <ReactionChips
+          reactions={reactions}
+          isAgentMessage={isAgentMessage}
+          onToggle={onReact ? (emoji) => onReact(message, emoji) : undefined}
+        />
+      )}
+
+      {onReact && !isTempMessage && (
+        <ReactionPicker
+          isAgentMessage={isAgentMessage}
+          onSelect={(emoji) => onReact(message, emoji)}
+        />
+      )}
     </div>
   );
   
