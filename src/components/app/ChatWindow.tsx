@@ -60,8 +60,9 @@ const getMeaningfulAttachmentCaption = (content: string, attachment?: Attachment
   return attachmentPlaceholderLabels.has(trimmed) ? undefined : trimmed;
 };
 
-// Cache de posição de scroll por conversa (distância do final)
-const scrollPositionsCache = new Map<string, number>();
+// Distância (px) do final considerada "colado no fim"
+const BOTTOM_ANCHOR_THRESHOLD = 80;
+
 
 export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: ChatWindowProps) => {
   const [contactName, setContactName] = useState<string>("");
@@ -74,12 +75,16 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   const [isSyncingHistory, setIsSyncingHistory] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const messagesContentRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { profile } = useAuth();
   const previousConversationIdRef = useRef<string | null>(null);
   const previousScrollHeightRef = useRef<number>(0);
   const previousScrollTopRef = useRef<number>(0);
   const isLoadingHistoryRef = useRef(false);
+  // Enquanto true, a conversa permanece ancorada nas mensagens mais recentes
+  const stickToBottomRef = useRef(true);
+
   
   // Hook para infinite scroll de mensagens
   const {
@@ -214,67 +219,53 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     }
   };
   
-  // Salvar posição do scroll quando sair da conversa
+  // Ao trocar de conversa, sempre abrir nas mensagens mais recentes
   useEffect(() => {
-    const container = messagesContainerRef.current;
-    const currentConvId = conversationId;
-    
-    return () => {
-      if (currentConvId && container) {
-        const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-        // Só salvar se não estiver no final (mais de 100px do fim)
-        if (distanceFromBottom > 100) {
-          scrollPositionsCache.set(currentConvId, distanceFromBottom);
-        } else {
-          scrollPositionsCache.delete(currentConvId);
-        }
-      }
-    };
+    stickToBottomRef.current = true;
   }, [conversationId]);
-  
-  // Scroll para o final quando novas mensagens chegam (com preservação de posição)
-  useEffect(() => {
-    // NÃO fazer scroll automático se estiver carregando histórico antigo
-    if (isLoadingHistoryRef.current) {
-      return;
-    }
 
+  const scrollToBottom = useCallback(() => {
+    const c = messagesContainerRef.current;
+    if (!c) return;
+    c.scrollTop = c.scrollHeight;
+  }, []);
+
+  // Mantém a conversa ancorada no final enquanto o usuário não rolar para trás.
+  // O ResizeObserver reancora quando imagens/áudios/stickers terminam de medir altura.
+  useEffect(() => {
+    const content = messagesContentRef.current;
+    if (!content) return;
+
+    const observer = new ResizeObserver(() => {
+      if (isLoadingHistoryRef.current) return;
+      if (stickToBottomRef.current) scrollToBottom();
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [conversationId, scrollToBottom]);
+
+  // Scroll para o final quando novas mensagens chegam
+  useEffect(() => {
+    if (isLoadingHistoryRef.current) return;
+    if (!stickToBottomRef.current) return;
+
+    requestAnimationFrame(() => {
+      scrollToBottom();
+      requestAnimationFrame(scrollToBottom);
+    });
+  }, [messages.length, conversationId, isLoadingMessages, scrollToBottom]);
+
+  // Infinite scroll + controle da âncora de rolagem
+  const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
 
-    // Verificar se temos posição salva para esta conversa
-    const savedDistance = scrollPositionsCache.get(conversationId || '');
+    // Perto do final => manter ancorado; rolou para trás => liberar a âncora
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    stickToBottomRef.current = distanceFromBottom < BOTTOM_ANCHOR_THRESHOLD;
 
-    const scrollToBottom = () => {
-      const c = messagesContainerRef.current;
-      if (!c) return;
-      c.scrollTop = c.scrollHeight;
-    };
-
-    if (savedDistance !== undefined) {
-      requestAnimationFrame(() => {
-        const c = messagesContainerRef.current;
-        if (!c) return;
-        const targetScroll = c.scrollHeight - c.clientHeight - savedDistance;
-        c.scrollTop = Math.max(0, targetScroll);
-      });
-      scrollPositionsCache.delete(conversationId || '');
-    } else {
-      // Double rAF + timeouts garantem que imagens/áudios já mediram altura
-      // antes do scroll — evita abrir a conversa em mensagens antigas.
-      requestAnimationFrame(() => {
-        scrollToBottom();
-        requestAnimationFrame(scrollToBottom);
-        setTimeout(scrollToBottom, 120);
-        setTimeout(scrollToBottom, 400);
-      });
-    }
-  }, [messages.length, conversationId, isLoadingMessages]);
-
-  // Infinite scroll: detectar quando o usuário rola para cima
-  const handleScroll = useCallback(() => {
-    const container = messagesContainerRef.current;
-    if (!container || isLoadingMore || !hasMore) return;
+    if (isLoadingMore || !hasMore) return;
 
     // Se estiver perto do topo (100px), carregar mais mensagens
     if (container.scrollTop < 100) {
@@ -286,6 +277,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       loadMoreMessages();
     }
   }, [isLoadingMore, hasMore, loadMoreMessages]);
+
 
   // Restaurar posição do scroll após carregar mensagens antigas
   useEffect(() => {
@@ -1122,7 +1114,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto chat-bg p-4"
       >
-        <div className="space-y-3">
+        <div ref={messagesContentRef} className="space-y-3">
           {/* Indicador de carregamento de mensagens antigas */}
           {isLoadingMore && (
             <div className="flex items-center justify-center py-3">
