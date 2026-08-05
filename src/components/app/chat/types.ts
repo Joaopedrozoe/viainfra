@@ -65,3 +65,11 @@ export interface ChatInputProps {
   onSendTemplate?: () => void;
   sendingTemplate?: boolean;
 }
+
+export interface MessageReaction {
+  id: string;
+  messageId: string;
+  emoji: string;
+  reactorType: 'user' | 'agent';
+  reactorName?: string | null;
+}
