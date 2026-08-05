@@ -15,6 +15,8 @@ import { useAuth } from "@/contexts/auth";
 import { StatusTab, StatusIcon } from "@/components/app/status";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { setActiveConversationId, setUnreadTitleBadge } from "@/lib/notification-focus";
+
 
 const Inbox = () => {
   const location = useLocation();
@@ -35,14 +37,28 @@ const Inbox = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [activeMainTab, setActiveMainTab] = useState<"conversations" | "status">("conversations");
   const { conversations: internalConversations } = useInternalChat();
-  const { updateConversationStatus, refetch } = useConversations();
+  const { conversations, updateConversationStatus, refetch } = useConversations();
   const { company } = useAuth();
   
   // Notificações de novas mensagens já são disparadas dentro de useConversations,
   // evitando subscription + query duplicadas por mensagem recebida.
+
+  // Informar qual conversa está aberta (evita som/notificação redundante)
+  useEffect(() => {
+    setActiveConversationId(showChat ? selectedConversation : null);
+    return () => setActiveConversationId(null);
+  }, [selectedConversation, showChat]);
+
+  // Badge de não lidas no título da aba
+  useEffect(() => {
+    const unread = conversations.filter((c: any) => c.hasNewMessage).length;
+    setUnreadTitleBadge(unread);
+    return () => setUnreadTitleBadge(0);
+  }, [conversations]);
   
   // REMOVED: Auto-refresh redundante - useConversations já tem realtime + polling
   // O realtime do Supabase é a fonte primária de updates agora
+
 
   // Auto-sync de avatares a cada hora (verificar contatos sem foto ou desatualizados)
   useEffect(() => {
