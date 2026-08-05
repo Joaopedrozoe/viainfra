@@ -18,7 +18,7 @@ const corsHeaders = {
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz0viYlAJ_-v00BzqRgMROE0wdvixohvQ4d949mTvRQk_eRdqN-CsxQeAldpV6HR2xlBQ/exec';
 
 interface Attachment {
-  type: 'image' | 'video' | 'audio' | 'document' | 'location';
+  type: 'image' | 'video' | 'audio' | 'document' | 'location' | 'sticker' | 'contact';
   url: string;
   filename?: string;
   mimeType?: string;
@@ -27,6 +27,10 @@ interface Attachment {
   longitude?: number;
   locationName?: string;
   locationAddress?: string;
+  // Campos específicos para contato (vCard)
+  contactName?: string;
+  contactPhones?: string[];
+  vcard?: string;
 }
 
 // Interface para contextInfo (mensagens de reply/citação)
@@ -3375,16 +3379,44 @@ function getExtensionFromMimeType(mimeType: string): string {
     'image/png': 'png',
     'image/gif': 'gif',
     'image/webp': 'webp',
+    'image/bmp': 'bmp',
+    'image/tiff': 'tiff',
     'video/mp4': 'mp4',
     'video/3gpp': '3gp',
+    'video/3gp': '3gp',
+    'video/quicktime': 'mov',
+    'video/webm': 'webm',
     'audio/ogg': 'ogg',
+    'audio/opus': 'opus',
     'audio/mpeg': 'mp3',
+    'audio/mp3': 'mp3',
     'audio/mp4': 'm4a',
+    'audio/aac': 'aac',
+    'audio/amr': 'amr',
+    'audio/wav': 'wav',
+    'audio/x-wav': 'wav',
+    'audio/webm': 'webm',
     'application/pdf': 'pdf',
     'application/msword': 'doc',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'application/vnd.ms-excel': 'xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+    'application/vnd.ms-powerpoint': 'ppt',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx',
+    'application/zip': 'zip',
+    'application/x-rar-compressed': 'rar',
+    'application/json': 'json',
+    'text/plain': 'txt',
+    'text/csv': 'csv',
+    'text/vcard': 'vcf',
+    'text/x-vcard': 'vcf',
   };
-  return mimeToExt[mimeType] || 'bin';
+  const normalized = (mimeType || '').split(';')[0].trim().toLowerCase();
+  if (mimeToExt[normalized]) return mimeToExt[normalized];
+  // Fallback: usar o subtipo quando for simples (ex.: image/heic -> heic)
+  const subtype = normalized.split('/')[1];
+  if (subtype && /^[a-z0-9]{2,5}$/.test(subtype)) return subtype;
+  return 'bin';
 }
 
 // Extrai informações de mensagem citada (reply/quote) do contextInfo
