@@ -106,6 +106,9 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     replaceTemporaryMessage,
     deleteMessage,
   } = useInfiniteMessages(conversationId);
+
+  // Reações (emoji) da conversa
+  const { reactionsByMessage, toggleReaction } = useMessageReactions({ conversationId });
   
   // Estados para modais de ações
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
