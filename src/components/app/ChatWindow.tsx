@@ -1114,7 +1114,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto chat-bg p-4"
       >
-        <div className="space-y-3">
+        <div ref={messagesContentRef} className="space-y-3">
           {/* Indicador de carregamento de mensagens antigas */}
           {isLoadingMore && (
             <div className="flex items-center justify-center py-3">
