@@ -83,6 +83,11 @@ serve(async (req) => {
     if (body.action === 'deleteMessage') {
       return await handleDeleteMessage(body);
     }
+
+    // Handle reaction action (react/unreact to a message on WhatsApp)
+    if (body.action === 'reactMessage') {
+      return await handleReactMessage(supabase, body);
+    }
     
     const { conversation_id, message_content, attachment, agent_name, message_id, quoted } = body;
 
@@ -929,6 +934,102 @@ async function handleUpdateMessage(body: {
 }
 
 // Handle deleting a message on WhatsApp (delete for everyone)
+
+// ============================================================
+// REAGIR A UMA MENSAGEM (emoji) — API oficial WhatsApp
+// emoji vazio remove a reação (comportamento oficial)
+// ============================================================
+async function handleReactMessage(supabase: any, body: {
+  conversation_id?: string;
+  local_message_id?: string;
+  remoteJid?: string;
+  messageId?: string;
+  fromMe?: boolean;
+  emoji?: string;
+}): Promise<Response> {
+  const { conversation_id, local_message_id, remoteJid, messageId, fromMe, emoji } = body;
+  const jsonHeaders = { ...corsHeaders, 'Content-Type': 'application/json' };
+
+  if (!conversation_id || !remoteJid || !messageId) {
+    return new Response(
+      JSON.stringify({ success: false, error: 'Missing required fields (conversation_id, remoteJid, messageId)' }),
+      { status: 400, headers: jsonHeaders }
+    );
+  }
+
+  const { instanceName, error: instanceError } = await resolveAuthorizedInstanceForConversation(supabase, conversation_id);
+  if (!instanceName) {
+    return new Response(
+      JSON.stringify({ success: false, error: instanceError || 'Instance not found' }),
+      { status: 400, headers: jsonHeaders }
+    );
+  }
+
+  const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL');
+  const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
+  if (!evolutionApiUrl || !evolutionApiKey) {
+    return new Response(
+      JSON.stringify({ success: false, error: 'Evolution API not configured' }),
+      { status: 500, headers: jsonHeaders }
+    );
+  }
+
+  try {
+    const response = await fetch(`${evolutionApiUrl}/message/sendReaction/${instanceName}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: evolutionApiKey },
+      body: JSON.stringify({
+        key: { remoteJid, fromMe: fromMe === true, id: messageId },
+        reaction: emoji || '',
+      }),
+    });
+
+    const raw = await response.text();
+    console.log('[send-whatsapp] ⚡ sendReaction response:', response.status, raw.slice(0, 400));
+
+    if (!response.ok) {
+      return new Response(
+        JSON.stringify({ success: false, error: `Evolution API error: ${raw.slice(0, 300)}` }),
+        { status: 502, headers: jsonHeaders }
+      );
+    }
+
+    // Refletir a reação do atendente no banco (idempotente)
+    if (local_message_id) {
+      const { data: existing } = await supabase
+        .from('message_reactions')
+        .select('id')
+        .eq('message_id', local_message_id)
+        .eq('reactor_type', 'agent')
+        .is('reactor_id', null)
+        .limit(1)
+        .maybeSingle();
+
+      if (!emoji) {
+        if (existing?.id) await supabase.from('message_reactions').delete().eq('id', existing.id);
+      } else if (existing?.id) {
+        await supabase.from('message_reactions').update({ emoji, external_id: messageId }).eq('id', existing.id);
+      } else {
+        await supabase.from('message_reactions').insert({
+          message_id: local_message_id,
+          conversation_id,
+          emoji,
+          reactor_type: 'agent',
+          external_id: messageId,
+        });
+      }
+    }
+
+    return new Response(JSON.stringify({ success: true }), { headers: jsonHeaders });
+  } catch (error) {
+    console.error('[send-whatsapp] ⚡ Erro ao reagir:', error);
+    return new Response(
+      JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Unknown error' }),
+      { status: 500, headers: jsonHeaders }
+    );
+  }
+}
+
 async function handleDeleteMessage(body: {
   instanceName?: string;
   conversation_id?: string;
