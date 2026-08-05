@@ -60,8 +60,9 @@ const getMeaningfulAttachmentCaption = (content: string, attachment?: Attachment
   return attachmentPlaceholderLabels.has(trimmed) ? undefined : trimmed;
 };
 
-// Cache de posição de scroll por conversa (distância do final)
-const scrollPositionsCache = new Map<string, number>();
+// Distância (px) do final considerada "colado no fim"
+const BOTTOM_ANCHOR_THRESHOLD = 80;
+
 
 export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: ChatWindowProps) => {
   const [contactName, setContactName] = useState<string>("");
@@ -74,12 +75,16 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   const [isSyncingHistory, setIsSyncingHistory] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const messagesContentRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { profile } = useAuth();
   const previousConversationIdRef = useRef<string | null>(null);
   const previousScrollHeightRef = useRef<number>(0);
   const previousScrollTopRef = useRef<number>(0);
   const isLoadingHistoryRef = useRef(false);
+  // Enquanto true, a conversa permanece ancorada nas mensagens mais recentes
+  const stickToBottomRef = useRef(true);
+
   
   // Hook para infinite scroll de mensagens
   const {
