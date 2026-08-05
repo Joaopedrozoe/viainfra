@@ -48,7 +48,7 @@ export interface Message {
   quotedMessageId?: string;
   quotedContent?: string;
   quotedSender?: string;
-  quotedAttachmentType?: 'image' | 'video' | 'audio' | 'document' | 'location';
+  quotedAttachmentType?: AttachmentType;
 }
 
 export interface ChatWindowProps {
