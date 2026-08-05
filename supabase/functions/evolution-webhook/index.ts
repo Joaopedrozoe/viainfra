@@ -484,15 +484,23 @@ async function processMetaCallEvent(payload: any): Promise<boolean> {
         if (conv) conversationId = conv.id;
       }
 
-      // SDP answer devolvido pela Meta (necessário para o WebRTC do navegador conectar)
-      const answerSdp: string | null = c?.session?.sdp_type === 'answer' ? (c?.session?.sdp || null) : null;
+      // SDP da Meta: "answer" (nossa chamada saindo) ou "offer" (chamada entrante do cliente)
+      const sess: any = c?.session || {};
+      const answerSdp: string | null = sess.sdp_type === 'answer' ? (sess.sdp || null) : null;
+      const offerSdp: string | null = sess.sdp_type === 'offer' ? (sess.sdp || null) : null;
+      const incomingRinging = direction === 'incoming' && event === 'connect';
 
       if (event === 'connect' || (!existing && event !== 'terminate')) {
+        const meta: Record<string, unknown> = { ...c };
+        if (answerSdp) meta.answer_sdp = answerSdp;
+        if (offerSdp) meta.offer_sdp = offerSdp;
+        const status = incomingRinging ? 'ringing' : (event === 'connect' ? 'connected' : 'ringing');
+
         if (existing) {
           await supabase.from('calls').update({
-            status: 'connected',
-            connected_at: ts,
-            metadata: answerSdp ? { ...c, answer_sdp: answerSdp } : c,
+            status,
+            connected_at: status === 'connected' ? ts : null,
+            metadata: meta,
           }).eq('id', existing.id);
         } else {
           await supabase.from('calls').insert({
@@ -503,13 +511,14 @@ async function processMetaCallEvent(payload: any): Promise<boolean> {
             phone: from || 'unknown',
             contact_name: contactName,
             direction,
-            status: event === 'connect' ? 'connected' : 'ringing',
+            status,
             call_type: 'voice',
             started_at: ts,
-            connected_at: event === 'connect' ? ts : null,
-            metadata: c,
+            connected_at: status === 'connected' ? ts : null,
+            metadata: meta,
           });
         }
+
       } else if (event === 'terminate') {
         const endedAt = ts;
         const startedAt = existing?.started_at || ts;
