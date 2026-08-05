@@ -408,6 +408,72 @@ const LocationAttachment = ({
   );
 };
 
+// Componente para exibir sticker (sem bolha, como no WhatsApp)
+const StickerAttachment = ({ url }: { url: string }) => {
+  const [error, setError] = useState(false);
+
+  if (error) {
+    return (
+      <div className="mt-2 text-xs text-muted-foreground italic">Sticker não disponível</div>
+    );
+  }
+
+  return (
+    <img
+      src={url}
+      alt="Sticker"
+      loading="lazy"
+      onError={() => setError(true)}
+      className="mt-2 w-32 h-32 object-contain"
+    />
+  );
+};
+
+// Componente para exibir contato compartilhado (vCard)
+const ContactAttachment = ({
+  name,
+  phones,
+  vcard,
+}: {
+  name?: string;
+  phones?: string[];
+  vcard?: string;
+}) => {
+  const displayPhones = phones && phones.length > 0 ? phones : [];
+  const vcardHref = vcard
+    ? `data:text/vcard;charset=utf-8,${encodeURIComponent(vcard)}`
+    : undefined;
+
+  return (
+    <div className="mt-2 rounded-lg border border-border/50 bg-muted/50 p-3">
+      <div className="flex items-center gap-2">
+        <User size={20} className="text-muted-foreground flex-shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium truncate">{name || 'Contato'}</div>
+          {displayPhones.map((p) => (
+            <a
+              key={p}
+              href={`tel:${p.replace(/[^\d+]/g, '')}`}
+              className="block text-xs text-muted-foreground hover:underline truncate"
+            >
+              {p}
+            </a>
+          ))}
+        </div>
+      </div>
+      {vcardHref && (
+        <a
+          href={vcardHref}
+          download={`${(name || 'contato').replace(/[^\w\-]+/g, '_')}.vcf`}
+          className="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+        >
+          <Download size={14} /> Salvar contato
+        </a>
+      )}
+    </div>
+  );
+};
+
 // Componente para exibir mensagem citada (reply/quote)
 const QuotedMessage = ({ 
   content, 
@@ -417,13 +483,15 @@ const QuotedMessage = ({
 }: {
   content?: string;
   sender?: string;
-  attachmentType?: 'image' | 'video' | 'audio' | 'document' | 'location';
+  attachmentType?: AttachmentType;
   isAgentMessage: boolean;
 }) => {
   // Ícone baseado no tipo de anexo
   const AttachmentIcon = () => {
     switch (attachmentType) {
       case 'image':
+        return <Image size={14} className="flex-shrink-0" />;
+      case 'sticker':
         return <Image size={14} className="flex-shrink-0" />;
       case 'video':
         return <Video size={14} className="flex-shrink-0" />;
@@ -433,6 +501,8 @@ const QuotedMessage = ({
         return <File size={14} className="flex-shrink-0" />;
       case 'location':
         return <MapPin size={14} className="flex-shrink-0" />;
+      case 'contact':
+        return <User size={14} className="flex-shrink-0" />;
       default:
         return null;
     }
@@ -444,8 +514,11 @@ const QuotedMessage = ({
     video: 'Vídeo',
     audio: 'Áudio',
     document: 'Documento',
-    location: 'Localização'
+    location: 'Localização',
+    sticker: 'Sticker',
+    contact: 'Contato'
   }[attachmentType || ''] || '';
+
 
   return (
     <div 
