@@ -681,6 +681,37 @@ function convertMetaPayloadToEvolution(payload: any): EvolutionWebhook | null {
         case 'location':
           evoMessage.locationMessage = { degreesLatitude: m.location?.latitude, degreesLongitude: m.location?.longitude, name: m.location?.name, address: m.location?.address };
           break;
+        case 'contacts': {
+          const list = Array.isArray(m.contacts) ? m.contacts : [];
+          const contacts = list.map((c: any) => {
+            const displayName = c?.name?.formatted_name
+              || [c?.name?.first_name, c?.name?.last_name].filter(Boolean).join(' ')
+              || 'Contato';
+            const phones: string[] = (c?.phones || []).map((p: any) => p?.wa_id || p?.phone).filter(Boolean);
+            const vcard = [
+              'BEGIN:VCARD',
+              'VERSION:3.0',
+              `FN:${displayName}`,
+              ...phones.map((p: string) => `TEL;type=CELL;waid=${String(p).replace(/\D/g, '')}:${p}`),
+              'END:VCARD',
+            ].join('\n');
+            return { displayName, vcard };
+          });
+          if (contacts.length === 1) {
+            evoMessage.contactMessage = contacts[0];
+          } else if (contacts.length > 1) {
+            evoMessage.contactsArrayMessage = { contacts };
+          } else {
+            evoMessage.conversation = '[Contato]';
+          }
+          break;
+        }
+        case 'reaction':
+          evoMessage.reactionMessage = {
+            key: { id: m.reaction?.message_id },
+            text: m.reaction?.emoji || '',
+          };
+          break;
         case 'button':
           evoMessage.conversation = m.button?.text || m.button?.payload || '';
           break;
