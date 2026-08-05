@@ -39,7 +39,7 @@ const formatMessageTimestamp = (dateString: string) => {
 };
 
 // Padrões de placeholder de mídia
-const MEDIA_PLACEHOLDERS = ['[Imagem]', '[Áudio]', '[Áudio de voz]', '[Vídeo]', '[Documento', '[Sticker]', '[Mídia]', '[Localização]', '📍'];
+const MEDIA_PLACEHOLDERS = ['[Imagem]', '[Áudio]', '[Áudio de voz]', '[Vídeo]', '[Documento', '[Sticker]', '[Mídia]', '[Localização]', '[Contato', '📍'];
 
 // Verifica se o conteúdo é apenas um placeholder de mídia (com ou sem nome de participante de grupo)
 const isMediaPlaceholder = (content: string): boolean => {

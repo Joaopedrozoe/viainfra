@@ -16,14 +16,17 @@ import { useInfiniteMessages } from "@/hooks/useInfiniteMessages";
 import { Loader2, Pin, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const getFileType = (file: File): Attachment['type'] => {
-  if (file.type.startsWith('image/')) return 'image';
-  if (file.type.startsWith('video/')) return 'video';
-  if (file.type.startsWith('audio/')) return 'audio';
-  return 'document';
-};
+const getFileType = (file: File): Attachment['type'] => getWhatsAppAttachmentType(file);
 
-const attachmentPlaceholderLabels = new Set(['[Imagem]', '[Vídeo]', '[Áudio]', '[Documento]']);
+const attachmentPlaceholderLabels = new Set([
+  '[Imagem]',
+  '[Vídeo]',
+  '[Áudio]',
+  '[Documento]',
+  '[Sticker]',
+  '[Contato]',
+]);
+
 
 const mapDbMessageToChatMessage = (dbMessage: any): Message => {
   const metadata = (typeof dbMessage?.metadata === 'object' && dbMessage?.metadata !== null)
