@@ -1,72 +1,59 @@
-## Objetivo
+# Inbox: mídia, reações, ligações e conformidade WhatsApp API oficial
 
-Subir o backup local (uma pasta por conversa, com `index.html`, `script.js`, `style.css` e subpasta de mídia) para o app, **completando** o que já existe no Inbox e em Contatos, sem criar duplicidade de conversas, contatos ou mensagens.
+Plano para os 10 pontos, sem envios de teste em produção sem alinhamento prévio.
 
-## O que já verifiquei no banco
+## 1. Rolagem ao abrir a conversa
+Situação atual verificada: `ChatWindow` faz scroll ao final com `requestAnimationFrame` + timeouts, mas o efeito depende de `messages.length`, então imagens/áudios que medem altura depois (e o cache `scrollPositionsCache`) deixam a conversa parada em mensagens antigas.
 
-- 66.809 mensagens, 792 conversas, 5.344 contatos (3.845 sem telefone).
-- A chave de deduplicação mais usada hoje é `messages.metadata->>'external_id'` (53.534 mensagens), seguida de `whatsappMessageId` (7.883) e `messageId` (4.196).
-- O `data-stanza-id` presente no HTML do backup é exatamente o ID de mensagem do WhatsApp, então serve como chave de dedupe contra esses três campos.
+Correção:
+- Ancorar por conversa: enquanto a conversa não estiver "pronta", manter o container colado no fim usando `ResizeObserver` no conteúdo (dispara re-ancoragem quando mídia mede altura), liberando quando o usuário rolar manualmente.
+- Só restaurar a posição salva quando o usuário tinha rolado para trás na sessão atual; ao abrir a conversa de novo, abrir sempre nas mensagens recentes.
+- Manter o carregamento de histórico (rolar para cima) sem ser afetado pela âncora.
 
-## Estratégia
+## 2 e 5. Recebimento e envio de mídia/anexos (todos os formatos)
+- Receber: normalizar no webhook todos os tipos da API oficial — imagem, vídeo, áudio/PTT, documento, sticker, contato (vCard), localização, e mensagens não suportadas — sempre baixando a mídia via Graph API e persistindo em Storage, com `mimeType`/`filename` gravados no metadata.
+- Exibir: `MessageItem` passa a ter render dedicado por tipo (sticker, vCard, localização, documento com ícone e download, áudio com player), além de fallback claro quando a mídia expirou.
+- Enviar: o app hoje só monta imagem, vídeo, áudio e documento. Passa a aceitar todos os tipos permitidos pela API oficial com validação de mime e tamanho por tipo (limites oficiais da Meta), upload para `chat-attachments` e mensagem de erro objetiva quando o formato não é suportado.
+- Botão de anexo no `ChatInput` com seleção por categoria e validação antes do upload.
 
-### 1. Origem dos dados no HTML
-O HTML não precisa ser "raspado" do DOM: todas as mensagens estão no array `window.CHAT_MESSAGES_HTML` dentro do `<script>`. O parser extrai esse array e, de cada item, lê:
+## 3. Reações
+Situação atual verificada: reações chegam ao webhook e são gravadas como mensagem de texto solta; não existem reações vinculadas nem envio de reação.
+- Nova tabela `message_reactions` (mensagem, emoji, autor, origem) com RLS por empresa e Realtime.
+- Webhook passa a vincular a reação recebida à mensagem original (pelo id do WhatsApp) em vez de criar mensagem de texto; remoção de reação (emoji vazio) apaga o registro.
+- UI: reações exibidas como chip abaixo da bolha; ação "Reagir" no menu de contexto com envio via API oficial.
 
-- `data-stanza-id` → ID único da mensagem (dedupe)
-- classe `message-row me | other` → `sender_type` (`agent` / `user`)
-- `div.date-divider` (ex.: `2026/5/22`) + `span.time` (`09:17`) → `created_at`
-- `div.text-content` → conteúdo
-- `img/audio/video/a[href]` apontando para a subpasta de mídia → anexo
-- blocos de citação → `quotedMessageId` / `quotedContent`
-- nome do remetente em grupos → `sender_name`
+## 4. Recursos da API oficial no inbox
+Revisão e conformidade de: responder/citar, encaminhar, apagar para todos, marcar como lida, indicador de digitação, envio de template, reação. Cada ação passa a informar claramente quando a API oficial não permite (ex.: janela de apagar, edição), sem esconder falha.
 
-O nome da pasta (ex.: `Central de Vendas Baterias V8`) é o nome da conversa/contato, e a empresa vem da pasta-pai (`vialogistic` / `viainfra`) ou de uma seleção explícita na tela.
+## 6. Notificações
+- Solicitação de permissão explícita nas configurações (sem pedido automático), som e notificação apenas para conversas não abertas, clique abre a conversa, deduplicação por mensagem e respeito às preferências salvas.
 
-### 2. Tela de importação no app (`/app/settings` → aba "Importar backup")
-- Seleção de empresa (VIAINFRA ou VIALOGISTIC) — trava para o que o usuário tem acesso.
-- Seleção de pasta via `webkitdirectory` (permite escolher a pasta raiz com todas as conversas de uma vez) ou upload de `.zip`.
-- Fase 1 — **Análise local (sem gravar nada)**: lê todos os HTMLs no navegador, monta um relatório por conversa: nome, nº de mensagens, período, mídia encontrada, e o resultado do casamento com o banco (conversa existente / contato existente / nova).
-- Fase 2 — **Revisão**: tabela onde você confirma ou corrige o casamento de cada conversa (vincular a um contato/conversa existente, criar novo, ou pular). Regras automáticas propostas ficam pré-selecionadas.
-- Fase 3 — **Importação em lotes** com barra de progresso, pausar/retomar e log de erros.
+## 7. Recebimento de ligações
+Situação atual verificada: o webhook já registra eventos de chamada recebida e existe `whatsapp-call-action` com `pre_accept`/`accept`/`reject`, mas o frontend não tem fluxo de atender.
+- Diálogo de chamada entrante (toque, identificação do contato, atender/rejeitar), gerando SDP local e chamando `pre_accept`/`accept`, com áudio bidirecional pelo WebRTC já existente.
+- Registro de duração/encerramento e entrada no histórico de chamadas.
 
-### 3. Regras de deduplicação (o ponto central)
+## 8. Contatos sem telefone e template
+Situação atual verificada no banco: Viainfra tem 3.867 de 5.091 contatos sem telefone e VIALOGISTIC 237 de 529. "Roberto - Frota Suzano" está sem telefone e sem `remoteJid`, por isso o template não é enviado. Há também contatos duplicados com o mesmo `remoteJid` (um com telefone, outro sem).
+- Backfill: preencher telefone a partir do `remoteJid`, do mapeamento LID e do contato duplicado equivalente; consolidar duplicados por `remoteJid`/telefone.
+- Prevenção: normalização de telefone centralizada usada por webhooks, importação e criação manual; contatos sem telefone identificável ficam marcados como "sem número" no app.
+- Template: o botão passa a validar antes do envio e, quando não há telefone, oferece informar/corrigir o número do contato na hora em vez de falhar.
 
-**Mensagem** — pula se `stanza-id` já existir em `metadata->>'external_id'`, `whatsappMessageId`, `messageId` ou `message_id` da mesma conversa. Fallback para mensagens antigas sem ID: mesma conversa + mesmo `sender_type` + mesmo texto normalizado + timestamp dentro de ±90s.
-
-**Conversa/contato** — casamento em cascata, na ordem:
-1. telefone normalizado (só dígitos, com DDI 55) se o backup expuser número;
-2. `remoteJid` (grupos: `...@g.us`);
-3. nome normalizado (minúsculas, sem acento/emoji/espaço extra) dentro da mesma empresa;
-4. sem casamento → cria contato + conversa novos, marcados com `metadata.source = 'backup-import'`.
-
-Nada é sobrescrito: nomes, fotos e metadados existentes ficam como estão; a importação só **acrescenta** mensagens e preenche campos vazios (ex.: contato sem telefone que o backup traz).
-
-### 4. Mídia
-Cada arquivo da subpasta vai para o bucket `chat-attachments` em `import/{company}/{conversationId}/{stanzaId}-{arquivo}`, com hash SHA-256 do conteúdo para evitar reupload do mesmo arquivo. A URL pública entra em `metadata.attachment`, no mesmo formato já usado hoje pelas mensagens com anexo, para renderizar igual no Inbox.
-
-### 5. Volume (>500 conversas, >2 GB)
-- Upload de mídia direto do navegador para o Storage (não passa por Edge Function) — evita limite de payload.
-- Mensagens enviadas em lotes de 500 para uma Edge Function `import-chat-backup`, que faz o dedupe no servidor e o insert em massa.
-- Progresso persistido na tabela `import_jobs` (já existe): se a aba fechar ou a internet cair, ao reabrir a tela a importação retoma de onde parou.
-- Conversas processadas em série, com concorrência limitada (3 uploads simultâneos) para não estourar limites do Supabase.
-- Ordenação: conversas mais recentes primeiro, para o Inbox ficar útil logo no começo.
-
-### 6. Pós-importação
-- `conversations.updated_at` recalculado pela mensagem mais recente (para a ordem do Inbox ficar correta).
-- Relatório final baixável: por conversa, quantas mensagens importadas / puladas por duplicidade / com erro, e quanta mídia subiu.
-- As mensagens importadas ficam com `metadata.source = 'backup-import'`, o que permite reverter uma importação inteira com um único comando caso algo saia errado.
+## 9 e 10. Produção e estabilidade
+- Nenhum envio de mensagem de teste sem seu aval; validação por leitura de dados, logs e checagem de tipos.
+- Alterações incrementais, com fallback para o comportamento atual em cada ponto, e correções estruturais (normalização, deduplicação, validação) para que os casos específicos não voltem a acontecer.
 
 ## Detalhes técnicos
+- Frontend: `ChatWindow.tsx`, `MessageItem.tsx`, `ChatInput.tsx`, `MessageActions.tsx`, `chat/types.ts`, `useInfiniteMessages.ts`, `useNotifications.ts`, `useCalls.ts`, `calls/ActiveCallDialog.tsx`, `lib/whatsapp-call-webrtc.ts`.
+- Backend: `evolution-webhook`, `evolution-webhook-vialogistic`, `send-whatsapp-message`, `send-whatsapp-template`, `whatsapp-call-action`, nova função de reação.
+- Banco: `message_reactions` (grants + RLS + Realtime), backfill/dedup de contatos, índice de apoio para reações.
 
-- **Novos arquivos**: `src/lib/backup-parser.ts` (parser do `CHAT_MESSAGES_HTML`), `src/lib/backup-import.ts` (orquestração/lotes/retomada), `src/components/app/settings/BackupImport.tsx` (UI de 3 fases), `supabase/functions/import-chat-backup/index.ts` (dedupe + insert em massa, com validação Zod e verificação de que o usuário tem acesso à empresa).
-- **Migração**: índice em `messages ((metadata->>'external_id'))` e em `conversation_id, created_at` para o dedupe não ficar lento com 66k+ mensagens; nenhuma tabela nova (reaproveita `import_jobs`).
-- **Sem alteração** em webhooks Evolution/Meta, envio de mensagens ou qualquer endpoint existente.
+## Ordem de execução
+1. Rolagem (1) — baixo risco, efeito imediato.
+2. Mídia recebida/enviada (2, 5).
+3. Contatos sem telefone e template (8).
+4. Reações (3) e demais ações do menu (4).
+5. Notificações (6).
+6. Recebimento de ligações (7).
 
-## Ordem de execução (com validação sua a cada etapa)
-
-1. Parser + tela de análise (fase 1), somente leitura — você aponta a pasta e confere o relatório antes de qualquer gravação.
-2. Após seu aval: migração dos índices + Edge Function de importação.
-3. Importação piloto de **1 conversa** (a "Central de Vendas Baterias V8"), você valida no Inbox.
-4. Importação piloto de ~20 conversas, nova validação.
-5. Importação completa das duas empresas.
+Cada etapa é entregue para sua validação antes da próxima.
