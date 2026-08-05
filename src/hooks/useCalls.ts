@@ -98,3 +98,16 @@ export async function terminateCall(params: { waCallId: string; callId?: string;
   return callFunction("whatsapp-call-action", { ...params, action: "terminate" });
 }
 
+export async function preAcceptCall(params: { waCallId: string; sdp: string; callId?: string; companyId?: string }) {
+  return callFunction("whatsapp-call-action", { ...params, action: "pre_accept" });
+}
+
+export async function acceptCall(params: { waCallId: string; sdp: string; callId?: string; companyId?: string }) {
+  return callFunction("whatsapp-call-action", { ...params, action: "accept" });
+}
+
+export async function rejectCall(params: { waCallId: string; callId?: string; companyId?: string }) {
+  return callFunction("whatsapp-call-action", { ...params, action: "reject" });
+}
+
+

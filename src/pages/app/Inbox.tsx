@@ -16,6 +16,8 @@ import { StatusTab, StatusIcon } from "@/components/app/status";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { setActiveConversationId, setUnreadTitleBadge } from "@/lib/notification-focus";
+import { IncomingCallListener } from "@/components/app/calls/IncomingCallListener";
+
 
 
 const Inbox = () => {
@@ -217,6 +219,8 @@ const Inbox = () => {
   if (isMobile) {
     return (
       <div className={cn("h-full w-full overflow-hidden", !(showChat && activeMainTab === "conversations") && "pb-mobile-nav")}>
+        <IncomingCallListener />
+
 
         {showChat && activeMainTab === "conversations" ? (
           <ChatWindow 
@@ -286,6 +290,8 @@ const Inbox = () => {
   // Desktop Layout
   return (
     <>
+      <IncomingCallListener />
+
       <div className="flex h-full overflow-hidden">
         {/* Left Sidebar - Navigation Icons */}
         <div className="w-14 min-w-[3.5rem] border-r border-border flex flex-col items-center py-4 bg-muted/30">

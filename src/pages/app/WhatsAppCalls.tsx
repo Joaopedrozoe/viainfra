@@ -8,14 +8,17 @@ import { DialPad } from "@/components/app/calls/DialPad";
 import { CallHistory } from "@/components/app/calls/CallHistory";
 import { CallSettings } from "@/components/app/calls/CallSettings";
 import { useCalls } from "@/hooks/useCalls";
+import { IncomingCallListener } from "@/components/app/calls/IncomingCallListener";
 
 const WhatsAppCalls = () => {
   const { stats } = useCalls();
   return (
     <SidebarProvider>
       <div className="flex h-screen w-full bg-background">
+        <IncomingCallListener />
         <AppSidebar />
         <main className="flex-1 overflow-y-auto pb-16 md:pb-0">
+
           <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-6">
             <div className="flex items-center gap-3">
               <Phone className="h-7 w-7 text-primary" />

@@ -25,6 +25,31 @@ export class WhatsAppCallSession {
    * A Meta não suporta trickle ICE: o SDP precisa já conter os candidatos.
    */
   async createOffer(): Promise<string> {
+    const pc = await this.setup();
+
+    const offer = await pc.createOffer({ offerToReceiveAudio: true });
+    await pc.setLocalDescription(offer);
+    await this.waitForIceGathering(pc);
+
+    return pc.localDescription?.sdp || offer.sdp || "";
+  }
+
+  /**
+   * Chamada entrante: aplica a oferta SDP do cliente e devolve a resposta
+   * SDP (com candidatos ICE já coletados) para enviar em pre_accept/accept.
+   */
+  async createAnswer(offerSdp: string): Promise<string> {
+    const pc = await this.setup();
+
+    await pc.setRemoteDescription({ type: "offer", sdp: offerSdp });
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await this.waitForIceGathering(pc);
+
+    return pc.localDescription?.sdp || answer.sdp || "";
+  }
+
+  private async setup(): Promise<RTCPeerConnection> {
     this.localStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
@@ -59,12 +84,9 @@ export class WhatsAppCallSession {
       this.onConnectionStateChange?.(pc.connectionState);
     };
 
-    const offer = await pc.createOffer({ offerToReceiveAudio: true });
-    await pc.setLocalDescription(offer);
-    await this.waitForIceGathering(pc);
-
-    return pc.localDescription?.sdp || offer.sdp || "";
+    return pc;
   }
+
 
   private waitForIceGathering(pc: RTCPeerConnection, timeoutMs = 3000): Promise<void> {
     if (pc.iceGatheringState === "complete") return Promise.resolve();
