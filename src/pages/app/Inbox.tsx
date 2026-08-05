@@ -15,6 +15,8 @@ import { useAuth } from "@/contexts/auth";
 import { StatusTab, StatusIcon } from "@/components/app/status";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { setActiveConversationId, setUnreadTitleBadge } from "@/lib/notification-focus";
+
 
 const Inbox = () => {
   const location = useLocation();
