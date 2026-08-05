@@ -15,6 +15,8 @@ import { cn } from "@/lib/utils";
 import { useInfiniteMessages } from "@/hooks/useInfiniteMessages";
 import { Loader2, Pin, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { getWhatsAppAttachmentType } from "@/lib/whatsapp-media";
+
 
 const getFileType = (file: File): Attachment['type'] => getWhatsAppAttachmentType(file);
 
