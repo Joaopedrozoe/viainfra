@@ -18,12 +18,15 @@ const getFileType = (file: File): Attachment['type'] => getWhatsAppAttachmentTyp
 
 const getFileIcon = (type: Attachment['type']) => {
   switch (type) {
-    case 'image': return Image;
+    case 'image':
+    case 'sticker':
+      return Image;
     case 'video': return Film;
     case 'audio': return Music;
     default: return FileText;
   }
 };
+
 
 // Component for reply preview bar
 const ReplyPreview = memo(({
@@ -255,7 +258,7 @@ export const ChatInput = memo(({
           type="file"
           className="hidden"
           onChange={handleFileSelect}
-          accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+          accept={WHATSAPP_ACCEPT_ATTRIBUTE}
         />
         <button
           className={recordingButtonClass}
