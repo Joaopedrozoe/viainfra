@@ -38,7 +38,7 @@ export interface Message {
   senderName?: string;
   // Campos para mídia indisponível
   mediaUnavailable?: boolean;
-  mediaType?: 'image' | 'video' | 'audio' | 'document' | 'location';
+  mediaType?: AttachmentType;
   // Campos para ações de mensagem
   isPinned?: boolean;
   isFavorite?: boolean;
