@@ -223,7 +223,10 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         setContactId(null);
       }
       setConversationChannel(conversation?.channel as Channel || 'web');
-      setConversationStatus(conversation?.status || 'open');
+      setIsGroupConversation(
+        String((conversation?.metadata as any)?.remoteJid || '').includes('@g.us')
+      );
+
     } catch (error) {
       console.error('💥 Erro ao carregar dados da conversa:', error);
     } finally {
