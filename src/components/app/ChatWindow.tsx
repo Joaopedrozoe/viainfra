@@ -226,6 +226,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       setIsGroupConversation(
         String((conversation?.metadata as any)?.remoteJid || '').includes('@g.us')
       );
+      setConversationStatus(conversation?.status || 'open');
 
     } catch (error) {
       console.error('💥 Erro ao carregar dados da conversa:', error);
