@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Search, Plus, Filter, Users, Mail, MessageSquare, Download, Trash2, Camera, RefreshCw, UsersRound, PhoneCall } from "lucide-react";
+import { Search, Plus, Filter, Users, Mail, MessageSquare, Download, Trash2, Camera, RefreshCw, UsersRound, PhoneCall, ShieldCheck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { ContactDetails } from "@/components/app/contacts/ContactDetails";
 import { ContactFilters } from "@/components/app/contacts/ContactFilters";
 import { CreateContactModal } from "@/components/app/contacts/CreateContactModal";
+import { ContactsRepairDialog } from "@/components/app/contacts/ContactsRepairDialog";
 import { Contact, ContactFilter } from "@/types/contact";
 import { getDemoContacts } from "@/data/mockContacts";
 import { supabase } from "@/integrations/supabase/client";
