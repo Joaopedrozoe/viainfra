@@ -17,6 +17,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { setActiveConversationId, setUnreadTitleBadge } from "@/lib/notification-focus";
 import { IncomingCallListener } from "@/components/app/calls/IncomingCallListener";
+import { NotificationPermissionBanner } from "@/components/app/NotificationPermissionBanner";
 
 
 
