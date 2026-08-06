@@ -1,4 +1,10 @@
-import { memo, useState, useRef } from "react";
+import { memo, useState, useRef, useEffect, useCallback } from "react";
+import {
+  fetchAttachmentBlobUrl,
+  openAttachment,
+  copyAttachmentLink,
+  ATTACHMENT_BLOCKED_MESSAGE,
+} from "@/lib/attachment-access";
 import { cn } from "@/lib/utils";
 import { Message, MessageDeliveryStatus, AttachmentType, MessageReaction } from "./types";
 import { ReactionChips, ReactionPicker } from "./MessageReactions";
