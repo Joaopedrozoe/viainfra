@@ -181,26 +181,51 @@ export const useNotifications = () => {
     }
   }, [settings.desktop]);
 
+  // Alerta visível no app quando a notificação do navegador não está disponível
+  // (permissão negada, ainda não concedida, ou app rodando dentro de iframe/preview).
+  const canUseDesktopNotification = () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return false;
+    if (Notification.permission !== 'granted') return false;
+    try {
+      if (window.self !== window.top) return false;
+    } catch {
+      return false;
+    }
+    return true;
+  };
+
   // Notificação de nova conversa
   const notifyNewConversation = useCallback((contactName: string, channel: string) => {
     if (!settings.newConversations) return;
-    
+
     playNotificationSound();
-    showNotification('Nova Conversa', {
-      body: `${contactName} iniciou uma conversa via ${channel}`,
-      tag: 'new-conversation',
-    });
+    if (canUseDesktopNotification()) {
+      showNotification('Nova Conversa', {
+        body: `${contactName} iniciou uma conversa via ${channel}`,
+        tag: 'new-conversation',
+      });
+    } else {
+      toast.info('Nova conversa', {
+        description: `${contactName} iniciou uma conversa via ${channel}`,
+      });
+    }
   }, [settings.newConversations, showNotification, playNotificationSound]);
 
   // Notificação de nova mensagem
   const notifyNewMessage = useCallback((contactName: string, message: string) => {
     if (!settings.newMessages) return;
-    
+
+    const body = `${contactName}: ${message?.substring(0, 100) || ''}${message && message.length > 100 ? '...' : ''}`;
+
     // Som é tocado separadamente pelo caller (useConversations) para timing mais preciso
-    showNotification('Nova Mensagem', {
-      body: `${contactName}: ${message.substring(0, 100)}${message.length > 100 ? '...' : ''}`,
-      tag: `new-message-${Date.now()}`, // Tag única para permitir múltiplas notificações
-    });
+    if (canUseDesktopNotification()) {
+      showNotification('Nova Mensagem', {
+        body,
+        tag: `new-message-${Date.now()}`, // Tag única para permitir múltiplas notificações
+      });
+    } else {
+      toast.message('Nova mensagem', { description: body });
+    }
   }, [settings.newMessages, showNotification]);
 
   return {
@@ -211,5 +236,7 @@ export const useNotifications = () => {
     notifyNewConversation,
     notifyNewMessage,
     playNotificationSound,
+    showNotification,
   };
 };
+
