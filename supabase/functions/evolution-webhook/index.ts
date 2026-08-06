@@ -544,6 +544,37 @@ async function processMetaCallEvent(payload: any): Promise<boolean> {
             : finalStatus === 'missed'
               ? '📞 Chamada de voz perdida'
               : '📞 Chamada não atendida';
+          // A Meta também envia uma mensagem "unsupported" para a chamada:
+          // reaproveitamos essa mensagem em vez de duplicar o registro.
+          const windowStart = new Date(new Date(startedAt).getTime() - 90000).toISOString();
+          const windowEnd = new Date(new Date(endedAt).getTime() + 90000).toISOString();
+          const { data: placeholder } = await supabase
+            .from('messages')
+            .select('id, metadata')
+            .eq('conversation_id', conversationId)
+            .ilike('content', '%não suportada%')
+            .gte('created_at', windowStart)
+            .lte('created_at', windowEnd)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (placeholder) {
+            await supabase.from('messages').update({
+              content: label,
+              metadata: {
+                ...(placeholder.metadata || {}),
+                kind: 'call_log',
+                call_id: waCallId,
+                call_status: finalStatus,
+                direction,
+                duration,
+              },
+            }).eq('id', placeholder.id);
+            console.log(`📞 [Meta calls] mensagem da conversa atualizada para "${label}"`);
+            continue;
+          }
+
           const { error: callMsgError } = await supabase.from('messages').insert({
             conversation_id: conversationId,
             sender_type: direction === 'incoming' ? 'user' : 'agent',
