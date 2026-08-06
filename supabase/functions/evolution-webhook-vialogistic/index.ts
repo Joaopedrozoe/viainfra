@@ -727,8 +727,18 @@ function convertMetaPayloadToEvolution(payload: any): EvolutionWebhook | null {
         case 'interactive':
           evoMessage.conversation = m.interactive?.button_reply?.title || m.interactive?.list_reply?.title || '';
           break;
+        case 'order':
+        case 'system':
+        case 'request_welcome':
+        case 'unsupported':
         default:
-          evoMessage.conversation = `[${m.type || 'mensagem'} não suportada]`;
+          evoMessage.conversation = metaTypeLabel(m.type, m);
+      }
+
+      // Nunca deixar mensagem vazia chegar ao inbox como "não suportada"
+      if (Object.keys(evoMessage).length === 0
+          || (Object.keys(evoMessage).length === 1 && evoMessage.conversation === '')) {
+        evoMessage.conversation = metaTypeLabel(m.type, m);
       }
 
       return {
@@ -4467,7 +4477,86 @@ function extractMessageContent(message: EvolutionMessage): string {
     return `[Contato: ${sharedContact.displayName || 'sem nome'}]`;
   }
   
-  return '[Mensagem não suportada]';
+  // Enquete
+  const poll: any = (msgContent as any).pollCreationMessage
+    || (msgContent as any).pollCreationMessageV2
+    || (msgContent as any).pollCreationMessageV3;
+  if (poll) {
+    return `📊 Enquete: ${poll.name || 'sem título'}`;
+  }
+
+  // Resposta de enquete
+  if ((msgContent as any).pollUpdateMessage) {
+    return '📊 Resposta de enquete';
+  }
+
+  // Vídeo-nota (PTV)
+  if ((msgContent as any).ptvMessage) {
+    return '[Vídeo instantâneo]';
+  }
+
+  // Mensagem visualização única
+  const viewOnce: any = (msgContent as any).viewOnceMessage
+    || (msgContent as any).viewOnceMessageV2
+    || (msgContent as any).viewOnceMessageV2Extension;
+  if (viewOnce) {
+    const inner = viewOnce.message || {};
+    if (inner.imageMessage) return '[Imagem de visualização única]';
+    if (inner.videoMessage) return '[Vídeo de visualização única]';
+    return '[Mensagem de visualização única]';
+  }
+
+  // Registro de chamada
+  const callLog: any = (msgContent as any).call || (msgContent as any).callLogMesssage || (msgContent as any).callLogMessage;
+  if (callLog) {
+    const isVideo = callLog.callType === 'video' || callLog.isVideo;
+    return isVideo ? '📹 Chamada de vídeo' : '📞 Chamada de voz';
+  }
+
+  // Mensagem apagada / protocolo
+  const proto: any = (msgContent as any).protocolMessage;
+  if (proto) {
+    if (proto.type === 'REVOKE' || proto.type === 0) return '🚫 Mensagem apagada';
+    return '';
+  }
+
+  // Botões / listas / templates
+  if ((msgContent as any).buttonsResponseMessage) {
+    return (msgContent as any).buttonsResponseMessage.selectedDisplayText || '[Resposta de botão]';
+  }
+  if ((msgContent as any).listResponseMessage) {
+    return (msgContent as any).listResponseMessage.title || '[Resposta de lista]';
+  }
+  if ((msgContent as any).templateButtonReplyMessage) {
+    return (msgContent as any).templateButtonReplyMessage.selectedDisplayText || '[Resposta de template]';
+  }
+  const tmpl: any = (msgContent as any).templateMessage;
+  if (tmpl) {
+    const inner = tmpl.hydratedTemplate || tmpl.hydratedFourRowTemplate || {};
+    return inner.hydratedContentText || '[Mensagem de template]';
+  }
+  if ((msgContent as any).buttonsMessage) {
+    return (msgContent as any).buttonsMessage.contentText || '[Mensagem com botões]';
+  }
+  if ((msgContent as any).interactiveMessage) {
+    return (msgContent as any).interactiveMessage?.body?.text || '[Mensagem interativa]';
+  }
+
+  // Pedidos / produtos / eventos / convites
+  if ((msgContent as any).orderMessage) return '🧾 Pedido recebido';
+  if ((msgContent as any).productMessage) return '🛒 Produto compartilhado';
+  if ((msgContent as any).eventMessage) return `📅 Evento: ${(msgContent as any).eventMessage?.name || 'sem título'}`;
+  if ((msgContent as any).groupInviteMessage) return '👥 Convite de grupo';
+  if ((msgContent as any).documentWithCaptionMessage) {
+    const doc = (msgContent as any).documentWithCaptionMessage?.message?.documentMessage;
+    return `[Documento: ${doc?.fileName || doc?.title || 'arquivo'}]`;
+  }
+  if ((msgContent as any).ephemeralMessage) {
+    return extractMessageContent({ ...message, message: (msgContent as any).ephemeralMessage.message } as any);
+  }
+
+  const firstKey = Object.keys(msgContent || {})[0];
+  return firstKey ? `[Mensagem não exibível: ${firstKey.replace(/Message$/, '')}]` : '[Mensagem sem conteúdo]';
 }
 
 
@@ -4929,5 +5018,40 @@ async function fetchAndUpdateGroupAvatar(supabase: any, instanceName: string, gr
 
   } catch (error) {
     console.error(`❌ Error fetching group avatar:`, error);
+  }
+}
+
+// Rótulo amigável para tipos de mensagem da Meta que não têm mídia/texto próprio
+function metaTypeLabel(type: string | undefined, m: any): string {
+  const err = m?.errors?.[0];
+  switch (type) {
+    case 'unsupported':
+      return err?.title
+        ? `[Mensagem não suportada pelo WhatsApp: ${err.title}]`
+        : '[Mensagem não suportada pelo WhatsApp]';
+    case 'call':
+    case 'voice_call':
+      return '📞 Chamada de voz';
+    case 'ephemeral':
+      return '[Mensagem temporária]';
+    case 'button':
+      return '[Resposta de botão]';
+    case 'interactive':
+      return '[Resposta interativa]';
+    case 'order':
+      return '🧾 Pedido recebido';
+    case 'system':
+      return m?.system?.body || '[Atualização do sistema]';
+    case 'request_welcome':
+      return '👋 Cliente abriu a conversa';
+    case 'poll':
+      return '[Enquete]';
+    case 'location_request_message':
+    case 'location_request':
+      return '[Solicitação de localização]';
+    case 'address':
+      return '[Endereço compartilhado]';
+    default:
+      return `[Mensagem de tipo ${type || 'desconhecido'} não exibível]`;
   }
 }
