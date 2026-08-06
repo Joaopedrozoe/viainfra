@@ -327,6 +327,16 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       return;
     }
 
+    // Contato sem número válido: a API oficial não consegue entregar
+    if (conversationChannel === 'whatsapp' && !isGroupConversation && !contactPhone) {
+      setShowMissingPhoneDialog(true);
+      toast.error('Contato sem número', {
+        description: 'Informe o número do WhatsApp para enviar mensagens.'
+      });
+      return;
+    }
+
+
     if (!profile) {
       console.error('❌ [SEND] Perfil não disponível no contexto');
       toast.error('Perfil não encontrado. Por favor, faça logout e login novamente.');
