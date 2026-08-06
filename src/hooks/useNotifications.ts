@@ -200,14 +200,14 @@ export const useNotifications = () => {
     if (!settings.newConversations) return;
 
     playNotificationSound();
+    toast.info('Nova conversa', {
+      description: `${contactName} iniciou uma conversa via ${channel}`,
+      duration: 6000,
+    });
     if (canUseDesktopNotification()) {
       showNotification('Nova Conversa', {
         body: `${contactName} iniciou uma conversa via ${channel}`,
         tag: 'new-conversation',
-      });
-    } else {
-      toast.info('Nova conversa', {
-        description: `${contactName} iniciou uma conversa via ${channel}`,
       });
     }
   }, [settings.newConversations, showNotification, playNotificationSound]);
@@ -218,14 +218,16 @@ export const useNotifications = () => {
 
     const body = `${contactName}: ${message?.substring(0, 100) || ''}${message && message.length > 100 ? '...' : ''}`;
 
+    // Balãozinho dentro do app sempre aparece (garante feedback visual mesmo
+    // quando o SO/navegador suprime a notificação nativa).
+    toast.message('Nova mensagem', { description: body, duration: 6000 });
+
     // Som é tocado separadamente pelo caller (useConversations) para timing mais preciso
     if (canUseDesktopNotification()) {
       showNotification('Nova Mensagem', {
         body,
         tag: `new-message-${Date.now()}`, // Tag única para permitir múltiplas notificações
       });
-    } else {
-      toast.message('Nova mensagem', { description: body });
     }
   }, [settings.newMessages, showNotification]);
 
