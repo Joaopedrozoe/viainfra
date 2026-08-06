@@ -86,19 +86,16 @@ export const useNotifications = () => {
     }
   }, [getStorageKey]);
 
-  // Verificar e solicitar permissão do browser automaticamente
+  // Apenas verifica o estado da permissão. O pedido é feito por gesto do
+  // usuário (banner do inbox / configurações), pois navegadores ignoram
+  // solicitações automáticas sem interação.
   useEffect(() => {
-    if ('Notification' in window) {
-      const currentPermission = Notification.permission;
-      setPermission(currentPermission);
-      
-      // Solicitar permissão automaticamente se ainda não foi perguntado
-      if (currentPermission === 'default') {
-        Notification.requestPermission().then(result => {
-          setPermission(result);
-        });
-      }
-    }
+    if (!('Notification' in window)) return;
+    setPermission(Notification.permission);
+
+    const onFocus = () => setPermission(Notification.permission);
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
   }, []);
 
   // Salvar configurações
