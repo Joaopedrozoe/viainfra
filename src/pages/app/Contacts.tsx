@@ -547,6 +547,12 @@ const Contacts = () => {
         open={showCreateModal}
         onOpenChange={setShowCreateModal}
       />
+      <ContactsRepairDialog
+        open={showRepairDialog}
+        onOpenChange={setShowRepairDialog}
+        companyId={company?.id}
+        onCompleted={fetchContacts}
+      />
     </div>
   );
 };
