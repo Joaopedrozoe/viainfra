@@ -361,6 +361,15 @@ const Contacts = () => {
             <Button
               variant="outline"
               size="sm"
+              onClick={() => setShowRepairDialog(true)}
+              title="Auditoria de contatos: telefones, nomes e duplicados"
+            >
+              <ShieldCheck className="h-4 w-4 mr-2" />
+              Auditoria
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setShowCreateModal(true)}
             >
               <Plus className="h-4 w-4 mr-2" />
