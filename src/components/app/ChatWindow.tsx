@@ -6,6 +6,8 @@ import { Message, ChatWindowProps, Attachment } from "./chat/types";
 import { EditMessageDialog } from "./chat/EditMessageDialog";
 import { DeleteMessageDialog } from "./chat/DeleteMessageDialog";
 import { ForwardMessageModal } from "./chat/ForwardMessageModal";
+import { MissingPhoneDialog } from "./chat/MissingPhoneDialog";
+
 import { Channel } from "@/types/conversation";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
