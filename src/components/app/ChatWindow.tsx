@@ -76,6 +76,9 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   const [contactPhone, setContactPhone] = useState<string | null>(null);
   const [contactId, setContactId] = useState<string | null>(null);
   const [conversationChannel, setConversationChannel] = useState<Channel>("web");
+  const [isGroupConversation, setIsGroupConversation] = useState(false);
+  const [showMissingPhoneDialog, setShowMissingPhoneDialog] = useState(false);
+
   const [conversationStatus, setConversationStatus] = useState<string>("open");
   const [isLoadingConversation, setIsLoadingConversation] = useState(true);
   const [isSyncingHistory, setIsSyncingHistory] = useState(false);
