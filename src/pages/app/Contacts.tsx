@@ -289,6 +289,20 @@ const Contacts = () => {
             <Button
               variant="outline"
               size="sm"
+              onClick={handleRecoverPhones}
+              disabled={isRecoveringPhones}
+              title="Recupera o telefone de contatos sem número usando os dados oficiais do WhatsApp"
+            >
+              {isRecoveringPhones ? (
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <PhoneCall className="h-4 w-4 mr-2" />
+              )}
+              Recuperar telefones
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setShowCreateModal(true)}
             >
               <Plus className="h-4 w-4 mr-2" />
