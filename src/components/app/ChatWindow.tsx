@@ -1024,9 +1024,20 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     setUserCountAtSend(null);
   }, [conversationId]);
 
+  // Contato sem número: API oficial não consegue entregar mensagem/template
+  const missingPhone = useMemo(
+    () => conversationChannel === 'whatsapp' && !isGroupConversation && !contactPhone,
+    [conversationChannel, isGroupConversation, contactPhone]
+  );
+
   const handleSendOpeningTemplate = useCallback(async () => {
     if (sendingTemplate || !conversationId) return;
+    if (missingPhone) {
+      setShowMissingPhoneDialog(true);
+      return;
+    }
     setSendingTemplate(true);
+
     try {
       const { data, error } = await supabase.functions.invoke('send-whatsapp-template', {
         body: { conversation_id: conversationId, template_name: 'aberturadeconversa' }
