@@ -534,6 +534,32 @@ async function processMetaCallEvent(payload: any): Promise<boolean> {
             started_at: startedAt, ended_at: endedAt, duration, metadata: c,
           });
         }
+
+        // Registrar a chamada na conversa para aparecer no inbox
+        if (conversationId) {
+          const mm = Math.floor(duration / 60);
+          const ss = duration % 60;
+          const label = finalStatus === 'completed'
+            ? `📞 Chamada de voz · ${mm}:${String(ss).padStart(2, '0')}`
+            : finalStatus === 'missed'
+              ? '📞 Chamada de voz perdida'
+              : '📞 Chamada não atendida';
+          const { error: callMsgError } = await supabase.from('messages').insert({
+            conversation_id: conversationId,
+            sender_type: direction === 'incoming' ? 'user' : 'agent',
+            content: label,
+            created_at: endedAt,
+            metadata: {
+              external_id: `call:${waCallId}:terminate`,
+              kind: 'call_log',
+              call_id: waCallId,
+              call_status: finalStatus,
+              direction,
+              duration,
+            },
+          });
+          if (callMsgError) console.log('[Meta calls] registro na conversa ignorado:', callMsgError.message);
+        }
       } else if (event === 'permission_update') {
         if (existing) {
           await supabase.from('calls').update({ status: 'permission_pending', metadata: c }).eq('id', existing.id);
