@@ -1275,6 +1275,15 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         open={showForwardModal}
         onOpenChange={setShowForwardModal}
       />
+
+      <MissingPhoneDialog
+        open={showMissingPhoneDialog}
+        onOpenChange={setShowMissingPhoneDialog}
+        contactId={contactId}
+        contactName={contactName}
+        onSaved={(phone) => setContactPhone(phone)}
+      />
+
     </div>
   );
 });
