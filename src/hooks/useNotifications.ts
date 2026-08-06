@@ -25,17 +25,39 @@ export const useNotifications = () => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastSoundTimeRef = useRef<number>(0);
 
-  // Pre-carregar áudio
+  // Pre-carregar áudio e liberar autoplay no primeiro gesto do usuário.
+  // Navegadores bloqueiam áudio sem interação, então sem esse "unlock"
+  // o som de notificação nunca toca.
   useEffect(() => {
-    audioRef.current = new Audio('/notification.mp3');
-    audioRef.current.volume = 0.6;
-    audioRef.current.preload = 'auto';
-    
+    const audio = new Audio('/notification.mp3');
+    audio.volume = 0.6;
+    audio.preload = 'auto';
+    audioRef.current = audio;
+
+    const unlock = () => {
+      audio.muted = true;
+      audio
+        .play()
+        .then(() => {
+          audio.pause();
+          audio.currentTime = 0;
+          audio.muted = false;
+        })
+        .catch(() => {
+          audio.muted = false;
+        });
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+
     return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+      audio.pause();
+      audioRef.current = null;
     };
   }, []);
 
@@ -64,19 +86,16 @@ export const useNotifications = () => {
     }
   }, [getStorageKey]);
 
-  // Verificar e solicitar permissão do browser automaticamente
+  // Apenas verifica o estado da permissão. O pedido é feito por gesto do
+  // usuário (banner do inbox / configurações), pois navegadores ignoram
+  // solicitações automáticas sem interação.
   useEffect(() => {
-    if ('Notification' in window) {
-      const currentPermission = Notification.permission;
-      setPermission(currentPermission);
-      
-      // Solicitar permissão automaticamente se ainda não foi perguntado
-      if (currentPermission === 'default') {
-        Notification.requestPermission().then(result => {
-          setPermission(result);
-        });
-      }
-    }
+    if (!('Notification' in window)) return;
+    setPermission(Notification.permission);
+
+    const onFocus = () => setPermission(Notification.permission);
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
   }, []);
 
   // Salvar configurações
