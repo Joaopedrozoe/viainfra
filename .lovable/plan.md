@@ -1,49 +1,49 @@
-# Roberto - Frota Suzano: contato duplicado pela importação do backup
+# Recuperação em massa de telefones e nomes de contatos (VIAINFRA + VIALOGISTIC)
 
-## Você está certo — e os dados confirmam
+## Situação atual (medida agora no banco)
 
-A mensagem `*Suelem Souza* Amanhã cedinho te confirmo` (12/05 16:33) **foi enviada pelo app**: o prefixo `*Nome do atendente*` é gerado pelo próprio `send-whatsapp-message`.
+| Empresa | Contatos | Sem telefone | Nome que é só número |
+|---|---|---|---|
+| VIAINFRA | 4.387 | 3.163 | 293 |
+| VIALOGISTIC | 529 | 237 | 106 |
 
-O que aconteceu foi outra coisa: existem **duas** entradas para o mesmo Roberto na VIAINFRA.
+As planilhas enviadas trazem, por telefone, `Nome de exibição público` e `Nome salvo` — 5.665 linhas em `All_Country_3.xlsx` e 391 em `All_Country_2.xlsx`. São a fonte ideal para os dois problemas: telefone→nome e nome→telefone.
 
-```text
-Conversa original (envio real pelo app)
-  contato: "5511978438886"   phone: 5511978438886   jid: 5511978438886@s.whatsapp.net
-  conversa b2277abf...       22 mensagens com os MESMOS ids do WhatsApp
+O caso do Roberto já provou o mecanismo: cruzando `external_id` das mensagens, o contato duplicado sem telefone tinha 22 mensagens em comum com uma conversa cujo contato tem `5511978438886`.
 
-Conversa criada pela importação do backup (28/07)
-  contato: "Roberto - Frota Suzano"   phone: null   jid: null
-  conversa d03b615d...       38 mensagens, todas com source = backup-import
-```
+## Etapa 1 — Carregar as planilhas como base de referência
+Importar as duas planilhas para uma tabela de referência (telefone normalizado, nome de exibição, nome salvo, é_meu_contato, origem/arquivo). Serve de dicionário para todos os passes seguintes e fica disponível para novas cargas.
 
-Cruzando os `external_id` (ids reais do WhatsApp) das mensagens importadas, **22 delas já existiam** na conversa `b2277abf`, cujo contato tem o telefone `5511978438886`. Ou seja: o número sempre existiu na base; a importação criou um contato/conversa paralelos sem telefone e sem JID, e é nessa cópia que você está tentando enviar o template.
+## Etapa 2 — Recuperar telefones (em ordem de confiança, tudo com simulação antes)
+1. **Cruzamento por id de mensagem** (determinístico): mensagens do contato sem telefone que já existem em outra conversa com telefone/JID → herda telefone e JID. Foi o que resolveu o Roberto.
+2. **JID / LID**: telefone extraído de `metadata.remoteJid` e de `lid_phone_mapping`.
+3. **Planilha por nome**: nome do contato casado com `Nome salvo`/`Nome de exibição` (normalizando acentos, caixa, pontuação e sufixos). Só aplica quando o nome bate em **um único** telefone.
+4. **Telefone dentro do conteúdo**: números presentes em vCard/mensagens da própria conversa, validados com o padrão brasileiro.
+Cada passe roda primeiro em modo simulação e eu te apresento a lista (contato → telefone → passe → evidência) antes de aplicar.
 
-Isso corrige a explicação anterior: o problema não é "backup sem número", é **duplicação na importação** — e o número é recuperável de forma determinística pelo id da mensagem.
+## Etapa 3 — Corrigir nomes que são telefone
+Para os 399 contatos com nome numérico: buscar o nome real na planilha (por telefone), depois na lista de contatos/chats da instância (pushName/verifiedName), depois no `pushName` gravado nas mensagens recebidas. Preferência pelo `Nome salvo` da planilha, que é o nome da agenda da empresa. Nome numérico só permanece quando não há nenhuma fonte.
 
-## O que vou fazer
+## Etapa 4 — Mesclar duplicados revelados pela recuperação
+Quando dois contatos passarem a ter o mesmo telefone na mesma empresa: manter um só, migrar mensagens que não existirem no destino (comparando id do WhatsApp), preservar o nome mais informativo e apontar as conversas para o contato mantido. Mensagem sem par nunca é descartada.
 
-### 1. Recuperar telefone por cruzamento de id de mensagem (determinístico)
-Para cada contato sem telefone, cruzar os `external_id` das mensagens dele com mensagens já existentes em outras conversas da mesma empresa. Quando houver conversa correspondente com telefone/JID, herdar o número (e o JID). Roda em **simulação primeiro**, eu te mostro a lista (contato → número → nº de mensagens em comum) antes de aplicar.
+## Etapa 5 — Relatório
+Ao final, um relatório em planilha com: telefones recuperados por passe, nomes corrigidos por fonte, duplicados mesclados e a lista do que continua sem telefone/nome para preenchimento manual.
 
-### 2. Mesclar as conversas duplicadas em vez de deixar duas
-Para os pares confirmados pelo cruzamento: manter uma única conversa por contato/telefone, mover as mensagens que só existem na cópia importada, descartar as repetidas por id, e preservar o nome mais informativo (`Roberto - Frota Suzano` em vez de `5511978438886`). Nada é apagado sem correspondência de id — mensagem sem par é sempre mantida.
-
-### 3. Passes complementares para os que sobrarem
-Em ordem de confiança: JID/LID (`lid_phone_mapping`), telefone presente no texto/vCard das mensagens, e por fim nome normalizado contra a lista oficial de chats da instância. Só aplica correspondência única; ambíguo fica para preenchimento manual.
-
-### 4. Preenchimento manual assistido
-Lista "contatos sem telefone" em Contatos, com o diálogo já existente para informar o número (validação de formato e de duplicidade). No inbox, quando o contato não tem número, a ação de enviar/template oferece "Informar telefone" em vez de falhar.
-
-### 5. Prevenção — para não gerar isso de novo
-- Importação de backup passa a fazer *match* antes de criar: pelo id das mensagens e pelo nome/telefone, anexando à conversa existente em vez de criar uma nova.
-- Unicidade no banco por id externo de mensagem e por contato/telefone da empresa, para bloquear duplicidade na origem, independentemente de webhook, importação ou criação manual.
-- Envio só é gravado após confirmação do provedor: hoje a mensagem `"Olá bom dia Roberto"` (03/08) está gravada **sem** id da Meta, ou seja, aparece como enviada mas não foi aceita. Passa a não gravar em caso de falha, e as mensagens antigas nessa situação ficam marcadas como falhas.
-- Checagem periódica reportando contatos sem telefone, conversas duplicadas e mensagens sem confirmação.
+## Etapa 6 — Prevenção
+- Normalização única de telefone e nome usada por webhook, importação de backup e criação manual.
+- Importação de backup passa a procurar o contato existente (por id de mensagem, telefone e nome) antes de criar um novo.
+- Unicidade no banco: id externo de mensagem e telefone por empresa.
+- Bloqueio de gravação de nome puramente numérico quando existir fonte melhor, e enriquecimento automático quando o `pushName` chegar pelo webhook.
+- Verificação periódica reportando contatos sem telefone, nomes numéricos e duplicados.
 
 ## Detalhes técnicos
-- `recover-contact-phones`: novos passes (cruzamento por `external_id`, LID, texto/vCard, nome) com modo `dryRun` e limite por lote.
-- Nova rotina de merge de conversa/contato duplicados, transacional e idempotente, sem exclusão de mensagens sem par.
-- Banco (aditivo): índices/restrições de unicidade para `external_id` de mensagem e telefone por empresa; nenhum `DROP`.
-- `import-chat-backup`: resolução de contato existente antes de inserir.
-- Frontend: `Contacts.tsx` (lista sem telefone), `ChatWindow.tsx`/`ChatInput.tsx` (bloqueio + ação de informar número, estado de falha real de envio).
-- Produção: nenhum envio de mensagem de teste sem sua autorização; toda correção de dados roda em simulação e é apresentada antes de aplicar.
+- Nova tabela de referência `contact_directory` (empresa opcional, telefone normalizado, nomes, origem) com grants e RLS por empresa; carga a partir das planilhas.
+- Função `recover-contact-phones` ampliada com os 4 passes, `dryRun`, lote configurável e log de evidência por contato.
+- Nova rotina de correção de nomes e de merge de contatos duplicados, idempotentes.
+- Banco (aditivo): índices/restrições de unicidade; nenhum `DROP` de dados.
+- Frontend: em Contatos, filtros "sem telefone" e "nome inválido", botões de simulação/aplicação e download do relatório.
+- Produção: nenhum envio de mensagem; todas as ações de dados começam em simulação e são aplicadas só após sua confirmação.
+
+## Ordem de execução
+Etapa 1 → 2 (passe por passe, com sua validação) → 3 → 4 → 5 → 6.
