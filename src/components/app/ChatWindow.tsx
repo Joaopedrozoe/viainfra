@@ -621,7 +621,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     } catch (error) {
       console.error('💥 Erro geral ao enviar mensagem:', error);
     }
-  }, [conversationId, conversationChannel, profile, replyToMessage, contactName, addMessage, replaceTemporaryMessage, updateMessage]);
+  }, [conversationId, conversationChannel, isGroupConversation, contactPhone, profile, replyToMessage, contactName, addMessage, replaceTemporaryMessage, updateMessage]);
 
   const handleViewContactDetails = useCallback(() => {
     if (conversationId) {
