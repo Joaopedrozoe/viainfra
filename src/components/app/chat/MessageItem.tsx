@@ -183,87 +183,122 @@ const DeliveryStatusIcon = ({ status, isAgentMessage }: { status?: MessageDelive
   }
 };
 
+/**
+ * Carrega mídia com fallback por blob quando a URL pública é bloqueada
+ * (extensão de navegador, antivírus, proxy corporativo).
+ */
+const useResilientMedia = (url: string) => {
+  const [src, setSrc] = useState(url);
+  const [failed, setFailed] = useState(false);
+  const recoveringRef = useRef(false);
+
+  useEffect(() => {
+    setSrc(url);
+    setFailed(false);
+    recoveringRef.current = false;
+  }, [url]);
+
+  const handleError = useCallback(async () => {
+    if (recoveringRef.current) {
+      setFailed(true);
+      return;
+    }
+    recoveringRef.current = true;
+    const blobUrl = await fetchAttachmentBlobUrl(url);
+    if (blobUrl && blobUrl !== url) setSrc(blobUrl);
+    else setFailed(true);
+  }, [url]);
+
+  return { src, failed, handleError };
+};
+
+const BlockedAttachment = ({
+  url,
+  label,
+  icon,
+  filename,
+}: {
+  url: string;
+  label: string;
+  icon: React.ReactNode;
+  filename?: string;
+}) => (
+  <div className="mt-2 rounded-lg border border-border/50 bg-muted/50 p-3 space-y-2">
+    <div className="flex items-center gap-2 text-sm">
+      {icon}
+      <span className="flex-1 truncate">{label}</span>
+    </div>
+    <p className="text-xs text-muted-foreground">{ATTACHMENT_BLOCKED_MESSAGE}</p>
+    <div className="flex gap-3 text-xs">
+      <button
+        type="button"
+        onClick={() => void openAttachment(url, filename)}
+        className="text-primary hover:underline"
+      >
+        Tentar novamente
+      </button>
+      <button
+        type="button"
+        onClick={() => void copyAttachmentLink(url)}
+        className="text-muted-foreground hover:underline"
+      >
+        Copiar link
+      </button>
+    </div>
+  </div>
+);
+
 const ImageAttachment = ({ url, alt }: { url: string; alt?: string }) => {
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
+  const { src, failed, handleError } = useResilientMedia(url);
 
-  const handleError = () => {
-    if (retryCount < 2) {
-      // Retry with cache-busting parameter
-      setRetryCount(prev => prev + 1);
-    } else {
-      setIsLoading(false);
-      setError(true);
-    }
-  };
-
-  // Add cache-busting on retry
-  const imageUrl = retryCount > 0 ? `${url}?retry=${retryCount}` : url;
+  if (failed) {
+    return <BlockedAttachment url={url} label={alt || "Imagem"} icon={<Image size={18} />} />;
+  }
 
   return (
     <div className="mt-2 rounded-lg overflow-hidden">
-      {isLoading && !error && (
+      {isLoading && (
         <div className="w-full h-48 bg-muted animate-pulse rounded-lg flex items-center justify-center">
           <span className="text-muted-foreground text-sm">Carregando imagem...</span>
         </div>
       )}
-      {error ? (
-        <a 
-          href={url} 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="w-full h-32 bg-muted rounded-lg flex flex-col items-center justify-center text-muted-foreground text-sm hover:bg-muted/80 transition-colors cursor-pointer"
-        >
-          <FileText size={24} className="mb-2" />
-          <span>Clique para abrir imagem</span>
-        </a>
-      ) : (
-        <img
-          src={imageUrl}
-          alt={alt || "Imagem"}
-          className={cn(
-            "max-w-full max-h-64 rounded-lg cursor-pointer hover:opacity-90 transition-opacity",
-            isLoading && "hidden"
-          )}
-          onLoad={() => setIsLoading(false)}
-          onError={handleError}
-          onClick={() => window.open(url, '_blank')}
-        />
-
-      )}
+      <img
+        src={src}
+        alt={alt || "Imagem"}
+        loading="lazy"
+        className={cn(
+          "max-w-full max-h-64 rounded-lg cursor-pointer hover:opacity-90 transition-opacity",
+          isLoading && "hidden"
+        )}
+        onLoad={() => setIsLoading(false)}
+        onError={() => {
+          setIsLoading(false);
+          void handleError();
+        }}
+        onClick={() => void openAttachment(url)}
+      />
     </div>
   );
 };
 
 const VideoAttachment = ({ url, mimeType }: { url: string; mimeType?: string }) => {
-  const [error, setError] = useState(false);
+  const { src, failed, handleError } = useResilientMedia(url);
 
-  if (error) {
-    return (
-      <a 
-        href={url} 
-        target="_blank" 
-        rel="noopener noreferrer"
-        className="mt-2 flex items-center gap-2 p-3 bg-muted rounded-lg hover:bg-muted/80 transition-colors"
-      >
-        <Play size={20} className="text-muted-foreground" />
-        <span className="flex-1 text-sm">Clique para abrir vídeo</span>
-        <Download size={18} className="text-muted-foreground" />
-      </a>
-    );
+  if (failed) {
+    return <BlockedAttachment url={url} label="Vídeo" icon={<Video size={18} />} />;
   }
 
   return (
     <div className="mt-2 rounded-lg overflow-hidden">
       <video
-        src={url}
+        src={src}
         controls
         className="max-w-full max-h-64 rounded-lg bg-black"
         preload="metadata"
-        onError={() => setError(true)}
+        onError={() => void handleError()}
       >
-        <source src={url} type={mimeType || 'video/mp4'} />
+        <source src={src} type={mimeType || 'video/mp4'} />
         Seu navegador não suporta vídeo.
       </video>
     </div>
@@ -271,58 +306,23 @@ const VideoAttachment = ({ url, mimeType }: { url: string; mimeType?: string }) 
 };
 
 const AudioAttachment = ({ url, mimeType }: { url: string; mimeType?: string }) => {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [error, setError] = useState(false);
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const { src, failed, handleError } = useResilientMedia(url);
 
-  // Handle audio play/pause
-  const togglePlay = () => {
-    if (audioRef.current) {
-      if (isPlaying) {
-        audioRef.current.pause();
-      } else {
-        audioRef.current.play().catch(() => setError(true));
-      }
-    }
-  };
-
-  if (error) {
-    return (
-      <a 
-        href={url} 
-        target="_blank" 
-        rel="noopener noreferrer"
-        className="mt-2 flex items-center gap-2 p-3 bg-muted rounded-lg hover:bg-muted/80 transition-colors"
-      >
-        <Volume2 size={20} className="text-muted-foreground" />
-        <span className="flex-1 text-sm">Clique para baixar áudio</span>
-        <Download size={18} className="text-muted-foreground" />
-      </a>
-    );
+  if (failed) {
+    return <BlockedAttachment url={url} label="Áudio" icon={<Volume2 size={18} />} />;
   }
 
   return (
     <div className="mt-2 flex items-center gap-2 p-2 bg-muted/50 rounded-lg">
-      <button
-        onClick={togglePlay}
-        className="p-2 rounded-full bg-background hover:bg-background/80 transition-colors"
-      >
-        {isPlaying ? <Pause size={16} /> : <Play size={16} />}
-      </button>
-      <Volume2 size={16} className="text-muted-foreground" />
+      <Volume2 size={16} className="text-muted-foreground flex-shrink-0" />
       <audio
-        ref={audioRef}
-        src={url}
-        className="flex-1 h-8"
+        src={src}
+        className="flex-1 h-8 min-w-0"
         controls
-        onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
-        onEnded={() => setIsPlaying(false)}
-        onError={() => setError(true)}
+        onError={() => void handleError()}
         preload="metadata"
       >
-        {/* Fallback source with explicit mime type for better compatibility */}
-        <source src={url} type={mimeType || 'audio/ogg'} />
+        <source src={src} type={mimeType || 'audio/ogg'} />
         Seu navegador não suporta áudio.
       </audio>
     </div>
@@ -331,18 +331,17 @@ const AudioAttachment = ({ url, mimeType }: { url: string; mimeType?: string }) 
 
 const DocumentAttachment = ({ url, filename }: { url: string; filename?: string }) => {
   const displayName = filename || 'Documento';
-  
+
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="mt-2 flex items-center gap-2 p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors"
+    <button
+      type="button"
+      onClick={() => void openAttachment(url, displayName)}
+      className="mt-2 w-full flex items-center gap-2 p-3 bg-muted/50 rounded-lg hover:bg-muted transition-colors text-left"
     >
-      <FileText size={24} className="text-muted-foreground" />
+      <FileText size={24} className="text-muted-foreground flex-shrink-0" />
       <span className="flex-1 text-sm truncate">{displayName}</span>
-      <Download size={18} className="text-muted-foreground" />
-    </a>
+      <Download size={18} className="text-muted-foreground flex-shrink-0" />
+    </button>
   );
 };
 
