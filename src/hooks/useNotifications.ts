@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/contexts/auth';
+import { toast } from 'sonner';
 
 export interface NotificationSettings {
   desktop: boolean;
