@@ -78,6 +78,10 @@ export const useConversations = () => {
   const activeCompanyIdRef = useRef<string | null>(null);
   // Evita limpar uma lista válida quando o efeito remonta para a mesma empresa.
   const loadedCompanyIdRef = useRef<string | null>(null);
+  // Dedupe de notificações entre realtime e polling
+  const notifiedMessageIdsRef = useRef<Set<string>>(new Set());
+  const sessionStartRef = useRef<number>(Date.now());
+
 
   // Core fetch function - no debounce, always fresh data
   const fetchConversations = useCallback(async (silent = false) => {
@@ -278,6 +282,28 @@ export const useConversations = () => {
       
       previousConversationsRef.current = currentIds;
 
+      // Fallback de notificações: quando o Realtime não conecta (CHANNEL_ERROR /
+      // TIMED_OUT), o polling é a única fonte de novas mensagens. Notificamos
+      // aqui também, com dedupe por message id compartilhado com o handler
+      // realtime, para nunca notificar duas vezes a mesma mensagem.
+      newConversations.forEach(conv => {
+        const last = conv.lastRealMessage;
+        if (!last || last.sender_type !== 'user') return;
+        if (isReactionMessage(last.content)) return;
+        if (new Date(last.created_at).getTime() < sessionStartRef.current) return;
+        if (notifiedMessageIdsRef.current.has(last.id)) return;
+        notifiedMessageIdsRef.current.add(last.id);
+        if (notifiedMessageIdsRef.current.size > 500) {
+          notifiedMessageIdsRef.current = new Set(
+            Array.from(notifiedMessageIdsRef.current).slice(-250)
+          );
+        }
+        if (isConversationInFocus(conv.id)) return;
+        notifyNewMessage(conv.contact?.name || 'Cliente', last.content);
+        playNotificationSound();
+      });
+
+
       if (mountedRef.current && activeCompanyIdRef.current === requestedCompanyId) {
         setConversations(newConversations);
         setLastSyncTime(new Date());
@@ -291,7 +317,7 @@ export const useConversations = () => {
       }
       isFetchingRef.current = { companyId: null, running: false };
     }
-  }, [company?.id, notifyNewConversation]);
+  }, [company?.id, notifyNewConversation, notifyNewMessage, playNotificationSound]);
 
   // Handle new message - INSTANT optimistic update without refetch
   const handleNewMessage = useCallback((payload: any) => {
@@ -322,10 +348,13 @@ export const useConversations = () => {
       
       // Notify IMMEDIATELY for contact messages (not reactions),
       // exceto quando a conversa já está aberta e a aba está em foco
-      if (isContactMessage && !isReaction && !isConversationInFocus(newMsg.conversation_id)) {
-        const contactName = conversation.contact?.name || 'Cliente';
-        notifyNewMessage(contactName, newMsg.content);
-        playNotificationSound();
+      if (isContactMessage && !isReaction && !notifiedMessageIdsRef.current.has(newMsg.id)) {
+        notifiedMessageIdsRef.current.add(newMsg.id);
+        if (!isConversationInFocus(newMsg.conversation_id)) {
+          const contactName = conversation.contact?.name || 'Cliente';
+          notifyNewMessage(contactName, newMsg.content);
+          playNotificationSound();
+        }
       }
 
       
