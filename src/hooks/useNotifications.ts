@@ -200,14 +200,14 @@ export const useNotifications = () => {
     if (!settings.newConversations) return;
 
     playNotificationSound();
+    toast.info('Nova conversa', {
+      description: `${contactName} iniciou uma conversa via ${channel}`,
+      duration: 6000,
+    });
     if (canUseDesktopNotification()) {
       showNotification('Nova Conversa', {
         body: `${contactName} iniciou uma conversa via ${channel}`,
         tag: 'new-conversation',
-      });
-    } else {
-      toast.info('Nova conversa', {
-        description: `${contactName} iniciou uma conversa via ${channel}`,
       });
     }
   }, [settings.newConversations, showNotification, playNotificationSound]);
