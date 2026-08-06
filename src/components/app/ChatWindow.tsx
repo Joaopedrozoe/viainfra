@@ -1061,7 +1061,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     } finally {
       setSendingTemplate(false);
     }
-  }, [conversationId, sendingTemplate, userMessagesCount]);
+  }, [conversationId, sendingTemplate, userMessagesCount, missingPhone]);
 
 
   if (!conversationId) {
