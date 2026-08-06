@@ -34,6 +34,9 @@ const Contacts = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
   const [isRecoveringPhones, setIsRecoveringPhones] = useState(false);
+  const [showRepairDialog, setShowRepairDialog] = useState(false);
+
+
 
   /**
    * Recupera telefones de contatos sem número (ex.: importados de backup).
