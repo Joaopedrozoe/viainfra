@@ -317,7 +317,7 @@ export const useConversations = () => {
       }
       isFetchingRef.current = { companyId: null, running: false };
     }
-  }, [company?.id, notifyNewConversation]);
+  }, [company?.id, notifyNewConversation, notifyNewMessage, playNotificationSound]);
 
   // Handle new message - INSTANT optimistic update without refetch
   const handleNewMessage = useCallback((payload: any) => {
