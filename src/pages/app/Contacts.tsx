@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Search, Plus, Filter, Users, Mail, MessageSquare, Download, Trash2, Camera, RefreshCw, UsersRound } from "lucide-react";
+import { Search, Plus, Filter, Users, Mail, MessageSquare, Download, Trash2, Camera, RefreshCw, UsersRound, PhoneCall } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -76,7 +76,7 @@ const Contacts = () => {
       toast.success(`${appliedSummary?.recovered ?? 0} telefone(s) recuperado(s)`, {
         description: "Envio de mensagens e templates liberado para esses contatos.",
       });
-      await loadContacts();
+      await fetchContacts();
     } catch (err) {
       toast.error("Não foi possível recuperar os telefones", {
         description: err instanceof Error ? err.message : "Erro inesperado",
