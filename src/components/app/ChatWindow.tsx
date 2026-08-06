@@ -6,6 +6,8 @@ import { Message, ChatWindowProps, Attachment } from "./chat/types";
 import { EditMessageDialog } from "./chat/EditMessageDialog";
 import { DeleteMessageDialog } from "./chat/DeleteMessageDialog";
 import { ForwardMessageModal } from "./chat/ForwardMessageModal";
+import { MissingPhoneDialog } from "./chat/MissingPhoneDialog";
+
 import { Channel } from "@/types/conversation";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -76,6 +78,9 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   const [contactPhone, setContactPhone] = useState<string | null>(null);
   const [contactId, setContactId] = useState<string | null>(null);
   const [conversationChannel, setConversationChannel] = useState<Channel>("web");
+  const [isGroupConversation, setIsGroupConversation] = useState(false);
+  const [showMissingPhoneDialog, setShowMissingPhoneDialog] = useState(false);
+
   const [conversationStatus, setConversationStatus] = useState<string>("open");
   const [isLoadingConversation, setIsLoadingConversation] = useState(true);
   const [isSyncingHistory, setIsSyncingHistory] = useState(false);
@@ -220,7 +225,11 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         setContactId(null);
       }
       setConversationChannel(conversation?.channel as Channel || 'web');
+      setIsGroupConversation(
+        String((conversation?.metadata as any)?.remoteJid || '').includes('@g.us')
+      );
       setConversationStatus(conversation?.status || 'open');
+
     } catch (error) {
       console.error('💥 Erro ao carregar dados da conversa:', error);
     } finally {
@@ -317,6 +326,16 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       console.error('❌ [SEND] Sem conversationId');
       return;
     }
+
+    // Contato sem número válido: a API oficial não consegue entregar
+    if (conversationChannel === 'whatsapp' && !isGroupConversation && !contactPhone) {
+      setShowMissingPhoneDialog(true);
+      toast.error('Contato sem número', {
+        description: 'Informe o número do WhatsApp para enviar mensagens.'
+      });
+      return;
+    }
+
 
     if (!profile) {
       console.error('❌ [SEND] Perfil não disponível no contexto');
@@ -602,7 +621,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     } catch (error) {
       console.error('💥 Erro geral ao enviar mensagem:', error);
     }
-  }, [conversationId, conversationChannel, profile, replyToMessage, contactName, addMessage, replaceTemporaryMessage, updateMessage]);
+  }, [conversationId, conversationChannel, isGroupConversation, contactPhone, profile, replyToMessage, contactName, addMessage, replaceTemporaryMessage, updateMessage]);
 
   const handleViewContactDetails = useCallback(() => {
     if (conversationId) {
@@ -1017,9 +1036,20 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     setUserCountAtSend(null);
   }, [conversationId]);
 
+  // Contato sem número: API oficial não consegue entregar mensagem/template
+  const missingPhone = useMemo(
+    () => conversationChannel === 'whatsapp' && !isGroupConversation && !contactPhone,
+    [conversationChannel, isGroupConversation, contactPhone]
+  );
+
   const handleSendOpeningTemplate = useCallback(async () => {
     if (sendingTemplate || !conversationId) return;
+    if (missingPhone) {
+      setShowMissingPhoneDialog(true);
+      return;
+    }
     setSendingTemplate(true);
+
     try {
       const { data, error } = await supabase.functions.invoke('send-whatsapp-template', {
         body: { conversation_id: conversationId, template_name: 'aberturadeconversa' }
@@ -1043,7 +1073,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     } finally {
       setSendingTemplate(false);
     }
-  }, [conversationId, sendingTemplate, userMessagesCount]);
+  }, [conversationId, sendingTemplate, userMessagesCount, missingPhone]);
 
 
   if (!conversationId) {
@@ -1185,7 +1215,23 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           <div ref={messagesEndRef} />
         </div>
       </div>
-      {conversationChannel === 'whatsapp' && !isWindowOpen && !contactRepliedAfterTemplate && (
+      {missingPhone && (
+        <div className="flex-shrink-0 border-t border-border/60 bg-destructive/10 px-4 py-2 flex items-center justify-between gap-3">
+          <span className="text-xs text-destructive">
+            Contato sem número: a API oficial não entrega mensagens até um número válido ser informado.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowMissingPhoneDialog(true)}
+            className="flex-shrink-0"
+          >
+            Informar número
+          </Button>
+        </div>
+      )}
+      {conversationChannel === 'whatsapp' && !missingPhone && !isWindowOpen && !contactRepliedAfterTemplate && (
+
         <div className="flex-shrink-0 border-t border-border/60 bg-muted/40 px-4 py-2 flex items-center justify-between gap-3">
           {templateSentAt ? (
             <span className="text-xs text-muted-foreground">
@@ -1241,6 +1287,15 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         open={showForwardModal}
         onOpenChange={setShowForwardModal}
       />
+
+      <MissingPhoneDialog
+        open={showMissingPhoneDialog}
+        onOpenChange={setShowMissingPhoneDialog}
+        contactId={contactId}
+        contactName={contactName}
+        onSaved={(phone) => setContactPhone(phone)}
+      />
+
     </div>
   );
 });
