@@ -1113,6 +1113,10 @@ export type Database = {
     }
     Functions: {
       assert_repair_allowed: { Args: never; Returns: undefined }
+      call_log_label: {
+        Args: { _duration: number; _status: string }
+        Returns: string
+      }
       cleanup_expired_typing_status: { Args: never; Returns: undefined }
       contacts_audit_summary: {
         Args: { _company_id?: string }
