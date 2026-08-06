@@ -1114,6 +1114,17 @@ export type Database = {
     Functions: {
       assert_repair_allowed: { Args: never; Returns: undefined }
       cleanup_expired_typing_status: { Args: never; Returns: undefined }
+      contacts_audit_summary: {
+        Args: { _company_id?: string }
+        Returns: {
+          company_id: string
+          company_name: string
+          duplicate_phones: number
+          missing_phone: number
+          numeric_names: number
+          total_contacts: number
+        }[]
+      }
       get_inbox_previews: {
         Args: { _company_id: string; _limit?: number }
         Returns: {
