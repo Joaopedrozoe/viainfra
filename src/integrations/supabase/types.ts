@@ -315,6 +315,50 @@ export type Database = {
           },
         ]
       }
+      contact_directory: {
+        Row: {
+          company_id: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          is_my_contact: boolean | null
+          phone: string
+          saved_name: string | null
+          source: string
+          updated_at: string
+        }
+        Insert: {
+          company_id?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          is_my_contact?: boolean | null
+          phone: string
+          saved_name?: string | null
+          source?: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          is_my_contact?: boolean | null
+          phone?: string
+          saved_name?: string | null
+          source?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contact_directory_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contacts: {
         Row: {
           avatar_url: string | null
