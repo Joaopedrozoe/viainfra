@@ -1112,6 +1112,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      assert_repair_allowed: { Args: never; Returns: undefined }
       cleanup_expired_typing_status: { Args: never; Returns: undefined }
       get_inbox_previews: {
         Args: { _company_id: string; _limit?: number }
@@ -1137,7 +1138,39 @@ export type Database = {
         }[]
       }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
+      merge_duplicate_contacts: {
+        Args: { _company_id?: string; _dry_run?: boolean }
+        Returns: {
+          drop_id: string
+          drop_name: string
+          keep_id: string
+          keep_name: string
+          moved_messages: number
+          phone: string
+          removed_duplicates: number
+        }[]
+      }
+      normalize_name: { Args: { _raw: string }; Returns: string }
       normalize_phone: { Args: { _raw: string }; Returns: string }
+      repair_contact_names: {
+        Args: { _company_id?: string; _dry_run?: boolean; _limit?: number }
+        Returns: {
+          contact_id: string
+          new_name: string
+          old_name: string
+          source: string
+        }[]
+      }
+      repair_contact_phones: {
+        Args: { _company_id?: string; _dry_run?: boolean; _limit?: number }
+        Returns: {
+          contact_id: string
+          contact_name: string
+          evidence: number
+          pass: string
+          proposed_phone: string
+        }[]
+      }
       send_web_conversation_message: {
         Args: {
           p_access_token: string
