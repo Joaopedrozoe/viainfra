@@ -419,9 +419,9 @@ const LocationAttachment = ({
 
 // Componente para exibir sticker (sem bolha, como no WhatsApp)
 const StickerAttachment = ({ url }: { url: string }) => {
-  const [error, setError] = useState(false);
+  const { src, failed, handleError } = useResilientMedia(url);
 
-  if (error) {
+  if (failed) {
     return (
       <div className="mt-2 text-xs text-muted-foreground italic">Sticker não disponível</div>
     );
@@ -429,10 +429,10 @@ const StickerAttachment = ({ url }: { url: string }) => {
 
   return (
     <img
-      src={url}
+      src={src}
       alt="Sticker"
       loading="lazy"
-      onError={() => setError(true)}
+      onError={() => void handleError()}
       className="mt-2 w-32 h-32 object-contain"
     />
   );
