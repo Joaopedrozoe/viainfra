@@ -218,14 +218,16 @@ export const useNotifications = () => {
 
     const body = `${contactName}: ${message?.substring(0, 100) || ''}${message && message.length > 100 ? '...' : ''}`;
 
+    // Balãozinho dentro do app sempre aparece (garante feedback visual mesmo
+    // quando o SO/navegador suprime a notificação nativa).
+    toast.message('Nova mensagem', { description: body, duration: 6000 });
+
     // Som é tocado separadamente pelo caller (useConversations) para timing mais preciso
     if (canUseDesktopNotification()) {
       showNotification('Nova Mensagem', {
         body,
         tag: `new-message-${Date.now()}`, // Tag única para permitir múltiplas notificações
       });
-    } else {
-      toast.message('Nova mensagem', { description: body });
     }
   }, [settings.newMessages, showNotification]);
 
