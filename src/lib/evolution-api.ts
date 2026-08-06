@@ -281,8 +281,22 @@ export class EvolutionAPI {
     if (msgContent.audioMessage) {
       return '[Áudio]';
     }
-    
-    return '[Mensagem não suportada]';
+
+    const c: any = msgContent as any;
+    if (c.stickerMessage) return '[Sticker]';
+    if (c.documentMessage) return `[Documento: ${c.documentMessage.fileName || c.documentMessage.title || 'arquivo'}]`;
+    if (c.locationMessage) return '[Localização]';
+    if (c.contactMessage || c.contactsArrayMessage) return '[Contato]';
+    if (c.call || c.callLogMessage) return '📞 Chamada de voz';
+    if (c.pollCreationMessage || c.pollCreationMessageV2 || c.pollCreationMessageV3) return '[Enquete]';
+    if (c.ptvMessage) return '[Vídeo instantâneo]';
+    if (c.viewOnceMessage || c.viewOnceMessageV2) return '[Mensagem de visualização única]';
+    if (c.protocolMessage) return '🚫 Mensagem apagada';
+    if (c.orderMessage) return '🧾 Pedido recebido';
+    if (c.reactionMessage) return `Reagiu com ${c.reactionMessage.text || '👍'}`;
+
+    const firstKey = Object.keys(msgContent || {})[0];
+    return firstKey ? `[Mensagem não exibível: ${String(firstKey).replace(/Message$/, '')}]` : '[Mensagem sem conteúdo]';
   }
 }
 
