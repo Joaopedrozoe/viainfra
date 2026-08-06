@@ -32,6 +32,60 @@ const Contacts = () => {
   const [filters, setFilters] = useState<ContactFilter>({});
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showMessageModal, setShowMessageModal] = useState(false);
+  const [isRecoveringPhones, setIsRecoveringPhones] = useState(false);
+
+  /**
+   * Recupera telefones de contatos sem número (ex.: importados de backup).
+   * Roda primeiro em simulação e só aplica após confirmação do usuário.
+   */
+  const handleRecoverPhones = async () => {
+    if (!company?.id) return;
+    setIsRecoveringPhones(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("recover-contact-phones", {
+        body: { companyId: company.id, dryRun: true },
+      });
+      if (error) throw error;
+
+      const summary = (data as any)?.report?.[0];
+      const recoverable = summary?.recovered ?? 0;
+      const pending = summary?.pending ?? 0;
+
+      if (pending === 0) {
+        toast.success("Todos os contatos desta empresa já possuem telefone.");
+        return;
+      }
+      if (recoverable === 0) {
+        toast.warning("Nenhum telefone recuperável encontrado", {
+          description: `${pending} contato(s) sem número. Não há correspondência confiável nos dados oficiais do WhatsApp.`,
+        });
+        return;
+      }
+
+      const confirmed = window.confirm(
+        `${recoverable} de ${pending} contato(s) sem número podem ser recuperados a partir dos dados oficiais do WhatsApp. Aplicar agora?`
+      );
+      if (!confirmed) return;
+
+      const applied = await supabase.functions.invoke("recover-contact-phones", {
+        body: { companyId: company.id, dryRun: false },
+      });
+      if (applied.error) throw applied.error;
+
+      const appliedSummary = (applied.data as any)?.report?.[0];
+      toast.success(`${appliedSummary?.recovered ?? 0} telefone(s) recuperado(s)`, {
+        description: "Envio de mensagens e templates liberado para esses contatos.",
+      });
+      await loadContacts();
+    } catch (err) {
+      toast.error("Não foi possível recuperar os telefones", {
+        description: err instanceof Error ? err.message : "Erro inesperado",
+      });
+    } finally {
+      setIsRecoveringPhones(false);
+    }
+  };
+
 
   const handleSyncProfilePictures = async () => {
     setIsSyncingPhotos(true);
