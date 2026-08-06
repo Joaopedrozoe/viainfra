@@ -1093,6 +1093,7 @@ export type Database = {
         }[]
       }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
+      normalize_phone: { Args: { _raw: string }; Returns: string }
       send_web_conversation_message: {
         Args: {
           p_access_token: string
