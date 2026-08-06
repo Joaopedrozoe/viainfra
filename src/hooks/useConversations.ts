@@ -278,6 +278,28 @@ export const useConversations = () => {
       
       previousConversationsRef.current = currentIds;
 
+      // Fallback de notificações: quando o Realtime não conecta (CHANNEL_ERROR /
+      // TIMED_OUT), o polling é a única fonte de novas mensagens. Notificamos
+      // aqui também, com dedupe por message id compartilhado com o handler
+      // realtime, para nunca notificar duas vezes a mesma mensagem.
+      newConversations.forEach(conv => {
+        const last = conv.lastRealMessage;
+        if (!last || last.sender_type !== 'user') return;
+        if (isReactionMessage(last.content)) return;
+        if (new Date(last.created_at).getTime() < sessionStartRef.current) return;
+        if (notifiedMessageIdsRef.current.has(last.id)) return;
+        notifiedMessageIdsRef.current.add(last.id);
+        if (notifiedMessageIdsRef.current.size > 500) {
+          notifiedMessageIdsRef.current = new Set(
+            Array.from(notifiedMessageIdsRef.current).slice(-250)
+          );
+        }
+        if (isConversationInFocus(conv.id)) return;
+        notifyNewMessage(conv.contact?.name || 'Cliente', last.content);
+        playNotificationSound();
+      });
+
+
       if (mountedRef.current && activeCompanyIdRef.current === requestedCompanyId) {
         setConversations(newConversations);
         setLastSyncTime(new Date());
