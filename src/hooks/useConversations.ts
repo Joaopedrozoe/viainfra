@@ -78,6 +78,10 @@ export const useConversations = () => {
   const activeCompanyIdRef = useRef<string | null>(null);
   // Evita limpar uma lista válida quando o efeito remonta para a mesma empresa.
   const loadedCompanyIdRef = useRef<string | null>(null);
+  // Dedupe de notificações entre realtime e polling
+  const notifiedMessageIdsRef = useRef<Set<string>>(new Set());
+  const sessionStartRef = useRef<number>(Date.now());
+
 
   // Core fetch function - no debounce, always fresh data
   const fetchConversations = useCallback(async (silent = false) => {
