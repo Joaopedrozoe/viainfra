@@ -1203,7 +1203,23 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           <div ref={messagesEndRef} />
         </div>
       </div>
-      {conversationChannel === 'whatsapp' && !isWindowOpen && !contactRepliedAfterTemplate && (
+      {missingPhone && (
+        <div className="flex-shrink-0 border-t border-border/60 bg-destructive/10 px-4 py-2 flex items-center justify-between gap-3">
+          <span className="text-xs text-destructive">
+            Contato sem número: a API oficial não entrega mensagens até um número válido ser informado.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowMissingPhoneDialog(true)}
+            className="flex-shrink-0"
+          >
+            Informar número
+          </Button>
+        </div>
+      )}
+      {conversationChannel === 'whatsapp' && !missingPhone && !isWindowOpen && !contactRepliedAfterTemplate && (
+
         <div className="flex-shrink-0 border-t border-border/60 bg-muted/40 px-4 py-2 flex items-center justify-between gap-3">
           {templateSentAt ? (
             <span className="text-xs text-muted-foreground">
