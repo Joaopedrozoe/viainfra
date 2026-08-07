@@ -197,12 +197,20 @@ const useResilientMedia = (url: string) => {
   const [src, setSrc] = useState(url);
   const [failed, setFailed] = useState(false);
   const recoveringRef = useRef(false);
+  const blobRef = useRef<string | null>(null);
 
   useEffect(() => {
     setSrc(url);
     setFailed(false);
     recoveringRef.current = false;
   }, [url]);
+
+  // Libera object URLs criadas no fallback para não vazar memória
+  useEffect(() => {
+    return () => {
+      if (blobRef.current) URL.revokeObjectURL(blobRef.current);
+    };
+  }, []);
 
   const handleError = useCallback(async () => {
     if (recoveringRef.current) {
@@ -211,8 +219,12 @@ const useResilientMedia = (url: string) => {
     }
     recoveringRef.current = true;
     const blobUrl = await fetchAttachmentBlobUrl(url);
-    if (blobUrl && blobUrl !== url) setSrc(blobUrl);
-    else setFailed(true);
+    if (blobUrl && blobUrl !== url) {
+      if (blobUrl.startsWith("blob:")) blobRef.current = blobUrl;
+      setSrc(blobUrl);
+    } else {
+      setFailed(true);
+    }
   }, [url]);
 
   return { src, failed, handleError };
@@ -258,24 +270,37 @@ const ImageAttachment = ({ url, alt }: { url: string; alt?: string }) => {
   const [isLoading, setIsLoading] = useState(true);
   const { src, failed, handleError } = useResilientMedia(url);
 
+  useEffect(() => {
+    setIsLoading(true);
+  }, [src]);
+
+  // Watchdog: se a imagem não carregar (nem der erro) em 8s, tenta o fallback por blob
+  useEffect(() => {
+    if (!isLoading) return;
+    const timer = setTimeout(() => {
+      if (isLoading) void handleError();
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [isLoading, handleError, src]);
+
   if (failed) {
     return <BlockedAttachment url={url} label={alt || "Imagem"} icon={<Image size={18} />} />;
   }
 
   return (
-    <div className="mt-2 rounded-lg overflow-hidden">
+    <div className="mt-2 rounded-lg overflow-hidden relative">
       {isLoading && (
-        <div className="w-full h-48 bg-muted animate-pulse rounded-lg flex items-center justify-center">
+        <div className="absolute inset-0 bg-muted animate-pulse rounded-lg flex items-center justify-center pointer-events-none">
           <span className="text-muted-foreground text-sm">Carregando imagem...</span>
         </div>
       )}
       <img
         src={src}
         alt={alt || "Imagem"}
-        loading="lazy"
+        decoding="async"
         className={cn(
           "max-w-full max-h-64 rounded-lg cursor-pointer hover:opacity-90 transition-opacity",
-          isLoading && "hidden"
+          isLoading && "min-h-[12rem] w-48 opacity-0"
         )}
         onLoad={() => setIsLoading(false)}
         onError={() => {
@@ -287,6 +312,7 @@ const ImageAttachment = ({ url, alt }: { url: string; alt?: string }) => {
     </div>
   );
 };
+
 
 const VideoAttachment = ({ url, mimeType }: { url: string; mimeType?: string }) => {
   const { src, failed, handleError } = useResilientMedia(url);
