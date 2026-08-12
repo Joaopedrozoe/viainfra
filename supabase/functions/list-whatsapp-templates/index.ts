@@ -132,7 +132,7 @@ serve(async (req) => {
         { headers: { Authorization: `Bearer ${creds.token}` } },
       ).then((r) => r.json()).catch((e) => ({ err: String(e) }));
       const probes: Record<string, unknown> = {};
-      for (const edge of ["me?fields=id,name", "me/businesses", "me/assigned_whatsapp_business_accounts", "me/owned_whatsapp_business_accounts", "me/assigned_business_asset_groups"]) {
+      for (const edge of [`${creds.phoneNumberId}`, `${creds.phoneNumberId}/whatsapp_business_profile?fields=about`, `1076124178422026/subscribed_apps`]) {
         probes[edge] = await fetch(`https://graph.facebook.com/v21.0/${edge}`, {
           headers: { Authorization: `Bearer ${creds.token}` },
         }).then((r) => r.json()).catch((e) => ({ err: String(e) }));
