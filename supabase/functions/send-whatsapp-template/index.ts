@@ -51,7 +51,20 @@ async function sendTemplate(
   to: string,
   templateName: string,
   language: string,
+  variables: string[] = [],
 ) {
+  const template: Record<string, unknown> = {
+    name: templateName,
+    language: { code: language },
+  };
+  if (variables.length > 0) {
+    template.components = [
+      {
+        type: "body",
+        parameters: variables.map((v) => ({ type: "text", text: String(v ?? "") })),
+      },
+    ];
+  }
   const resp = await fetch(
     `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
     {
@@ -65,13 +78,14 @@ async function sendTemplate(
         recipient_type: "individual",
         to,
         type: "template",
-        template: { name: templateName, language: { code: language } },
+        template,
       }),
     },
   );
   const data = await resp.json().catch(() => ({}));
   return { ok: resp.ok, status: resp.status, data };
 }
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
