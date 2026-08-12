@@ -1282,6 +1282,17 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         onSaved={(phone) => setContactPhone(phone)}
       />
 
+      {conversationId && (
+        <TemplatePickerDialog
+          open={showTemplatePicker}
+          onOpenChange={setShowTemplatePicker}
+          conversationId={conversationId}
+          onSent={handleTemplateSent}
+        />
+      )}
+
+
+
     </div>
   );
 });
