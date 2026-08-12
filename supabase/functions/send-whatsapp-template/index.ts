@@ -123,7 +123,11 @@ serve(async (req) => {
       company_id,
       template_name = DEFAULT_TEMPLATE,
       language,
+      variables = [],
+      body_preview,
     } = body ?? {};
+    const templateVars: string[] = Array.isArray(variables) ? variables.map(String) : [];
+
 
     let targetPhone: string | null = phone ? normalizePhone(phone) : null;
     let companyId: string | null = company_id ?? null;
