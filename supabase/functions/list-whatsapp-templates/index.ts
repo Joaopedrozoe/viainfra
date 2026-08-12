@@ -127,8 +127,20 @@ serve(async (req) => {
 
     const wabaId = await resolveWabaId(creds.token, creds.phoneNumberId, creds.wabaId);
     if (!wabaId) {
+      const dbg = await fetch(
+        `https://graph.facebook.com/v21.0/debug_token?input_token=${encodeURIComponent(creds.token)}`,
+        { headers: { Authorization: `Bearer ${creds.token}` } },
+      ).then((r) => r.json()).catch((e) => ({ err: String(e) }));
+      const pn = await fetch(
+        `https://graph.facebook.com/v21.0/${creds.phoneNumberId}?fields=whatsapp_business_account,display_phone_number`,
+        { headers: { Authorization: `Bearer ${creds.token}` } },
+      ).then((r) => r.json()).catch((e) => ({ err: String(e) }));
       return json(
-        { success: false, error: "Não foi possível descobrir o WABA ID desta empresa" },
+        {
+          success: false,
+          error: "Não foi possível descobrir o WABA ID desta empresa",
+          debug: { debug_token: dbg, phone_number: pn },
+        },
         400,
       );
     }
