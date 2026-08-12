@@ -666,10 +666,44 @@ function isPayloadForThisCompany(value: any): boolean {
   return ok;
 }
 
+/**
+ * Captura o WABA ID (entry[0].id) enviado pela Meta em cada webhook e guarda em
+ * companies.settings.meta_waba_id. Usado para listar os templates aprovados.
+ * Fire-and-forget: nunca bloqueia nem afeta o processamento da mensagem.
+ */
+const CAPTURE_COMPANY_ID = 'e3ad9c68-cf12-4e39-a12d-3f3068e975a0';
+let lastCapturedWaba: string | null = null;
+function captureWabaId(payload: any) {
+  try {
+    const wabaId = payload?.entry?.[0]?.id;
+    if (!wabaId || lastCapturedWaba === String(wabaId)) return;
+    lastCapturedWaba = String(wabaId);
+    const client = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    );
+    (async () => {
+      const { data } = await client
+        .from('companies')
+        .select('settings')
+        .eq('id', CAPTURE_COMPANY_ID)
+        .maybeSingle();
+      const settings = (data?.settings as any) || {};
+      if (String(settings.meta_waba_id || '') === String(wabaId)) return;
+      await client
+        .from('companies')
+        .update({ settings: { ...settings, meta_waba_id: String(wabaId) } })
+        .eq('id', CAPTURE_COMPANY_ID);
+      console.log(`[Meta] WABA ID capturado: ${wabaId}`);
+    })().catch((e) => console.warn('captureWabaId falhou', e));
+  } catch (_) { /* ignore */ }
+}
+
 function parseWebhookPayload(payload: any): EvolutionWebhook | null {
   try {
     // Meta Cloud API (WhatsApp Business Platform) — mesmo endpoint, formato diferente
     if (payload?.object === 'whatsapp_business_account' && Array.isArray(payload?.entry)) {
+      captureWabaId(payload);
       const value = payload.entry?.[0]?.changes?.[0]?.value;
       if (!isPayloadForThisCompany(value)) {
         return { event: 'IGNORED', instance: 'VIALOGISTIC', data: null };
