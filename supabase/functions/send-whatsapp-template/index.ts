@@ -9,6 +9,16 @@ const corsHeaders = {
 
 const DEFAULT_TEMPLATE = "aberturadeconversa";
 
+/** Texto gravado na conversa: corpo do template com as variáveis já aplicadas. */
+function renderPreview(preview: unknown, templateName: string, vars: string[]): string {
+  let text = typeof preview === "string" && preview.trim() ? preview : "";
+  if (!text) return templateName === "aberturadeconversa" ? "oi" : `[Template: ${templateName}]`;
+  vars.forEach((v, i) => {
+    text = text.replaceAll(`{{${i + 1}}}`, v);
+  });
+  return text;
+}
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -180,6 +190,7 @@ serve(async (req) => {
         targetPhone,
         template_name,
         lang,
+        templateVars,
       );
       console.log(
         `[send-template] ${template_name}/${lang} -> ${result.status}`,
@@ -213,7 +224,7 @@ serve(async (req) => {
     if (conversation_id) {
       const { error: insertError } = await supabase.from("messages").insert({
         conversation_id,
-        content: "oi",
+        content: renderPreview(body_preview, template_name, templateVars),
         sender_type: "agent",
         metadata: {
           template: template_name,
