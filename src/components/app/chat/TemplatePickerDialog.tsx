@@ -73,7 +73,7 @@ export const TemplatePickerDialog = ({ open, onOpenChange, conversationId, onSen
     if (!selected) return "";
     let text = selected.body || "";
     variables.forEach((v, i) => {
-      if (v) text = text.replaceAll(`{{${i + 1}}}`, v);
+      if (v) text = text.split(`{{${i + 1}}}`).join(v);
     });
     return text;
   }, [selected, variables]);
