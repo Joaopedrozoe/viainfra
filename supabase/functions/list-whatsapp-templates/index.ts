@@ -111,13 +111,22 @@ serve(async (req) => {
     }
 
     let name = String(company_name || "");
-    if (!name && companyId) {
+    let storedWaba = "";
+    if (companyId) {
       const { data } = await supabase
         .from("companies")
-        .select("name")
+        .select("name, settings")
         .eq("id", companyId)
         .maybeSingle();
-      name = data?.name || "";
+      if (!name) name = data?.name || "";
+      storedWaba = String((data?.settings as any)?.meta_waba_id || "");
+    } else if (name) {
+      const { data } = await supabase
+        .from("companies")
+        .select("settings")
+        .ilike("name", name)
+        .maybeSingle();
+      storedWaba = String((data?.settings as any)?.meta_waba_id || "");
     }
 
     const creds = resolveMetaCreds(name);
@@ -125,27 +134,13 @@ serve(async (req) => {
       return json({ success: false, error: `META_ACCESS_TOKEN_${creds.key} não configurado` }, 500);
     }
 
-    const wabaId = await resolveWabaId(creds.token, creds.phoneNumberId, creds.wabaId);
+    const wabaId = await resolveWabaId(creds.token, creds.phoneNumberId, storedWaba || creds.wabaId);
     if (!wabaId) {
-      const dbg = await fetch(
-        `https://graph.facebook.com/v21.0/debug_token?input_token=${encodeURIComponent(creds.token)}`,
-        { headers: { Authorization: `Bearer ${creds.token}` } },
-      ).then((r) => r.json()).catch((e) => ({ err: String(e) }));
-      const probes: Record<string, unknown> = {};
-      for (const edge of [`${creds.phoneNumberId}`, `${creds.phoneNumberId}/whatsapp_business_profile?fields=about`, `1076124178422026/subscribed_apps`]) {
-        probes[edge] = await fetch(`https://graph.facebook.com/v21.0/${edge}`, {
-          headers: { Authorization: `Bearer ${creds.token}` },
-        }).then((r) => r.json()).catch((e) => ({ err: String(e) }));
-      }
-      const pn = await fetch(
-        `https://graph.facebook.com/v21.0/${creds.phoneNumberId}?fields=whatsapp_business_account,display_phone_number`,
-        { headers: { Authorization: `Bearer ${creds.token}` } },
-      ).then((r) => r.json()).catch((e) => ({ err: String(e) }));
       return json(
         {
           success: false,
-          error: "Não foi possível descobrir o WABA ID desta empresa",
-          debug: { debug_token: dbg, phone_number: pn, probes },
+          error:
+            "WABA ID ainda não identificado. Ele é capturado automaticamente no próximo webhook recebido da Meta.",
         },
         400,
       );
