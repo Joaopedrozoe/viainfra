@@ -36,33 +36,54 @@ function resolveMetaCreds(companyName: string) {
   };
 }
 
-/** Descobre o WABA ID a partir do phone number id (fallback quando não há secret). */
+/** Descobre o WABA ID a partir do token / phone number id. */
 async function resolveWabaId(token: string, phoneNumberId: string, hint: string) {
   if (hint) return hint;
-  const attempts = [
-    `https://graph.facebook.com/v21.0/${phoneNumberId}?fields=whatsapp_business_account`,
-    `https://graph.facebook.com/v21.0/${phoneNumberId}?fields=id,display_phone_number,verified_name`,
-  ];
-  for (const url of attempts) {
+  const get = async (url: string) => {
     const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-    const d = await r.json().catch(() => ({}));
-    const waba = d?.whatsapp_business_account?.id;
-    if (waba) return String(waba);
-  }
-  // Última tentativa: listar WABAs acessíveis pelo token
-  const r = await fetch(
-    `https://graph.facebook.com/v21.0/me?fields=id,name`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
-  const d = await r.json().catch(() => ({}));
-  if (d?.id) {
-    const wr = await fetch(
-      `https://graph.facebook.com/v21.0/${d.id}/owned_whatsapp_business_accounts?limit=25`,
-      { headers: { Authorization: `Bearer ${token}` } },
+    return await r.json().catch(() => ({}));
+  };
+
+  // 1) debug_token expõe os WABAs autorizados (granular_scopes)
+  try {
+    const d = await get(
+      `https://graph.facebook.com/v21.0/debug_token?input_token=${encodeURIComponent(token)}`,
     );
-    const wd = await wr.json().catch(() => ({}));
-    const first = wd?.data?.[0]?.id;
-    if (first) return String(first);
+    const scopes = d?.data?.granular_scopes || [];
+    for (const s of scopes) {
+      if (String(s?.scope || "").includes("whatsapp_business_messag") && s?.target_ids?.length) {
+        for (const id of s.target_ids) {
+          const check = await get(
+            `https://graph.facebook.com/v21.0/${id}/phone_numbers?fields=id&limit=50`,
+          );
+          if ((check?.data || []).some((p: any) => String(p.id) === String(phoneNumberId))) {
+            return String(id);
+          }
+        }
+        return String(s.target_ids[0]);
+      }
+    }
+    for (const s of scopes) {
+      if (String(s?.scope || "").includes("whatsapp_business_manage") && s?.target_ids?.length) {
+        return String(s.target_ids[0]);
+      }
+    }
+  } catch (_) { /* ignore */ }
+
+  // 2) campo direto no phone number (alguns tokens expõem)
+  const direct = await get(
+    `https://graph.facebook.com/v21.0/${phoneNumberId}?fields=whatsapp_business_account`,
+  );
+  if (direct?.whatsapp_business_account?.id) return String(direct.whatsapp_business_account.id);
+
+  // 3) WABAs do usuário/system user do token
+  const me = await get(`https://graph.facebook.com/v21.0/me?fields=id`);
+  if (me?.id) {
+    for (const edge of ["assigned_whatsapp_business_accounts", "owned_whatsapp_business_accounts"]) {
+      const wd = await get(`https://graph.facebook.com/v21.0/${me.id}/${edge}?limit=25`);
+      const first = wd?.data?.[0]?.id;
+      if (first) return String(first);
+    }
   }
   return "";
 }
