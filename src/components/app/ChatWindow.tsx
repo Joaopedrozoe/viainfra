@@ -7,6 +7,7 @@ import { EditMessageDialog } from "./chat/EditMessageDialog";
 import { DeleteMessageDialog } from "./chat/DeleteMessageDialog";
 import { ForwardMessageModal } from "./chat/ForwardMessageModal";
 import { MissingPhoneDialog } from "./chat/MissingPhoneDialog";
+import { TemplatePickerDialog } from "./chat/TemplatePickerDialog";
 
 import { Channel } from "@/types/conversation";
 import { useNavigate } from "react-router-dom";
@@ -1005,6 +1006,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   }, [deleteMessage, conversationChannel, conversationId, deletingMessage]);
 
   const [sendingTemplate, setSendingTemplate] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [templateSentAt, setTemplateSentAt] = useState<string | null>(null);
   const [userCountAtSend, setUserCountAtSend] = useState<number | null>(null);
 
@@ -1042,38 +1044,23 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     [conversationChannel, isGroupConversation, contactPhone]
   );
 
-  const handleSendOpeningTemplate = useCallback(async () => {
-    if (sendingTemplate || !conversationId) return;
+  // Abre o seletor de templates (aprovados + em análise na Meta)
+  const handleSendOpeningTemplate = useCallback(() => {
+    if (!conversationId) return;
     if (missingPhone) {
       setShowMissingPhoneDialog(true);
       return;
     }
-    setSendingTemplate(true);
+    setShowTemplatePicker(true);
+  }, [conversationId, missingPhone]);
 
-    try {
-      const { data, error } = await supabase.functions.invoke('send-whatsapp-template', {
-        body: { conversation_id: conversationId, template_name: 'aberturadeconversa' }
-      });
-
-      if (error || !data?.success) {
-        const msg = (data as any)?.error || error?.message || 'Falha ao enviar template';
-        toast.error(`Não foi possível enviar o template: ${msg}`);
-        return;
-      }
-
-      setTemplateSentAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
-      setUserCountAtSend(userMessagesCount);
-
-      toast.success('Template de abertura enviado!', {
-        description: 'A janela de conversa será aberta assim que o contato responder.'
-      });
-    } catch (e) {
-      console.error('[ChatWindow] Erro ao enviar template:', e);
-      toast.error('Erro ao enviar template');
-    } finally {
-      setSendingTemplate(false);
-    }
-  }, [conversationId, sendingTemplate, userMessagesCount, missingPhone]);
+  const handleTemplateSent = useCallback((templateName: string) => {
+    setTemplateSentAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+    setUserCountAtSend(userMessagesCount);
+    toast.success(`Template "${templateName}" enviado!`, {
+      description: 'A janela de conversa será aberta assim que o contato responder.'
+    });
+  }, [userMessagesCount]);
 
 
   if (!conversationId) {
@@ -1295,6 +1282,17 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         contactName={contactName}
         onSaved={(phone) => setContactPhone(phone)}
       />
+
+      {conversationId && (
+        <TemplatePickerDialog
+          open={showTemplatePicker}
+          onOpenChange={setShowTemplatePicker}
+          conversationId={conversationId}
+          onSent={handleTemplateSent}
+        />
+      )}
+
+
 
     </div>
   );

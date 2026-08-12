@@ -1,6 +1,11 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/auth';
 import { toast } from 'sonner';
+import {
+  initNotificationSound,
+  playNotificationSound as playSharedSound,
+  unlockNotificationSound,
+} from '@/lib/notification-sound';
 
 export interface NotificationSettings {
   desktop: boolean;
@@ -23,43 +28,11 @@ export const useNotifications = () => {
   const { profile } = useAuth();
   const [settings, setSettings] = useState<NotificationSettings>(DEFAULT_SETTINGS);
   const [permission, setPermission] = useState<NotificationPermission>('default');
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const lastSoundTimeRef = useRef<number>(0);
 
-  // Pre-carregar áudio e liberar autoplay no primeiro gesto do usuário.
-  // Navegadores bloqueiam áudio sem interação, então sem esse "unlock"
-  // o som de notificação nunca toca.
+  // Engine de som compartilhada: unlock global de autoplay que sobrevive a
+  // remounts (antes cada instância do hook tinha o seu, e o som se perdia).
   useEffect(() => {
-    const audio = new Audio('/notification.mp3');
-    audio.volume = 0.6;
-    audio.preload = 'auto';
-    audioRef.current = audio;
-
-    const unlock = () => {
-      audio.muted = true;
-      audio
-        .play()
-        .then(() => {
-          audio.pause();
-          audio.currentTime = 0;
-          audio.muted = false;
-        })
-        .catch(() => {
-          audio.muted = false;
-        });
-      window.removeEventListener('pointerdown', unlock);
-      window.removeEventListener('keydown', unlock);
-    };
-
-    window.addEventListener('pointerdown', unlock, { once: true });
-    window.addEventListener('keydown', unlock, { once: true });
-
-    return () => {
-      window.removeEventListener('pointerdown', unlock);
-      window.removeEventListener('keydown', unlock);
-      audio.pause();
-      audioRef.current = null;
-    };
+    initNotificationSound();
   }, []);
 
   // Gerar chave única para o localStorage
@@ -120,7 +93,10 @@ export const useNotifications = () => {
     if (!('Notification' in window)) {
       return 'denied';
     }
-    
+
+    // O clique que pede permissão também serve de gesto para liberar o áudio.
+    unlockNotificationSound();
+
     try {
       const result = await Notification.requestPermission();
       setPermission(result);
@@ -130,28 +106,10 @@ export const useNotifications = () => {
     }
   }, []);
 
-  // Tocar som de notificação com debounce
-  const playNotificationSound = useCallback(() => {
+  // Tocar som de notificação (debounce e fallbacks na engine compartilhada)
+  const playNotificationSound = useCallback((force = false) => {
     if (!settings.sound) return;
-    
-    // Debounce: não tocar se tocou há menos de 1 segundo
-    const now = Date.now();
-    if (now - lastSoundTimeRef.current < 1000) return;
-    lastSoundTimeRef.current = now;
-    
-    try {
-      if (audioRef.current) {
-        audioRef.current.currentTime = 0;
-        audioRef.current.play().catch(() => {
-          // Fallback: criar novo elemento de áudio
-          const fallbackAudio = new Audio('/notification.mp3');
-          fallbackAudio.volume = 0.6;
-          fallbackAudio.play().catch(() => {});
-        });
-      }
-    } catch (error) {
-      console.warn('Erro ao tocar som:', error);
-    }
+    playSharedSound(force);
   }, [settings.sound]);
 
   // Mostrar notificação desktop
@@ -166,7 +124,7 @@ export const useNotifications = () => {
           icon: '/lovable-uploads/c71a4336-7d9d-4629-ab51-14961bb1424c.png',
           badge: '/lovable-uploads/c71a4336-7d9d-4629-ab51-14961bb1424c.png',
           requireInteraction: false,
-          silent: true, // Som é controlado separadamente
+          silent: false, // deixa o SO tocar o som também (redundância proposital)
           ...options,
         });
 
@@ -222,7 +180,10 @@ export const useNotifications = () => {
     // quando o SO/navegador suprime a notificação nativa).
     toast.message('Nova mensagem', { description: body, duration: 6000 });
 
-    // Som é tocado separadamente pelo caller (useConversations) para timing mais preciso
+    // Redundância proposital: a engine tem debounce, então se o caller já
+    // tocou o som isto é ignorado — mas nunca ficamos sem alerta sonoro.
+    playSharedSound();
+
     if (canUseDesktopNotification()) {
       showNotification('Nova Mensagem', {
         body,

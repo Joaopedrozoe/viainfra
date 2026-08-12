@@ -9,6 +9,16 @@ const corsHeaders = {
 
 const DEFAULT_TEMPLATE = "aberturadeconversa";
 
+/** Texto gravado na conversa: corpo do template com as variáveis já aplicadas. */
+function renderPreview(preview: unknown, templateName: string, vars: string[]): string {
+  let text = typeof preview === "string" && preview.trim() ? preview : "";
+  if (!text) return templateName === "aberturadeconversa" ? "oi" : `[Template: ${templateName}]`;
+  vars.forEach((v, i) => {
+    text = text.replaceAll(`{{${i + 1}}}`, v);
+  });
+  return text;
+}
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -51,7 +61,20 @@ async function sendTemplate(
   to: string,
   templateName: string,
   language: string,
+  variables: string[] = [],
 ) {
+  const template: Record<string, unknown> = {
+    name: templateName,
+    language: { code: language },
+  };
+  if (variables.length > 0) {
+    template.components = [
+      {
+        type: "body",
+        parameters: variables.map((v) => ({ type: "text", text: String(v ?? "") })),
+      },
+    ];
+  }
   const resp = await fetch(
     `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
     {
@@ -65,13 +88,14 @@ async function sendTemplate(
         recipient_type: "individual",
         to,
         type: "template",
-        template: { name: templateName, language: { code: language } },
+        template,
       }),
     },
   );
   const data = await resp.json().catch(() => ({}));
   return { ok: resp.ok, status: resp.status, data };
 }
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -109,7 +133,11 @@ serve(async (req) => {
       company_id,
       template_name = DEFAULT_TEMPLATE,
       language,
+      variables = [],
+      body_preview,
     } = body ?? {};
+    const templateVars: string[] = Array.isArray(variables) ? variables.map(String) : [];
+
 
     let targetPhone: string | null = phone ? normalizePhone(phone) : null;
     let companyId: string | null = company_id ?? null;
@@ -162,6 +190,7 @@ serve(async (req) => {
         targetPhone,
         template_name,
         lang,
+        templateVars,
       );
       console.log(
         `[send-template] ${template_name}/${lang} -> ${result.status}`,
@@ -195,7 +224,7 @@ serve(async (req) => {
     if (conversation_id) {
       const { error: insertError } = await supabase.from("messages").insert({
         conversation_id,
-        content: "oi",
+        content: renderPreview(body_preview, template_name, templateVars),
         sender_type: "agent",
         metadata: {
           template: template_name,
