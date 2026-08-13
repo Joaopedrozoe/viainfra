@@ -173,7 +173,7 @@ serve(async (req) => {
           status: String(t.status).toUpperCase(),
           category: t.category,
           body: text,
-          variables: vars,
+          variables: vars.length,
         };
       })
       .sort((a: any, b: any) =>
