@@ -158,7 +158,7 @@ serve(async (req) => {
       );
     }
 
-    const allowed = new Set(["APPROVED", "PENDING", "IN_APPEAL", "PENDING_DELETION"]);
+    const allowed = new Set(["APPROVED"]);
     const templates = (data?.data || [])
       .filter((t: any) => allowed.has(String(t.status).toUpperCase()))
       .map((t: any) => {
