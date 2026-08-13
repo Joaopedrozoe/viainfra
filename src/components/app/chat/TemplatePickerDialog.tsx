@@ -115,7 +115,7 @@ export const TemplatePickerDialog = ({ open, onOpenChange, conversationId, onSen
         <DialogHeader>
           <DialogTitle>Enviar template do WhatsApp</DialogTitle>
           <DialogDescription>
-            Escolha um template da Meta para iniciar ou reabrir a conversa. Templates em análise podem ser recusados pela Meta.
+            Escolha um template aprovado pela Meta para iniciar ou reabrir a conversa.
           </DialogDescription>
         </DialogHeader>
 
@@ -131,7 +131,7 @@ export const TemplatePickerDialog = ({ open, onOpenChange, conversationId, onSen
             <Loader2 className="h-4 w-4 animate-spin" /> Carregando templates da Meta...
           </div>
         ) : (
-          <ScrollArea className="max-h-64 pr-2">
+          <ScrollArea className="h-[min(60vh,20rem)] w-full pr-3">
             <div className="space-y-2">
               {templates.length === 0 && !error && (
                 <p className="py-6 text-center text-sm text-muted-foreground">Nenhum template disponível.</p>
