@@ -44,7 +44,7 @@ const agentesSetor = {
   "Atendimento": "Joicy Souza",
   "Comercial": "Elisabete Silva",
   "Manutenção": "Suelem Souza",
-  "Financeiro": "Giovanna Ferreira",
+  "Financeiro": "André",
   "RH": "Eliane Furtado"
 };
 
@@ -397,13 +397,13 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     const atendentes = {
       "💼 Comercial": "Elisabete Silva",
       "🔧 Manutenção": "Suelem Souza", 
-      "💰 Financeiro": "Giovanna Ferreira",
+      "💰 Financeiro": "André",
       "📞 Atendimento": "Joicy Souza",
       "👥 RH": "Eliane Furtado"
     };
     
     const nomeAtendente = atendentes[setor as keyof typeof atendentes] || "Atendimento";
-    const setorNome = setor.replace(/[💼🔧💰📞👥]\s/, '');
+    const setorNome = setor.replace(/^[\p{Extended_Pictographic}\u{1F000}-\u{1FAFF}\u{FE0F}\u{200D}]+\s*/u, '').trim();
     
     setTimeout(() => {
       addMessage(`Aguarde um momento, você será atendido por **${nomeAtendente}** do setor ${setorNome}...`);
