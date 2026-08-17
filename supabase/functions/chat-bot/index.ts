@@ -302,13 +302,13 @@ serve(async (req) => {
         "📞 Atendimento": "Joicy Souza",
         "💼 Comercial": "Elisabete Silva",
         "🔧 Manutenção": "Suelem Souza",
-        "💰 Financeiro": "Flávia",
+        "💰 Financeiro": "André",
         "👥 RH": "Eliane Furtado"
       };
 
       const input = userMessage?.trim();
       const nomeAtendente = agentesSetor[input || ''] || "Joicy Souza";
-      const setorNome = input?.replace(/[📞💼🔧💰👥]\s/, '') || 'Atendimento';
+      const setorNome = input?.replace(/^[\p{Extended_Pictographic}\u{1F000}-\u{1FAFF}\u{FE0F}\u{200D}]+\s*/u, '').trim() || 'Atendimento';
 
       chatState.selectedSetor = setorNome;
       chatState.selectedAgent = nomeAtendente;
