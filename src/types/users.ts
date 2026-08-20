@@ -66,7 +66,7 @@ export const MOCK_USERS: User[] = [
   },
   {
     id: "4",
-    name: "Giovanna Ferreira",
+    name: "André Rocha",
     email: "gestaofinanceira@vianfra.com.br", 
     role: "attendant",
     isActive: true,
@@ -81,8 +81,8 @@ export const MOCK_USERS: User[] = [
   },
   {
     id: "5",
-    name: "Eliane Furtado",
-    email: "eliane.furtado@vialogistic.com.br",
+    name: "Sandra Romano",
+    email: "sandra.romano@viainfra.com.br",
     role: "attendant",
     isActive: true,
     createdAt: "2024-03-01T00:00:00Z",

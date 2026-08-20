@@ -43,7 +43,7 @@ export const MOCK_DEPARTMENTS: Department[] = [
     id: "financeiro",
     name: "Financeiro",
     description: "Departamento responsável pelas finanças e contabilidade",
-    members: ["4"], // Giovanna Ferreira
+    members: ["4"], // André Rocha
     isActive: true,
     createdAt: new Date().toISOString()
   },
@@ -51,7 +51,7 @@ export const MOCK_DEPARTMENTS: Department[] = [
     id: "rh",
     name: "RH",
     description: "Departamento de Recursos Humanos",
-    members: ["5"], // Eliane Furtado
+    members: ["5"], // Sandra Romano
     isActive: true,
     createdAt: new Date().toISOString()
   }
