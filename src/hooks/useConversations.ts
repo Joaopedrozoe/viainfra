@@ -56,6 +56,36 @@ export interface Conversation {
 // (ex.: reconexão da instância) removam conversas válidas do inbox.
 const INBOX_CONVERSATION_LIMIT = 1000;
 
+// Estado de leitura persistido por empresa — evita que conversas já lidas
+// voltem a aparecer como "não lidas" após recarregar a página.
+const readStorageKey = (companyId: string) => `inbox-read-map:${companyId}`;
+
+const loadReadMap = (companyId: string | null): Map<string, string> => {
+  if (!companyId) return new Map();
+  try {
+    const raw = localStorage.getItem(readStorageKey(companyId));
+    if (!raw) return new Map();
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    return new Map(Object.entries(parsed));
+  } catch {
+    return new Map();
+  }
+};
+
+const persistReadMap = (companyId: string | null, map: Map<string, string>) => {
+  if (!companyId) return;
+  try {
+    // Mantém apenas as 2.000 entradas mais recentes para não crescer sem limite
+    const entries = Array.from(map.entries())
+      .sort((a, b) => new Date(b[1]).getTime() - new Date(a[1]).getTime())
+      .slice(0, 2000);
+    localStorage.setItem(readStorageKey(companyId), JSON.stringify(Object.fromEntries(entries)));
+  } catch {
+    // storage cheio / indisponível — estado em memória continua válido
+  }
+};
+
+
 export const useConversations = () => {
   const { company } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -63,9 +93,10 @@ export const useConversations = () => {
   const [error, setError] = useState<Error | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   
-  // Track read conversations during the session (persists across refetches)
-  // Key: conversationId, Value: timestamp of last message when marked as read
-  const readConversationsRef = useRef<Map<string, string>>(new Map());
+  // Track read conversations (persistido em localStorage por empresa)
+  // Key: conversationId, Value: timestamp de leitura
+  const readConversationsRef = useRef<Map<string, string>>(loadReadMap(company?.id ?? null));
+  const readCompanyIdRef = useRef<string | null>(company?.id ?? null);
   
   const fetchTimeoutRef = useRef<NodeJS.Timeout>();
   const lastFetchRef = useRef<number>(0);
@@ -81,6 +112,18 @@ export const useConversations = () => {
   // Dedupe de notificações entre realtime e polling
   const notifiedMessageIdsRef = useRef<Set<string>>(new Set());
   const sessionStartRef = useRef<number>(Date.now());
+  // Espelho da lista atual — permite ler o estado mais recente dentro de
+  // callbacks estáveis sem recriá-los (evita re-subscrições do realtime).
+  const conversationsRef = useRef<Conversation[]>([]);
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  const markConversationRead = useCallback((conversationId: string, timestamp?: string) => {
+    readConversationsRef.current.set(conversationId, timestamp || new Date().toISOString());
+    persistReadMap(readCompanyIdRef.current, readConversationsRef.current);
+  }, []);
+
 
 
   // Core fetch function - no debounce, always fresh data
@@ -228,11 +271,32 @@ export const useConversations = () => {
                                     !isReactionMessage(lastRealMsg?.content);
 
           const readTimestamp = readConversationsRef.current.get(conv.id);
-          const wasReadAfterLastMessage = readTimestamp && lastRealMsgTime &&
+          const wasReadAfterLastMessage = !!readTimestamp && !!lastRealMsgTime &&
             new Date(readTimestamp) >= new Date(lastRealMsgTime);
 
-          const existingConv = conversations.find(c => c.id === conv.id);
+          const existingConv = conversationsRef.current.find(c => c.id === conv.id);
           const shouldHaveNewMessage = isLastFromContact && !wasReadAfterLastMessage;
+
+          const fetchedLastMessage = lastMsg ? {
+            id: lastMsg.id,
+            content: lastMsg.content,
+            sender_type: lastMsg.sender_type as 'user' | 'agent' | 'bot',
+            created_at: lastMsg.created_at,
+          } : undefined;
+          const fetchedLastReal = lastRealMsg ? {
+            id: lastRealMsg.id,
+            content: lastRealMsg.content,
+            sender_type: lastRealMsg.sender_type as 'user' | 'agent' | 'bot',
+            created_at: lastRealMsg.created_at,
+          } : undefined;
+
+          // Nunca regredir o preview: se o realtime já trouxe algo mais novo
+          // que a RPC (replicação/cache), mantém o mais recente.
+          const newest = <T extends { created_at: string } | undefined>(a: T, b: T): T => {
+            if (!a) return b;
+            if (!b) return a;
+            return new Date(a.created_at).getTime() >= new Date(b.created_at).getTime() ? a : b;
+          };
 
           return {
             ...conv,
@@ -240,22 +304,11 @@ export const useConversations = () => {
             metadata: conv.metadata || {},
             archived: conv.archived || false,
             contact: conv.contacts || undefined,
-            lastMessage: lastMsg ? {
-              id: lastMsg.id,
-              content: lastMsg.content,
-              sender_type: lastMsg.sender_type as 'user' | 'agent' | 'bot',
-              created_at: lastMsg.created_at
-            } : undefined,
-            lastRealMessage: lastRealMsg ? {
-              id: lastRealMsg.id,
-              content: lastRealMsg.content,
-              sender_type: lastRealMsg.sender_type as 'user' | 'agent' | 'bot',
-              created_at: lastRealMsg.created_at
-            } : undefined,
-            hasNewMessage: existingConv
-              ? (existingConv.hasNewMessage || false)
-              : shouldHaveNewMessage,
+            lastMessage: newest(fetchedLastMessage, existingConv?.lastMessage),
+            lastRealMessage: newest(fetchedLastReal, existingConv?.lastRealMessage),
+            hasNewMessage: shouldHaveNewMessage || (existingConv?.hasNewMessage && !wasReadAfterLastMessage) || false,
           };
+
         });
 
       // CRITICAL: Sort by last REAL message time (excludes reactions)
@@ -328,12 +381,19 @@ export const useConversations = () => {
     
     const isContactMessage = newMsg.sender_type === 'user';
     const isReaction = isReactionMessage(newMsg.content);
-    
-    // Se é mensagem de contato (não reação), limpar o "read timestamp" para essa conversa
-    // Isso garante que ela apareça como não lida novamente
+    const inFocus = isConversationInFocus(newMsg.conversation_id);
+
+    // Mensagem do contato: se a conversa está aberta em foco, já conta como
+    // lida; caso contrário volta a ficar não lida.
     if (isContactMessage && !isReaction) {
-      readConversationsRef.current.delete(newMsg.conversation_id);
+      if (inFocus) {
+        markConversationRead(newMsg.conversation_id, newMsg.created_at);
+      } else {
+        readConversationsRef.current.delete(newMsg.conversation_id);
+        persistReadMap(readCompanyIdRef.current, readConversationsRef.current);
+      }
     }
+
     setConversations(prev => {
       const conversationIndex = prev.findIndex(c => c.id === newMsg.conversation_id);
       
@@ -373,8 +433,9 @@ export const useConversations = () => {
         // Only update updated_at if NOT a reaction (prevents re-ordering)
         updated_at: isReaction ? conversation.updated_at : newMsg.created_at,
         hasNewMessage: isContactMessage && !isReaction
-          ? true
+          ? !inFocus
           : (conversation.hasNewMessage || false),
+
       };
       
       // Remove from current position and add to appropriate position
@@ -392,7 +453,7 @@ export const useConversations = () => {
       void timestamp;
       return updated;
     });
-  }, [notifyNewMessage, playNotificationSound]);
+  }, [notifyNewMessage, playNotificationSound, markConversationRead]);
   
   // Stable refs for realtime handlers to prevent re-subscriptions
   const handleNewMessageRef = useRef(handleNewMessage);
@@ -402,17 +463,16 @@ export const useConversations = () => {
     fetchConversationsRef.current = fetchConversations;
   }, [handleNewMessage, fetchConversations]);
 
-  // Clear new message flag - also track in readConversationsRef to persist across refetches
+  // Clear new message flag — persiste a leitura (sobrevive a recarregamentos)
   const clearNewMessageFlag = useCallback((conversationId: string) => {
-    // Store the current timestamp as "read time" for this conversation
-    readConversationsRef.current.set(conversationId, new Date().toISOString());
-    
+    markConversationRead(conversationId);
+
     setConversations(prev => 
       prev.map(conv => 
         conv.id === conversationId ? { ...conv, hasNewMessage: false } : conv
       )
     );
-  }, []);
+  }, [markConversationRead]);
 
   // Setup realtime subscriptions and polling
   useEffect(() => {
@@ -429,8 +489,10 @@ export const useConversations = () => {
       setConversations([]);
       setLoading(true);
       previousConversationsRef.current = new Set();
-      readConversationsRef.current = new Map();
+      readCompanyIdRef.current = nextCompanyId;
+      readConversationsRef.current = loadReadMap(nextCompanyId);
     }
+
 
     // CRÍTICO: Iniciar como TRUE e só marcar false em erro explícito
     // Isso evita polling desnecessário durante a conexão inicial
@@ -533,28 +595,47 @@ export const useConversations = () => {
           }
         });
 
-      // Adaptive polling: quando realtime desconectado, refetch a cada 20s;
-      // quando conectado, sync leve a cada ~2min como safety net.
+      // Polling de segurança: 15s quando a aba está visível (garante que a
+      // última mensagem apareça na lista mesmo se um evento realtime falhar) e
+      // 60s quando a aba está em background (economiza requisições).
       let pollCounter = 0;
       const pollInterval = setInterval(() => {
         if (!mountedRef.current) return;
         pollCounter++;
-        if (!realtimeConnected) {
+        const visible = typeof document === 'undefined' || document.visibilityState === 'visible';
+        if (!realtimeConnected || visible) {
           fetchConversationsRef.current(true);
-        } else if (pollCounter % 6 === 0) {
+        } else if (pollCounter % 4 === 0) {
           fetchConversationsRef.current(true);
         }
-      }, 20000);
+      }, 15000);
+
+      // Atualização imediata ao voltar para a aba/janela (throttle de 3s)
+      const onWake = () => {
+        if (!mountedRef.current) return;
+        if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+        if (Date.now() - lastFetchRef.current < 3000) return;
+        fetchConversationsRef.current(true);
+      };
+      window.addEventListener('visibilitychange', onWake);
+      document.addEventListener('visibilitychange', onWake);
+      window.addEventListener('focus', onWake);
+      window.addEventListener('online', onWake);
 
       return () => {
         mountedRef.current = false;
         clearInterval(pollInterval);
         clearTimeout(connectionTimeout);
+        window.removeEventListener('visibilitychange', onWake);
+        document.removeEventListener('visibilitychange', onWake);
+        window.removeEventListener('focus', onWake);
+        window.removeEventListener('online', onWake);
         if (fetchTimeoutRef.current) {
           clearTimeout(fetchTimeoutRef.current);
         }
         supabase.removeChannel(realtimeChannel);
       };
+
     }
 
     return () => {

@@ -44,8 +44,8 @@ const agentesSetor = {
   "Atendimento": "Joicy Souza",
   "Comercial": "Elisabete Silva",
   "Manutenção": "Suelem Souza",
-  "Financeiro": "André",
-  "RH": "Eliane Furtado"
+  "Financeiro": "André Rocha",
+  "RH": "Sandra Romano"
 };
 
 export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps) {
@@ -397,9 +397,9 @@ export function ChatBotPreview({ isOpen, onClose, botData }: ChatBotPreviewProps
     const atendentes = {
       "💼 Comercial": "Elisabete Silva",
       "🔧 Manutenção": "Suelem Souza", 
-      "💰 Financeiro": "André",
+      "💰 Financeiro": "André Rocha",
       "📞 Atendimento": "Joicy Souza",
-      "👥 RH": "Eliane Furtado"
+      "👥 RH": "Sandra Romano"
     };
     
     const nomeAtendente = atendentes[setor as keyof typeof atendentes] || "Atendimento";
