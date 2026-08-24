@@ -297,18 +297,23 @@ serve(async (req) => {
       }
 
     } else if (chatState.mode === 'escolhendoSetor') {
-      // Mapear setores para atendentes
+      // Mapear setores para atendentes (v2026-08-24 — normalizado, sem emoji)
       const agentesSetor: Record<string, string> = {
-        "📞 Atendimento": "Joicy Souza",
-        "💼 Comercial": "Elisabete Silva",
-        "🔧 Manutenção": "Suelem Souza",
-        "💰 Financeiro": "André Rocha",
-        "👥 RH": "Sandra Romano"
+        "atendimento": "Joicy Souza",
+        "comercial": "Elisabete Silva",
+        "manutencao": "Suelem Souza",
+        "financeiro": "André Rocha",
+        "rh": "Sandra Romano"
       };
 
       const input = userMessage?.trim();
-      const nomeAtendente = agentesSetor[input || ''] || "Joicy Souza";
       const setorNome = input?.replace(/^[\p{Extended_Pictographic}\u{1F000}-\u{1FAFF}\u{FE0F}\u{200D}]+\s*/u, '').trim() || 'Atendimento';
+      const setorKey = setorNome
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase().replace(/[^a-z]/g, '');
+      const nomeAtendente = agentesSetor[setorKey] || "Joicy Souza";
+      console.log('🏷️ Setor escolhido:', setorNome, '->', nomeAtendente);
+
 
       chatState.selectedSetor = setorNome;
       chatState.selectedAgent = nomeAtendente;
