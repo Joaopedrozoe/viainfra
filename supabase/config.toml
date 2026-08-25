@@ -76,6 +76,8 @@ verify_jwt = false
 [functions.chat-bot]
 verify_jwt = false
 
+
+
 [functions.import-chats]
 verify_jwt = false
 
