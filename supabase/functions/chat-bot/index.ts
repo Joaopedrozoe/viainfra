@@ -315,7 +315,16 @@ serve(async (req) => {
       };
 
       const input = userMessage?.trim();
-      const setorNome = input?.replace(/^[\p{Extended_Pictographic}\u{1F000}-\u{1FAFF}\u{FE0F}\u{200D}]+\s*/u, '').trim() || 'Atendimento';
+      const setoresPorNumero: Record<string, string> = {
+        "1": "Atendimento",
+        "2": "Comercial",
+        "3": "Manutenção",
+        "4": "Financeiro",
+        "5": "RH"
+      };
+      const setorNome = setoresPorNumero[input || '']
+        || input?.replace(/^[\p{Extended_Pictographic}\u{1F000}-\u{1FAFF}\u{FE0F}\u{200D}]+\s*/u, '').trim()
+        || 'Atendimento';
       const setorKey = setorNome
         .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
         .toLowerCase().replace(/[^a-z]/g, '');
