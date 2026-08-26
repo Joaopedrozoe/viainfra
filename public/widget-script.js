@@ -381,6 +381,7 @@
       .replace(/Eliane\s+Furtado/gi, 'Sandra Romano')
       .replace(/Giovanna\s+Ferreira/gi, 'André Rocha')
       .replace(/Fl[aá]via(?:\s+Financeiro)?/gi, 'André Rocha')
+      .replace(/Andr[eé](?:\s+Rocha)+/gi, 'André Rocha')
       .replace(/\*\*Andr[eé]\*\*(?=\s+do setor Financeiro)/gi, '**André Rocha**')
       .replace(/\bAndr[eé]\b(?=\s+do setor Financeiro)/gi, 'André Rocha')
       .replace(/do setor 1\b/g, 'do setor Atendimento')
@@ -623,6 +624,7 @@
   }
 
   async function iniciarChat() {
+    if (isProcessing) return;
     // Se já temos mensagens e conversa ativa, não reiniciar
     if (messagesContainer.children.length > 0 && conversationId && accessToken) {
       console.log('⏭️ Chat já iniciado, pulando...');
@@ -692,6 +694,7 @@
       
       // Se não encontrou conversa ou está finalizada, criar uma nova
       console.log('📝 Criando nova conversa...');
+      const requestId = crypto.randomUUID();
       const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot`, {
         method: 'POST',
         headers: {
@@ -707,13 +710,14 @@
             email: null,
           },
           companyId: COMPANY_ID,
+          requestId,
         }),
       });
 
       const data = await response.json();
       
       hideTyping();
-      addMessage(sanitizeAgentNames(data.message), true);
+      addMessage(sanitizeAgentNames(data.message), true, data.messageId);
       botState = data.state;
       conversationId = data.state?.conversationId;
       accessToken = data.state?.accessToken; // CRÍTICO: Armazenar token
@@ -746,10 +750,11 @@
     const message = messageInput.value.trim();
     if (!message || isProcessing) return;
 
-    addMessage(message, false);
-    messageInput.value = '';
     isProcessing = true;
     sendButton.disabled = true;
+    const requestId = crypto.randomUUID();
+    addMessage(message, false, `${requestId}:local`);
+    messageInput.value = '';
     quickRepliesContainer.innerHTML = '';
 
     showTyping();
@@ -767,13 +772,16 @@
           state: botState,
           userMessage: message,
           companyId: COMPANY_ID,
+          requestId,
         }),
       });
 
       const data = await response.json();
       
       hideTyping();
-      addMessage(sanitizeAgentNames(data.message), true);
+      if (data.message) {
+        addMessage(sanitizeAgentNames(data.message), true, data.messageId);
+      }
       botState = data.state;
       
       if (data.state?.placas && data.state.placas.length > 0 && data.state?.mode === 'chamado') {

@@ -54,7 +54,14 @@ serve(async (req) => {
       }
     );
 
-    const { action, state, userMessage, contactInfo, companyId } = await req.json();
+    const { action, state, userMessage, contactInfo, companyId, requestId } = await req.json();
+
+    if (requestId !== undefined && (typeof requestId !== 'string' || !/^[0-9a-f-]{36}$/i.test(requestId))) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid requestId' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      );
+    }
 
     console.log('Chat Bot Action:', action, 'State:', state);
 
@@ -223,6 +230,32 @@ serve(async (req) => {
       }
     }
 
+    // Idempotência: retries do mesmo turno retornam a resposta já persistida.
+    if (requestId && chatState.conversationId) {
+      const { data: existingResponse } = await supabaseClient
+        .from('messages')
+        .select('id, content, metadata')
+        .eq('conversation_id', chatState.conversationId)
+        .eq('sender_type', 'bot')
+        .eq('metadata->>request_id', requestId)
+        .maybeSingle();
+
+      if (existingResponse) {
+        const savedMetadata = existingResponse.metadata as Record<string, unknown> | null;
+        return new Response(
+          JSON.stringify({
+            message: existingResponse.content,
+            messageId: existingResponse.id,
+            state: savedMetadata?.response_state || chatState,
+            options: savedMetadata?.options || null,
+            mode: (savedMetadata?.response_state as ChatState | undefined)?.mode || chatState.mode,
+            replayed: true,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        );
+      }
+    }
+
     // Salvar mensagem do usuário (com verificação de duplicata)
     if (userMessage && chatState.conversationId) {
       const { data: recentMessages } = await supabaseClient
@@ -235,12 +268,13 @@ serve(async (req) => {
         .limit(1);
 
       if (!recentMessages || recentMessages.length === 0) {
-        await supabaseClient
+          await supabaseClient
           .from('messages')
           .insert({
             conversation_id: chatState.conversationId,
             sender_type: 'user',
             content: userMessage,
+              metadata: requestId ? { request_id: `${requestId}:user` } : {},
           });
       } else {
         console.log('⚠️ Mensagem duplicada detectada, ignorando:', userMessage);
@@ -354,17 +388,6 @@ serve(async (req) => {
       // Mensagem informando atendente
       response = `Aguarde um momento, você será atendido por **${nomeAtendente}** do setor ${setorNome}...`;
       options = [];
-
-      // Salvar mensagem de atribuição ao atendente
-      if (chatState.conversationId) {
-        await supabaseClient
-          .from('messages')
-          .insert({
-            conversation_id: chatState.conversationId,
-            sender_type: 'agent',
-            content: `Olá! Você está sendo atendido por **${nomeAtendente}**. Como posso ajudá-lo?`,
-          });
-      }
 
   } else if (chatState.mode === 'atendente') {
       // Modo atendimento humano - não envia mensagem automática
@@ -720,16 +743,51 @@ serve(async (req) => {
 
     response = sanitizeAgentNames(response);
 
-    // Salvar resposta do bot
+    // Salvar uma única resposta do bot e devolver seu ID ao cliente.
+    let responseMessageId: string | null = null;
     if (response && chatState.conversationId) {
-      await supabaseClient
+      const responseMetadata = {
+        options: options.length > 0 ? options : null,
+        response_state: chatState,
+        ...(requestId ? { request_id: requestId } : {}),
+      };
+      const { data: insertedResponse, error: insertResponseError } = await supabaseClient
         .from('messages')
         .insert({
           conversation_id: chatState.conversationId,
           sender_type: 'bot',
           content: response,
-          metadata: { options: options.length > 0 ? options : null },
-        });
+          metadata: responseMetadata,
+        })
+        .select('id')
+        .single();
+
+      if (insertResponseError?.code === '23505' && requestId) {
+        const { data: existingResponse } = await supabaseClient
+          .from('messages')
+          .select('id, content, metadata')
+          .eq('conversation_id', chatState.conversationId)
+          .eq('sender_type', 'bot')
+          .eq('metadata->>request_id', requestId)
+          .single();
+        if (existingResponse) {
+          const savedMetadata = existingResponse.metadata as Record<string, unknown> | null;
+          return new Response(
+            JSON.stringify({
+              message: existingResponse.content,
+              messageId: existingResponse.id,
+              state: savedMetadata?.response_state || chatState,
+              options: savedMetadata?.options || null,
+              mode: (savedMetadata?.response_state as ChatState | undefined)?.mode || chatState.mode,
+              replayed: true,
+            }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          );
+        }
+      } else if (insertResponseError) {
+        throw insertResponseError;
+      }
+      responseMessageId = insertedResponse?.id || null;
     }
 
     console.log('=== RESPONSE DEBUG ===');
@@ -742,6 +800,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         message: response, 
+        messageId: responseMessageId,
         state: chatState,
         options: options.length > 0 ? options : null,
         mode: chatState.mode,

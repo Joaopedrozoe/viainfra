@@ -387,6 +387,7 @@
       .replace(/Eliane\s+Furtado/gi, 'Sandra Romano')
       .replace(/Giovanna\s+Ferreira/gi, 'André Rocha')
       .replace(/Fl[aá]via(?:\s+Financeiro)?/gi, 'André Rocha')
+      .replace(/Andr[eé](?:\s+Rocha)+/gi, 'André Rocha')
       .replace(/\*\*Andr[eé]\*\*(?=\s+do setor Financeiro)/gi, '**André Rocha**')
       .replace(/\bAndr[eé]\b(?=\s+do setor Financeiro)/gi, 'André Rocha')
       .replace(/do setor 1\b/g, 'do setor Atendimento')
@@ -395,7 +396,9 @@
       .replace(/do setor 4\b/g, 'do setor Financeiro')
       .replace(/do setor 5\b/g, 'do setor RH');
   }
-      function addMessage(content, isBot = true) {
+      function addMessage(content, isBot = true, messageId = null) {
+        if (messageId && existingMessageIds.has(messageId)) return;
+        if (messageId) existingMessageIds.add(messageId);
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${isBot ? 'bot' : 'user'}`;
         
@@ -496,10 +499,12 @@
       }
 
       async function iniciarChat() {
+        if (isProcessing) return;
         isProcessing = true;
         showTyping();
         
         try {
+          const requestId = crypto.randomUUID();
           const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot`, {
             method: 'POST',
             headers: {
@@ -515,6 +520,7 @@
                 email: null,
               },
               companyId: COMPANY_ID,
+              requestId,
             }),
           });
 
@@ -524,7 +530,7 @@
           console.log('State recebido:', data.state);
           
           hideTyping();
-          addMessage(sanitizeAgentNames(data.message), true);
+          addMessage(sanitizeAgentNames(data.message), true, data.messageId);
           botState = data.state;
           conversationId = data.state?.conversationId;
           
@@ -557,10 +563,11 @@
         console.log('Enviando mensagem:', message);
         console.log('Estado atual:', botState);
 
-        addMessage(message, false);
-        messageInput.value = '';
         isProcessing = true;
         sendButton.disabled = true;
+        const requestId = crypto.randomUUID();
+        addMessage(message, false, `${requestId}:local`);
+        messageInput.value = '';
         quickRepliesContainer.innerHTML = '';
 
         showTyping();
@@ -571,6 +578,7 @@
             state: botState,
             userMessage: message,
             companyId: COMPANY_ID,
+            requestId,
           };
           
           console.log('Payload enviado:', payload);
@@ -589,7 +597,9 @@
           console.log('Resposta recebida:', data);
 
           hideTyping();
-          addMessage(sanitizeAgentNames(data.message), true);
+          if (data.message) {
+            addMessage(sanitizeAgentNames(data.message), true, data.messageId);
+          }
           botState = data.state;
 
           // Verificar se há placas para mostrar como quick replies
@@ -664,7 +674,7 @@
                 }
                 
                 // Adicionar mensagem do atendente
-                addMessage(msg.content, true);
+                addMessage(sanitizeAgentNames(msg.content), true, msg.id);
                 novasMensagens++;
               }
             });
