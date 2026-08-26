@@ -278,6 +278,3 @@ verify_jwt = false
 
 [functions.provision-access-users]
 verify_jwt = false
-
-[functions.chat-bot-v2]
-verify_jwt = false
