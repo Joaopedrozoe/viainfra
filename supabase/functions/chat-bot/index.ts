@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-// build: 2026-08-24T13:20Z sector-agents v3
+// build: 2026-08-26T13:18Z sector-agents v4 hard-scrub legacy attendant names
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -29,6 +29,13 @@ interface ChatState {
   selectedSetor?: string;
   selectedAgent?: string;
 }
+
+const sanitizeAgentNames = (text: string) => text
+  .replace(/Eliane\s+Furtado/gi, 'Sandra Romano')
+  .replace(/Giovanna\s+Ferreira/gi, 'André Rocha')
+  .replace(/Fl[aá]via(?:\s+Financeiro)?/gi, 'André Rocha')
+  .replace(/\*\*Andr[eé]\*\*(?=\s+do setor Financeiro)/gi, '**André Rocha**')
+  .replace(/\bAndr[eé]\b(?=\s+do setor Financeiro)/gi, 'André Rocha');
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -701,6 +708,8 @@ serve(async (req) => {
           chatState.mode = 'menu';
       }
     }
+
+    response = sanitizeAgentNames(response);
 
     // Salvar resposta do bot
     if (response && chatState.conversationId) {
