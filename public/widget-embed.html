@@ -485,7 +485,7 @@
         showTyping();
         
         try {
-          const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot-stable`, {
+          const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -560,7 +560,7 @@
           
           console.log('Payload enviado:', payload);
 
-          const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot-stable`, {
+          const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
