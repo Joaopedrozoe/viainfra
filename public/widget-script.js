@@ -374,6 +374,21 @@
     }
   });
 
+  // Sanitiza nomes de atendentes legados (fonte única de verdade no cliente)
+  function sanitizeAgentNames(text) {
+    if (typeof text !== 'string') return text;
+    return text
+      .replace(/Eliane\s+Furtado/gi, 'Sandra Romano')
+      .replace(/Giovanna\s+Ferreira/gi, 'André Rocha')
+      .replace(/Fl[aá]via(?:\s+Financeiro)?/gi, 'André Rocha')
+      .replace(/\*\*Andr[eé]\*\*(?=\s+do setor Financeiro)/gi, '**André Rocha**')
+      .replace(/\bAndr[eé]\b(?=\s+do setor Financeiro)/gi, 'André Rocha')
+      .replace(/do setor 1\b/g, 'do setor Atendimento')
+      .replace(/do setor 2\b/g, 'do setor Comercial')
+      .replace(/do setor 3\b/g, 'do setor Manutenção')
+      .replace(/do setor 4\b/g, 'do setor Financeiro')
+      .replace(/do setor 5\b/g, 'do setor RH');
+  }
   function addMessage(content, isBot = true, messageId = null) {
     // Evitar duplicatas
     if (messageId && existingMessageIds.has(messageId)) {
@@ -698,7 +713,7 @@
       const data = await response.json();
       
       hideTyping();
-      addMessage(data.message, true);
+      addMessage(sanitizeAgentNames(data.message), true);
       botState = data.state;
       conversationId = data.state?.conversationId;
       accessToken = data.state?.accessToken; // CRÍTICO: Armazenar token
@@ -758,7 +773,7 @@
       const data = await response.json();
       
       hideTyping();
-      addMessage(data.message, true);
+      addMessage(sanitizeAgentNames(data.message), true);
       botState = data.state;
       
       if (data.state?.placas && data.state.placas.length > 0 && data.state?.mode === 'chamado') {
