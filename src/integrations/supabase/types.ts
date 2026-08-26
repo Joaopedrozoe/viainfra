@@ -1186,6 +1186,7 @@ export type Database = {
           proposed_phone: string
         }[]
       }
+      sanitize_agent_names_text: { Args: { _t: string }; Returns: string }
       send_web_conversation_message: {
         Args: {
           p_access_token: string
