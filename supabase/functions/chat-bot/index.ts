@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-// build: 2026-08-26T13:18Z sector-agents v4 hard-scrub legacy attendant names
+// build: 2026-08-26T14:45Z sector-agents v5 typecheck-clean
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -498,7 +498,7 @@ serve(async (req) => {
               chatState.placas = placasData.placas || [];
 
               console.log('Placas carregadas:', chatState.placas);
-              console.log('Quantidade de placas:', chatState.placas.length);
+              console.log('Quantidade de placas:', (chatState.placas ?? []).length);
               console.log('State completo:', JSON.stringify(chatState));
 
               response = `✅ Telefone registrado: **${telefoneInput}**\n\n🎫 Número previsto: **${chatState.numeroPrevisto}**\n\n📋 Selecione uma placa:`;
@@ -750,10 +750,11 @@ serve(async (req) => {
     );
 
   } catch (error) {
-    console.error('Error in chat-bot:', error);
-    console.error('Error stack:', error.stack);
+    const err = error as Error;
+    console.error('Error in chat-bot:', err);
+    console.error('Error stack:', err?.stack);
     return new Response(
-      JSON.stringify({ error: error.message || 'Unknown error' }),
+      JSON.stringify({ error: (error as Error)?.message || 'Unknown error' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
