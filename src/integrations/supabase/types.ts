@@ -1113,6 +1113,10 @@ export type Database = {
     }
     Functions: {
       assert_repair_allowed: { Args: never; Returns: undefined }
+      bot_http_fetch: {
+        Args: { p_body?: Json; p_method?: string; p_url: string }
+        Returns: string
+      }
       call_log_label: {
         Args: { _duration: number; _status: string }
         Returns: string
@@ -1195,6 +1199,7 @@ export type Database = {
         }
         Returns: string
       }
+      web_bot_process: { Args: { payload: Json }; Returns: Json }
     }
     Enums: {
       user_status: "online" | "away" | "busy" | "offline"
