@@ -1,7 +1,9 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-// build: 2026-08-26T14:45Z sector-agents v5 typecheck-clean
+// build: 2026-08-26T15:32Z sector-agents v6
+const BUILD_VERSION = 'chat-bot-v6-2026-08-26T15:32Z';
+console.log('🚀 BUILD', BUILD_VERSION);
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
