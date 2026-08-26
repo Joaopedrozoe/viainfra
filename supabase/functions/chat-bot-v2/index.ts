@@ -1,0 +1,760 @@
+import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+// build: 2026-08-26T13:18Z sector-agents v4 hard-scrub legacy attendant names
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz0viYlAJ_-v00BzqRgMROE0wdvixohvQ4d949mTvRQk_eRdqN-CsxQeAldpV6HR2xlBQ/exec';
+
+interface ChatState {
+  mode: 'menu' | 'chamado' | 'atendente' | 'escolhendoSetor';
+  chamadoStep?: 'nome' | 'telefone' | 'inicio' | 'placa' | 'corretiva' | 'local' | 'descricao' | 'finalizado';
+  numeroPrevisto?: string;
+  placas?: string[];
+  nomeCliente?: string;
+  telefoneCliente?: string;
+  placa?: string;
+  corretiva?: boolean;
+  local?: 'Canteiro' | 'Oficina';
+  agendamento?: string;
+  descricao?: string;
+  conversationId?: string;
+  contactId?: string;
+  companyId?: string;
+  accessToken?: string;
+  waitingForAgent?: boolean;
+  selectedSetor?: string;
+  selectedAgent?: string;
+}
+
+const sanitizeAgentNames = (text: string) => text
+  .replace(/Eliane\s+Furtado/gi, 'Sandra Romano')
+  .replace(/Giovanna\s+Ferreira/gi, 'André Rocha')
+  .replace(/Fl[aá]via(?:\s+Financeiro)?/gi, 'André Rocha')
+  .replace(/\*\*Andr[eé]\*\*(?=\s+do setor Financeiro)/gi, '**André Rocha**')
+  .replace(/\bAndr[eé]\b(?=\s+do setor Financeiro)/gi, 'André Rocha');
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    );
+
+    const { action, state, userMessage, contactInfo, companyId } = await req.json();
+
+    console.log('Chat Bot Action:', action, 'State:', state);
+
+    let chatState: ChatState = state || { mode: 'menu' };
+    let response = '';
+    let options: string[] = [];
+
+    // Criar ou recuperar contato e conversa - COM PROTEÇÃO CONTRA DUPLICATAS
+    if (!chatState.conversationId && contactInfo) {
+      console.log('Buscando/criando contato e conversa para company:', companyId);
+      
+      try {
+        // PRIMEIRO: Tentar encontrar contato existente pelo telefone ou email
+        let contact = null;
+        
+        if (contactInfo.phone) {
+          const { data: existingByPhone } = await supabaseClient
+            .from('contacts')
+            .select('*')
+            .eq('company_id', companyId)
+            .eq('phone', contactInfo.phone)
+            .maybeSingle();
+          
+          if (existingByPhone) {
+            console.log('✅ Contato existente encontrado por telefone:', existingByPhone.id);
+            contact = existingByPhone;
+          }
+        }
+        
+        if (!contact && contactInfo.email) {
+          const { data: existingByEmail } = await supabaseClient
+            .from('contacts')
+            .select('*')
+            .eq('company_id', companyId)
+            .eq('email', contactInfo.email)
+            .maybeSingle();
+          
+          if (existingByEmail) {
+            console.log('✅ Contato existente encontrado por email:', existingByEmail.id);
+            contact = existingByEmail;
+          }
+        }
+        
+        // Se não encontrou, criar novo contato
+        if (!contact) {
+          const { data: newContact, error: contactError } = await supabaseClient
+            .from('contacts')
+            .insert({
+              company_id: companyId,
+              name: contactInfo.name || 'Cliente Web',
+              phone: contactInfo.phone,
+              email: contactInfo.email,
+            })
+            .select()
+            .single();
+
+          if (contactError) {
+            console.error('Erro ao criar contato:', contactError);
+          } else {
+            console.log('➕ Novo contato criado:', newContact.id);
+            contact = newContact;
+          }
+        }
+        
+        if (contact) {
+          chatState.contactId = contact.id;
+          
+          // CRÍTICO: Verificar se já existe conversa aberta para este contato
+          const { data: existingConversation } = await supabaseClient
+            .from('conversations')
+            .select('id, access_token')
+            .eq('contact_id', contact.id)
+            .eq('channel', 'web')
+            .in('status', ['open', 'pending'])
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          
+          if (existingConversation) {
+            console.log('✅ Conversa existente encontrada:', existingConversation.id);
+            chatState.conversationId = existingConversation.id;
+            chatState.companyId = companyId;
+            chatState.accessToken = existingConversation.access_token;
+            
+            // Atualizar updated_at para mover pro topo da lista
+            await supabaseClient
+              .from('conversations')
+              .update({ updated_at: new Date().toISOString() })
+              .eq('id', existingConversation.id);
+          } else {
+            // Criar nova conversa
+            const { data: conversation, error: conversationError } = await supabaseClient
+              .from('conversations')
+              .insert({
+                company_id: companyId,
+                contact_id: contact.id,
+                channel: 'web',
+                status: 'open',
+              })
+              .select('id, access_token')
+              .single();
+
+            if (conversationError) {
+              // Se falhou por violação de unique constraint, buscar a existente
+              if (conversationError.code === '23505') {
+                console.log('⚠️ Violação de constraint - buscando conversa existente...');
+                const { data: fallbackConv } = await supabaseClient
+                  .from('conversations')
+                  .select('id, access_token')
+                  .eq('contact_id', contact.id)
+                  .eq('channel', 'web')
+                  .in('status', ['open', 'pending'])
+                  .limit(1)
+                  .maybeSingle();
+                
+                if (fallbackConv) {
+                  chatState.conversationId = fallbackConv.id;
+                  chatState.companyId = companyId;
+                  chatState.accessToken = fallbackConv.access_token;
+                }
+              } else {
+                console.error('Erro ao criar conversa:', conversationError);
+              }
+            } else if (conversation) {
+              console.log('➕ Nova conversa criada:', conversation.id);
+              chatState.conversationId = conversation.id;
+              chatState.companyId = companyId;
+              chatState.accessToken = conversation.access_token;
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Erro geral ao criar contato/conversa:', error);
+      }
+    }
+
+    // Verificar se atendente humano assumiu — se sim, bot não responde
+    if (chatState.conversationId) {
+      const { data: convCheck } = await supabaseClient
+        .from('conversations')
+        .select('bot_active, metadata, status')
+        .eq('id', chatState.conversationId)
+        .maybeSingle();
+
+      const agentTakeover = (convCheck?.metadata as any)?.agent_takeover === true;
+      const botDisabled = convCheck?.bot_active === false;
+
+      if (agentTakeover || botDisabled) {
+        // Salvar a mensagem do cliente e sair sem gerar resposta automática
+        if (userMessage) {
+          await supabaseClient.from('messages').insert({
+            conversation_id: chatState.conversationId,
+            sender_type: 'user',
+            content: userMessage,
+          });
+        }
+        return new Response(
+          JSON.stringify({
+            response: '',
+            options: [],
+            state: { ...chatState, mode: 'atendente', waitingForAgent: true },
+            silent: true,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
+    // Salvar mensagem do usuário (com verificação de duplicata)
+    if (userMessage && chatState.conversationId) {
+      const { data: recentMessages } = await supabaseClient
+        .from('messages')
+        .select('id, content, created_at')
+        .eq('conversation_id', chatState.conversationId)
+        .eq('sender_type', 'user')
+        .eq('content', userMessage)
+        .gte('created_at', new Date(Date.now() - 2000).toISOString())
+        .limit(1);
+
+      if (!recentMessages || recentMessages.length === 0) {
+        await supabaseClient
+          .from('messages')
+          .insert({
+            conversation_id: chatState.conversationId,
+            sender_type: 'user',
+            content: userMessage,
+          });
+      } else {
+        console.log('⚠️ Mensagem duplicada detectada, ignorando:', userMessage);
+      }
+    }
+
+    // Verificar se usuário quer voltar ao menu (funciona em qualquer modo)
+    if (userMessage?.trim() === '0' && chatState.mode !== 'menu') {
+      chatState.mode = 'menu';
+      chatState.chamadoStep = undefined;
+      chatState.waitingForAgent = false;
+      chatState.selectedSetor = undefined;
+      chatState.selectedAgent = undefined;
+      delete chatState.placas;
+      response = `👋 Voltando ao menu principal...\n\nComo posso ajudar você hoje?`;
+      options = [
+        '1️⃣ Abrir Chamado',
+        '2️⃣ Falar com Atendente',
+        '3️⃣ Consultar Chamado',
+        '4️⃣ FAQ / Dúvidas',
+      ];
+    }
+    // Roteamento de conversa
+    else if (chatState.mode === 'menu') {
+      response = `👋 Olá! Bem-vindo à **Viainfra**!\n\nComo posso ajudar você hoje?`;
+      options = [
+        '1️⃣ Abrir Chamado',
+        '2️⃣ Falar com Atendente',
+        '3️⃣ Consultar Chamado',
+        '4️⃣ FAQ / Dúvidas',
+      ];
+
+      const input = userMessage?.trim().toLowerCase();
+      
+      if (input === '1' || input?.includes('abrir') || input?.includes('chamado')) {
+        chatState.mode = 'chamado';
+        chatState.chamadoStep = 'nome';
+        
+        response = `🎫 **Processo de Abertura de Chamado Iniciado**\n\n👤 Por favor, informe seu **nome completo**:`;
+        options = [];
+      } else if (input === '2' || input?.includes('atendente') || input?.includes('falar')) {
+        chatState.mode = 'escolhendoSetor';
+        response = `👥 **Atendimento Humano**\n\nPor favor, escolha o setor que deseja ser atendido:`;
+        options = [
+          '📞 Atendimento',
+          '💼 Comercial',
+          '🔧 Manutenção',
+          '💰 Financeiro',
+          '👥 RH',
+        ];
+      } else if (input === '3' || input?.includes('consultar')) {
+        response = `🔍 **Consulta de Chamado**\n\nPor favor, informe o **número do chamado** que deseja consultar:`;
+        options = [];
+      } else if (input === '4' || input?.includes('faq') || input?.includes('duvida')) {
+        response = `❓ **Perguntas Frequentes**\n\n1. Como abrir um chamado?\n2. Quanto tempo demora o atendimento?\n3. Como acompanhar meu chamado?\n4. Horário de funcionamento\n\nDigite o número da pergunta ou volte ao menu principal digitando **0**.`;
+        options = [];
+      } else if (!userMessage || action === 'start') {
+        // Primeira mensagem
+        response += options.join('\n');
+      } else {
+        response = `Desculpe, não entendi. Escolha uma das opções acima digitando o número correspondente.`;
+      }
+
+    } else if (chatState.mode === 'escolhendoSetor') {
+      // Mapear setores para atendentes (v2026-08-24 — normalizado, sem emoji)
+      const agentesSetor: Record<string, string> = {
+        "atendimento": "Joicy Souza",
+        "comercial": "Elisabete Silva",
+        "manutencao": "Suelem Souza",
+        "financeiro": "André Rocha",
+        "rh": "Sandra Romano"
+      };
+
+      const input = userMessage?.trim();
+      const setoresPorNumero: Record<string, string> = {
+        "1": "Atendimento",
+        "2": "Comercial",
+        "3": "Manutenção",
+        "4": "Financeiro",
+        "5": "RH"
+      };
+      const setorNome = setoresPorNumero[input || '']
+        || input?.replace(/^[\p{Extended_Pictographic}\u{1F000}-\u{1FAFF}\u{FE0F}\u{200D}]+\s*/u, '').trim()
+        || 'Atendimento';
+      const setorKey = setorNome
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase().replace(/[^a-z]/g, '');
+      const nomeAtendente = agentesSetor[setorKey] || "Joicy Souza";
+      console.log('🏷️ Setor escolhido:', setorNome, '->', nomeAtendente);
+
+
+      chatState.selectedSetor = setorNome;
+      chatState.selectedAgent = nomeAtendente;
+      chatState.mode = 'atendente';
+      chatState.waitingForAgent = true;
+
+      // Atribuir conversa para atendente
+      if (chatState.conversationId) {
+        await supabaseClient
+          .from('conversations')
+          .update({ 
+            status: 'pending',
+            metadata: { 
+              setor: setorNome, 
+              atendente: nomeAtendente 
+            }
+          })
+          .eq('id', chatState.conversationId);
+      }
+
+      // Mensagem informando atendente
+      response = `Aguarde um momento, você será atendido por **${nomeAtendente}** do setor ${setorNome}...`;
+      options = [];
+
+      // Salvar mensagem de atribuição ao atendente
+      if (chatState.conversationId) {
+        await supabaseClient
+          .from('messages')
+          .insert({
+            conversation_id: chatState.conversationId,
+            sender_type: 'agent',
+            content: `Olá! Você está sendo atendido por **${nomeAtendente}**. Como posso ajudá-lo?`,
+          });
+      }
+
+  } else if (chatState.mode === 'atendente') {
+      // Modo atendimento humano - não envia mensagem automática
+      // O atendente humano irá responder diretamente
+      if (userMessage && userMessage.trim() === '0') {
+        // Permitir voltar ao menu se digitar 0
+        chatState.mode = 'menu';
+        chatState.waitingForAgent = false;
+        response = `👋 Olá! Bem-vindo à **Viainfra**!\n\nComo posso ajudar você hoje?\n\n1️⃣ Abrir Chamado\n2️⃣ Falar com Atendente\n3️⃣ Consultar Chamado\n4️⃣ FAQ / Dúvidas`;
+        options = ['1️⃣ Abrir Chamado', '2️⃣ Falar com Atendente', '3️⃣ Consultar Chamado', '4️⃣ FAQ / Dúvidas'];
+      } else {
+        // Não responde automaticamente - deixa o atendente responder
+        response = '';
+        options = [];
+      }
+
+    } else if (chatState.mode === 'chamado') {
+      // Fluxo de abertura de chamado
+      switch (chatState.chamadoStep) {
+        case 'nome':
+          const nomeInput = userMessage?.trim();
+          if (!nomeInput) {
+            response = '❌ Por favor, informe seu nome completo.';
+          } else {
+            chatState.nomeCliente = nomeInput;
+            chatState.chamadoStep = 'telefone';
+            response = `✅ Nome registrado: **${nomeInput}**\n\n📱 Agora, informe um **número de telefone** para contato:`;
+          }
+          break;
+
+        case 'telefone':
+          const telefoneInput = userMessage?.trim();
+          if (!telefoneInput) {
+            response = '❌ Por favor, informe um número de telefone válido.';
+          } else {
+            chatState.telefoneCliente = telefoneInput;
+            
+            // Buscar ou criar contato com base no telefone
+            console.log("Buscando/criando contato para telefone:", telefoneInput);
+            
+            try {
+              const { data: existingContact, error: searchError } = await supabaseClient
+                .from('contacts')
+                .select('id, name')
+                .eq('phone', telefoneInput)
+                .eq('company_id', chatState.companyId)
+                .maybeSingle();
+
+              if (searchError) {
+                console.error('Erro ao buscar contato:', searchError);
+              }
+
+              if (existingContact) {
+                console.log("Contato existente encontrado:", existingContact.id);
+                
+                // Atualizar nome se mudou
+                if (existingContact.name !== chatState.nomeCliente) {
+                  await supabaseClient
+                    .from('contacts')
+                    .update({ 
+                      name: chatState.nomeCliente,
+                      metadata: { source: 'web_bot', updated: true }
+                    })
+                    .eq('id', existingContact.id);
+                }
+                
+                // Atualizar a conversa para o contato existente
+                await supabaseClient
+                  .from('conversations')
+                  .update({ contact_id: existingContact.id })
+                  .eq('id', chatState.conversationId);
+                  
+                chatState.contactId = existingContact.id;
+                
+              } else {
+                console.log("Atualizando contato temporário com dados reais");
+                
+                // Atualizar o contato temporário com dados reais
+                const { error: updateError } = await supabaseClient
+                  .from('contacts')
+                  .update({
+                    name: chatState.nomeCliente,
+                    phone: telefoneInput,
+                    metadata: { source: 'web_bot' }
+                  })
+                  .eq('id', chatState.contactId);
+
+                if (updateError) {
+                  console.error('Erro ao atualizar contato:', updateError);
+                }
+              }
+            } catch (error) {
+              console.error('Erro ao processar contato:', error);
+            }
+            
+            // Atualizar updated_at da conversa para forçar refresh no frontend
+            await supabaseClient
+              .from('conversations')
+              .update({ updated_at: new Date().toISOString() })
+              .eq('id', chatState.conversationId);
+            
+            chatState.chamadoStep = 'inicio';
+            
+            // Agora buscar dados para abertura de chamado
+            try {
+              console.log('Iniciando busca de placas...');
+              
+              // Buscar último chamado
+              const ultimoChamadoRes = await fetch(`${GOOGLE_SCRIPT_URL}?action=ultimoChamado`);
+              console.log('Status último chamado:', ultimoChamadoRes.status);
+              const ultimoChamadoData = await ultimoChamadoRes.json();
+              console.log('Dados último chamado:', JSON.stringify(ultimoChamadoData));
+              chatState.numeroPrevisto = ultimoChamadoData.numeroChamado || 'N/A';
+              console.log('Número previsto:', chatState.numeroPrevisto);
+
+              // Buscar placas
+              const placasRes = await fetch(`${GOOGLE_SCRIPT_URL}?action=placas`);
+              console.log('Status placas:', placasRes.status);
+              const placasText = await placasRes.text();
+              console.log('Resposta placas (raw):', placasText);
+              
+              let placasData;
+              try {
+                placasData = JSON.parse(placasText);
+                console.log('Dados placas (parsed):', JSON.stringify(placasData));
+              } catch (parseError) {
+                console.error('Erro ao fazer parse das placas:', parseError);
+                placasData = { placas: [] };
+              }
+              
+              chatState.placas = placasData.placas || [];
+
+              console.log('Placas carregadas:', chatState.placas);
+              console.log('Quantidade de placas:', chatState.placas.length);
+              console.log('State completo:', JSON.stringify(chatState));
+
+              response = `✅ Telefone registrado: **${telefoneInput}**\n\n🎫 Número previsto: **${chatState.numeroPrevisto}**\n\n📋 Selecione uma placa:`;
+              
+              options = [];
+            } catch (error) {
+              console.error('Erro ao buscar dados:', error);
+              console.error('Stack trace:', error instanceof Error ? error.stack : 'N/A');
+              response = '❌ Erro ao iniciar processo de chamado. Tente novamente ou fale com um atendente.';
+              chatState.mode = 'menu';
+            }
+          }
+          break;
+
+        case 'inicio':
+          // Aguardando seleção da placa
+          const input = userMessage?.trim();
+          if (!input) {
+            response = '❌ Por favor, selecione uma placa da lista ou digite uma placa válida.';
+          } else {
+            // Verificar se é um número (seleção da lista)
+            const numeroSelecionado = parseInt(input);
+            let placaSelecionada = '';
+            
+            if (!isNaN(numeroSelecionado) && chatState.placas && numeroSelecionado > 0 && numeroSelecionado <= chatState.placas.length) {
+              // Selecionou da lista
+              placaSelecionada = chatState.placas[numeroSelecionado - 1];
+            } else {
+              // Digite manualmente
+              placaSelecionada = input.toUpperCase();
+            }
+            
+            chatState.placa = placaSelecionada;
+            chatState.chamadoStep = 'corretiva';
+            // CRÍTICO: Limpar as placas do state após seleção
+            delete chatState.placas;
+            response = `✅ Placa selecionada: **${placaSelecionada}**\n\n🔧 É uma **manutenção corretiva**?\n\nResponda: **Sim** ou **Não**`;
+          }
+          break;
+
+        case 'placa':
+          const placaInput = userMessage?.trim().toUpperCase();
+          if (!placaInput) {
+            response = '❌ Por favor, informe uma placa válida.';
+          } else {
+            chatState.placa = placaInput;
+            response = `✅ Placa: **${placaInput}**\n\n🔧 É uma **manutenção corretiva**?\n\nResponda: **Sim** ou **Não**`;
+            chatState.chamadoStep = 'corretiva';
+          }
+          break;
+
+        case 'corretiva':
+          const corretivaInput = userMessage?.toLowerCase();
+          if (corretivaInput === 'sim' || corretivaInput === 's') {
+            chatState.corretiva = true;
+            response = '✅ Corretiva: **Sim**\n\n📍 Qual o **local** do atendimento?\n\nResponda: **Canteiro** ou **Oficina**';
+            chatState.chamadoStep = 'local';
+          } else if (corretivaInput === 'não' || corretivaInput === 'nao' || corretivaInput === 'n') {
+            chatState.corretiva = false;
+            response = '✅ Corretiva: **Não**\n\n📍 Qual o **local** do atendimento?\n\nResponda: **Canteiro** ou **Oficina**';
+            chatState.chamadoStep = 'local';
+          } else {
+            response = '❌ Responda apenas **Sim** ou **Não**';
+          }
+          break;
+
+        case 'local':
+          const localInput = userMessage?.toLowerCase();
+          if (localInput === 'canteiro') {
+            chatState.local = 'Canteiro';
+            response = '✅ Local: **Canteiro**\n\n📝 Descreva o **problema/serviço necessário**:';
+            chatState.chamadoStep = 'descricao';
+          } else if (localInput === 'oficina') {
+            chatState.local = 'Oficina';
+            response = '✅ Local: **Oficina**\n\n📝 Descreva o **problema/serviço necessário**:';
+            chatState.chamadoStep = 'descricao';
+          } else {
+            response = '❌ Responda apenas **Canteiro** ou **Oficina**';
+          }
+          break;
+
+        case 'descricao':
+          chatState.descricao = userMessage?.trim();
+          
+          let chamadoData: any = null;
+          let googleSheetsSucesso = false;
+          
+          try {
+            console.log('=== INICIANDO CRIAÇÃO DE CHAMADO ===');
+            console.log('Placa:', chatState.placa);
+            console.log('Corretiva:', chatState.corretiva);
+            console.log('Local:', chatState.local);
+            console.log('Descrição:', chatState.descricao);
+            
+            const chamadoPayload = {
+              placa: chatState.placa,
+              corretiva: chatState.corretiva ? 'Sim' : 'Não',
+              local: chatState.local,
+              descricao: chatState.descricao,
+            };
+
+            console.log('Enviando para Google Sheets:', JSON.stringify(chamadoPayload));
+
+            const createRes = await fetch(GOOGLE_SCRIPT_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(chamadoPayload),
+            });
+
+            console.log('Google Sheets status:', createRes.status);
+            
+            // Se status é 200 ou 201, considerar sucesso SEMPRE
+            if (createRes.status === 200 || createRes.status === 201) {
+              googleSheetsSucesso = true;
+              console.log('✅ Status', createRes.status, '- Considerando criação bem-sucedida');
+              
+              const responseText = await createRes.text();
+              console.log('Google Sheets resposta raw:', responseText);
+              
+              try {
+                chamadoData = JSON.parse(responseText);
+                console.log('Dados parseados:', chamadoData);
+              } catch (parseError) {
+                console.log('⚠️ Erro ao fazer parse JSON, mas chamado foi criado (status', createRes.status, ')');
+                chamadoData = { 
+                  numeroChamado: chatState.numeroPrevisto,
+                  ID: 'N/A'
+                };
+              }
+            } else {
+              console.error('❌ Google Sheets retornou status', createRes.status);
+            }
+
+          } catch (googleError) {
+            console.error('Erro ao criar no Google Sheets:', googleError);
+          }
+
+          // Tentar salvar no Supabase independentemente do resultado do Google Sheets
+          try {
+            if (chatState.companyId && chatState.conversationId) {
+              console.log('Salvando no Supabase...');
+              
+              const { data: chamadoDB, error: chamadoError } = await supabaseClient
+                .from('chamados')
+                .insert({
+                  company_id: chatState.companyId,
+                  conversation_id: chatState.conversationId,
+                  numero_chamado: chamadoData?.numeroChamado || chatState.numeroPrevisto || 'N/A',
+                  google_sheet_id: chamadoData?.ID || null,
+                  placa: chatState.placa!,
+                  corretiva: chatState.corretiva!,
+                  local: chatState.local!,
+                  agendamento: null, // Será preenchido pelas atendentes
+                  descricao: chatState.descricao!,
+                  status: 'aberto',
+                })
+                .select()
+                .single();
+
+              if (chamadoError) {
+                console.error('Erro ao salvar no Supabase:', chamadoError);
+                // Não falhar se Google Sheets funcionou
+                if (!googleSheetsSucesso) {
+                  throw chamadoError;
+                }
+              } else {
+                console.log('Salvo no Supabase com sucesso:', chamadoDB);
+              }
+
+              // Atualizar conversa para resolved com metadata
+              const { error: updateError } = await supabaseClient
+                .from('conversations')
+                .update({ 
+                  status: 'resolved',
+                  metadata: { chamadoStep: 'finalizado' }
+                })
+                .eq('id', chatState.conversationId);
+              
+              if (updateError) {
+                console.error('❌ Erro ao atualizar conversa:', updateError);
+              } else {
+                console.log('✅ Conversa marcada como resolved');
+              }
+            }
+          } catch (supabaseError) {
+            console.error('Erro no Supabase:', supabaseError);
+            // Não falhar se Google Sheets funcionou
+            if (!googleSheetsSucesso) {
+              throw supabaseError;
+            }
+          }
+
+          // Se chegou aqui e Google Sheets funcionou, considerar sucesso
+          if (googleSheetsSucesso) {
+            response = `✅ **Chamado criado com sucesso!**\n\n🎫 **Número:** ${chamadoData?.numeroChamado || chatState.numeroPrevisto}\n📄 **ID:** ${chamadoData?.ID || 'N/A'}\n🚗 **Placa:** ${chatState.placa}\n📝 **Descrição:** ${chatState.descricao}\n\n✨ Em breve entraremos em contato!\n\nDigite **0** para voltar ao menu.`;
+            chatState.chamadoStep = 'finalizado';
+            chatState.mode = 'menu';
+            
+            // Notificar suporte sobre o novo chamado
+            try {
+              console.log('Enviando notificação para suporte...');
+              await fetch(`${GOOGLE_SCRIPT_URL}?action=enviarUltimaLinhaSuporte`);
+              console.log('✅ Notificação enviada ao suporte');
+            } catch (notifyError) {
+              console.error('⚠️ Erro ao notificar suporte (não crítico):', notifyError);
+            }
+          } else {
+            console.error('Falha total na criação do chamado');
+            response = '❌ Erro ao criar chamado. Por favor, fale com um atendente digitando **2**.';
+            chatState.mode = 'menu';
+          }
+          break;
+
+        default:
+          response = 'Digite **0** para voltar ao menu principal.';
+          chatState.mode = 'menu';
+      }
+    }
+
+    response = sanitizeAgentNames(response);
+
+    // Salvar resposta do bot
+    if (response && chatState.conversationId) {
+      await supabaseClient
+        .from('messages')
+        .insert({
+          conversation_id: chatState.conversationId,
+          sender_type: 'bot',
+          content: response,
+          metadata: { options: options.length > 0 ? options : null },
+        });
+    }
+
+    console.log('=== RESPONSE DEBUG ===');
+    console.log('chatState.placas:', chatState.placas);
+    console.log('Quantidade de placas:', chatState.placas?.length || 0);
+    console.log('chatState.mode:', chatState.mode);
+    console.log('chatState.chamadoStep:', chatState.chamadoStep);
+    console.log('State completo sendo enviado:', JSON.stringify(chatState));
+    
+    return new Response(
+      JSON.stringify({ 
+        message: response, 
+        state: chatState,
+        options: options.length > 0 ? options : null,
+        mode: chatState.mode,
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error) {
+    console.error('Error in chat-bot:', error);
+    console.error('Error stack:', error.stack);
+    return new Response(
+      JSON.stringify({ error: error.message || 'Unknown error' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+});
