@@ -677,7 +677,7 @@
       
       // Se não encontrou conversa ou está finalizada, criar uma nova
       console.log('📝 Criando nova conversa...');
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot`, {
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot-stable`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -741,7 +741,7 @@
 
     try {
       // Processar resposta do bot (a edge function já salva a mensagem automaticamente)
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot`, {
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/chat-bot-stable`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
