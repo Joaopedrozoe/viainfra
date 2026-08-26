@@ -86,19 +86,19 @@ serve(async (req) => {
       {
         email: 'gestaofinanceira@vianfra.com.br',
         password: 'atendimento@25',
-        name: 'Giovanna Ferreira',
+        name: 'André Rocha',
         role: 'user',
       },
       {
-        email: 'eliane.furtado@vialogistic.com.br',
+        email: 'sandra.romano@vialogistic.com.br',
         password: 'atendimento@25',
-        name: 'Eliane Furtado',
+        name: 'Sandra Romano',
         role: 'user',
       },
       {
         email: 'administracao@viainfra.com.br',
         password: 'atendimento@25',
-        name: 'Flavia',
+        name: 'Administração ViaInfra',
         role: 'user',
       },
     ];

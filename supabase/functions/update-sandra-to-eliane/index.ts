@@ -18,12 +18,12 @@ Deno.serve(async (req) => {
       auth: { autoRefreshToken: false, persistSession: false }
     })
 
-    const oldEmail = 'sandra.romano@vialogistic.com.br'
-    const newEmail = 'eliane.furtado@vialogistic.com.br'
-    const newName = 'Eliane Furtado'
+    const oldEmail = 'eliane.furtado@vialogistic.com.br'
+    const newEmail = 'sandra.romano@vialogistic.com.br'
+    const newName = 'Sandra Romano'
     const password = 'atendimento@26'
 
-    // 1. Find the existing auth user
+    // 1. Find the existing auth user and ensure RH is Sandra Romano
     const { data: { users } } = await supabase.auth.admin.listUsers()
     const existingUser = users?.find(u => u.email === oldEmail)
 
@@ -31,7 +31,7 @@ Deno.serve(async (req) => {
 
     if (existingUser) {
       userId = existingUser.id
-      console.log(`Found existing user ${oldEmail} with ID ${userId}`)
+      console.log(`Found outdated user ${oldEmail} with ID ${userId}`)
 
       // Update auth user email, name, and password
       const { error: updateError } = await supabase.auth.admin.updateUserById(userId, {
@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
         console.error('Error updating auth user:', updateError)
         throw updateError
       }
-      console.log(`Auth user updated to ${newEmail}`)
+      console.log(`Auth user corrected to ${newEmail}`)
     } else {
       // User doesn't exist with old email, check if new email already exists
       const existingNew = users?.find(u => u.email === newEmail)

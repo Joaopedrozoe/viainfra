@@ -50,17 +50,17 @@ export default function SetupUsers() {
       isAdmin: false,
     },
     {
-      name: 'Giovanna Ferreira',
+      name: 'André Rocha',
       email: 'gestaofinanceira@vianfra.com.br',
       role: 'Atendente',
-      initials: 'GF',
+      initials: 'AR',
       isAdmin: false,
     },
     {
-      name: 'Eliane Furtado',
-      email: 'eliane.furtado@vialogistic.com.br',
+      name: 'Sandra Romano',
+      email: 'sandra.romano@vialogistic.com.br',
       role: 'Atendente',
-      initials: 'EF',
+      initials: 'SR',
       isAdmin: false,
     },
   ];
