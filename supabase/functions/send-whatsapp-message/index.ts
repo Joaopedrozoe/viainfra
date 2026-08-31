@@ -25,12 +25,19 @@ function isAllowedInstance(name: string): boolean {
   return upper.includes('VIAINFRA') || upper.includes('VIALOGISTIC');
 }
 
+function instanceMatchesCompany(instanceName: string, companyName: string): boolean {
+  const instance = instanceName.toUpperCase();
+  return /vialogistic/i.test(companyName)
+    ? instance.includes('VIALOGISTIC')
+    : /viainfra/i.test(companyName) && instance.includes('VIAINFRA') && !instance.includes('VIALOGISTIC');
+}
+
 async function resolveAuthorizedInstanceForConversation(supabase: any, conversationId?: string) {
   if (!conversationId) return { instanceName: '', error: 'Missing conversation_id' };
 
   const { data: conversation, error: conversationError } = await supabase
     .from('conversations')
-    .select('company_id')
+    .select('company_id, companies(name)')
     .eq('id', conversationId)
     .single();
 
@@ -51,7 +58,8 @@ async function resolveAuthorizedInstanceForConversation(supabase: any, conversat
     return { instanceName: '', error: 'No connected WhatsApp instance found' };
   }
 
-  if (instance.company_id !== conversation.company_id || !isAllowedInstance(instance.instance_name)) {
+  const companyName = conversation.companies?.name || '';
+  if (instance.company_id !== conversation.company_id || !isAllowedInstance(instance.instance_name) || !instanceMatchesCompany(instance.instance_name, companyName)) {
     return { instanceName: '', error: 'Unauthorized WhatsApp instance for conversation' };
   }
 

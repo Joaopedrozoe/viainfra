@@ -2611,12 +2611,21 @@ function getPhoneVariations(phone: string): string[] {
 }
 
 async function getOrCreateContact(supabase: any, phoneNumber: string, name: string, remoteJid: string, instanceName?: string) {
-  // Get first company
-  const { data: companies } = await supabase
-    .from('companies')
-    .select('id')
-    .limit(1);
-  const companyId = companies?.[0]?.id;
+  if (!instanceName || !isAllowedInstance(instanceName)) {
+    throw new Error(`Unauthorized or missing VIAINFRA instance: ${instanceName || 'unknown'}`);
+  }
+
+  const { data: instanceData, error: instanceError } = await supabase
+    .from('whatsapp_instances')
+    .select('company_id, companies(name)')
+    .eq('instance_name', instanceName)
+    .maybeSingle();
+
+  const companyId = instanceData?.company_id;
+  const companyName = instanceData?.companies?.name || '';
+  if (instanceError || !companyId || !/viainfra/i.test(companyName) || /vialogistic/i.test(companyName)) {
+    throw new Error(`VIAINFRA company resolution failed for instance: ${instanceName}`);
+  }
 
   const normalizedPhone = normalizePhoneNumber(phoneNumber);
   const phoneVariations = getPhoneVariations(phoneNumber);
