@@ -19,9 +19,7 @@ function resolveMetaCreds(companyName: string) {
   if (isVialogistic) {
     return {
       key: "VIALOGISTIC",
-      token:
-        Deno.env.get("META_ACCESS_TOKEN_VIALOGISTIC") ||
-        Deno.env.get("META_ACCESS_TOKEN_VIAINFRA"),
+      token: Deno.env.get("META_ACCESS_TOKEN_VIALOGISTIC"),
       phoneNumberId:
         Deno.env.get("META_PHONE_NUMBER_ID_VIALOGISTIC") || "1157997970738498",
       wabaId: Deno.env.get("META_WABA_ID_VIALOGISTIC") || "",
@@ -110,7 +108,7 @@ serve(async (req) => {
       companyId = data?.company_id ?? null;
     }
 
-    let name = String(company_name || "");
+    let name = "";
     let storedWaba = "";
     if (companyId) {
       const { data } = await supabase
@@ -118,15 +116,12 @@ serve(async (req) => {
         .select("name, settings")
         .eq("id", companyId)
         .maybeSingle();
-      if (!name) name = data?.name || "";
+      name = data?.name || "";
       storedWaba = String((data?.settings as any)?.meta_waba_id || "");
-    } else if (name) {
-      const { data } = await supabase
-        .from("companies")
-        .select("settings")
-        .ilike("name", name)
-        .maybeSingle();
-      storedWaba = String((data?.settings as any)?.meta_waba_id || "");
+    }
+
+    if (!companyId || !/viainfra|vialogistic/i.test(name)) {
+      return json({ success: false, error: "Empresa da conversa sem canal Meta autorizado" }, 403);
     }
 
     const creds = resolveMetaCreds(name);

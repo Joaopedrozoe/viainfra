@@ -31,9 +31,7 @@ function resolveMetaCreds(companyName: string) {
   if (isVialogistic) {
     return {
       key: "VIALOGISTIC",
-      token:
-        Deno.env.get("META_ACCESS_TOKEN_VIALOGISTIC") ||
-        Deno.env.get("META_ACCESS_TOKEN_VIAINFRA"),
+      token: Deno.env.get("META_ACCESS_TOKEN_VIALOGISTIC"),
       phoneNumberId:
         Deno.env.get("META_PHONE_NUMBER_ID_VIALOGISTIC") || "1157997970738498",
     };
@@ -158,6 +156,10 @@ serve(async (req) => {
       }
     }
 
+    if (!companyId) {
+      return json({ success: false, error: "Empresa da conversa não identificada" }, 400);
+    }
+
     if (!targetPhone || targetPhone.length < 12) {
       return json({ success: false, error: "Telefone do contato inválido" }, 400);
     }
@@ -170,6 +172,10 @@ serve(async (req) => {
         .eq("id", companyId)
         .maybeSingle();
       companyName = company?.name || "";
+    }
+
+    if (!/viainfra|vialogistic/i.test(companyName)) {
+      return json({ success: false, error: "Empresa sem canal Meta autorizado" }, 403);
     }
 
     const creds = resolveMetaCreds(companyName);
