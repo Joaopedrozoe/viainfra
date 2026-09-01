@@ -52,7 +52,7 @@ const mapDbMessageToChatMessage = (dbMessage: any): Message => {
     whatsappMessageId: metadata.whatsappMessageId || metadata.external_id,
     mediaUnavailable: metadata.mediaUnavailable || false,
     mediaType: metadata.mediaType,
-    deliveryStatus: metadata.whatsappStatus,
+    deliveryStatus: metadata.status || metadata.whatsappStatus,
     deliveryError: metadata.errorDetails || metadata.error,
     deliveryErrorCode: metadata.errorCode,
     editedAt: metadata.editedAt,

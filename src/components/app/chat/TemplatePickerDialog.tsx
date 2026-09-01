@@ -103,6 +103,8 @@ export const TemplatePickerDialog = ({ open, onOpenChange, conversationId, onSen
       }
       onSent(selected.name);
       onOpenChange(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Falha ao enviar o template");
     } finally {
       setSending(false);
     }
