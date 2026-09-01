@@ -251,6 +251,16 @@ serve(async (req) => {
     }
 
     if (body?.action === "diag") {
+      const wabaResp = await fetch(
+        `https://graph.facebook.com/v21.0/${storedWaba}?fields=id,name,account_review_status,business_verification_status,messaging_limit_tier,status,timezone_id`,
+        { headers: { Authorization: `Bearer ${creds.token}` } },
+      );
+      const wabaInfo = await wabaResp.json().catch(() => ({}));
+      const numResp = await fetch(
+        `https://graph.facebook.com/v21.0/${resolvedPhone.id}?fields=id,display_phone_number,verified_name,status,quality_rating,name_status,throughput,code_verification_status,platform_type`,
+        { headers: { Authorization: `Bearer ${creds.token}` } },
+      );
+      const numInfo = await numResp.json().catch(() => ({}));
       return json({
         success: true,
         company: creds.key,
@@ -259,8 +269,11 @@ serve(async (req) => {
         phoneNumberId: resolvedPhone.id,
         displayPhoneNumber: resolvedPhone.display,
         to: targetPhone,
+        wabaInfo,
+        numberInfo: numInfo,
       });
     }
+
 
     // Tenta os idiomas mais comuns para o template aprovado
     const languages = language ? [language] : ["en", "pt_BR", "pt", "en_US"];
