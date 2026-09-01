@@ -621,8 +621,9 @@ async function processMetaStatuses(payload: any): Promise<boolean> {
 
       const { data: msg } = await supabase
         .from('messages')
-        .select('id, metadata')
+        .select('id, conversation_id, metadata, conversations!inner(company_id)')
         .or(`metadata->>messageId.eq.${wamid},metadata->>whatsappMessageId.eq.${wamid},metadata->>external_id.eq.${wamid}`)
+        .eq('conversations.company_id', CAPTURE_COMPANY_ID)
         .limit(1)
         .maybeSingle();
 
@@ -632,11 +633,15 @@ async function processMetaStatuses(payload: any): Promise<boolean> {
       }
 
       const err = Array.isArray(s.errors) ? s.errors[0] : null;
-      const meta = { ...(msg.metadata as any || {}), status: mapped };
+      const meta = { ...(msg.metadata as any || {}), status: mapped, whatsappStatus: mapped };
       if (mapped === 'failed' && err) {
         meta.error = err?.title || err?.message || 'Falha no envio';
         meta.errorCode = err?.code;
         meta.errorDetails = err?.error_data?.details || err?.message || null;
+      } else {
+        delete meta.error;
+        delete meta.errorCode;
+        delete meta.errorDetails;
       }
 
       await supabase.from('messages').update({ metadata: meta }).eq('id', msg.id);

@@ -53,6 +53,8 @@ const mapDbMessageToChatMessage = (dbMessage: any): Message => {
     mediaUnavailable: metadata.mediaUnavailable || false,
     mediaType: metadata.mediaType,
     deliveryStatus: metadata.whatsappStatus,
+    deliveryError: metadata.errorDetails || metadata.error,
+    deliveryErrorCode: metadata.errorCode,
     editedAt: metadata.editedAt,
     isDeleted: metadata.isDeleted,
     isPinned: metadata.isPinned,
@@ -1057,8 +1059,8 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   const handleTemplateSent = useCallback((templateName: string) => {
     setTemplateSentAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
     setUserCountAtSend(userMessagesCount);
-    toast.success(`Template "${templateName}" enviado!`, {
-      description: 'A janela de conversa será aberta assim que o contato responder.'
+    toast.success(`Template "${templateName}" aceito pela Meta`, {
+      description: 'A confirmação de entrega aparecerá no status da mensagem.'
     });
   }, [userMessagesCount]);
 
@@ -1222,7 +1224,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         <div className="flex-shrink-0 border-t border-border/60 bg-muted/40 px-4 py-2 flex items-center justify-between gap-3">
           {templateSentAt ? (
             <span className="text-xs text-muted-foreground">
-              Template enviado às {templateSentAt}. A janela de conversa de 24h será aberta assim que o contato responder.
+              Template aceito pela Meta às {templateSentAt}. Aguarde a confirmação de entrega.
             </span>
           ) : (
             <span className="text-xs text-muted-foreground">

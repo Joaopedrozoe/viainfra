@@ -79,6 +79,7 @@ export const TemplatePickerDialog = ({ open, onOpenChange, conversationId, onSen
   }, [selected, variables]);
 
   const handleSelect = (t: MetaTemplate) => {
+    if (t.status.toUpperCase() !== "APPROVED") return;
     setSelected(t);
     setVariables(Array.from({ length: t.variables }, () => ""));
   };
@@ -138,15 +139,19 @@ export const TemplatePickerDialog = ({ open, onOpenChange, conversationId, onSen
               )}
               {templates.map((t) => {
                 const label = statusLabel(t.status);
+                const canSend = t.status.toUpperCase() === "APPROVED";
                 const isActive = selected?.name === t.name && selected?.language === t.language;
                 return (
                   <button
                     key={`${t.name}-${t.language}`}
                     type="button"
                     onClick={() => handleSelect(t)}
+                    disabled={!canSend}
+                    title={canSend ? "Selecionar template" : "Aguardando aprovação da Meta"}
                     className={cn(
                       "w-full rounded-lg border p-3 text-left transition-colors",
-                      isActive ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"
+                      isActive ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50",
+                      !canSend && "cursor-not-allowed opacity-60 hover:bg-transparent"
                     )}
                   >
                     <div className="flex items-center gap-2">

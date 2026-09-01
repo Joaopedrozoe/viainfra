@@ -87,7 +87,7 @@ const formatMessageContent = (content: string, hasAttachment: boolean): string =
   return content;
 };
 
-const DeliveryStatusIcon = ({ status, isAgentMessage }: { status?: MessageDeliveryStatus; isAgentMessage: boolean }) => {
+const DeliveryStatusIcon = ({ status, isAgentMessage, error, errorCode }: { status?: MessageDeliveryStatus; isAgentMessage: boolean; error?: string; errorCode?: number | string }) => {
   if (!isAgentMessage) return null;
   
   const iconClass = "w-3.5 h-3.5 inline-block ml-1";
@@ -168,7 +168,7 @@ const DeliveryStatusIcon = ({ status, isAgentMessage }: { status?: MessageDelive
               <AlertCircle className={cn(iconClass, "text-red-300")} />
             </TooltipTrigger>
             <TooltipContent side="left" className="text-xs bg-destructive text-destructive-foreground">
-              Falha no envio - será reenviada automaticamente
+              {error ? `Falha ${errorCode ? `(${errorCode})` : ''}: ${error}` : 'Falha confirmada pelo WhatsApp'}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -743,7 +743,7 @@ export const MessageItem = memo(({
       )}>
         {isEdited && <span className="italic">(editado)</span>}
         <span>{formattedTimestamp}</span>
-        <DeliveryStatusIcon status={effectiveStatus} isAgentMessage={isAgentMessage} />
+        <DeliveryStatusIcon status={effectiveStatus} isAgentMessage={isAgentMessage} error={message.deliveryError} errorCode={message.deliveryErrorCode} />
       </div>
 
       {/* Reações (emoji) */}

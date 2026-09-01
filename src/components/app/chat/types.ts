@@ -34,6 +34,8 @@ export interface Message {
   timestamp: string;
   attachment?: Attachment;
   deliveryStatus?: MessageDeliveryStatus;
+  deliveryError?: string;
+  deliveryErrorCode?: number | string;
   whatsappMessageId?: string;
   senderName?: string;
   // Campos para mídia indisponível

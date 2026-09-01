@@ -59,7 +59,7 @@ async function resolvePhoneNumberId(
   wabaId: string,
   hinted: string,
 ): Promise<{ id: string | null; display: string | null; error?: string }> {
-  if (!wabaId) return { id: hinted || null, display: null };
+  if (!wabaId) return { id: null, display: null, error: "WABA não configurada" };
   const resp = await fetch(
     `https://graph.facebook.com/v21.0/${wabaId}/phone_numbers?fields=id,display_phone_number&limit=50`,
     { headers: { Authorization: `Bearer ${token}` } },
@@ -67,11 +67,30 @@ async function resolvePhoneNumberId(
   const data = await resp.json().catch(() => ({}));
   const list: any[] = data?.data || [];
   if (!resp.ok || list.length === 0) {
-    return { id: hinted || null, display: null, error: data?.error?.message || "WABA sem números" };
+    return { id: null, display: null, error: data?.error?.message || "WABA sem números" };
   }
   const match = list.find((p) => String(p.id) === String(hinted));
-  const chosen = match || list[0];
-  return { id: String(chosen.id), display: chosen.display_phone_number || null };
+  if (!match) {
+    return { id: null, display: null, error: "O número remetente configurado não pertence à WABA da empresa" };
+  }
+  return { id: String(match.id), display: match.display_phone_number || null };
+}
+
+async function verifyApprovedTemplate(token: string, wabaId: string, name: string, language: string) {
+  const resp = await fetch(
+    `https://graph.facebook.com/v21.0/${wabaId}/message_templates?limit=200&fields=name,language,status`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) return { approved: false, error: data?.error?.message || "Não foi possível validar o template" };
+  const template = (data?.data || []).find(
+    (item: any) => item?.name === name && item?.language === language,
+  );
+  if (!template) return { approved: false, error: "Template ou idioma não encontrado nesta WABA" };
+  if (String(template.status).toUpperCase() !== "APPROVED") {
+    return { approved: false, error: `Template indisponível para envio: ${template.status}` };
+  }
+  return { approved: true };
 }
 
 async function sendTemplate(
@@ -224,6 +243,13 @@ serve(async (req) => {
       `[send-template] empresa=${creds.key} waba=${storedWaba || "-"} phone_number_id=${resolvedPhone.id} (${resolvedPhone.display || "?"})`,
     );
 
+    if (language) {
+      const validation = await verifyApprovedTemplate(creds.token, storedWaba, template_name, language);
+      if (!validation.approved) {
+        return json({ success: false, error: validation.error }, 400);
+      }
+    }
+
     if (body?.action === "diag") {
       return json({
         success: true,
@@ -287,7 +313,8 @@ serve(async (req) => {
           template_language: result.language,
           external_id: messageId,
           whatsappMessageId: messageId,
-          whatsappStatus: "sent",
+          whatsappStatus: "pending",
+          status: "pending",
           whatsappSentAt: new Date().toISOString(),
           isTemplate: true,
         },
