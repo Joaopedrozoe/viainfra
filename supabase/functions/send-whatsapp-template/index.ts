@@ -53,6 +53,27 @@ function normalizePhone(raw: string): string {
   return digits;
 }
 
+/** Resolve o phone_number_id real da WABA da empresa (sem fallback cruzado). */
+async function resolvePhoneNumberId(
+  token: string,
+  wabaId: string,
+  hinted: string,
+): Promise<{ id: string | null; display: string | null; error?: string }> {
+  if (!wabaId) return { id: hinted || null, display: null };
+  const resp = await fetch(
+    `https://graph.facebook.com/v21.0/${wabaId}/phone_numbers?fields=id,display_phone_number&limit=50`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  const data = await resp.json().catch(() => ({}));
+  const list: any[] = data?.data || [];
+  if (!resp.ok || list.length === 0) {
+    return { id: hinted || null, display: null, error: data?.error?.message || "WABA sem números" };
+  }
+  const match = list.find((p) => String(p.id) === String(hinted));
+  const chosen = match || list[0];
+  return { id: String(chosen.id), display: chosen.display_phone_number || null };
+}
+
 async function sendTemplate(
   token: string,
   phoneNumberId: string,
@@ -165,13 +186,15 @@ serve(async (req) => {
     }
 
     let companyName = "";
+    let storedWaba = "";
     if (companyId) {
       const { data: company } = await supabase
         .from("companies")
-        .select("name")
+        .select("name, settings")
         .eq("id", companyId)
         .maybeSingle();
       companyName = company?.name || "";
+      storedWaba = String((company?.settings as any)?.meta_waba_id || "");
     }
 
     if (!/viainfra|vialogistic/i.test(companyName)) {
@@ -186,13 +209,40 @@ serve(async (req) => {
       );
     }
 
+    // O número remetente vem SEMPRE da WABA da empresa da conversa.
+    const resolvedPhone = await resolvePhoneNumberId(creds.token, storedWaba, creds.phoneNumberId);
+    if (!resolvedPhone.id) {
+      return json(
+        {
+          success: false,
+          error: `Número Meta da empresa ${creds.key} não identificado${resolvedPhone.error ? `: ${resolvedPhone.error}` : ""}`,
+        },
+        400,
+      );
+    }
+    console.log(
+      `[send-template] empresa=${creds.key} waba=${storedWaba || "-"} phone_number_id=${resolvedPhone.id} (${resolvedPhone.display || "?"})`,
+    );
+
+    if (body?.action === "diag") {
+      return json({
+        success: true,
+        company: creds.key,
+        companyName,
+        wabaId: storedWaba,
+        phoneNumberId: resolvedPhone.id,
+        displayPhoneNumber: resolvedPhone.display,
+        to: targetPhone,
+      });
+    }
+
     // Tenta os idiomas mais comuns para o template aprovado
     const languages = language ? [language] : ["en", "pt_BR", "pt", "en_US"];
     let result: any = null;
     for (const lang of languages) {
       result = await sendTemplate(
         creds.token,
-        creds.phoneNumberId,
+        resolvedPhone.id,
         targetPhone,
         template_name,
         lang,
@@ -248,7 +298,7 @@ serve(async (req) => {
 
       await supabase
         .from("conversations")
-        .update({ last_message_at: new Date().toISOString() })
+        .update({ updated_at: new Date().toISOString() })
         .eq("id", conversation_id);
     }
 

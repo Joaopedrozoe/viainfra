@@ -52,23 +52,111 @@ export class BotFlowProcessor {
     };
   }
 
+
+  // ============================================================
+  // Setores canônicos (mesma tabela para todas as empresas)
+  // ============================================================
+  private static readonly SETORES: Array<{ nome: string; atendente: string; keys: string[] }> = [
+    { nome: 'Atendimento', atendente: 'Joicy Souza', keys: ['atendimento', 'atendente', 'suporte'] },
+    { nome: 'Comercial', atendente: 'Elisabete Silva', keys: ['comercial', 'vendas', 'venda', 'orcamento'] },
+    { nome: 'Manutenção', atendente: 'Suelem Souza', keys: ['manutencao', 'oficina', 'mecanica', 'tecnico'] },
+    { nome: 'Financeiro', atendente: 'André Rocha', keys: ['financeiro', 'pagamento', 'boleto', 'nota fiscal', 'cobranca'] },
+    { nome: 'RH', atendente: 'Sandra Romano', keys: ['rh', 'recursos humanos', 'vaga', 'curriculo'] },
+  ];
+
+  private static readonly SETOR_MENU =
+    '👤 **Falar com Atendente**\n\nSelecione o departamento:\n\n1. 📞 Atendimento\n2. 💼 Comercial\n3. 🔧 Manutenção\n4. 💰 Financeiro\n5. 👥 RH\n\nDigite o número da opção desejada ou **0** para voltar ao menu.';
+
+  /** Normaliza a entrada: sem acentos, sem emoji, minúsculo. */
+  private normalize(raw: string): string {
+    return (raw || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-zA-Z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
+  private isGreeting(normalized: string): boolean {
+    return /^(oi+|ola+|opa|eai|e ai|hey|hi|hello|alo|bom dia|boa tarde|boa noite|menu|inicio|comecar|come[c]?ar|start|teste|test)$/.test(normalized);
+  }
+
+  /** Casa a entrada com uma opção por número ou por texto equivalente. */
+  private matchOptionIndex(options: string[], raw: string): number {
+    const n = this.normalize(raw);
+    if (/^[0-9]+$/.test(n)) {
+      const idx = parseInt(n, 10) - 1;
+      if (idx >= 0 && idx < options.length) return idx;
+      return -1;
+    }
+    if (!n) return -1;
+    for (let i = 0; i < options.length; i++) {
+      const opt = this.normalize(options[i]).replace(/^[0-9]+\s*/, '');
+      if (!opt) continue;
+      if (opt === n || opt.includes(n) || n.includes(opt)) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * Entrada não reconhecida: repete a pergunta uma vez antes de transferir.
+   * Retorna null quando as tentativas acabaram (aí sim transfere).
+   */
+  private softRetry(message: string): any | null {
+    const attempts = (this.conversationState.invalidAttempts || 0) + 1;
+    this.conversationState.invalidAttempts = attempts;
+    if (attempts >= 2) return null;
+    return {
+      response: message,
+      newState: this.conversationState,
+      shouldTransferToAgent: false,
+    };
+  }
+
+  private resetInvalidAttempts() {
+    this.conversationState.invalidAttempts = 0;
+  }
+
+  /** Volta ao menu principal reenviando a saudação completa. */
+  private showMainMenu(): any {
+    this.conversationState = {
+      currentNodeId: 'start-1',
+      collectedData: {},
+      welcomeMessageSent: false,
+      invalidAttempts: 0,
+    };
+    const startNode = this.flow.nodes.find(n => n.id === 'start-1') ||
+      this.flow.nodes.find(n => n.type === 'start');
+    if (startNode) return this.processNode(startNode);
+    const menuNode = this.flow.nodes.find(n => n.id === 'menu-1');
+    if (menuNode) return this.processNode(menuNode);
+    return {
+      response: 'Voltando ao menu principal...',
+      newState: this.conversationState,
+      shouldTransferToAgent: false,
+    };
+  }
+
   async processUserInput(userInput: string): Promise<{
     response: string;
     newState: ConversationState;
     shouldTransferToAgent: boolean;
     shouldCallApi?: { action: string; data: any };
   }> {
+    const normalizedInput = this.normalize(userInput);
+
     // PRIMEIRO: Verificar se usuário quer voltar ao menu (funciona em qualquer estado)
-    if (userInput === '0' || userInput.toLowerCase() === 'menu' || userInput.toLowerCase() === 'voltar') {
-      this.conversationState = {
-        currentNodeId: 'start-1',
-        collectedData: {},
-      };
-      
-      const startNode = this.flow.nodes.find(n => n.id === 'start-1');
-      if (startNode) {
-        return this.processNode(startNode);
-      }
+    if (userInput.trim() === '0' || normalizedInput === 'menu' || normalizedInput === 'voltar') {
+      return this.showMainMenu();
+    }
+
+    // Saudação ou início de conversa: sempre reapresenta o menu principal,
+    // nunca transfere direto para atendente humano.
+    const inChamadoInput = !!this.conversationState.waitingForInput ||
+      String(this.conversationState.currentNodeId || '').startsWith('chamado');
+    if (!inChamadoInput && this.isGreeting(normalizedInput)) {
+      return this.showMainMenu();
     }
 
     const currentNode = this.flow.nodes.find(n => n.id === this.conversationState.currentNodeId);
@@ -263,23 +351,23 @@ export class BotFlowProcessor {
 
     // ========== FLUXO DE ESCOLHA DE DEPARTAMENTO ==========
     if (this.conversationState.currentNodeId === 'escolher-departamento') {
-      const departamentos: Record<number, { nome: string; atendente: string }> = {
-        1: { nome: 'Atendimento', atendente: 'Joicy Souza' },
-        2: { nome: 'Comercial', atendente: 'Elisabete Silva' },
-        3: { nome: 'Manutenção', atendente: 'Suelem Souza' },
-        4: { nome: 'Financeiro', atendente: 'André Rocha' },
-        5: { nome: 'RH', atendente: 'Sandra Romano' },
-      };
+      const setores = BotFlowProcessor.SETORES;
+      const normalized = this.normalize(userInput);
+      let departamento: { nome: string; atendente: string } | null = null;
 
-      const escolha = parseInt(userInput);
-      if (escolha >= 1 && escolha <= 5) {
-        const departamento = departamentos[escolha];
-        
-        // Salvar escolha
+      if (/^[1-5]$/.test(normalized)) {
+        departamento = setores[parseInt(normalized, 10) - 1];
+      } else if (normalized) {
+        departamento = setores.find(s =>
+          s.keys.some(k => normalized === k || normalized.includes(k) || k.includes(normalized))
+        ) || null;
+      }
+
+      if (departamento) {
+        this.resetInvalidAttempts();
         this.conversationState.collectedData['departamento_selecionado'] = departamento.nome;
         this.conversationState.collectedData['atendente_nome'] = departamento.atendente;
-        
-        // Transferir para atendente
+
         return {
           response: `✅ Você será atendido por **${departamento.atendente}** do setor ${departamento.nome}.\n\n⏳ Aguarde um momento enquanto conectamos você...`,
           newState: this.conversationState,
@@ -287,8 +375,10 @@ export class BotFlowProcessor {
         };
       }
 
-      // ANTI-LOOP: Opção inválida = transferir para atendente IMEDIATAMENTE
-      // Nunca repetir menus - transferir direto
+      // Entrada não reconhecida: repete o menu de setores uma vez antes de transferir
+      const retry = this.softRetry(BotFlowProcessor.SETOR_MENU);
+      if (retry) return retry;
+
       return {
         response: '👤 Não entendi sua resposta. Vou transferir você para um atendente humano.\n\n⏳ Aguarde um momento...',
         newState: this.conversationState,
@@ -322,11 +412,12 @@ export class BotFlowProcessor {
       };
     }
 
-    // Verificar se é uma opção válida (número) para outros nós
-    const optionIndex = parseInt(userInput) - 1;
-    if (!isNaN(optionIndex) && optionIndex >= 0 && optionIndex < options.length) {
+    // Verificar se é uma opção válida (número ou texto equivalente)
+    const optionIndex = this.matchOptionIndex(options as string[], userInput);
+    if (optionIndex >= 0) {
       const selectedOption = options[optionIndex];
-      
+      this.resetInvalidAttempts();
+
       // Salvar a escolha
       this.conversationState.collectedData[node.id] = selectedOption;
       
@@ -337,8 +428,44 @@ export class BotFlowProcessor {
       }
     }
 
-    // ANTI-LOOP: Opção inválida = transferir para atendente IMEDIATAMENTE
-    // Nunca repetir menus ou entrar em loop
+    // No menu principal, texto livre citando um setor vai direto para a
+    // escolha de departamento (ex.: "quero falar com a manutenção").
+    if (node.id === 'menu-1') {
+      const nz = this.normalize(userInput);
+      const setorMatch = BotFlowProcessor.SETORES.find(s =>
+        s.keys.some(k => nz.includes(k))
+      );
+      if (setorMatch || /\b(atendente|humano|falar|pessoa)\b/.test(nz)) {
+        this.resetInvalidAttempts();
+        this.conversationState.currentNodeId = 'escolher-departamento';
+        if (setorMatch) {
+          return this.processQuestionResponse(
+            {
+              id: 'escolher-departamento',
+              type: 'question',
+              position: { x: 0, y: 0 },
+              data: { label: 'Escolher Departamento', question: 'Selecione o departamento:', options: [] },
+            } as BotFlowNode,
+            setorMatch.nome,
+          );
+        }
+        return {
+          response: BotFlowProcessor.SETOR_MENU,
+          newState: this.conversationState,
+          shouldTransferToAgent: false,
+        };
+      }
+    }
+
+    // Entrada não reconhecida: repete a pergunta uma vez antes de transferir
+    if (options.length > 0) {
+      let repeatText = node.data.question || 'Escolha uma opção:';
+      repeatText += '\n\n' + options.map((opt, idx) => `${idx + 1}. ${opt}`).join('\n');
+      repeatText += '\n\nDigite o número da opção desejada ou **0** para voltar ao menu.';
+      const retryOption = this.softRetry(repeatText);
+      if (retryOption) return retryOption;
+    }
+
     return {
       response: '👤 Não entendi sua resposta. Vou transferir você para um atendente humano.\n\n⏳ Aguarde um momento...',
       newState: this.conversationState,

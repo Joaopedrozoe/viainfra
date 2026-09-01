@@ -50,43 +50,34 @@ serve(async (req) => {
 
     console.log(`[process-queue] Found ${pendingMessages.length} pending messages`);
 
-    // REGRA MESTRA: Buscar instância pela empresa da conversa, não por lista hardcoded
-    // Para cada mensagem, resolver a instância correta pela company_id da conversa
-    // Fallback: buscar qualquer instância VIAINFRA/VIALOGISTIC conectada
-    function isAllowedInstance(name: string): boolean {
-      const upper = name.toUpperCase();
-      return upper.includes('VIAINFRA') || upper.includes('VIALOGISTIC');
-    }
-
+    // ISOLAMENTO: a instância é resolvida POR MENSAGEM, a partir da empresa da
+    // conversa. Nunca uma instância global (isso causava envio cruzado entre
+    // VIAINFRA e VIALOGISTIC).
     const { data: allConnectedInstances } = await supabase
       .from('whatsapp_instances')
       .select('instance_name, status, company_id')
       .eq('status', 'open');
-    
-    const validInstances = (allConnectedInstances || []).filter(i => isAllowedInstance(i.instance_name));
-    const instance = validInstances.length > 0 ? validInstances[0] : null;
 
-    if (!instance) {
-      console.log('[process-queue] No connected instance available, rescheduling all');
-      
-      // Reagendar todas as mensagens para 5 minutos depois
-      for (const msg of pendingMessages) {
-        await supabase
-          .from('message_queue')
-          .update({
-            scheduled_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-            error_message: 'No connected instance available'
-          })
-          .eq('id', msg.id);
+    const connected = allConnectedInstances || [];
+
+    async function resolveInstanceForMessage(msg: any): Promise<{ instance_name: string } | null> {
+      let companyId: string | null = null;
+      if (msg.conversation_id) {
+        const { data: conv } = await supabase
+          .from('conversations')
+          .select('company_id')
+          .eq('id', msg.conversation_id)
+          .maybeSingle();
+        companyId = conv?.company_id || null;
       }
-      
-      return new Response(
-        JSON.stringify({ success: true, processed: 0, rescheduled: pendingMessages.length }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
+      if (!companyId) return null;
 
-    console.log(`[process-queue] Using instance: ${instance.instance_name}`);
+      const own = connected.filter((i: any) => i.company_id === companyId);
+      if (own.length === 0) return null;
+
+      const preferred = own.find((i: any) => i.instance_name === msg.instance_name);
+      return preferred || own[0];
+    }
 
     let processed = 0;
     let failed = 0;
@@ -95,6 +86,21 @@ serve(async (req) => {
       console.log(`[process-queue] Processing message ${msg.id} to ${msg.contact_phone}`);
       
       try {
+        const instance = await resolveInstanceForMessage(msg);
+        if (!instance) {
+          console.warn(`[process-queue] Sem instância conectada da empresa da conversa para msg ${msg.id}; reagendando`);
+          await supabase
+            .from('message_queue')
+            .update({
+              status: 'pending',
+              scheduled_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+              error_message: 'No connected instance for conversation company'
+            })
+            .eq('id', msg.id);
+          continue;
+        }
+        console.log(`[process-queue] msg ${msg.id} -> instância ${instance.instance_name}`);
+
         // Marcar como processando
         await supabase
           .from('message_queue')

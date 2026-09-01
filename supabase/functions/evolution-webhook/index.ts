@@ -2196,7 +2196,7 @@ async function processNewMessage(supabase: any, webhook: EvolutionWebhook, paylo
 
     // Trigger bot response (APENAS se tiver número válido)
     console.log(`✅ Triggering bot for contact ${contact.id} (${contactName}). Phone: ${contactPhone}`);
-    await triggerBotResponse(supabase, conversation.id, messageContent, sendToRemoteJid, webhook.instance);
+    await triggerBotResponse(supabase, conversation.id, messageContent, sendToRemoteJid, webhook.instance, (savedMessage as any)?.metadata?.external_id || (message as any)?.key?.id || null);
   }
 }
 
@@ -3949,7 +3949,7 @@ async function saveGroupMessage(supabase: any, conversationId: string, message: 
 // ============================================================
 // TRIGGER BOT RESPONSE - COM PROTEÇÃO ABSOLUTA
 // ============================================================
-async function triggerBotResponse(supabase: any, conversationId: string, messageContent: string, remoteJid: string, instanceName: string) {
+async function triggerBotResponse(supabase: any, conversationId: string, messageContent: string, remoteJid: string, instanceName: string, inboundExternalId: string | null = null) {
   console.log('Triggering bot response...');
   
   // ============================================================
@@ -3981,7 +3981,7 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
   // ============================================================
   const { data: freshConversation, error: freshError } = await supabase
     .from('conversations')
-    .select('id, bot_active, metadata, status, contacts(phone)')
+    .select('id, company_id, bot_active, metadata, status, contacts(phone)')
     .eq('id', conversationId)
     .single();
 
@@ -4078,22 +4078,24 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
     })
     .eq('id', conversationId);
   
-  // Buscar bot baseado na empresa da conversa
-  // REGRA DE ISOLAMENTO: ViaInfra usa FLUXO-VIAINFRA, ViaLogistic usa FLUXO-VIALOGISTIC
+  // ============================================================
+  // ISOLAMENTO CANÔNICO: este endpoint só atende a empresa dele.
+  // A empresa vem da própria conversa (nunca de heurística de nome).
+  // ============================================================
+  const EXPECTED_COMPANY_ID = 'da17735c-5a76-4797-b338-f6e63a7b3f8b';
   const conversationCompanyId = freshConversation.company_id;
-  const isVialogistic = instanceName?.toUpperCase().includes('VIALOGISTIC') || false;
-  
-  // Determinar qual bot usar baseado na instância
-  let botQuery = supabase.from('bots').select('*').eq('status', 'published');
-  
-  if (isVialogistic) {
-    botQuery = botQuery.eq('company_id', 'e3ad9c68-cf12-4e39-a12d-3f3068e975a0'); // ViaLogistic
-  } else {
-    // Default: ViaInfra ou qualquer outra instância
-    botQuery = botQuery.eq('company_id', 'da17735c-5a76-4797-b338-f6e63a7b3f8b'); // ViaInfra
+
+  if (conversationCompanyId && conversationCompanyId !== EXPECTED_COMPANY_ID) {
+    console.error(`⛔ [BOT] Conversa ${conversationId} pertence à empresa ${conversationCompanyId}, não a ${EXPECTED_COMPANY_ID}. Abortando para evitar cruzamento.`);
+    return;
   }
-  
-  const { data: bots, error: botsError } = await botQuery.limit(1);
+
+  const { data: bots, error: botsError } = await supabase
+    .from('bots')
+    .select('*')
+    .eq('status', 'published')
+    .eq('company_id', EXPECTED_COMPANY_ID)
+    .order('updated_at', { ascending: false });
 
   if (botsError) {
     console.error('Error fetching bots:', botsError);
@@ -4103,15 +4105,19 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
   const conversation = freshConversation;
 
   if (!bots || bots.length === 0) {
-    console.log(`No active bots found for company (isVialogistic: ${isVialogistic})`);
+    console.error(`⛔ [BOT] Nenhum bot publicado para a empresa ${EXPECTED_COMPANY_ID}.`);
+    return;
+  }
+
+  if (bots.length > 1) {
+    console.error(`⛔ [BOT] ${bots.length} bots publicados para a empresa ${EXPECTED_COMPANY_ID} (${bots.map((b: any) => b.id).join(', ')}). Abortando para evitar fluxo ambíguo.`);
     return;
   }
 
   const bot = bots[0];
   console.log('Using bot:', bot.name, 'for instance:', instanceName);
-  
-  // Determinar nome da empresa para mensagens do bot
-  const companyDisplayName = isVialogistic ? 'ViaLogistic' : 'Viainfra';
+
+  const companyDisplayName = 'Viainfra';
 
   const conversationState = conversation?.metadata?.bot_state || {
     currentNodeId: 'start-1',
@@ -4171,18 +4177,38 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
   const recipientJid = `${contactPhone}@s.whatsapp.net`;
   console.log(`📤 Enviando resposta do bot para: ${recipientJid}`);
 
-  // Executar em paralelo
-  await Promise.all([
-    supabase.from('messages').insert({
-      conversation_id: conversationId,
-      content: result.response,
-      sender_type: 'bot',
-      metadata: { bot_id: bot.id, bot_name: bot.name },
-      created_at: new Date().toISOString(),
-    }),
-    supabase.from('conversations').update(conversationUpdate).eq('id', conversationId),
-    sendEvolutionMessageSafe(instanceName, contactPhone, result.response)
-  ]);
+  // IDEMPOTÊNCIA: a resposta do bot é gravada ANTES do envio, com uma chave
+  // derivada da mensagem recebida. Se o mesmo webhook chegar duas vezes, o
+  // índice único bloqueia a segunda gravação e nada é reenviado.
+  const botRequestId = inboundExternalId
+    ? `${inboundExternalId}:${result.newState?.currentNodeId || 'bot'}`
+    : null;
+
+  const botMessage: any = {
+    conversation_id: conversationId,
+    content: result.response,
+    sender_type: 'bot',
+    metadata: {
+      bot_id: bot.id,
+      bot_name: bot.name,
+      ...(botRequestId ? { request_id: botRequestId } : {}),
+    },
+    created_at: new Date().toISOString(),
+  };
+
+  const { error: botInsertError } = await supabase.from('messages').insert(botMessage);
+
+  if (botInsertError) {
+    if (botInsertError.code === '23505') {
+      console.log('⚠️ [BOT] Resposta já gravada para este evento - não reenviando.');
+      return;
+    }
+    console.error('❌ [BOT] Erro ao gravar resposta do bot:', botInsertError);
+    return;
+  }
+
+  await supabase.from('conversations').update(conversationUpdate).eq('id', conversationId);
+  await sendEvolutionMessageSafe(instanceName, contactPhone, result.response);
 }
 
 async function handleFetchPlacas(supabase: any, conversationId: string, remoteJid: string, instanceName: string, botFlow: any, currentState: any) {
