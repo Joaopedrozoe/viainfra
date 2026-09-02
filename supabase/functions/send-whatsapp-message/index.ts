@@ -799,7 +799,9 @@ async function sendMediaMessage(
 
     if (response.ok) {
       // Áudio e sticker não suportam legenda: enviar o texto como mensagem complementar
-      if ((attachment.type === 'audio' || attachment.type === 'sticker') && caption) {
+      const sentWithoutCaption = attachment.type === 'audio'
+        || (attachment.type === 'sticker' && (attachment.mimeType || '').includes('webp'));
+      if (sentWithoutCaption && caption) {
         try {
           await sendTextMessage(evolutionUrl, evolutionKey, instanceName, recipientJid, mediaCaption, isGroup);
         } catch (e) {
