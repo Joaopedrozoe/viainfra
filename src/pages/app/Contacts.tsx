@@ -546,6 +546,7 @@ const Contacts = () => {
       <CreateContactModal
         open={showCreateModal}
         onOpenChange={setShowCreateModal}
+        onCreated={fetchContacts}
       />
       <ContactsRepairDialog
         open={showRepairDialog}

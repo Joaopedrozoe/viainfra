@@ -118,9 +118,8 @@ export const ChatInput = memo(({
   const handleSendMessage = useCallback(async () => {
     if (isSending) return;
     if (newMessage.trim() === "" && !selectedFile) return;
-    const hadFile = !!selectedFile;
+    setIsSending(true);
     try {
-      if (hadFile) setIsSending(true);
       await Promise.resolve(onSendMessage(newMessage, selectedFile || undefined));
       setNewMessage("");
       setSelectedFile(null);

@@ -26,6 +26,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/auth/AuthContext";
+import { useStartConversation } from "@/hooks/useStartConversation";
 
 interface ContactDetailsProps {
   contact: Contact;
@@ -34,6 +36,8 @@ interface ContactDetailsProps {
 
 export const ContactDetails = ({ contact, onUpdate }: ContactDetailsProps) => {
   const navigate = useNavigate();
+  const { company } = useAuth();
+  const { startConversation } = useStartConversation(company?.id);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isStartingChat, setIsStartingChat] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -44,7 +48,7 @@ export const ContactDetails = ({ contact, onUpdate }: ContactDetailsProps) => {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Iniciar conversa a partir do contato
+  // Iniciar conversa a partir do contato, sempre usando a empresa ativa.
   const handleStartConversation = async () => {
     if (!contact.phone) {
       toast.error("Este contato não possui telefone cadastrado");
@@ -53,93 +57,16 @@ export const ContactDetails = ({ contact, onUpdate }: ContactDetailsProps) => {
 
     setIsStartingChat(true);
     try {
-      // Buscar company_id do usuário
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        toast.error("Usuário não autenticado");
-        return;
-      }
-
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('user_id', user.id)
-        .limit(1);
-
-      const companyId = profiles?.[0]?.company_id;
-      if (!companyId) {
-        toast.error("Empresa não encontrada");
-        return;
-      }
-
-      // Buscar contato real pelo ID
-      const { data: realContact } = await supabase
-        .from('contacts')
-        .select('id, phone, metadata')
-        .eq('id', contact.id)
-        .single();
-
-      if (!realContact) {
-        toast.error("Contato não encontrado");
-        return;
-      }
-
-      // Buscar conversa existente pelo contact_id
-      const { data: existingConversation } = await supabase
-        .from('conversations')
-        .select('id')
-        .eq('contact_id', realContact.id)
-        .eq('company_id', companyId)
-        .eq('channel', 'whatsapp')
-        .limit(1);
-
-      if (existingConversation && existingConversation.length > 0) {
-        // Conversa já existe - redirecionar pro inbox com ela selecionada
-        toast.success("Abrindo conversa existente...");
-        navigate(`/inbox?conversation=${existingConversation[0].id}`);
-        return;
-      }
-
-      // Não existe conversa - criar uma nova
-      const metadata: Record<string, any> = {
-        contactPhone: realContact.phone,
-        contactName: contact.name,
-        createdFromContact: true,
-      };
-
-      // Se o contato tiver remoteJid no metadata, usar
-      const contactMetadata = realContact.metadata as Record<string, any> | null;
-      if (contactMetadata?.remoteJid) {
-        metadata.remoteJid = contactMetadata.remoteJid;
-      } else if (realContact.phone) {
-        // Construir remoteJid a partir do telefone
-        const cleanPhone = realContact.phone.replace(/\D/g, '');
-        metadata.remoteJid = `${cleanPhone}@s.whatsapp.net`;
-      }
-
-      const { data: newConversation, error } = await supabase
-        .from('conversations')
-        .insert({
-          company_id: companyId,
-          contact_id: realContact.id,
-          channel: 'whatsapp',
-          status: 'open',
-          metadata,
-        })
-        .select('id')
-        .single();
-
-      if (error) {
-        console.error('Erro ao criar conversa:', error);
-        toast.error("Erro ao criar conversa");
-        return;
-      }
-
-      toast.success("Conversa criada! Redirecionando...");
-      navigate(`/inbox?conversation=${newConversation.id}`);
+      const result = await startConversation({
+        name: contact.name,
+        phone: contact.phone,
+        email: contact.email,
+      });
+      toast.success(result.createdConversation ? "Conversa criada" : "Abrindo conversa existente");
+      navigate(`/inbox?conversation=${result.conversationId}`);
     } catch (error) {
-      console.error('Erro ao iniciar conversa:', error);
-      toast.error("Erro ao iniciar conversa");
+      console.error("Erro ao iniciar conversa:", error);
+      toast.error(error instanceof Error ? error.message : "Erro ao iniciar conversa");
     } finally {
       setIsStartingChat(false);
     }
