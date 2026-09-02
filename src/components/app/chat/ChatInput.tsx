@@ -15,6 +15,12 @@ import {
 
 const getFileType = (file: File): Attachment['type'] => getWhatsAppAttachmentType(file);
 
+const SendIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M22 2L11 13" />
+    <path d="M22 2l-7 20-4-9-9-4 20-7z" />
+  </svg>
+);
 
 const getFileIcon = (type: Attachment['type']) => {
   switch (type) {
