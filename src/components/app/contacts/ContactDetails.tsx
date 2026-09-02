@@ -91,8 +91,25 @@ export const ContactDetails = ({ contact, onUpdate }: ContactDetailsProps) => {
   const handleEditSubmit = async () => {
     setIsSubmitting(true);
     try {
-      // Normalizar telefone (remover caracteres não numéricos)
-      const normalizedPhone = editForm.phone ? editForm.phone.replace(/\D/g, '') : null;
+      const normalizedPhone = editForm.phone ? normalizeWhatsAppPhone(editForm.phone) : null;
+      if (editForm.phone && !normalizedPhone) {
+        toast.error("Informe um número de telefone válido");
+        return;
+      }
+      if (normalizedPhone) {
+        const { data: duplicate, error: duplicateError } = await supabase
+          .from("contacts")
+          .select("id")
+          .eq("company_id", company?.id || "")
+          .eq("phone", normalizedPhone)
+          .neq("id", contact.id)
+          .limit(1);
+        if (duplicateError) throw duplicateError;
+        if (duplicate?.[0]) {
+          toast.error("Este telefone já está cadastrado para outro contato");
+          return;
+        }
+      }
       
       const { error } = await supabase
         .from("contacts")

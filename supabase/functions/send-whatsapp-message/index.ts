@@ -754,8 +754,11 @@ async function sendMediaMessage(
       body = { ...body, audio: attachment.url };
       break;
     case 'sticker':
-      // Stickers só são aceitos em webp pela API oficial; outros formatos vão como imagem
-      if ((attachment.mimeType || '').includes('webp')) {
+      // Stickers só são aceitos em webp pela API oficial; outros formatos vão como imagem.
+      const isWebpSticker = (attachment.mimeType || '').toLowerCase().includes('webp')
+        || /\.webp(?:$|\?)/i.test(attachment.filename || '')
+        || /\.webp(?:$|\?)/i.test(attachment.url);
+      if (isWebpSticker) {
         endpoint = `/message/sendSticker/${instanceName}`;
         body = { ...body, sticker: attachment.url };
       } else {
@@ -800,7 +803,11 @@ async function sendMediaMessage(
     if (response.ok) {
       // Áudio e sticker não suportam legenda: enviar o texto como mensagem complementar
       const sentWithoutCaption = attachment.type === 'audio'
-        || (attachment.type === 'sticker' && (attachment.mimeType || '').includes('webp'));
+        || (attachment.type === 'sticker' && (
+          (attachment.mimeType || '').toLowerCase().includes('webp')
+          || /\.webp(?:$|\?)/i.test(attachment.filename || '')
+          || /\.webp(?:$|\?)/i.test(attachment.url)
+        ));
       if (sentWithoutCaption && caption) {
         try {
           await sendTextMessage(evolutionUrl, evolutionKey, instanceName, recipientJid, mediaCaption, isGroup);
