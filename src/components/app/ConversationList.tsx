@@ -21,13 +21,14 @@ interface ConversationListProps {
   refreshTrigger?: number;
   onResolveConversation?: (id: string) => void;
   onSelectInternalChat?: (conversationId: string) => void;
+  onNewConversation?: () => void;
 }
 
 export const resolveConversation = (conversationId: string) => {
   ConversationStorage.addResolvedConversation(conversationId);
 };
 
-export const ConversationList = ({ onSelectConversation, selectedId, refreshTrigger, onResolveConversation, onSelectInternalChat }: ConversationListProps) => {
+export const ConversationList = ({ onSelectConversation, selectedId, refreshTrigger, onResolveConversation, onSelectInternalChat, onNewConversation }: ConversationListProps) => {
   const [searchTerm, setSearchTerm] = useState("");
   // useDeferredValue para não bloquear a UI durante digitação
   const deferredSearchTerm = useDeferredValue(searchTerm);
@@ -292,6 +293,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
           onChannelChange={() => {}} 
           selectedDepartment="all"
           onDepartmentChange={() => {}}
+          onNewConversation={onNewConversation}
         />
         <Tabs defaultValue="all" className="px-2 pt-2">
           <TabsList className="w-full flex flex-wrap gap-1 h-auto p-1 bg-muted/50">
@@ -342,7 +344,8 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         selectedChannel={selectedChannel} 
         onChannelChange={setSelectedChannel}
         selectedDepartment={selectedDepartment}
-        onDepartmentChange={setSelectedDepartment} 
+        onDepartmentChange={setSelectedDepartment}
+        onNewConversation={onNewConversation}
       />
       
       {/* Sync status bar */}

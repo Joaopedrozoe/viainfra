@@ -1,7 +1,7 @@
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Filter } from "lucide-react";
+import { Filter, MessageSquarePlus } from "lucide-react";
 import { Channel } from "@/types/conversation";
 import { cn } from "@/lib/utils";
 import { useDepartments } from "@/contexts/DepartmentsContext";
@@ -20,7 +20,8 @@ interface SearchHeaderProps {
   onChannelChange: (channel: Channel | "all") => void;
   selectedDepartment?: string | "all";
   onDepartmentChange?: (department: string | "all") => void;
-  onSearch?: (term: string) => void;  // Add the onSearch prop for backward compatibility
+  onSearch?: (term: string) => void;
+  onNewConversation?: () => void;
 }
 
 const channelLabels: Record<Channel | "all", string> = {
@@ -41,6 +42,7 @@ export const SearchHeader = ({
   selectedDepartment = "all",
   onDepartmentChange,
   onSearch,
+  onNewConversation,
 }: SearchHeaderProps) => {
   const { profile } = useAuth();
   const { getFilteredDepartments } = useDepartments();
@@ -64,6 +66,11 @@ export const SearchHeader = ({
           className="h-10"
           aria-label="Pesquisar conversas"
         />
+        {onNewConversation && (
+          <Button type="button" variant="default" size="icon" onClick={onNewConversation} aria-label="Nova conversa" title="Nova conversa">
+            <MessageSquarePlus className="h-4 w-4" />
+          </Button>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
