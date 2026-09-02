@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 interface Attachment {
-  type: 'image' | 'video' | 'audio' | 'document';
+  type: 'image' | 'video' | 'audio' | 'document' | 'sticker';
   url: string;
   filename?: string;
   mimeType?: string;
@@ -753,6 +753,19 @@ async function sendMediaMessage(
       endpoint = `/message/sendWhatsAppAudio/${instanceName}`;
       body = { ...body, audio: attachment.url };
       break;
+    case 'sticker':
+      // Stickers só são aceitos em webp pela API oficial; outros formatos vão como imagem.
+      const isWebpSticker = (attachment.mimeType || '').toLowerCase().includes('webp')
+        || /\.webp(?:$|\?)/i.test(attachment.filename || '')
+        || /\.webp(?:$|\?)/i.test(attachment.url);
+      if (isWebpSticker) {
+        endpoint = `/message/sendSticker/${instanceName}`;
+        body = { ...body, sticker: attachment.url };
+      } else {
+        endpoint = `/message/sendMedia/${instanceName}`;
+        body = { ...body, mediatype: 'image', media: attachment.url, caption: mediaCaption };
+      }
+      break;
     case 'document':
       endpoint = `/message/sendMedia/${instanceName}`;
       body = { ...body, mediatype: 'document', media: attachment.url, fileName: attachment.filename || 'document', caption: mediaCaption };
@@ -788,6 +801,20 @@ async function sendMediaMessage(
     console.log(`[send-whatsapp] Media response: ${response.status}`, responseText);
 
     if (response.ok) {
+      // Áudio e sticker não suportam legenda: enviar o texto como mensagem complementar
+      const sentWithoutCaption = attachment.type === 'audio'
+        || (attachment.type === 'sticker' && (
+          (attachment.mimeType || '').toLowerCase().includes('webp')
+          || /\.webp(?:$|\?)/i.test(attachment.filename || '')
+          || /\.webp(?:$|\?)/i.test(attachment.url)
+        ));
+      if (sentWithoutCaption && caption) {
+        try {
+          await sendTextMessage(evolutionUrl, evolutionKey, instanceName, recipientJid, mediaCaption, isGroup);
+        } catch (e) {
+          console.warn('[send-whatsapp] Falha ao enviar legenda complementar:', e);
+        }
+      }
       try {
         const responseData = JSON.parse(responseText);
         const messageId = responseData?.key?.id || responseData?.messageId || responseData?.id;

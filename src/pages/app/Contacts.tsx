@@ -14,6 +14,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useDemoMode } from "@/hooks/useDemoMode";
 import { useAuth } from "@/contexts/auth/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { useStartConversation } from "@/hooks/useStartConversation";
 
 // Helper to check if contact is a group
 const isGroup = (contact: Contact): boolean => {
@@ -23,6 +25,8 @@ const isGroup = (contact: Contact): boolean => {
 const Contacts = () => {
   const { isDemoMode } = useDemoMode();
   const { company } = useAuth(); // Usa a empresa ATIVA (selecionada)
+  const navigate = useNavigate();
+  const { startConversation } = useStartConversation(company?.id);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncingPhotos, setIsSyncingPhotos] = useState(false);
@@ -35,6 +39,25 @@ const Contacts = () => {
   const [showMessageModal, setShowMessageModal] = useState(false);
   const [isRecoveringPhones, setIsRecoveringPhones] = useState(false);
   const [showRepairDialog, setShowRepairDialog] = useState(false);
+  const [startingConversationId, setStartingConversationId] = useState<string | null>(null);
+
+  const handleStartConversation = async (contact: Contact) => {
+    if (!contact.phone) {
+      toast.error("Este contato não possui telefone cadastrado");
+      return;
+    }
+    setStartingConversationId(contact.id);
+    try {
+      const result = await startConversation({ name: contact.name, phone: contact.phone, email: contact.email });
+      navigate(`/inbox?conversation=${result.conversationId}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível iniciar a conversa");
+    } finally {
+      setStartingConversationId(null);
+    }
+  };
+
+
 
 
 
@@ -496,17 +519,34 @@ const Contacts = () => {
                       </div>
                     </div>
                     
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteContact(contact.id);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                     {!isGroup(contact) && (
+                       <Button
+                         variant="ghost"
+                         size="icon"
+                         className="opacity-0 group-hover:opacity-100 transition-opacity"
+                         onClick={(e) => {
+                           e.stopPropagation();
+                           void handleStartConversation(contact);
+                         }}
+                         disabled={!contact.phone || startingConversationId === contact.id}
+                         aria-label={`Iniciar conversa com ${contact.name}`}
+                         title={contact.phone ? "Iniciar conversa" : "Contato sem telefone"}
+                       >
+                         {startingConversationId === contact.id ? <RefreshCw className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
+                       </Button>
+                     )}
+                     <Button
+                       variant="ghost"
+                       size="icon"
+                       className="opacity-0 group-hover:opacity-100 transition-opacity"
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         handleDeleteContact(contact.id);
+                       }}
+                       aria-label={`Excluir ${contact.name}`}
+                     >
+                       <Trash2 className="h-4 w-4 text-destructive" />
+                     </Button>
                   </div>
                 ))}
               </div>
@@ -546,6 +586,7 @@ const Contacts = () => {
       <CreateContactModal
         open={showCreateModal}
         onOpenChange={setShowCreateModal}
+        onCreated={fetchContacts}
       />
       <ContactsRepairDialog
         open={showRepairDialog}

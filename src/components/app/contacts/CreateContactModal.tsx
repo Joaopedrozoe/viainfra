@@ -8,13 +8,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/auth/AuthContext";
+import { normalizeWhatsAppPhone } from "@/hooks/useStartConversation";
 
 interface CreateContactModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCreated?: () => void;
 }
 
-export const CreateContactModal = ({ open, onOpenChange }: CreateContactModalProps) => {
+export const CreateContactModal = ({ open, onOpenChange, onCreated }: CreateContactModalProps) => {
+  const { company } = useAuth();
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -40,27 +44,31 @@ export const CreateContactModal = ({ open, onOpenChange }: CreateContactModalPro
       return;
     }
 
+    const normalizedPhone = formData.phone ? normalizeWhatsAppPhone(formData.phone) : null;
+    if (formData.phone && !normalizedPhone) {
+      toast.error("Informe um número de telefone válido");
+      return;
+    }
+    if (!company?.id) {
+      toast.error("Empresa ativa não encontrada");
+      return;
+    }
+
     try {
       const { supabase } = await import("@/integrations/supabase/client");
-      const { useAuth } = await import("@/contexts/auth");
-      
-      // Buscar company_id do usuário atual
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        toast.error("Usuário não autenticado");
-        return;
-      }
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('company_id')
-        .eq('user_id', user.id)
-        .single();
-
-      if (!profile?.company_id) {
-        toast.error("Empresa não encontrada");
-        return;
+      if (normalizedPhone) {
+        const { data: duplicate, error: duplicateError } = await supabase
+          .from('contacts')
+          .select('id, name')
+          .eq('company_id', company.id)
+          .eq('phone', normalizedPhone)
+          .limit(1);
+        if (duplicateError) throw duplicateError;
+        if (duplicate?.[0]) {
+          toast.error("Este telefone já está cadastrado", { description: duplicate[0].name });
+          return;
+        }
       }
 
       // Criar contato no Supabase
@@ -68,9 +76,9 @@ export const CreateContactModal = ({ open, onOpenChange }: CreateContactModalPro
         .from('contacts')
         .insert({
           name: formData.name.trim(),
-          email: formData.email.trim() || null,
-          phone: formData.phone.trim() || null,
-          company_id: profile.company_id,
+           email: formData.email.trim() || null,
+           phone: normalizedPhone,
+           company_id: company.id,
           tags: formData.tags,
           metadata: {
             company: formData.company || null,
@@ -87,8 +95,7 @@ export const CreateContactModal = ({ open, onOpenChange }: CreateContactModalPro
       }
 
       toast.success("Contato criado com sucesso!");
-      
-      // Reset form and close modal
+      onCreated?.();
       setFormData({
         name: "",
         email: "",
@@ -100,9 +107,6 @@ export const CreateContactModal = ({ open, onOpenChange }: CreateContactModalPro
       });
       setNewTag("");
       onOpenChange(false);
-      
-      // Recarregar página para atualizar lista
-      window.location.reload();
     } catch (error) {
       console.error('Erro ao criar contato:', error);
       toast.error("Erro ao criar contato");

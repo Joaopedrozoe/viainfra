@@ -1,0 +1,4 @@
+- [x] Corrigir anexos no inbox: sticker, legenda de áudio, estado de envio e falhas
+- [x] Implementar nova conversa com cadastro rápido no inbox, sem duplicidade e isolada por empresa
+- [x] Reforçar cadastro na página de contatos: normalização, duplicidade, atualização local e iniciar conversa
+- [x] Validar tipos, navegador público e ausência de erros de console

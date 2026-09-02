@@ -60,7 +60,7 @@ export interface ChatWindowProps {
 }
 
 export interface ChatInputProps {
-  onSendMessage: (message: string, attachment?: File) => void;
+  onSendMessage: (message: string, attachment?: File) => void | Promise<void>;
   replyToMessage?: Message | null;
   onCancelReply?: () => void;
   contactName?: string;
