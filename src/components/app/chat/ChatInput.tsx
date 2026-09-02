@@ -86,6 +86,8 @@ export const ChatInput = memo(({
   const [newMessage, setNewMessage] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [acceptOverride, setAcceptOverride] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -107,13 +109,20 @@ export const ChatInput = memo(({
     return () => observer.disconnect();
   }, []);
 
-  const handleSendMessage = useCallback(() => {
+  const handleSendMessage = useCallback(async () => {
+    if (isSending) return;
     if (newMessage.trim() === "" && !selectedFile) return;
-    onSendMessage(newMessage, selectedFile || undefined);
-    setNewMessage("");
-    setSelectedFile(null);
-    setPreviewUrl(null);
-  }, [newMessage, selectedFile, onSendMessage]);
+    const hadFile = !!selectedFile;
+    try {
+      if (hadFile) setIsSending(true);
+      await Promise.resolve(onSendMessage(newMessage, selectedFile || undefined));
+      setNewMessage("");
+      setSelectedFile(null);
+      setPreviewUrl(null);
+    } finally {
+      setIsSending(false);
+    }
+  }, [newMessage, selectedFile, onSendMessage, isSending]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
