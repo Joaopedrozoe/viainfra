@@ -1,7 +1,7 @@
 import { useState, useCallback, memo, useMemo, useRef, useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Mic, MicOff, FileUp, X, Image, FileText, Film, Music, Reply, Smile, MessageSquarePlus } from "lucide-react";
+import { Mic, MicOff, FileUp, X, Image, FileText, Film, Music, Reply, Smile, MessageSquarePlus, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Attachment, ChatInputProps, Message } from "./types";
 import EmojiPicker, { EmojiClickData, Theme, EmojiStyle } from 'emoji-picker-react';
@@ -263,28 +263,39 @@ export const ChatInput = memo(({
         </div>
       )}
 
-      <div className="flex space-x-2 items-end">
-        <input
-          ref={fileInputRef}
-          type="file"
-          className="hidden"
-          onChange={handleFileSelect}
-          accept={acceptOverride ?? WHATSAPP_ACCEPT_ATTRIBUTE}
-        />
-        <button
-          className={recordingButtonClass}
-          onClick={toggleRecording}
-          aria-label={isRecording ? "Parar gravação" : "Iniciar gravação"}
-        >
-          {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
-        </button>
-        <button
-          className="p-2 text-muted-foreground hover:text-foreground rounded-full transition-colors"
-          onClick={() => handleFileUpload()}
-          aria-label="Enviar arquivo"
-        >
-          <FileUp size={20} />
-        </button>
+       <div className="flex space-x-2 items-end">
+         <input
+           ref={fileInputRef}
+           type="file"
+           className="hidden"
+           onChange={handleFileSelect}
+           accept={acceptOverride ?? WHATSAPP_ACCEPT_ATTRIBUTE}
+         />
+         <button
+           type="button"
+           className={recordingButtonClass}
+           onClick={toggleRecording}
+           disabled={isSending}
+           aria-label={isRecording ? "Parar gravação" : "Iniciar gravação"}
+         >
+           {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
+         </button>
+         <Popover>
+           <PopoverTrigger asChild>
+             <Button type="button" variant="ghost" size="icon" disabled={isSending} aria-label="Escolher tipo de arquivo" title="Escolher tipo de arquivo">
+               <FileUp size={20} />
+             </Button>
+           </PopoverTrigger>
+           <PopoverContent className="w-48 p-2" side="top" align="start">
+             <div className="grid gap-1">
+               <Button type="button" variant="ghost" className="justify-start" onClick={() => handleFileUpload("image/*")}>Imagem ou sticker</Button>
+               <Button type="button" variant="ghost" className="justify-start" onClick={() => handleFileUpload("video/*")}>Vídeo</Button>
+               <Button type="button" variant="ghost" className="justify-start" onClick={() => handleFileUpload("audio/*")}>Áudio</Button>
+               <Button type="button" variant="ghost" className="justify-start" onClick={() => handleFileUpload("application/*,text/*")}>Documento</Button>
+               <Button type="button" variant="ghost" className="justify-start" onClick={() => handleFileUpload()}>Todos os formatos</Button>
+             </div>
+           </PopoverContent>
+         </Popover>
 
         {onSendTemplate && (
           <button
@@ -345,17 +356,14 @@ export const ChatInput = memo(({
             rows={1}
           />
         </div>
-        <Button 
-          onClick={handleSendMessage} 
-          className="bg-primary hover:bg-primary/90"
-          disabled={(!newMessage.trim() && !selectedFile) || isRecording}
-          aria-label="Enviar mensagem"
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M22 2L11 13"></path>
-            <path d="M22 2l-7 20-4-9-9-4 20-7z"></path>
-          </svg>
-        </Button>
+         <Button 
+           onClick={handleSendMessage} 
+           className="bg-primary hover:bg-primary/90"
+           disabled={(!newMessage.trim() && !selectedFile) || isRecording || isSending}
+           aria-label="Enviar mensagem"
+         >
+           {isSending ? <Loader2 className="h-5 w-5 animate-spin" /> : <SendIcon />}
+         </Button>
       </div>
     </div>
   );
