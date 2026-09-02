@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 interface Attachment {
-  type: 'image' | 'video' | 'audio' | 'document';
+  type: 'image' | 'video' | 'audio' | 'document' | 'sticker';
   url: string;
   filename?: string;
   mimeType?: string;
@@ -752,6 +752,16 @@ async function sendMediaMessage(
     case 'audio':
       endpoint = `/message/sendWhatsAppAudio/${instanceName}`;
       body = { ...body, audio: attachment.url };
+      break;
+    case 'sticker':
+      // Stickers só são aceitos em webp pela API oficial; outros formatos vão como imagem
+      if ((attachment.mimeType || '').includes('webp')) {
+        endpoint = `/message/sendSticker/${instanceName}`;
+        body = { ...body, sticker: attachment.url };
+      } else {
+        endpoint = `/message/sendMedia/${instanceName}`;
+        body = { ...body, mediatype: 'image', media: attachment.url, caption: mediaCaption };
+      }
       break;
     case 'document':
       endpoint = `/message/sendMedia/${instanceName}`;
