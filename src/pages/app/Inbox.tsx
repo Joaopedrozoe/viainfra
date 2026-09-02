@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { setActiveConversationId, setUnreadTitleBadge } from "@/lib/notification-focus";
 import { IncomingCallListener } from "@/components/app/calls/IncomingCallListener";
 import { NotificationPermissionBanner } from "@/components/app/NotificationPermissionBanner";
+import { NewConversationDialog } from "@/components/app/chat/NewConversationDialog";
 
 
 
@@ -39,6 +40,7 @@ const Inbox = () => {
   const [selectedInternalChat, setSelectedInternalChat] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [activeMainTab, setActiveMainTab] = useState<"conversations" | "status">("conversations");
+  const [showNewConversation, setShowNewConversation] = useState(false);
   const { conversations: internalConversations } = useInternalChat();
   const { conversations, updateConversationStatus, refetch } = useConversations();
   const { company } = useAuth();
@@ -116,6 +118,11 @@ const Inbox = () => {
       setShowChat(true);
     }
   }, [isMobile]);
+
+  const handleNewConversationCreated = useCallback((conversationId: string) => {
+    handleSelectConversation(conversationId);
+    void refetch();
+  }, [handleSelectConversation, refetch]);
   
   const handleBackToList = useCallback(() => {
     setShowChat(false);
@@ -277,9 +284,10 @@ const Inbox = () => {
                   onSelectConversation={handleSelectConversation}
                   selectedId={selectedConversation}
                   refreshTrigger={0}
-                  onResolveConversation={handleResolveConversation}
-                  onSelectInternalChat={handleSelectInternalChat}
-                />
+                   onResolveConversation={handleResolveConversation}
+                   onSelectInternalChat={handleSelectInternalChat}
+                   onNewConversation={() => setShowNewConversation(true)}
+                 />
               ) : (
                 <StatusTab />
               )}
@@ -349,9 +357,10 @@ const Inbox = () => {
                     onSelectConversation={handleSelectConversation}
                     selectedId={selectedConversation}
                     refreshTrigger={0}
-                    onResolveConversation={handleResolveConversation}
-                    onSelectInternalChat={handleSelectInternalChat}
-                  />
+                     onResolveConversation={handleResolveConversation}
+                     onSelectInternalChat={handleSelectInternalChat}
+                     onNewConversation={() => setShowNewConversation(true)}
+                   />
                 </div>
               </div>
               
@@ -380,6 +389,13 @@ const Inbox = () => {
           )}
         </SheetContent>
       </Sheet>
+
+      <NewConversationDialog
+        open={showNewConversation}
+        companyId={company?.id}
+        onOpenChange={setShowNewConversation}
+        onCreated={handleNewConversationCreated}
+      />
     </>
   );
 };
