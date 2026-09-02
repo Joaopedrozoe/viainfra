@@ -798,6 +798,14 @@ async function sendMediaMessage(
     console.log(`[send-whatsapp] Media response: ${response.status}`, responseText);
 
     if (response.ok) {
+      // Áudio e sticker não suportam legenda: enviar o texto como mensagem complementar
+      if ((attachment.type === 'audio' || attachment.type === 'sticker') && caption) {
+        try {
+          await sendTextMessage(evolutionUrl, evolutionKey, instanceName, recipientJid, mediaCaption, isGroup);
+        } catch (e) {
+          console.warn('[send-whatsapp] Falha ao enviar legenda complementar:', e);
+        }
+      }
       try {
         const responseData = JSON.parse(responseText);
         const messageId = responseData?.key?.id || responseData?.messageId || responseData?.id;
