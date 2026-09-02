@@ -166,8 +166,10 @@ export const ChatInput = memo(({
   }, []);
 
 
-  const handleFileUpload = useCallback(() => {
-    fileInputRef.current?.click();
+  const handleFileUpload = useCallback((accept?: string) => {
+    setAcceptOverride(accept ?? null);
+    // aguarda o accept ser aplicado ao input antes de abrir o seletor
+    setTimeout(() => fileInputRef.current?.click(), 0);
   }, []);
 
   const removeFile = useCallback(() => {
