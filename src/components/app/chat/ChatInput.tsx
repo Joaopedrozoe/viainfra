@@ -269,7 +269,7 @@ export const ChatInput = memo(({
           type="file"
           className="hidden"
           onChange={handleFileSelect}
-          accept={WHATSAPP_ACCEPT_ATTRIBUTE}
+          accept={acceptOverride ?? WHATSAPP_ACCEPT_ATTRIBUTE}
         />
         <button
           className={recordingButtonClass}
@@ -280,7 +280,7 @@ export const ChatInput = memo(({
         </button>
         <button
           className="p-2 text-muted-foreground hover:text-foreground rounded-full transition-colors"
-          onClick={handleFileUpload}
+          onClick={() => handleFileUpload()}
           aria-label="Enviar arquivo"
         >
           <FileUp size={20} />
