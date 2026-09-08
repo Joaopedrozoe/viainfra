@@ -235,6 +235,31 @@ serve(async (req) => {
     let result: any = null;
 
     switch (action) {
+      case 'diagnose': {
+        const binding = await validateMetaBinding();
+        if (!binding.ok) return jsonResponse({ ok: false, error: binding.error }, 400);
+
+        const [wabaResult, subscriptionsResult] = await Promise.all([
+          callMeta('GET', `/${creds.wabaId}?fields=id,name,account_review_status,business_verification_status,status`),
+          callMeta('GET', `/${creds.wabaId}/subscribed_apps`),
+        ]);
+        if (!wabaResult.ok) return jsonResponse({ ok: false, error: metaError(wabaResult) }, 400);
+
+        return jsonResponse({
+          ok: true,
+          data: {
+            company: creds.key,
+            graphVersion: 'v26.0',
+            wabaId: creds.wabaId,
+            phoneNumberId: creds.phoneNumberId,
+            number: binding.number,
+            waba: wabaResult.data,
+            subscribedApps: subscriptionsResult.ok ? subscriptionsResult.data?.data || [] : [],
+            subscriptionWarning: subscriptionsResult.ok ? null : metaError(subscriptionsResult),
+          },
+        });
+      }
+
       case 'create': {
         const { subject, description } = payload || {};
         if (!subject) return jsonResponse({ ok: false, error: 'Informe o nome do grupo' }, 400);
