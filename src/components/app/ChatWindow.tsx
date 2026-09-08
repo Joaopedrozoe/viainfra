@@ -31,6 +31,7 @@ const attachmentPlaceholderLabels = new Set([
   '[Documento]',
   '[Sticker]',
   '[Contato]',
+  '[Localização]',
 ]);
 
 

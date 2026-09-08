@@ -5,7 +5,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Phone, PhoneOff, Mic, MicOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/auth";
-import { acceptCall, preAcceptCall, rejectCall, terminateCall } from "@/hooks/useCalls";
+import { acceptCall, claimCall, preAcceptCall, rejectCall, terminateCall } from "@/hooks/useCalls";
 import { WhatsAppCallSession, describeMicError } from "@/lib/whatsapp-call-webrtc";
 import type { IncomingCall } from "@/hooks/useIncomingCalls";
 
@@ -86,6 +86,22 @@ export const IncomingCallDialog = ({ call, onDismiss }: IncomingCallDialogProps)
       return;
     }
     setPhase("accepting");
+
+    try {
+      const claim = await claimCall(call.id, "accept");
+      if (!claim.ok) {
+        if (claim.reason === "already_claimed") {
+          toast.info(`Chamada atendida por ${claim.answered_by_name || "outro atendente"}`);
+        }
+        onDismiss();
+        return;
+      }
+    } catch (e) {
+      toast.error("Não foi possível reivindicar a chamada. Tente novamente.");
+      setPhase("ringing");
+      return;
+    }
+
     const session = new WhatsAppCallSession();
     sessionRef.current = session;
     session.onConnectionStateChange = (state) => {
@@ -125,6 +141,11 @@ export const IncomingCallDialog = ({ call, onDismiss }: IncomingCallDialogProps)
     sessionRef.current?.close();
     sessionRef.current = null;
     setPhase("ended");
+    try {
+      await claimCall(call.id, "reject");
+    } catch {
+      /* segue tentando encerrar via edge function mesmo assim */
+    }
     try {
       await rejectCall({ waCallId: call.waCallId, callId: call.id, companyId: company?.id });
     } catch {
