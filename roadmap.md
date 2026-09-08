@@ -5,6 +5,6 @@
 - [x] 3. Contatos/nova conversa: RLS multi-empresa (company_access) + mensagem de erro real
 - [x] 4. Ligações: claim_call (primeiro atende, some para os demais), ring_deadline, resiliência realtime, "Atendida por"
 - [x] 5. IA Vivi (Gemini direto): tabelas, funções vivi-analyze-conversation/vivi-backfill, cron 5 min, página Agentes (insights, aprendizado, personalidade), avatares por empresa
-- [ ] 5b. Segredo GEMINI_API_KEY — aguardando usuário (ou decisão de usar Lovable AI)
+- [x] 5b. IA ativa via Lovable AI (troca para Gemini direto quando GEMINI_API_KEY for configurada)
 - [x] Typecheck OK; funções implantadas
 - [ ] Validação autenticada no navegador — bloqueada (Supabase externo, sem sessão de teste); validar com o usuário logado

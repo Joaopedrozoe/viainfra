@@ -550,7 +550,7 @@ const Agents = () => {
                       </div>
                     </div>
                     <div>
-                      <Label>Modelo Gemini</Label>
+                      <Label>Modelo de IA</Label>
                       <Select
                         defaultValue={(agent.config as any)?.model || "gemini-2.0-flash"}
                         onValueChange={(v) => setFormModel(v)}
@@ -559,8 +559,8 @@ const Agents = () => {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="gemini-2.0-flash">gemini-2.0-flash</SelectItem>
-                          <SelectItem value="gemini-2.5-flash">gemini-2.5-flash</SelectItem>
+                          <SelectItem value="gemini-2.0-flash">Lovable AI (padrão atual) / Gemini quando chave configurada</SelectItem>
+                          <SelectItem value="gemini-2.5-flash">Gemini 2.5 Flash (requer GEMINI_API_KEY)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
