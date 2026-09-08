@@ -44,6 +44,7 @@ function initials(name: string) {
 const Agents = () => {
   const navigate = useNavigate();
   const { agent, insights, jobCounts, isLoading, updateAgent, toggleStatus, runAnalyzeNow, backfillAction } = useViviAgent();
+  const { company } = useAuth();
   const [isRunningNow, setIsRunningNow] = useState(false);
 
   const [periodFilter, setPeriodFilter] = useState<"all" | "7" | "30">("30");
