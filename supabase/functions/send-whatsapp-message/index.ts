@@ -594,6 +594,25 @@ async function sendTextMessage(
       );
       const participantsBody = await participantsResp.text();
       console.log(`[send-whatsapp] participants: ${participantsResp.status}`, participantsBody.substring(0, 200));
+
+      // PRÉ-CHECAGEM: garantir que a instância ainda faz parte do grupo antes de tentar enviar
+      if (participantsResp.ok) {
+        try {
+          const participantsData = JSON.parse(participantsBody);
+          const participantsList = Array.isArray(participantsData)
+            ? participantsData
+            : (participantsData?.participants || []);
+          if (Array.isArray(participantsList) && participantsList.length === 0) {
+            console.error('[send-whatsapp] ⚠️ Grupo sem participantes retornados - instância pode ter saído do grupo');
+            return { success: false, error: 'Não foi possível confirmar que este número ainda participa do grupo. Verifique se a instância do WhatsApp continua no grupo e tente novamente.' };
+          }
+        } catch {
+          // Corpo não é JSON válido, seguir fluxo normal
+        }
+      } else if (participantsResp.status === 404 || participantsResp.status === 400) {
+        console.error('[send-whatsapp] ⚠️ Grupo não encontrado ou instância sem acesso ao grupo:', participantsBody);
+        return { success: false, error: 'Grupo não encontrado ou este número não participa mais dele.' };
+      }
       
       // PASSO 2: updatePresence "composing" (endpoint correto para grupos)
       console.log('[send-whatsapp] Passo 2: updatePresence composing');
@@ -666,6 +685,13 @@ async function sendTextMessage(
 
       // Log detalhado do erro
       console.error('[send-whatsapp] ❌ Falha no envio para grupo:', responseText);
+      const lowerBody = responseText.toLowerCase();
+      if (lowerBody.includes('not-acceptable') || lowerBody.includes('not acceptable')) {
+        return { success: false, error: 'O WhatsApp recusou o envio para este grupo (not-acceptable). Verifique se a instância ainda é membro do grupo.' };
+      }
+      if (response.status === 400 || response.status === 403 || response.status === 405 || response.status === 501) {
+        return { success: false, error: 'Recurso de grupo não habilitado pela Meta para esta conta' };
+      }
       return { success: false, error: `Falha: ${responseText}` };
 
     } catch (error: any) {
