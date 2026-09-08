@@ -14,6 +14,9 @@ import { FileText, Download, Play, Pause, Volume2, Check, CheckCheck, Clock, Ale
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { MessageActions } from "./MessageActions";
+import { toast } from "sonner";
+import { useAuth } from "@/contexts/auth";
+import { startConversation } from "@/hooks/useStartConversation";
 
 export type MessageItemProps = {
   message: Message;
