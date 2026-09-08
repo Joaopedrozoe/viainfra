@@ -44,6 +44,8 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
   });
   const { previewConversations } = usePreviewConversation();
   const { conversations: supabaseConversations, loading: supabaseLoading, refetch, forceSync, lastSyncTime, clearNewMessageFlag } = useConversations();
+  const { company } = useAuth();
+  const { runGroupAction, isLoading: isGroupSyncing } = useGroupActions();
   const [isSyncing, setIsSyncing] = useState(false);
   const { conversations: internalConversations } = useInternalChat();
   
