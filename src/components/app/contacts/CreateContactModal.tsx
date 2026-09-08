@@ -90,7 +90,12 @@ export const CreateContactModal = ({ open, onOpenChange, onCreated }: CreateCont
 
       if (insertError) {
         console.error('Erro ao criar contato:', insertError);
-        toast.error("Erro ao criar contato");
+        const isRls = /row-level security|permission denied/i.test(insertError.message);
+        toast.error("Erro ao criar contato", {
+          description: isRls
+            ? "Seu usuário não tem acesso a esta empresa. Peça ao administrador para revisar o vínculo."
+            : insertError.message,
+        });
         return;
       }
 

@@ -42,6 +42,9 @@ export const CallRecordItem = ({ record }: CallRecordItemProps) => {
         <p className="text-xs text-muted-foreground">
           {new Date(record.startedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
         </p>
+        {record.answeredByName && (
+          <p className="text-xs text-muted-foreground">Atendida por {record.answeredByName}</p>
+        )}
       </div>
     </div>
   );

@@ -114,6 +114,8 @@ export interface MediaValidationResult {
   ok: boolean;
   kind: WhatsAppMediaKind;
   error?: string;
+  /** Sugere reenvio como documento (ex.: imagem em formato não suportado, como webp/gif/heic). */
+  suggestDocument?: boolean;
 }
 
 function formatSize(bytes: number): string {
@@ -134,6 +136,27 @@ export function validateWhatsAppFile(file: File): MediaValidationResult {
     return { ok: false, kind, error: "Arquivo vazio." };
   }
 
+  // Formato de imagem/vídeo/áudio não suportado pela API oficial (ex.: webp de foto, gif, heic).
+  // Nesses casos o app pode reenviar como documento, que a Meta aceita para praticamente
+  // qualquer extensão.
+  const mime = (file.type || "").toLowerCase();
+  const isGenericFamilyMatch =
+    mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/");
+  const mimeExplicitlyListed = mime && rule.mimeTypes.includes(mime);
+  if (
+    kind !== "document" &&
+    isGenericFamilyMatch &&
+    !mimeExplicitlyListed &&
+    !(kind === "sticker" && mime === "image/webp")
+  ) {
+    return {
+      ok: false,
+      kind,
+      error: `Formato de ${rule.label.toLowerCase()} (${mime || "desconhecido"}) não é aceito pela API oficial do WhatsApp. Envie como documento.`,
+      suggestDocument: true,
+    };
+  }
+
   if (file.size > rule.maxSize) {
     return {
       ok: false,
@@ -143,6 +166,20 @@ export function validateWhatsAppFile(file: File): MediaValidationResult {
   }
 
   return { ok: true, kind };
+}
+
+/** Valida um arquivo já assumindo que será enviado como documento (bypass do tipo inferido). */
+export function validateAsDocument(file: File): MediaValidationResult {
+  const rule = WHATSAPP_MEDIA_RULES.document;
+  if (file.size === 0) return { ok: false, kind: "document", error: "Arquivo vazio." };
+  if (file.size > rule.maxSize) {
+    return {
+      ok: false,
+      kind: "document",
+      error: `${rule.label} excede o limite da API oficial do WhatsApp (${formatSize(rule.maxSize)}).`,
+    };
+  }
+  return { ok: true, kind: "document" };
 }
 
 /** Tipo de anexo usado pelo app (sticker é enviado como sticker na API oficial). */

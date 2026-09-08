@@ -10,6 +10,7 @@ export interface CallRecord {
   startedAt: string;
   endedAt?: string;
   callType: 'voice' | 'video';
+  answeredByName?: string | null;
 }
 
 export interface QuickContact {

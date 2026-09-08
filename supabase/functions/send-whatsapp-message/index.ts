@@ -7,10 +7,18 @@ const corsHeaders = {
 };
 
 interface Attachment {
-  type: 'image' | 'video' | 'audio' | 'document' | 'sticker';
+  type: 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'location' | 'contact';
   url: string;
   filename?: string;
   mimeType?: string;
+  // Localização
+  latitude?: number;
+  longitude?: number;
+  locationName?: string;
+  locationAddress?: string;
+  // Contato (vCard)
+  contactName?: string;
+  contactPhones?: string[];
 }
 
 interface SendResult {
@@ -586,6 +594,25 @@ async function sendTextMessage(
       );
       const participantsBody = await participantsResp.text();
       console.log(`[send-whatsapp] participants: ${participantsResp.status}`, participantsBody.substring(0, 200));
+
+      // PRÉ-CHECAGEM: garantir que a instância ainda faz parte do grupo antes de tentar enviar
+      if (participantsResp.ok) {
+        try {
+          const participantsData = JSON.parse(participantsBody);
+          const participantsList = Array.isArray(participantsData)
+            ? participantsData
+            : (participantsData?.participants || []);
+          if (Array.isArray(participantsList) && participantsList.length === 0) {
+            console.error('[send-whatsapp] ⚠️ Grupo sem participantes retornados - instância pode ter saído do grupo');
+            return { success: false, error: 'Não foi possível confirmar que este número ainda participa do grupo. Verifique se a instância do WhatsApp continua no grupo e tente novamente.' };
+          }
+        } catch {
+          // Corpo não é JSON válido, seguir fluxo normal
+        }
+      } else if (participantsResp.status === 404 || participantsResp.status === 400) {
+        console.error('[send-whatsapp] ⚠️ Grupo não encontrado ou instância sem acesso ao grupo:', participantsBody);
+        return { success: false, error: 'Grupo não encontrado ou este número não participa mais dele.' };
+      }
       
       // PASSO 2: updatePresence "composing" (endpoint correto para grupos)
       console.log('[send-whatsapp] Passo 2: updatePresence composing');
@@ -658,6 +685,13 @@ async function sendTextMessage(
 
       // Log detalhado do erro
       console.error('[send-whatsapp] ❌ Falha no envio para grupo:', responseText);
+      const lowerBody = responseText.toLowerCase();
+      if (lowerBody.includes('not-acceptable') || lowerBody.includes('not acceptable')) {
+        return { success: false, error: 'O WhatsApp recusou o envio para este grupo (not-acceptable). Verifique se a instância ainda é membro do grupo.' };
+      }
+      if (response.status === 400 || response.status === 403 || response.status === 405 || response.status === 501) {
+        return { success: false, error: 'Recurso de grupo não habilitado pela Meta para esta conta' };
+      }
       return { success: false, error: `Falha: ${responseText}` };
 
     } catch (error: any) {
@@ -770,6 +804,32 @@ async function sendMediaMessage(
       endpoint = `/message/sendMedia/${instanceName}`;
       body = { ...body, mediatype: 'document', media: attachment.url, fileName: attachment.filename || 'document', caption: mediaCaption };
       break;
+    case 'location':
+      endpoint = `/message/sendLocation/${instanceName}`;
+      body = {
+        ...body,
+        latitude: attachment.latitude,
+        longitude: attachment.longitude,
+        name: attachment.locationName || '',
+        address: attachment.locationAddress || '',
+      };
+      break;
+    case 'contact': {
+      const rawPhone = (attachment.contactPhones && attachment.contactPhones[0]) || '';
+      const digitsOnly = rawPhone.replace(/\D/g, '');
+      endpoint = `/message/sendContact/${instanceName}`;
+      body = {
+        ...body,
+        contact: [
+          {
+            fullName: attachment.contactName || 'Contato',
+            wuid: digitsOnly,
+            phoneNumber: digitsOnly ? `+${digitsOnly}` : rawPhone,
+          },
+        ],
+      };
+      break;
+    }
     default:
       endpoint = `/message/sendText/${instanceName}`;
       body = { number: recipientJid, text: caption || '[Arquivo]', ...(isGroup ? { delay: 1500 } : {}) };
@@ -803,6 +863,8 @@ async function sendMediaMessage(
     if (response.ok) {
       // Áudio e sticker não suportam legenda: enviar o texto como mensagem complementar
       const sentWithoutCaption = attachment.type === 'audio'
+        || attachment.type === 'location'
+        || attachment.type === 'contact'
         || (attachment.type === 'sticker' && (
           (attachment.mimeType || '').toLowerCase().includes('webp')
           || /\.webp(?:$|\?)/i.test(attachment.filename || '')

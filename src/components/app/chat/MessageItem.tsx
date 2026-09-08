@@ -641,6 +641,12 @@ export const MessageItem = memo(({
         effectiveStatus === 'failed' && isAgentMessage && "ring-2 ring-destructive/50"
       )}
     >
+      {/* Nome do participante (mensagens de grupo) - bloco minimo e isolado */}
+      {!isAgentMessage && message.senderName && (
+        <div className="text-xs font-semibold text-primary mb-0.5 truncate">
+          {message.senderName}
+        </div>
+      )}
       {/* Indicadores de fixada/favorita - ícones discretos no canto */}
       {(isPinned || isFavorite) && (
         <div className="absolute -top-1.5 -right-1.5 flex gap-0.5">

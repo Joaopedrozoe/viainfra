@@ -58,6 +58,7 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
       quotedContent: msg.metadata?.quotedContent,
       quotedSender: msg.metadata?.quotedSender,
       quotedAttachmentType: msg.metadata?.quotedAttachmentType,
+      senderName: msg.metadata?.sender_name || msg.metadata?.participantName,
     };
   }, []);
 

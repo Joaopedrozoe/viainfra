@@ -1,6 +1,6 @@
 
 import { memo, useState, useEffect } from "react";
-import { ArrowLeft, MoreVertical, User, X, ArrowRightLeft, Bot, BotOff, RotateCcw, History, Phone } from "lucide-react";
+import { ArrowLeft, MoreVertical, User, X, ArrowRightLeft, Bot, BotOff, RotateCcw, History, Phone, Users, Info } from "lucide-react";
 import { ActiveCallDialog } from "@/components/app/calls/ActiveCallDialog";
 import { useAuth } from "@/contexts/auth";
 import { cn } from "@/lib/utils";
@@ -31,6 +31,10 @@ interface ChatHeaderProps {
   conversationStatus?: string;
   contactPhone?: string | null;
   contactId?: string | null;
+  isGroup?: boolean;
+  groupMetadata?: Record<string, unknown> | null;
+  companyId?: string | null;
+  onOpenGroupInfo?: () => void;
   onViewContactDetails?: () => void;
   onBackToList?: () => void;
   onEndConversation?: () => void;
@@ -47,12 +51,19 @@ export const ChatHeader = memo(({
   conversationStatus,
   contactPhone,
   contactId,
+  isGroup = false,
+  groupMetadata,
+  companyId,
+  onOpenGroupInfo,
   onViewContactDetails,
   onBackToList,
   onEndConversation,
   onReopenConversation,
   onForceLoadHistory
 }: ChatHeaderProps) => {
+  const [groupParticipantsCount, setGroupParticipantsCount] = useState<number | null>(
+    typeof groupMetadata?.participantsCount === 'number' ? (groupMetadata.participantsCount as number) : null
+  );
   const isMobile = useIsMobile();
   const { company } = useAuth();
   const { departments, getDepartmentByUser } = useDepartments();
@@ -113,6 +124,33 @@ export const ChatHeader = memo(({
     };
   }, [conversationId]);
   
+  useEffect(() => {
+    setGroupParticipantsCount(
+      typeof groupMetadata?.participantsCount === 'number' ? (groupMetadata.participantsCount as number) : null
+    );
+  }, [groupMetadata]);
+
+  useEffect(() => {
+    if (!isGroup || groupParticipantsCount !== null || !companyId || !conversationId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await supabase.functions.invoke('whatsapp-group-action', {
+          body: { companyId, conversationId, action: 'participants' },
+        });
+        if (cancelled) return;
+        const result = data as { ok?: boolean; data?: any };
+        if (result?.ok) {
+          const list = Array.isArray(result.data) ? result.data : (result.data?.participants || []);
+          if (Array.isArray(list)) setGroupParticipantsCount(list.length);
+        }
+      } catch {
+        // Silencioso: contagem de participantes é apenas informativa
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isGroup, groupParticipantsCount, companyId, conversationId]);
+
   if (!userName) return null;
 
   // FUNÇÃO CRÍTICA: Assumir/Reativar Conversa
@@ -208,9 +246,27 @@ export const ChatHeader = memo(({
         <ChannelIcon channel={channel} hasBackground />
       </div>
       <div onClick={onViewContactDetails} className="cursor-pointer flex-1 min-w-0">
-        <h2 className="font-semibold text-foreground truncate">{userName}</h2>
-        <p className="text-sm text-muted-foreground">Ver detalhes do contato</p>
+        <h2 className="font-semibold text-foreground truncate flex items-center gap-1.5">
+          {isGroup && <Users className="h-4 w-4 text-muted-foreground flex-shrink-0" />}
+          {userName}
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {isGroup
+            ? `Grupo${groupParticipantsCount !== null ? ` · ${groupParticipantsCount} participantes` : ''}`
+            : 'Ver detalhes do contato'}
+        </p>
       </div>
+
+      {isGroup && onOpenGroupInfo && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onOpenGroupInfo}
+          title="Informações do grupo"
+        >
+          <Info className="h-5 w-5" />
+        </Button>
+      )}
       
       {canCall && (
         <Button

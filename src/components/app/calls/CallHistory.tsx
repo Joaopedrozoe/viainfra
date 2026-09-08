@@ -25,6 +25,7 @@ export const CallHistory = () => {
     startedAt: c.started_at,
     endedAt: c.ended_at || undefined,
     callType: c.call_type,
+    answeredByName: c.answered_by_name,
   }));
 
   const filtered = mapped.filter(c => {

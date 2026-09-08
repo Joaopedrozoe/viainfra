@@ -500,6 +500,7 @@ async function processMetaCallEvent(payload: any): Promise<boolean> {
           await supabase.from('calls').update({
             status,
             connected_at: status === 'connected' ? ts : null,
+            ring_deadline: status === 'ringing' ? new Date(new Date(ts).getTime() + 60000).toISOString() : null,
             metadata: meta,
           }).eq('id', existing.id);
         } else {
@@ -515,6 +516,7 @@ async function processMetaCallEvent(payload: any): Promise<boolean> {
             call_type: 'voice',
             started_at: ts,
             connected_at: status === 'connected' ? ts : null,
+            ring_deadline: status === 'ringing' ? new Date(new Date(ts).getTime() + 60000).toISOString() : null,
             metadata: meta,
           });
         }

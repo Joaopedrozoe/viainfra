@@ -60,12 +60,15 @@ export interface ChatWindowProps {
 }
 
 export interface ChatInputProps {
-  onSendMessage: (message: string, attachment?: File) => void | Promise<void>;
+  // attachment pode ser um File (upload) ou um Attachment já pronto (ex.: localização, contato)
+  onSendMessage: (message: string, attachment?: File | Attachment) => void | Promise<void>;
   replyToMessage?: Message | null;
   onCancelReply?: () => void;
   contactName?: string;
   onSendTemplate?: () => void;
   sendingTemplate?: boolean;
+  /** Necessário para o picker de "Enviar contato" buscar os contatos da empresa. */
+  companyId?: string | null;
 }
 
 export interface MessageReaction {

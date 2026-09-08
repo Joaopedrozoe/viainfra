@@ -18,28 +18,7 @@ verify_jwt = false
 [functions.fix-conquer-photo]
 verify_jwt = false
 
-[functions.final-group-test]
-verify_jwt = false
-
-[functions.debug-group-send-v3]
-verify_jwt = false
-
-[functions.debug-group-send-v2]
-verify_jwt = false
-
-[functions.debug-group-send]
-verify_jwt = false
-
 [functions.fetch-specific-avatars]
-verify_jwt = false
-
-[functions.test-group-send-simple]
-verify_jwt = false
-
-[functions.list-all-groups]
-verify_jwt = false
-
-[functions.diagnose-groups]
 verify_jwt = false
 
 [api]
@@ -68,6 +47,9 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.send-whatsapp-message]
+verify_jwt = false
+
+[functions.whatsapp-group-action]
 verify_jwt = false
 
 [functions.evolution-instance]
@@ -183,9 +165,6 @@ verify_jwt = false
 [functions.list-groups]
 verify_jwt = false
 
-[functions.test-group-send]
-verify_jwt = false
-
 [functions.diagnose-sync]
 verify_jwt = false
 
@@ -223,15 +202,6 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.sync-conversation-history]
-verify_jwt = false
-
-[functions.diagnose-group-membership]
-verify_jwt = false
-
-[functions.retry-group-messages]
-verify_jwt = false
-
-[functions.force-send-group]
 verify_jwt = false
 
 [functions.force-sync-contacts]
@@ -277,4 +247,10 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.provision-access-users]
+verify_jwt = false
+
+[functions.vivi-analyze-conversation]
+verify_jwt = false
+
+[functions.vivi-backfill]
 verify_jwt = false

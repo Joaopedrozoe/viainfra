@@ -19,6 +19,9 @@ export interface CallRow {
   ended_at: string | null;
   error: string | null;
   metadata: any;
+  answered_by: string | null;
+  answered_by_name: string | null;
+  ring_deadline: string | null;
 }
 
 export function useCalls() {
@@ -108,6 +111,20 @@ export async function acceptCall(params: { waCallId: string; sdp: string; callId
 
 export async function rejectCall(params: { waCallId: string; callId?: string; companyId?: string }) {
   return callFunction("whatsapp-call-action", { ...params, action: "reject" });
+}
+
+export interface ClaimCallResult {
+  ok: boolean;
+  reason?: "already_claimed" | "not_ringing" | "not_found" | "forbidden";
+  answered_by?: string;
+  answered_by_name?: string;
+}
+
+/** Reivindica uma chamada tocando para o usuário atual (atender ou recusar), de forma atômica. */
+export async function claimCall(callId: string, action: "accept" | "reject"): Promise<ClaimCallResult> {
+  const { data, error } = await supabase.rpc("claim_call", { _call_id: callId, _action: action });
+  if (error) throw error;
+  return data as unknown as ClaimCallResult;
 }
 
 
