@@ -55,6 +55,244 @@ export type Database = {
           },
         ]
       }
+      ai_agents: {
+        Row: {
+          avatar_url: string | null
+          backfill_cursor: string | null
+          backfill_processed: number
+          backfill_status: string
+          backfill_total: number
+          company_id: string
+          config: Json
+          continuous_enabled: boolean
+          continuous_interval_minutes: number
+          created_at: string
+          daily_request_limit: number
+          daily_requests: number
+          daily_requests_date: string
+          id: string
+          last_error: string | null
+          last_run_at: string | null
+          mode: string
+          name: string
+          personality: string
+          primary_color: string
+          secondary_color: string
+          status: string
+          tone: string
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          backfill_cursor?: string | null
+          backfill_processed?: number
+          backfill_status?: string
+          backfill_total?: number
+          company_id: string
+          config?: Json
+          continuous_enabled?: boolean
+          continuous_interval_minutes?: number
+          created_at?: string
+          daily_request_limit?: number
+          daily_requests?: number
+          daily_requests_date?: string
+          id?: string
+          last_error?: string | null
+          last_run_at?: string | null
+          mode?: string
+          name?: string
+          personality?: string
+          primary_color?: string
+          secondary_color?: string
+          status?: string
+          tone?: string
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          backfill_cursor?: string | null
+          backfill_processed?: number
+          backfill_status?: string
+          backfill_total?: number
+          company_id?: string
+          config?: Json
+          continuous_enabled?: boolean
+          continuous_interval_minutes?: number
+          created_at?: string
+          daily_request_limit?: number
+          daily_requests?: number
+          daily_requests_date?: string
+          id?: string
+          last_error?: string | null
+          last_run_at?: string | null
+          mode?: string
+          name?: string
+          personality?: string
+          primary_color?: string
+          secondary_color?: string
+          status?: string
+          tone?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_agents_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_insights: {
+        Row: {
+          agent_id: string | null
+          analyzed_until: string | null
+          company_id: string
+          conversation_id: string | null
+          created_at: string
+          data: Json
+          department: string | null
+          id: string
+          insight_type: string
+          score: number | null
+          sentiment: string | null
+          source_message_count: number
+          summary: string
+          title: string
+          topics: string[]
+          updated_at: string
+        }
+        Insert: {
+          agent_id?: string | null
+          analyzed_until?: string | null
+          company_id: string
+          conversation_id?: string | null
+          created_at?: string
+          data?: Json
+          department?: string | null
+          id?: string
+          insight_type: string
+          score?: number | null
+          sentiment?: string | null
+          source_message_count?: number
+          summary: string
+          title: string
+          topics?: string[]
+          updated_at?: string
+        }
+        Update: {
+          agent_id?: string | null
+          analyzed_until?: string | null
+          company_id?: string
+          conversation_id?: string | null
+          created_at?: string
+          data?: Json
+          department?: string | null
+          id?: string
+          insight_type?: string
+          score?: number | null
+          sentiment?: string | null
+          source_message_count?: number
+          summary?: string
+          title?: string
+          topics?: string[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_insights_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "ai_agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_insights_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_insights_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_learning_jobs: {
+        Row: {
+          agent_id: string | null
+          attempts: number
+          company_id: string
+          conversation_id: string | null
+          created_at: string
+          error: string | null
+          finished_at: string | null
+          id: string
+          job_type: string
+          scheduled_at: string
+          started_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          agent_id?: string | null
+          attempts?: number
+          company_id: string
+          conversation_id?: string | null
+          created_at?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          job_type?: string
+          scheduled_at?: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          agent_id?: string | null
+          attempts?: number
+          company_id?: string
+          conversation_id?: string | null
+          created_at?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          job_type?: string
+          scheduled_at?: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_learning_jobs_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "ai_agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_learning_jobs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_learning_jobs_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bots: {
         Row: {
           channels: string[] | null
@@ -102,6 +340,8 @@ export type Database = {
       calls: {
         Row: {
           agent_id: string | null
+          answered_by: string | null
+          answered_by_name: string | null
           call_type: string
           company_id: string
           connected_at: string | null
@@ -116,6 +356,7 @@ export type Database = {
           id: string
           metadata: Json | null
           phone: string
+          ring_deadline: string | null
           started_at: string
           status: string
           updated_at: string
@@ -123,6 +364,8 @@ export type Database = {
         }
         Insert: {
           agent_id?: string | null
+          answered_by?: string | null
+          answered_by_name?: string | null
           call_type?: string
           company_id: string
           connected_at?: string | null
@@ -137,6 +380,7 @@ export type Database = {
           id?: string
           metadata?: Json | null
           phone: string
+          ring_deadline?: string | null
           started_at?: string
           status?: string
           updated_at?: string
@@ -144,6 +388,8 @@ export type Database = {
         }
         Update: {
           agent_id?: string | null
+          answered_by?: string | null
+          answered_by_name?: string | null
           call_type?: string
           company_id?: string
           connected_at?: string | null
@@ -158,6 +404,7 @@ export type Database = {
           id?: string
           metadata?: Json | null
           phone?: string
+          ring_deadline?: string | null
           started_at?: string
           status?: string
           updated_at?: string
@@ -1121,6 +1368,7 @@ export type Database = {
         Args: { _duration: number; _status: string }
         Returns: string
       }
+      claim_call: { Args: { _action: string; _call_id: string }; Returns: Json }
       cleanup_expired_typing_status: { Args: never; Returns: undefined }
       contacts_audit_summary: {
         Args: { _company_id?: string }
