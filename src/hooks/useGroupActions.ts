@@ -52,7 +52,25 @@ export const useGroupActions = () => {
       });
 
       if (error) {
-        const message = (error as { message?: string }).message || "Falha ao executar ação de grupo";
+        // A invoke() esconde o corpo da resposta em erros non-2xx: extrair a mensagem real.
+        let message = (error as { message?: string }).message || "Falha ao executar ação de grupo";
+        const context = (error as { context?: Response }).context;
+        try {
+          if (context && typeof (context as Response).text === "function") {
+            const raw = await (context as Response).clone().text();
+            if (raw) {
+              try {
+                const parsed = JSON.parse(raw) as { error?: string };
+                if (parsed?.error) message = parsed.error;
+              } catch {
+                message = raw.substring(0, 300);
+              }
+            }
+          }
+        } catch {
+          // mantém a mensagem padrão
+        }
+        console.error("[useGroupActions] erro", action, message);
         if (!silent) toast.error(message);
         return { ok: false, error: message };
       }
