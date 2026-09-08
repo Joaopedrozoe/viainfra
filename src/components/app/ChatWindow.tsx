@@ -367,9 +367,12 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       let attachmentUrl: string | undefined;
 
       // Anexo pronto (ex.: localização, contato) — não precisa de upload
-      if (file && !(file instanceof File)) {
-        attachmentData = file;
-      } else if (file) {
+      const readyAttachment: Attachment | undefined = file && !(file instanceof File) ? (file as Attachment) : undefined;
+      const uploadFile: File | undefined = file instanceof File ? file : undefined;
+      if (readyAttachment) {
+        attachmentData = readyAttachment;
+      } else if (uploadFile) {
+        const file = uploadFile;
         console.log('📎 [SEND] Fazendo upload do arquivo:', file.name);
         
         const fileExt = file.name.split('.').pop();
