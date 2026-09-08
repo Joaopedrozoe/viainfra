@@ -396,6 +396,14 @@ const Inbox = () => {
         onOpenChange={setShowNewConversation}
         onCreated={handleNewConversationCreated}
       />
+      {company?.id && (
+        <CreateGroupDialog
+          open={showNewGroup}
+          companyId={company.id}
+          onOpenChange={setShowNewGroup}
+          onCreated={handleNewConversationCreated}
+        />
+      )}
     </>
   );
 };
