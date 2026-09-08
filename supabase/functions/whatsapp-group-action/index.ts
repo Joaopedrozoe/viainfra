@@ -6,31 +6,29 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
-function isAllowedInstance(name: string): boolean {
-  const upper = (name || '').toUpperCase();
-  return upper.includes('VIAINFRA') || upper.includes('VIALOGISTIC');
-}
-
-function instanceMatchesCompany(instanceName: string, companyName: string): boolean {
-  const instance = (instanceName || '').toUpperCase();
-  return /vialogistic/i.test(companyName)
-    ? instance.includes('VIALOGISTIC')
-    : /viainfra/i.test(companyName) && instance.includes('VIAINFRA') && !instance.includes('VIALOGISTIC');
-}
-
-function friendlyGroupError(status: number, raw: string): string {
-  const lower = (raw || '').toLowerCase();
-  if ([400, 403, 405, 501].includes(status) || lower.includes('not-acceptable')) {
-    return 'Recurso de grupo não habilitado pela Meta para esta conta';
-  }
-  return raw ? raw.substring(0, 300) : 'Falha ao executar ação de grupo';
-}
+const GRAPH = 'https://graph.facebook.com/v21.0';
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
+}
+
+/** Credenciais oficiais da Meta por empresa (sem fallback cruzado). */
+function resolveMetaCreds(companyName: string) {
+  if (/vialogistic/i.test(companyName || '')) {
+    return {
+      key: 'VIALOGISTIC',
+      token: Deno.env.get('META_ACCESS_TOKEN_VIALOGISTIC') || '',
+      phoneNumberId: Deno.env.get('META_PHONE_NUMBER_ID_VIALOGISTIC') || '1157997970738498',
+    };
+  }
+  return {
+    key: 'VIAINFRA',
+    token: Deno.env.get('META_ACCESS_TOKEN_VIAINFRA') || '',
+    phoneNumberId: Deno.env.get('META_PHONE_NUMBER_ID_VIAINFRA') || '1221458467717278',
+  };
 }
 
 serve(async (req) => {
@@ -44,91 +42,67 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Validar JWT do usuário autenticado
     const authHeader = req.headers.get('Authorization') || '';
     const jwt = authHeader.replace(/^Bearer\s+/i, '');
-    if (!jwt) {
-      return jsonResponse({ ok: false, error: 'Não autenticado' }, 401);
-    }
+    if (!jwt) return jsonResponse({ ok: false, error: 'Não autenticado' }, 401);
     const { data: userData, error: userError } = await supabase.auth.getUser(jwt);
     const authUserId = userData?.user?.id;
-    if (userError || !authUserId) {
-      return jsonResponse({ ok: false, error: 'Não autenticado' }, 401);
-    }
+    if (userError || !authUserId) return jsonResponse({ ok: false, error: 'Não autenticado' }, 401);
 
     const body = await req.json();
     const { conversationId, companyId: bodyCompanyId, action, payload } = body || {};
-
     if (!action || !bodyCompanyId) {
       return jsonResponse({ ok: false, error: 'Parâmetros obrigatórios ausentes (companyId, action)' }, 400);
     }
 
-    // Verificar que o usuário tem acesso à empresa informada
     const [{ data: profileRow }, { data: accessRow }] = await Promise.all([
       supabase.from('profiles').select('company_id').eq('user_id', authUserId).eq('company_id', bodyCompanyId).maybeSingle(),
       supabase.from('company_access').select('company_id').eq('user_id', authUserId).eq('company_id', bodyCompanyId).maybeSingle(),
     ]);
-
     if (!profileRow && !accessRow) {
       return jsonResponse({ ok: false, error: 'Usuário sem acesso a esta empresa' }, 403);
     }
 
-    // Resolver conversa (se informada) e groupJid
+    // Conversa/grupo (quando informado)
     let conversation: any = null;
-    let groupJid: string | undefined = payload?.groupJid;
+    let groupId: string | undefined = payload?.groupJid || payload?.groupId;
 
     if (conversationId) {
-      const { data: conv, error: convError } = await supabase
+      const { data: conv } = await supabase
         .from('conversations')
         .select('*, contacts(*), companies(name)')
         .eq('id', conversationId)
         .eq('company_id', bodyCompanyId)
         .maybeSingle();
-
-      if (convError || !conv) {
-        return jsonResponse({ ok: false, error: 'Conversa não encontrada para esta empresa' }, 404);
-      }
+      if (!conv) return jsonResponse({ ok: false, error: 'Conversa não encontrada para esta empresa' }, 404);
       conversation = conv;
-      groupJid = groupJid || conv.contacts?.metadata?.remoteJid || conv.metadata?.remoteJid;
+      groupId = groupId || conv.contacts?.metadata?.groupId || conv.contacts?.metadata?.remoteJid || conv.metadata?.groupId || conv.metadata?.remoteJid;
     }
 
-    if (['info', 'participants', 'updateSubject', 'updateDescription', 'updatePicture', 'updateParticipant', 'updateSetting', 'inviteCode', 'revokeInviteCode', 'leave'].includes(action) && !groupJid) {
-      return jsonResponse({ ok: false, error: 'groupJid não encontrado para esta conversa' }, 400);
-    }
-
-    // Resolver empresa (nome) para validar instância
     let companyName = conversation?.companies?.name || '';
     if (!companyName) {
       const { data: companyRow } = await supabase.from('companies').select('name').eq('id', bodyCompanyId).maybeSingle();
       companyName = companyRow?.name || '';
     }
 
-    // Resolver instância Evolution ESTRITAMENTE da empresa (sem fallback cross-company)
-    const { data: instance, error: instanceError } = await supabase
-      .from('whatsapp_instances')
-      .select('instance_name, company_id, status')
-      .eq('company_id', bodyCompanyId)
-      .eq('status', 'open')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (instanceError || !instance || instance.company_id !== bodyCompanyId || !isAllowedInstance(instance.instance_name) || !instanceMatchesCompany(instance.instance_name, companyName)) {
-      return jsonResponse({ ok: false, error: 'Nenhuma instância WhatsApp conectada para esta empresa' }, 400);
+    const creds = resolveMetaCreds(companyName);
+    if (!creds.token) {
+      return jsonResponse({ ok: false, error: `META_ACCESS_TOKEN_${creds.key} não configurado` }, 400);
     }
 
-    const instanceName = instance.instance_name;
-    const evolutionUrl = Deno.env.get('EVOLUTION_API_URL') ?? '';
-    const evolutionKey = Deno.env.get('EVOLUTION_API_KEY') ?? '';
+    const needsGroup = ['info', 'participants', 'updateSubject', 'updateDescription', 'updatePicture', 'inviteCode', 'revokeInviteCode', 'leave'].includes(action);
+    if (needsGroup && !groupId) {
+      return jsonResponse({ ok: false, error: 'Grupo ainda não identificado nesta conversa' }, 400);
+    }
 
-    const callEvolution = async (method: string, path: string, body?: unknown) => {
-      const resp = await fetch(`${evolutionUrl}${path}`, {
+    const callMeta = async (method: string, path: string, reqBody?: unknown) => {
+      const resp = await fetch(`${GRAPH}${path}`, {
         method,
         headers: {
+          Authorization: `Bearer ${creds.token}`,
           'Content-Type': 'application/json',
-          'apikey': evolutionKey,
         },
-        body: body !== undefined ? JSON.stringify(body) : undefined,
+        body: reqBody !== undefined ? JSON.stringify(reqBody) : undefined,
       });
       const text = await resp.text();
       let data: any = null;
@@ -136,26 +110,36 @@ serve(async (req) => {
       return { ok: resp.ok, status: resp.status, data, raw: text };
     };
 
-    const qGroup = groupJid ? `?groupJid=${encodeURIComponent(groupJid)}` : '';
+    const metaError = (result: any) => {
+      const err = result?.data?.error;
+      const msg = err?.error_user_msg || err?.message || (typeof result?.data === 'string' ? result.data : '') || 'Falha na API oficial da Meta';
+      return `Meta (${result?.status}): ${String(msg).substring(0, 300)}`;
+    };
 
-    // Upsert de contato + conversa de grupo (mesmo shape usado pelo webhook)
-    const upsertGroupConversation = async (jid: string, subject: string, participantsCount?: number) => {
+    /** Cria/atualiza contato + conversa do grupo (mesmo shape do webhook). */
+    const upsertGroupConversation = async (
+      gid: string,
+      subject: string,
+      extra: Record<string, unknown> = {},
+    ) => {
       const { data: existingContact } = await supabase
         .from('contacts')
         .select('*')
         .eq('company_id', bodyCompanyId)
-        .contains('metadata', { remoteJid: jid })
+        .contains('metadata', { groupId: gid })
         .limit(1)
         .maybeSingle();
 
-      let contact = existingContact;
       const metadata: Record<string, unknown> = {
-        remoteJid: jid,
+        groupId: gid,
+        remoteJid: gid,
         isGroup: true,
         groupType: 'whatsapp',
-        ...(participantsCount !== undefined ? { participantsCount } : {}),
+        api: 'meta-official',
+        ...extra,
       };
 
+      let contact = existingContact;
       if (contact) {
         const { data: updated } = await supabase
           .from('contacts')
@@ -185,7 +169,7 @@ serve(async (req) => {
 
       let conv = existingConv;
       if (!conv) {
-        const { data: created, error: convCreateError } = await supabase
+        const { data: created, error: convError } = await supabase
           .from('conversations')
           .insert({
             contact_id: contact.id,
@@ -193,12 +177,17 @@ serve(async (req) => {
             channel: 'whatsapp',
             status: 'open',
             bot_active: false,
-            metadata: { remoteJid: jid, isGroup: true, instanceName },
+            metadata: { ...metadata, phoneNumberId: creds.phoneNumberId },
           })
           .select()
           .single();
-        if (convCreateError) throw convCreateError;
+        if (convError) throw convError;
         conv = created;
+      } else {
+        await supabase
+          .from('conversations')
+          .update({ metadata: { ...(conv.metadata as object), ...metadata, phoneNumberId: creds.phoneNumberId } })
+          .eq('id', conv.id);
       }
 
       return { contact, conversation: conv };
@@ -207,102 +196,158 @@ serve(async (req) => {
     let result: any = null;
 
     switch (action) {
-      case 'info': {
-        result = await callEvolution('GET', `/group/findGroupInfos/${instanceName}${qGroup}`);
-        break;
-      }
-      case 'participants': {
-        result = await callEvolution('GET', `/group/participants/${instanceName}${qGroup}`);
-        break;
-      }
       case 'create': {
-        const { subject, description, participants } = payload || {};
-        if (!subject || !Array.isArray(participants) || participants.length === 0) {
-          return jsonResponse({ ok: false, error: 'Informe nome do grupo e ao menos um participante' }, 400);
-        }
-        result = await callEvolution('POST', `/group/create/${instanceName}`, { subject, description, participants });
-        if (result.ok) {
-          const createdJid = result.data?.id || result.data?.groupJid || result.data?.gid;
-          if (createdJid) {
-            try {
-              const upserted = await upsertGroupConversation(createdJid, subject, participants.length);
-              result.data = { ...result.data, conversationId: upserted.conversation.id };
-            } catch (e) {
-              console.error('[whatsapp-group-action] Erro ao criar conversa do grupo:', e);
-            }
+        const { subject, description } = payload || {};
+        if (!subject) return jsonResponse({ ok: false, error: 'Informe o nome do grupo' }, 400);
+
+        result = await callMeta('POST', `/${creds.phoneNumberId}/groups`, {
+          subject,
+          ...(description ? { description } : {}),
+        });
+        if (!result.ok) return jsonResponse({ ok: false, error: metaError(result) }, 400);
+
+        const gid = result.data?.id || result.data?.group_id || result.data?.groups?.[0]?.id;
+        const inviteLink = result.data?.invite_link || result.data?.group_invite_link || result.data?.groups?.[0]?.invite_link || null;
+
+        let conversationIdOut: string | undefined;
+        if (gid) {
+          try {
+            const upserted = await upsertGroupConversation(gid, subject, {
+              inviteLink,
+              description: description || null,
+              participantsCount: 0,
+            });
+            conversationIdOut = upserted.conversation.id;
+          } catch (e) {
+            console.error('[whatsapp-group-action] erro ao gravar conversa do grupo:', e);
           }
         }
+
+        return jsonResponse({
+          ok: true,
+          data: {
+            ...result.data,
+            groupId: gid,
+            inviteLink,
+            conversationId: conversationIdOut,
+            note: 'Na API oficial da Meta, participantes entram pelo link de convite — envie o link aos contatos.',
+          },
+        });
+      }
+
+      case 'list': {
+        result = await callMeta('GET', `/${creds.phoneNumberId}/groups?limit=100`);
+        if (!result.ok) return jsonResponse({ ok: false, error: metaError(result) }, 400);
+        const groups: any[] = Array.isArray(result.data?.data) ? result.data.data : (result.data?.groups || []);
+        const syncedConversationIds: string[] = [];
+        for (const g of groups) {
+          const gid = g?.id || g?.group_id;
+          if (!gid) continue;
+          try {
+            const upserted = await upsertGroupConversation(gid, g?.subject || g?.name || 'Grupo', {
+              inviteLink: g?.invite_link || null,
+              description: g?.description || null,
+              participantsCount: g?.participant_count ?? g?.participants?.length,
+            });
+            syncedConversationIds.push(upserted.conversation.id);
+          } catch (e) {
+            console.error('[whatsapp-group-action] erro ao sincronizar grupo:', gid, e);
+          }
+        }
+        return jsonResponse({ ok: true, data: { groups, syncedConversationIds } });
+      }
+
+      case 'info': {
+        result = await callMeta('GET', `/${groupId}?fields=id,subject,description,invite_link,participant_count,status`);
         break;
       }
+
+      case 'participants': {
+        result = await callMeta('GET', `/${groupId}/participants?limit=200`);
+        break;
+      }
+
       case 'updateSubject': {
         const { subject } = payload || {};
         if (!subject) return jsonResponse({ ok: false, error: 'Informe o novo nome do grupo' }, 400);
-        result = await callEvolution('POST', `/group/updateGroupSubject/${instanceName}${qGroup}`, { subject });
+        result = await callMeta('POST', `/${groupId}`, { subject });
+        if (result.ok) {
+          try { await upsertGroupConversation(groupId!, subject); } catch { /* ignore */ }
+        }
         break;
       }
+
       case 'updateDescription': {
         const { description } = payload || {};
-        result = await callEvolution('POST', `/group/updateGroupDescription/${instanceName}${qGroup}`, { description: description ?? '' });
+        result = await callMeta('POST', `/${groupId}`, { description: description ?? '' });
         break;
       }
+
       case 'updatePicture': {
         const { image } = payload || {};
-        if (!image) return jsonResponse({ ok: false, error: 'Informe a URL/base64 da imagem' }, 400);
-        result = await callEvolution('POST', `/group/updateGroupPicture/${instanceName}${qGroup}`, { image });
+        if (!image) return jsonResponse({ ok: false, error: 'Informe a imagem do grupo' }, 400);
+        result = await callMeta('POST', `/${groupId}`, { profile_picture_url: image });
         break;
       }
+
+      case 'inviteCode': {
+        result = await callMeta('GET', `/${groupId}?fields=invite_link`);
+        break;
+      }
+
+      case 'revokeInviteCode': {
+        result = await callMeta('POST', `/${groupId}/invite_link_revocations`);
+        break;
+      }
+
+      case 'leave': {
+        result = await callMeta('DELETE', `/${groupId}`);
+        break;
+      }
+
       case 'updateParticipant': {
+        // A API oficial da Meta não permite adicionar/remover participantes à força.
         const { action: partAction, participants } = payload || {};
-        if (!partAction || !Array.isArray(participants) || participants.length === 0) {
-          return jsonResponse({ ok: false, error: 'Informe a ação e os participantes' }, 400);
+        if (partAction === 'remove' && Array.isArray(participants) && participants.length > 0) {
+          const removals: any[] = [];
+          for (const p of participants) {
+            const phone = String(p).replace(/\D/g, '');
+            const r = await callMeta('DELETE', `/${groupId}/participants?participant=${encodeURIComponent(phone)}`);
+            removals.push({ phone, ok: r.ok, error: r.ok ? null : metaError(r) });
+          }
+          const failed = removals.filter((r) => !r.ok);
+          if (failed.length === removals.length) {
+            return jsonResponse({ ok: false, error: failed[0].error }, 400);
+          }
+          return jsonResponse({ ok: true, data: { removals } });
         }
-        result = await callEvolution('POST', `/group/updateParticipant/${instanceName}${qGroup}`, { action: partAction, participants });
-        break;
+        return jsonResponse({
+          ok: false,
+          error: 'A API oficial da Meta não permite adicionar participantes. Compartilhe o link de convite do grupo para que entrem por opt-in.',
+        }, 400);
       }
+
       case 'updateSetting': {
         const { action: settingAction } = payload || {};
         if (!settingAction) return jsonResponse({ ok: false, error: 'Informe a configuração desejada' }, 400);
-        result = await callEvolution('POST', `/group/updateSetting/${instanceName}${qGroup}`, { action: settingAction });
+        const map: Record<string, Record<string, unknown>> = {
+          announcement: { messaging_permission: 'admins' },
+          not_announcement: { messaging_permission: 'all' },
+          locked: { edit_permission: 'admins' },
+          unlocked: { edit_permission: 'all' },
+        };
+        const patch = map[String(settingAction)];
+        if (!patch) return jsonResponse({ ok: false, error: 'Configuração não suportada pela API oficial' }, 400);
+        result = await callMeta('POST', `/${groupId}`, patch);
         break;
       }
-      case 'inviteCode': {
-        result = await callEvolution('GET', `/group/inviteCode/${instanceName}${qGroup}`);
-        break;
-      }
-      case 'revokeInviteCode': {
-        result = await callEvolution('POST', `/group/revokeInviteCode/${instanceName}${qGroup}`);
-        break;
-      }
-      case 'leave': {
-        result = await callEvolution('DELETE', `/group/leaveGroup/${instanceName}${qGroup}`);
-        break;
-      }
-      case 'list': {
-        result = await callEvolution('GET', `/group/fetchAllGroups/${instanceName}?getParticipants=false`);
-        if (result.ok) {
-          const groups: any[] = Array.isArray(result.data) ? result.data : (result.data?.groups || []);
-          const upsertedIds: string[] = [];
-          for (const g of groups) {
-            const jid = g?.id || g?.jid || g?.groupJid;
-            if (!jid) continue;
-            try {
-              const upserted = await upsertGroupConversation(jid, g?.subject || g?.name || 'Grupo', g?.size || g?.participants?.length);
-              upsertedIds.push(upserted.conversation.id);
-            } catch (e) {
-              console.error('[whatsapp-group-action] Erro ao sincronizar grupo:', jid, e);
-            }
-          }
-          result.data = { groups, syncedConversationIds: upsertedIds };
-        }
-        break;
-      }
+
       default:
         return jsonResponse({ ok: false, error: `Ação não suportada: ${action}` }, 400);
     }
 
     if (!result.ok) {
-      const errorMessage = friendlyGroupError(result.status, typeof result.data === 'string' ? result.data : JSON.stringify(result.data || {}));
-      return jsonResponse({ ok: false, error: errorMessage }, result.status && result.status < 500 ? result.status : 502);
+      return jsonResponse({ ok: false, error: metaError(result) }, result.status && result.status < 500 ? result.status : 502);
     }
 
     return jsonResponse({ ok: true, data: result.data });
