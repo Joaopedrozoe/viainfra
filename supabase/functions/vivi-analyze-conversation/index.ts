@@ -110,7 +110,7 @@ serve(async (req) => {
     // mode 'queue' (default): called by pg_cron.
     const limit = Math.min(Math.max(Number(body.limit) || 20, 1), 50);
 
-    const { data: activeAgents } = await supabase.from('ai_agents').select('company_id').eq('status', 'active');
+    const { data: activeAgents } = await supabase.from('ai_agents').select('*').eq('status', 'active');
     const activeCompanyIds = (activeAgents || []).map((a: any) => a.company_id);
 
     if (activeCompanyIds.length === 0) {
