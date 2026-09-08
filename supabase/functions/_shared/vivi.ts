@@ -1,6 +1,7 @@
 // Shared logic for Vivi (AI learning agent): analysis + backfill scheduling.
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { generateJson, GeminiError } from './gemini.ts';
+export { GeminiError };
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

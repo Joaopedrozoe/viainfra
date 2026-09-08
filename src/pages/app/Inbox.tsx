@@ -19,6 +19,7 @@ import { setActiveConversationId, setUnreadTitleBadge } from "@/lib/notification
 import { IncomingCallListener } from "@/components/app/calls/IncomingCallListener";
 import { NotificationPermissionBanner } from "@/components/app/NotificationPermissionBanner";
 import { NewConversationDialog } from "@/components/app/chat/NewConversationDialog";
+import { CreateGroupDialog } from "@/components/app/groups/CreateGroupDialog";
 
 
 
@@ -41,6 +42,7 @@ const Inbox = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [activeMainTab, setActiveMainTab] = useState<"conversations" | "status">("conversations");
   const [showNewConversation, setShowNewConversation] = useState(false);
+  const [showNewGroup, setShowNewGroup] = useState(false);
   const { conversations: internalConversations } = useInternalChat();
   const { conversations, updateConversationStatus, refetch } = useConversations();
   const { company } = useAuth();
@@ -287,6 +289,7 @@ const Inbox = () => {
                    onResolveConversation={handleResolveConversation}
                    onSelectInternalChat={handleSelectInternalChat}
                    onNewConversation={() => setShowNewConversation(true)}
+                  onNewGroup={() => setShowNewGroup(true)}
                  />
               ) : (
                 <StatusTab />
@@ -360,6 +363,7 @@ const Inbox = () => {
                      onResolveConversation={handleResolveConversation}
                      onSelectInternalChat={handleSelectInternalChat}
                      onNewConversation={() => setShowNewConversation(true)}
+                  onNewGroup={() => setShowNewGroup(true)}
                    />
                 </div>
               </div>
@@ -396,6 +400,14 @@ const Inbox = () => {
         onOpenChange={setShowNewConversation}
         onCreated={handleNewConversationCreated}
       />
+      {company?.id && (
+        <CreateGroupDialog
+          open={showNewGroup}
+          companyId={company.id}
+          onOpenChange={setShowNewGroup}
+          onCreated={handleNewConversationCreated}
+        />
+      )}
     </>
   );
 };

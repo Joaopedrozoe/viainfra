@@ -14,6 +14,9 @@ import { useTypingIndicator } from "@/hooks/useTypingIndicator";
 import { Users, RefreshCw, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { isGroupConversation } from "@/lib/groups";
+import { useGroupActions } from "@/hooks/useGroupActions";
+import { useAuth } from "@/contexts/auth";
 
 interface ConversationListProps {
   onSelectConversation: (id: string) => void;
@@ -22,24 +25,27 @@ interface ConversationListProps {
   onResolveConversation?: (id: string) => void;
   onSelectInternalChat?: (conversationId: string) => void;
   onNewConversation?: () => void;
+  onNewGroup?: () => void;
 }
 
 export const resolveConversation = (conversationId: string) => {
   ConversationStorage.addResolvedConversation(conversationId);
 };
 
-export const ConversationList = ({ onSelectConversation, selectedId, refreshTrigger, onResolveConversation, onSelectInternalChat, onNewConversation }: ConversationListProps) => {
+export const ConversationList = ({ onSelectConversation, selectedId, refreshTrigger, onResolveConversation, onSelectInternalChat, onNewConversation, onNewGroup }: ConversationListProps) => {
   const [searchTerm, setSearchTerm] = useState("");
   // useDeferredValue para não bloquear a UI durante digitação
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [selectedChannel, setSelectedChannel] = useState<Channel | "all">("all");
   const [selectedDepartment, setSelectedDepartment] = useState<string | "all">("all");
-  const [activeTab, setActiveTab] = useState<"all" | "unread" | "bot" | "preview" | "resolved" | "internal" | "archived">("all");
+  const [activeTab, setActiveTab] = useState<"all" | "unread" | "bot" | "preview" | "resolved" | "internal" | "archived" | "groups">("all");
   const [resolvedConversations, setResolvedConversations] = useState<Set<string>>(() => {
     return ConversationStorage.getResolvedConversations();
   });
   const { previewConversations } = usePreviewConversation();
   const { conversations: supabaseConversations, loading: supabaseLoading, refetch, forceSync, lastSyncTime, clearNewMessageFlag } = useConversations();
+  const { company } = useAuth();
+  const { runGroupAction, isLoading: isGroupSyncing } = useGroupActions();
   const [isSyncing, setIsSyncing] = useState(false);
   const { conversations: internalConversations } = useInternalChat();
   
@@ -173,6 +179,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         archived: (conv as any).archived || false,
         lastActivityTimestamp: new Date(lastActivityTime).getTime(),
         hasNewMessage: hasNewMsg,
+        isGroup: isGroupConversation(conv as any),
         // Conversas web sempre devem aparecer, mesmo sem mensagens carregadas ainda
         hasMessages: !!lastMessage || conv.channel === 'web'
       } as Conversation & { is_preview: boolean; status?: string; archived?: boolean; lastActivityTimestamp?: number; hasNewMessage?: boolean; hasMessages?: boolean };
@@ -238,6 +245,8 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
       result = result.filter((conversation) => 
         conversation.channel === 'web' && !(conversation as any).is_preview && (conversation as any).status !== 'resolved' && !(conversation as any).archived
       );
+    } else if (activeTab === "groups") {
+      result = result.filter((conversation) => (conversation as any).isGroup === true && !(conversation as any).archived);
     } else if (activeTab === "unread") {
       // Usar hasNewMessage para filtrar não lidas (sincronizado com clearNewMessageFlag)
       result = result.filter((conversation) => {
@@ -346,6 +355,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
         selectedDepartment={selectedDepartment}
         onDepartmentChange={setSelectedDepartment}
         onNewConversation={onNewConversation}
+        onNewGroup={onNewGroup}
       />
       
       {/* Sync status bar */}
@@ -383,6 +393,9 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
           <TabsTrigger value="bot" className="text-xs px-2 py-1 h-7 flex-shrink-0">
             Bot
           </TabsTrigger>
+          <TabsTrigger value="groups" className="text-xs px-2 py-1 h-7 flex-shrink-0">
+            Grupos
+          </TabsTrigger>
           <TabsTrigger value="internal" className="text-xs px-2 py-1 h-7 flex-shrink-0 flex items-center gap-1">
             <Users className="h-3 w-3" />
             Equipe
@@ -398,6 +411,18 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
           </TabsTrigger>
         </TabsList>
       </Tabs>
+      {activeTab === "groups" && company?.id && (
+        <div className="px-3 py-1.5 flex justify-end border-b">
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled={isGroupSyncing}
+            onClick={async () => {
+              const res = await runGroupAction({ companyId: company.id, action: "list", successMessage: "Grupos sincronizados" });
+              if (res.ok) handleForceSync();
+            }}>
+            <RefreshCw className={`h-3 w-3 mr-1 ${isGroupSyncing ? 'animate-spin' : ''}`} />
+            Sincronizar grupos
+          </Button>
+        </div>
+      )}
 
       <div 
         ref={parentRef}
