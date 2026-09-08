@@ -204,14 +204,11 @@ export async function processJob(supabase: SupabaseClient, job: any, agentsCache
     await supabase.from('ai_learning_jobs').update({ status: 'done', finished_at: new Date().toISOString() }).eq('id', job.id);
 
     if (job.job_type === 'backfill') {
-      await supabase.rpc('increment_backfill_processed', { p_agent_id: agent.id }).catch(async () => {
-        // Fallback if RPC doesn't exist: manual increment
-        const { data: freshAgent } = await supabase.from('ai_agents').select('backfill_processed').eq('id', agent.id).maybeSingle();
-        await supabase
-          .from('ai_agents')
-          .update({ backfill_processed: (freshAgent?.backfill_processed || 0) + 1 })
-          .eq('id', agent.id);
-      });
+      const { data: freshAgent } = await supabase.from('ai_agents').select('backfill_processed').eq('id', agent.id).maybeSingle();
+      await supabase
+        .from('ai_agents')
+        .update({ backfill_processed: (freshAgent?.backfill_processed || 0) + 1 })
+        .eq('id', agent.id);
     }
 
     return { status: 'done' as const };
