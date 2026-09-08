@@ -22,6 +22,7 @@ Confirmar e estabilizar o envio de templates da VIAINFRA e da VIALOGISTIC após 
 - Se o envio for aceito mas o inbox ficar no erro anterior, ajustar a associação visual para que cada nova tentativa use exclusivamente seu próprio `wamid` e comece em `pending`, sem herdar erro ou status de outra mensagem.
 - Impedir regressão de status: callbacks atrasados não poderão rebaixar `delivered/read` para `sent/pending`.
 - Manter o isolamento rígido: VIAINFRA usa somente sua WABA/número e VIALOGISTIC somente os seus.
+- Corrigir o caminho secundário de confirmações da Evolution, que hoje procura a mensagem globalmente pelo identificador: a busca também deverá exigir a empresa do endpoint antes de atualizar status, edição ou exclusão.
 
 ### 3. Validar antes de concluir
 - Confirmar no banco uma única mensagem para cada novo `wamid`, na conversa e empresa corretas.
