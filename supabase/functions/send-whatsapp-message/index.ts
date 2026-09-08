@@ -815,18 +815,21 @@ async function sendMediaMessage(
       };
       break;
     case 'contact': {
-      const rawPhone = (attachment.contactPhones && attachment.contactPhones[0]) || '';
-      const digitsOnly = rawPhone.replace(/\D/g, '');
+      const contacts = (attachment.contactPhones && attachment.contactPhones.length > 0)
+        ? attachment.contactPhones
+        : [''];
       endpoint = `/message/sendContact/${instanceName}`;
       body = {
         ...body,
-        contact: [
-          {
+        contact: contacts.map((rawPhone) => {
+          let digitsOnly = String(rawPhone || '').replace(/\D/g, '');
+          if (digitsOnly.length === 10 || digitsOnly.length === 11) digitsOnly = `55${digitsOnly}`;
+          return {
             fullName: attachment.contactName || 'Contato',
             wuid: digitsOnly,
-            phoneNumber: digitsOnly ? `+${digitsOnly}` : rawPhone,
-          },
-        ],
+            phoneNumber: digitsOnly ? `+${digitsOnly}` : String(rawPhone || ''),
+          };
+        }),
       };
       break;
     }
