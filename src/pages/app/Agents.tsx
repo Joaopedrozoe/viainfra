@@ -187,8 +187,8 @@ const Agents = () => {
                   className="h-14 w-14 rounded-full flex items-center justify-center text-white text-lg font-semibold overflow-hidden shrink-0"
                   style={{ backgroundColor: "var(--vivi-primary)" }}
                 >
-                  {agent.avatar_url ? (
-                    <img src={agent.avatar_url} alt={agent.name} className="h-full w-full object-cover" />
+                  {avatarSrc ? (
+                    <img src={avatarSrc} alt={agent.name} className="h-full w-full object-cover" />
                   ) : (
                     initials(agent.name || "Vivi")
                   )}
