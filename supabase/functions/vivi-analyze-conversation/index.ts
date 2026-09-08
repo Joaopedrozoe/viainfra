@@ -110,7 +110,7 @@ serve(async (req) => {
     // mode 'queue' (default): called by pg_cron.
     const limit = Math.min(Math.max(Number(body.limit) || 20, 1), 50);
 
-    const { data: activeAgents } = await supabase.from('ai_agents').select('company_id').eq('status', 'active');
+    const { data: activeAgents } = await supabase.from('ai_agents').select('*').eq('status', 'active');
     const activeCompanyIds = (activeAgents || []).map((a: any) => a.company_id);
 
     if (activeCompanyIds.length === 0) {
@@ -133,7 +133,8 @@ serve(async (req) => {
     let errors = 0;
     let missingKey = false;
 
-    const agentsCache = new Map<string, any>();
+    // Pré-carrega todos os agentes ativos para que o backfill avance mesmo sem jobs pendentes.
+    const agentsCache = new Map<string, any>((activeAgents || []).map((a: any) => [a.company_id, a]));
     const companiesCache = new Map<string, string>();
     const limitReachedCompanies = new Set<string>();
 
