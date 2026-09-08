@@ -322,7 +322,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     }
   }, [messages, isLoadingMore]);
 
-  const handleSendMessage = useCallback(async (content: string, file?: File) => {
+  const handleSendMessage = useCallback(async (content: string, file?: File | Attachment) => {
     console.log('🚀 [SEND] Iniciando envio de mensagem:', { conversationId, content, hasFile: !!file, hasReply: !!replyToMessage });
     
     if (!conversationId) {
@@ -356,8 +356,10 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       let attachmentData: Attachment | undefined;
       let attachmentUrl: string | undefined;
 
-      // Upload do arquivo se houver
-      if (file) {
+      // Anexo pronto (ex.: localização, contato) — não precisa de upload
+      if (file && !(file instanceof File)) {
+        attachmentData = file;
+      } else if (file) {
         console.log('📎 [SEND] Fazendo upload do arquivo:', file.name);
         
         const fileExt = file.name.split('.').pop();
@@ -1252,6 +1254,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           contactName={contactName}
           onSendTemplate={conversationChannel === 'whatsapp' ? handleSendOpeningTemplate : undefined}
           sendingTemplate={sendingTemplate}
+          companyId={profile?.company_id}
         />
       </div>
 
