@@ -78,6 +78,8 @@ serve(async (req) => {
 
     const attempts: Attempt[] = [];
 
+    const probeOnly = body?.probe === true;
+
     const callEvolution = async (path: string, payload: unknown) => {
       const response = await fetch(`${evolutionUrl}${path}`, {
         method: "POST",
@@ -93,6 +95,35 @@ serve(async (req) => {
       }
       return { status: response.status, ok: response.ok, data, raw: text };
     };
+
+    if (probeOnly) {
+      const probe = await fetch(`${evolutionUrl}/chat/findMessages/${instanceName}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: evolutionKey },
+        body: JSON.stringify({ where: { key: { remoteJid } } }),
+      });
+      const probeText = await probe.text();
+      let probeData: any = null;
+      try { probeData = JSON.parse(probeText); } catch { probeData = probeText; }
+      const list = Array.isArray(probeData)
+        ? probeData
+        : probeData?.messages?.records || probeData?.messages || probeData?.data || [];
+      const dates = list
+        .map((item: any) => Number(item?.messageTimestamp) || 0)
+        .filter((value: number) => value > 0)
+        .sort((a: number, b: number) => a - b);
+      return json({
+        ok: probe.ok,
+        probe: true,
+        instanceName,
+        storedInstance,
+        remoteJid,
+        stored: list.length,
+        oldest: dates[0] ? new Date(dates[0] * 1000).toISOString() : null,
+        newest: dates[dates.length - 1] ? new Date(dates[dates.length - 1] * 1000).toISOString() : null,
+        detail: probe.ok ? undefined : String(probeText).substring(0, 300),
+      });
+    }
 
     // 1) Localiza a mensagem original na instância (leitura, sem envio).
     const found = await callEvolution(`/chat/findMessages/${instanceName}`, {
