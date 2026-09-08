@@ -41,6 +41,7 @@ const Inbox = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [activeMainTab, setActiveMainTab] = useState<"conversations" | "status">("conversations");
   const [showNewConversation, setShowNewConversation] = useState(false);
+  const [showNewGroup, setShowNewGroup] = useState(false);
   const { conversations: internalConversations } = useInternalChat();
   const { conversations, updateConversationStatus, refetch } = useConversations();
   const { company } = useAuth();
