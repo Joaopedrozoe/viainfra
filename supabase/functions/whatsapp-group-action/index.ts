@@ -7,6 +7,10 @@ const corsHeaders = {
 };
 
 const GRAPH = 'https://graph.facebook.com/v26.0';
+const COMPANY_IDS = {
+  VIAINFRA: 'da17735c-5a76-4797-b338-f6e63a7b3f8b',
+  VIALOGISTIC: 'e3ad9c68-cf12-4e39-a12d-3f3068e975a0',
+} as const;
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -15,20 +19,25 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
   });
 }
 
-/** Credenciais oficiais da Meta por empresa (sem fallback cruzado). */
-function resolveMetaCreds(companyName: string) {
-  if (/vialogistic/i.test(companyName || '')) {
+/** Credenciais oficiais da Meta por empresa, sempre explícitas e sem fallback. */
+function resolveMetaCreds(companyId: string) {
+  if (companyId === COMPANY_IDS.VIALOGISTIC) {
     return {
       key: 'VIALOGISTIC',
       token: Deno.env.get('META_ACCESS_TOKEN_VIALOGISTIC') || '',
-      phoneNumberId: Deno.env.get('META_PHONE_NUMBER_ID_VIALOGISTIC') || '1157997970738498',
+      phoneNumberId: Deno.env.get('META_PHONE_NUMBER_ID_VIALOGISTIC') || '',
+      wabaId: Deno.env.get('META_WABA_ID_VIALOGISTIC') || '',
     };
   }
-  return {
-    key: 'VIAINFRA',
-    token: Deno.env.get('META_ACCESS_TOKEN_VIAINFRA') || '',
-    phoneNumberId: Deno.env.get('META_PHONE_NUMBER_ID_VIAINFRA') || '1221458467717278',
-  };
+  if (companyId === COMPANY_IDS.VIAINFRA) {
+    return {
+      key: 'VIAINFRA',
+      token: Deno.env.get('META_ACCESS_TOKEN_VIAINFRA') || '',
+      phoneNumberId: Deno.env.get('META_PHONE_NUMBER_ID_VIAINFRA') || '',
+      wabaId: Deno.env.get('META_WABA_ID_VIAINFRA') || '',
+    };
+  }
+  return null;
 }
 
 serve(async (req) => {
@@ -85,9 +94,18 @@ serve(async (req) => {
       companyName = companyRow?.name || '';
     }
 
-    const creds = resolveMetaCreds(companyName);
+    const creds = resolveMetaCreds(bodyCompanyId);
+    if (!creds || !/viainfra|vialogistic/i.test(companyName)) {
+      return jsonResponse({ ok: false, error: 'Empresa sem canal Meta autorizado para grupos' }, 403);
+    }
     if (!creds.token) {
       return jsonResponse({ ok: false, error: `META_ACCESS_TOKEN_${creds.key} não configurado` }, 400);
+    }
+    if (!creds.phoneNumberId || !creds.wabaId) {
+      return jsonResponse({
+        ok: false,
+        error: `Configuração Meta incompleta para ${creds.key}: número ou WABA ausente`,
+      }, 500);
     }
 
     const needsGroup = ['info', 'participants', 'updateSubject', 'updateDescription', 'updatePicture', 'inviteCode', 'revokeInviteCode', 'leave'].includes(action);
@@ -113,7 +131,28 @@ serve(async (req) => {
     const metaError = (result: any) => {
       const err = result?.data?.error;
       const msg = err?.error_user_msg || err?.message || (typeof result?.data === 'string' ? result.data : '') || 'Falha na API oficial da Meta';
-      return `Meta (${result?.status}): ${String(msg).substring(0, 300)}`;
+      const trace = err?.fbtrace_id ? ` | rastreio ${err.fbtrace_id}` : '';
+      return `Meta (${result?.status}): ${String(msg).substring(0, 300)}${trace}`;
+    };
+
+    /** Confirma que o token enxerga a WABA e que o número pertence a ela. */
+    const validateMetaBinding = async () => {
+      const result = await callMeta(
+        'GET',
+        `/${creds.wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,status,quality_rating,name_status,code_verification_status,platform_type&limit=100`,
+      );
+      if (!result.ok) {
+        return { ok: false as const, error: `${metaError(result)} | empresa ${creds.key} | WABA ${creds.wabaId}` };
+      }
+      const numbers = Array.isArray(result.data?.data) ? result.data.data : [];
+      const number = numbers.find((item: any) => String(item?.id) === String(creds.phoneNumberId));
+      if (!number) {
+        return {
+          ok: false as const,
+          error: `O número Meta ${creds.phoneNumberId} não pertence à WABA ${creds.wabaId} da empresa ${creds.key}`,
+        };
+      }
+      return { ok: true as const, number };
     };
 
     /** Cria/atualiza contato + conversa do grupo (mesmo shape do webhook). */
@@ -196,16 +235,54 @@ serve(async (req) => {
     let result: any = null;
 
     switch (action) {
+      case 'diagnose': {
+        const binding = await validateMetaBinding();
+        if (!binding.ok) return jsonResponse({ ok: false, error: binding.error }, 400);
+
+        const [wabaResult, subscriptionsResult] = await Promise.all([
+          callMeta('GET', `/${creds.wabaId}?fields=id,name,account_review_status,business_verification_status,status`),
+          callMeta('GET', `/${creds.wabaId}/subscribed_apps`),
+        ]);
+        if (!wabaResult.ok) return jsonResponse({ ok: false, error: metaError(wabaResult) }, 400);
+
+        return jsonResponse({
+          ok: true,
+          data: {
+            company: creds.key,
+            graphVersion: 'v26.0',
+            wabaId: creds.wabaId,
+            phoneNumberId: creds.phoneNumberId,
+            number: binding.number,
+            waba: wabaResult.data,
+            subscribedApps: subscriptionsResult.ok ? subscriptionsResult.data?.data || [] : [],
+            subscriptionWarning: subscriptionsResult.ok ? null : metaError(subscriptionsResult),
+          },
+        });
+      }
+
       case 'create': {
         const { subject, description } = payload || {};
         if (!subject) return jsonResponse({ ok: false, error: 'Informe o nome do grupo' }, 400);
+
+        const binding = await validateMetaBinding();
+        if (!binding.ok) return jsonResponse({ ok: false, error: binding.error }, 400);
 
         result = await callMeta('POST', `/${creds.phoneNumberId}/groups`, {
           messaging_product: 'whatsapp',
           subject,
           ...(description ? { description } : {}),
         });
-        if (!result.ok) return jsonResponse({ ok: false, error: metaError(result) }, 400);
+        if (!result.ok) {
+          const code = result.data?.error?.code;
+          const eligibility = code === 131215
+            ? ' A Meta recusou a elegibilidade deste número para Groups API. O requisito oficial inclui o número estar vinculado a uma Official Business Account (OBA).'
+            : '';
+          const display = binding.number?.display_phone_number || 'não informado';
+          return jsonResponse({
+            ok: false,
+            error: `${metaError(result)}${eligibility} | empresa ${creds.key} | número ${display} | phone_number_id ${creds.phoneNumberId} | WABA ${creds.wabaId} | Graph v26.0`,
+          }, 400);
+        }
 
         const gid = result.data?.id || result.data?.group_id || result.data?.groups?.[0]?.id;
         const inviteLink = result.data?.invite_link || result.data?.group_invite_link || result.data?.groups?.[0]?.invite_link || null;
