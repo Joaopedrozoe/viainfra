@@ -8,6 +8,7 @@ import { DeleteMessageDialog } from "./chat/DeleteMessageDialog";
 import { ForwardMessageModal } from "./chat/ForwardMessageModal";
 import { MissingPhoneDialog } from "./chat/MissingPhoneDialog";
 import { TemplatePickerDialog } from "./chat/TemplatePickerDialog";
+import { GroupInfoPanel } from "./groups/GroupInfoPanel";
 
 import { Channel } from "@/types/conversation";
 import { useNavigate } from "react-router-dom";
@@ -1121,12 +1122,28 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         conversationStatus={conversationStatus}
         contactPhone={contactPhone}
         contactId={contactId}
+        isGroup={isGroupConversation}
+        groupMetadata={groupMetadata}
+        companyId={conversationCompanyId}
+        onOpenGroupInfo={() => setShowGroupInfo(true)}
         onViewContactDetails={handleViewContactDetails}
         onBackToList={handleBackToList}
         onEndConversation={onEndConversation ? () => onEndConversation(conversationId) : undefined}
         onReopenConversation={handleReopenConversation}
         onForceLoadHistory={handleForceLoadHistory}
       />
+
+      {isGroupConversation && conversationCompanyId && (
+        <GroupInfoPanel
+          open={showGroupInfo}
+          onOpenChange={setShowGroupInfo}
+          conversationId={conversationId}
+          companyId={conversationCompanyId}
+          groupName={contactName}
+          groupJid={String(groupMetadata?.remoteJid || '')}
+          onLeftGroup={() => setShowGroupInfo(false)}
+        />
+      )}
       
       
       {/* Seção de mensagens fixadas */}

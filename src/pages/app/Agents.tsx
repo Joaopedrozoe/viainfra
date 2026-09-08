@@ -142,6 +142,8 @@ const Agents = () => {
   };
 
   const showGeminiAlert = !!agent.last_error && agent.last_error.toLowerCase().includes("gemini");
+  const isVialogistic = (company?.name ?? "").toLowerCase().includes("vialog");
+  const avatarSrc = agent.avatar_url || (isVialogistic ? viviVialogistic : viviViainfra);
 
   const dailyPct = agent.daily_request_limit > 0 ? Math.min(100, Math.round((agent.daily_requests / agent.daily_request_limit) * 100)) : 0;
   const backfillPct = agent.backfill_total > 0 ? Math.min(100, Math.round((agent.backfill_processed / agent.backfill_total) * 100)) : 0;
