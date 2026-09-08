@@ -1,9 +1,10 @@
 # Roadmap
 
-- [ ] 1. Grupos API oficial: inbox (ícone, participante, filtro), envio, GroupInfoPanel, CreateGroupDialog, whatsapp-group-action, list-whatsapp-groups, limpeza funções debug
-- [ ] 2. Anexos: drag&drop/paste, fila com legenda, envio localização/contato, limites Meta, render contato/enquete
-- [ ] 3. Contatos/nova conversa: RLS multiempresa, erro real no toast, validação
-- [ ] 4. Ligações: answered_by, primeiro ganha, fechar dialog demais, timeout toque
-- [ ] 5. IA Vivi (Gemini): tabelas (feito), funções vivi-analyze/backfill, cron (feito), página Agents
+- [x] 1. Grupos (API oficial): aba Grupos, ícone, painel de informações, criar grupo, participantes, link de convite, configurações, sair; edge function whatsapp-group-action
+- [x] 2. Anexos: arrastar/colar, múltiplos arquivos, validação limites Meta, localização, cartão de contato
+- [x] 3. Contatos/nova conversa: RLS multi-empresa (company_access) + mensagem de erro real
+- [x] 4. Ligações: claim_call (primeiro atende, some para os demais), ring_deadline, resiliência realtime, "Atendida por"
+- [x] 5. IA Vivi (Gemini direto): tabelas, funções vivi-analyze-conversation/vivi-backfill, cron 5 min, página Agentes (insights, aprendizado, personalidade), avatares por empresa
 - [ ] 5b. Segredo GEMINI_API_KEY — aguardando usuário (ou decisão de usar Lovable AI)
-- [ ] Validação navegador + typecheck
+- [x] Typecheck OK; funções implantadas
+- [ ] Validação autenticada no navegador — bloqueada (Supabase externo, sem sessão de teste); validar com o usuário logado
