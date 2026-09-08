@@ -59,7 +59,16 @@ serve(async (req) => {
     }
 
     const convMeta = ((message.conversations as any)?.metadata || {}) as Record<string, unknown>;
-    const instanceName = String(convMeta.instanceName || "");
+    const activeInstances = await supabase
+      .from("whatsapp_instances")
+      .select("instance_name, status, connection_state")
+      .eq("company_id", (message.conversations as any)?.company_id)
+      .eq("status", "open");
+
+    const overrideInstance = String(body?.instanceName || "");
+    const storedInstance = String(convMeta.instanceName || "");
+    const instanceName =
+      overrideInstance || activeInstances.data?.[0]?.instance_name || storedInstance;
     const remoteJid = String(convMeta.remoteJid || "");
     const waId = String(metadata.external_id || metadata.messageId || (metadata as any)?.key?.id || "");
     const mediaType = mediaTypeFromContent(String(message.content || ""));
@@ -164,6 +173,7 @@ serve(async (req) => {
         waId,
         mediaType,
         instanceName,
+        storedInstance,
         attempts,
         error: "A mídia não está mais disponível no WhatsApp para esta mensagem",
       });
