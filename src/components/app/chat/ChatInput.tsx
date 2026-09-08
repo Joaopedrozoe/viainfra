@@ -232,6 +232,8 @@ const ContactPickerDialog = ({
   const [search, setSearch] = useState("");
   const [contacts, setContacts] = useState<CompanyContact[]>([]);
   const [loading, setLoading] = useState(false);
+  const [manualName, setManualName] = useState("");
+  const [manualPhone, setManualPhone] = useState("");
 
   useEffect(() => {
     if (!open || !companyId) return;
