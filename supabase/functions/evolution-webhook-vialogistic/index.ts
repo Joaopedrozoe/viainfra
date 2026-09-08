@@ -2252,8 +2252,9 @@ function getEditedContent(data: any): string | null {
 async function updateMessageByExternalId(supabase: any, externalId: string, updater: (metadata: Record<string, any>) => { content?: string; metadata: Record<string, any> }) {
   const { data: messages, error } = await supabase
     .from('messages')
-    .select('id, content, metadata')
+    .select('id, content, metadata, conversations!inner(company_id)')
     .or(`metadata->>whatsappMessageId.eq.${externalId},metadata->>external_id.eq.${externalId}`)
+    .eq('conversations.company_id', CAPTURE_COMPANY_ID)
     .limit(1);
 
   if (error || !messages?.length) {
@@ -2326,8 +2327,9 @@ async function processMessageUpdate(supabase: any, webhook: EvolutionWebhook) {
       
       const { data: messages, error: queryError } = await supabase
         .from('messages')
-        .select('id, metadata')
+        .select('id, metadata, conversations!inner(company_id)')
         .filter('metadata->>whatsappMessageId', 'eq', keyId)
+        .eq('conversations.company_id', CAPTURE_COMPANY_ID)
         .limit(1);
       
       if (queryError) {
@@ -3349,8 +3351,10 @@ async function getOrCreateConversation(supabase: any, contactId: string, phoneNu
 async function isMessageAlreadyProcessed(supabase: any, externalId: string): Promise<boolean> {
   const { data: existingMessage } = await supabase
     .from('messages')
-    .select('id')
+    .select('id, conversations!inner(company_id)')
     .contains('metadata', { external_id: externalId })
+    .eq('conversations.company_id', CAPTURE_COMPANY_ID)
+    .limit(1)
     .maybeSingle();
   
   if (existingMessage) {
