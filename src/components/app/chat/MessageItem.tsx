@@ -464,7 +464,7 @@ const StickerAttachment = ({ url }: { url: string }) => {
   );
 };
 
-// Componente para exibir contato compartilhado (vCard)
+// Componente para exibir contato compartilhado (vCard) com ações
 const ContactAttachment = ({
   name,
   phones,
@@ -478,6 +478,46 @@ const ContactAttachment = ({
   const vcardHref = vcard
     ? `data:text/vcard;charset=utf-8,${encodeURIComponent(vcard)}`
     : undefined;
+  const { profile } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const primaryPhone = displayPhones[0] || "";
+
+  const handleOpenConversation = useCallback(async () => {
+    if (!primaryPhone) return;
+    const companyId = profile?.company_id;
+    if (!companyId) {
+      toast.error("Empresa ativa não encontrada.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const started = await startConversation({
+        companyId,
+        name: name || primaryPhone,
+        phone: primaryPhone,
+      });
+      toast.success(
+        started.createdContact
+          ? `Contato "${started.contactName}" salvo e conversa aberta.`
+          : `Conversa com "${started.contactName}" aberta.`,
+      );
+      window.location.assign(`/inbox?conversation=${started.conversationId}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível abrir a conversa.");
+    } finally {
+      setBusy(false);
+    }
+  }, [name, primaryPhone, profile?.company_id]);
+
+  const handleCopy = useCallback(async () => {
+    if (!primaryPhone) return;
+    try {
+      await navigator.clipboard.writeText(primaryPhone);
+      toast.success("Número copiado.");
+    } catch {
+      toast.error("Não foi possível copiar o número.");
+    }
+  }, [primaryPhone]);
 
   return (
     <div className="mt-2 rounded-lg border border-border/50 bg-muted/50 p-3">
@@ -496,15 +536,37 @@ const ContactAttachment = ({
           ))}
         </div>
       </div>
-      {vcardHref && (
-        <a
-          href={vcardHref}
-          download={`${(name || 'contato').replace(/[^\w\-]+/g, '_')}.vcf`}
-          className="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline"
-        >
-          <Download size={14} /> Salvar contato
-        </a>
-      )}
+      <div className="mt-2 flex flex-wrap items-center gap-3">
+        {primaryPhone && (
+          <button
+            type="button"
+            onClick={() => void handleOpenConversation()}
+            disabled={busy}
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-60"
+          >
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <Reply size={14} />}
+            Conversar
+          </button>
+        )}
+        {primaryPhone && (
+          <button
+            type="button"
+            onClick={() => void handleCopy()}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:underline"
+          >
+            <FileText size={14} /> Copiar número
+          </button>
+        )}
+        {vcardHref && (
+          <a
+            href={vcardHref}
+            download={`${(name || 'contato').replace(/[^\w\-]+/g, '_')}.vcf`}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:underline"
+          >
+            <Download size={14} /> Baixar cartão
+          </a>
+        )}
+      </div>
     </div>
   );
 };
