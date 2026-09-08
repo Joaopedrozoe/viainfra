@@ -19,6 +19,7 @@ import { setActiveConversationId, setUnreadTitleBadge } from "@/lib/notification
 import { IncomingCallListener } from "@/components/app/calls/IncomingCallListener";
 import { NotificationPermissionBanner } from "@/components/app/NotificationPermissionBanner";
 import { NewConversationDialog } from "@/components/app/chat/NewConversationDialog";
+import { CreateGroupDialog } from "@/components/app/groups/CreateGroupDialog";
 
 
 
