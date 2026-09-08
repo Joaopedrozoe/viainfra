@@ -38,7 +38,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [selectedChannel, setSelectedChannel] = useState<Channel | "all">("all");
   const [selectedDepartment, setSelectedDepartment] = useState<string | "all">("all");
-  const [activeTab, setActiveTab] = useState<"all" | "unread" | "bot" | "preview" | "resolved" | "internal" | "archived">("all");
+  const [activeTab, setActiveTab] = useState<"all" | "unread" | "bot" | "preview" | "resolved" | "internal" | "archived" | "groups">("all");
   const [resolvedConversations, setResolvedConversations] = useState<Set<string>>(() => {
     return ConversationStorage.getResolvedConversations();
   });
