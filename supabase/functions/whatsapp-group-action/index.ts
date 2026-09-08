@@ -201,6 +201,7 @@ serve(async (req) => {
         if (!subject) return jsonResponse({ ok: false, error: 'Informe o nome do grupo' }, 400);
 
         result = await callMeta('POST', `/${creds.phoneNumberId}/groups`, {
+          messaging_product: 'whatsapp',
           subject,
           ...(description ? { description } : {}),
         });
@@ -270,7 +271,7 @@ serve(async (req) => {
       case 'updateSubject': {
         const { subject } = payload || {};
         if (!subject) return jsonResponse({ ok: false, error: 'Informe o novo nome do grupo' }, 400);
-        result = await callMeta('POST', `/${groupId}`, { subject });
+        result = await callMeta('POST', `/${groupId}`, { messaging_product: 'whatsapp', subject });
         if (result.ok) {
           try { await upsertGroupConversation(groupId!, subject); } catch { /* ignore */ }
         }
@@ -279,14 +280,14 @@ serve(async (req) => {
 
       case 'updateDescription': {
         const { description } = payload || {};
-        result = await callMeta('POST', `/${groupId}`, { description: description ?? '' });
+        result = await callMeta('POST', `/${groupId}`, { messaging_product: 'whatsapp', description: description ?? '' });
         break;
       }
 
       case 'updatePicture': {
         const { image } = payload || {};
         if (!image) return jsonResponse({ ok: false, error: 'Informe a imagem do grupo' }, 400);
-        result = await callMeta('POST', `/${groupId}`, { profile_picture_url: image });
+        result = await callMeta('POST', `/${groupId}`, { messaging_product: 'whatsapp', profile_picture_url: image });
         break;
       }
 
@@ -296,7 +297,7 @@ serve(async (req) => {
       }
 
       case 'revokeInviteCode': {
-        result = await callMeta('POST', `/${groupId}/invite_link_revocations`);
+        result = await callMeta('POST', `/${groupId}/invite_link_revocations`, { messaging_product: 'whatsapp' });
         break;
       }
 
@@ -338,7 +339,7 @@ serve(async (req) => {
         };
         const patch = map[String(settingAction)];
         if (!patch) return jsonResponse({ ok: false, error: 'Configuração não suportada pela API oficial' }, 400);
-        result = await callMeta('POST', `/${groupId}`, patch);
+        result = await callMeta('POST', `/${groupId}`, { messaging_product: 'whatsapp', ...patch });
         break;
       }
 
