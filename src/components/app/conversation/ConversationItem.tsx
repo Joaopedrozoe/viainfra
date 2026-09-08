@@ -3,7 +3,7 @@ import { Conversation } from "@/types/conversation";
 import { cn } from "@/lib/utils";
 import { ChannelIcon } from "./ChannelIcon";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, MessageCircle, Check, CheckCheck, Image, Video, FileText, Mic, Sticker, MapPin, User } from "lucide-react";
+import { CheckCircle, MessageCircle, Check, CheckCheck, Image, Video, FileText, Mic, Sticker, MapPin, User, Users } from "lucide-react";
 
 interface ConversationItemProps {
   conversation: Conversation;
@@ -191,6 +191,7 @@ export const ConversationItem = memo(({
               "font-medium truncate transition-all duration-150",
               showNewBadge && !isSelected && "text-primary font-semibold"
             )}>
+              {(conversation as any).isGroup && <Users className="inline h-3.5 w-3.5 mr-1 text-muted-foreground align-text-bottom" aria-label="Grupo" />}
               {conversation.name}
             </div>
             <div className={cn(

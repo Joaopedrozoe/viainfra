@@ -1,7 +1,7 @@
 
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Filter, MessageSquarePlus } from "lucide-react";
+import { Filter, MessageSquarePlus, Users } from "lucide-react";
 import { Channel } from "@/types/conversation";
 import { cn } from "@/lib/utils";
 import { useDepartments } from "@/contexts/DepartmentsContext";
@@ -22,6 +22,7 @@ interface SearchHeaderProps {
   onDepartmentChange?: (department: string | "all") => void;
   onSearch?: (term: string) => void;
   onNewConversation?: () => void;
+  onNewGroup?: () => void;
 }
 
 const channelLabels: Record<Channel | "all", string> = {
@@ -43,6 +44,7 @@ export const SearchHeader = ({
   onDepartmentChange,
   onSearch,
   onNewConversation,
+  onNewGroup,
 }: SearchHeaderProps) => {
   const { profile } = useAuth();
   const { getFilteredDepartments } = useDepartments();
@@ -69,6 +71,11 @@ export const SearchHeader = ({
         {onNewConversation && (
           <Button type="button" variant="default" size="icon" onClick={onNewConversation} aria-label="Nova conversa" title="Nova conversa">
             <MessageSquarePlus className="h-4 w-4" />
+          </Button>
+        )}
+        {onNewGroup && (
+          <Button type="button" variant="outline" size="icon" onClick={onNewGroup} aria-label="Novo grupo" title="Novo grupo">
+            <Users className="h-4 w-4" />
           </Button>
         )}
         <DropdownMenu>
