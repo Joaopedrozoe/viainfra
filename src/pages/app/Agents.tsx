@@ -15,7 +15,10 @@ import { AlertTriangle, Bot, RefreshCw, Sparkles } from "lucide-react";
 import { PlanGate } from "@/components/ui/plan-gate";
 import { PLAN_FEATURES } from "@/types/plans";
 import { useViviAgent, type ViviInsight } from "@/hooks/useViviAgent";
+import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import viviVialogistic from "@/assets/vivi-vialogistic.jpg";
+import viviViainfra from "@/assets/vivi-viainfra.jpg";
 
 const SENTIMENT_LABEL: Record<string, string> = {
   positivo: "Positivo",
