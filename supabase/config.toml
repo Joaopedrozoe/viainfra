@@ -245,3 +245,9 @@ verify_jwt = false
 
 [functions.provision-access-users]
 verify_jwt = false
+
+[functions.vivi-analyze-conversation]
+verify_jwt = false
+
+[functions.vivi-backfill]
+verify_jwt = false
