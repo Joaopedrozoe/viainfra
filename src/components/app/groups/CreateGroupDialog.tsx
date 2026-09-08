@@ -85,21 +85,26 @@ export const CreateGroupDialog = ({ open, companyId, onOpenChange, onCreated }: 
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!companyId || !name.trim() || selected.length === 0) return;
+    if (!companyId || !name.trim()) return;
 
-    const participants = selected.map((s) => `${s.phone}@s.whatsapp.net`);
     const res = await runGroupAction<any>({
       companyId,
       action: "create",
-      payload: { subject: name.trim(), description: description.trim() || undefined, participants },
+      payload: { subject: name.trim(), description: description.trim() || undefined },
       successMessage: "Grupo criado",
     });
 
     if (res.ok) {
-      onOpenChange(false);
-      if (res.data?.conversationId) onCreated(res.data.conversationId);
+      const link = res.data?.inviteLink || null;
+      setInviteLink(link);
+      setCreatedConversationId(res.data?.conversationId || null);
+      if (!link && res.data?.conversationId) {
+        onOpenChange(false);
+        onCreated(res.data.conversationId);
+      }
     }
   };
+
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
