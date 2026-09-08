@@ -815,18 +815,21 @@ async function sendMediaMessage(
       };
       break;
     case 'contact': {
-      const rawPhone = (attachment.contactPhones && attachment.contactPhones[0]) || '';
-      const digitsOnly = rawPhone.replace(/\D/g, '');
+      const contacts = (attachment.contactPhones && attachment.contactPhones.length > 0)
+        ? attachment.contactPhones
+        : [''];
       endpoint = `/message/sendContact/${instanceName}`;
       body = {
         ...body,
-        contact: [
-          {
+        contact: contacts.map((rawPhone) => {
+          let digitsOnly = String(rawPhone || '').replace(/\D/g, '');
+          if (digitsOnly.length === 10 || digitsOnly.length === 11) digitsOnly = `55${digitsOnly}`;
+          return {
             fullName: attachment.contactName || 'Contato',
             wuid: digitsOnly,
-            phoneNumber: digitsOnly ? `+${digitsOnly}` : rawPhone,
-          },
-        ],
+            phoneNumber: digitsOnly ? `+${digitsOnly}` : String(rawPhone || ''),
+          };
+        }),
       };
       break;
     }
@@ -886,10 +889,26 @@ async function sendMediaMessage(
       }
     }
 
-    // Fallback: se mídia falhou e temos texto, tentar enviar só texto
-    if (caption) {
+    // Fallback: se falhou, enviar as informações em texto (contato/legenda)
+    let fallbackText = caption || '';
+    if (attachment.type === 'contact') {
+      const phonesText = (attachment.contactPhones || [])
+        .map((p) => {
+          let d = String(p || '').replace(/\D/g, '');
+          if (d.length === 10 || d.length === 11) d = `55${d}`;
+          return d ? `+${d}` : '';
+        })
+        .filter(Boolean)
+        .join('\n');
+      fallbackText = [
+        `Contato: ${attachment.contactName || 'Contato'}`,
+        phonesText,
+        caption || '',
+      ].filter(Boolean).join('\n');
+    }
+    if (fallbackText) {
       console.warn('[send-whatsapp] Media failed, trying text-only fallback');
-      return await sendTextMessage(evolutionUrl, evolutionKey, instanceName, recipientJid, caption, isGroup);
+      return await sendTextMessage(evolutionUrl, evolutionKey, instanceName, recipientJid, fallbackText, isGroup);
     }
 
     return { success: false, error: responseText };

@@ -232,6 +232,8 @@ const ContactPickerDialog = ({
   const [search, setSearch] = useState("");
   const [contacts, setContacts] = useState<CompanyContact[]>([]);
   const [loading, setLoading] = useState(false);
+  const [manualName, setManualName] = useState("");
+  const [manualPhone, setManualPhone] = useState("");
 
   useEffect(() => {
     if (!open || !companyId) return;
@@ -271,6 +273,44 @@ const ContactPickerDialog = ({
             onChange={(e) => setSearch(e.target.value)}
             className="pl-8"
           />
+        </div>
+        <div className="rounded-lg border border-border/60 p-3 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">Ou digite um contato novo</p>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              placeholder="Nome"
+              value={manualName}
+              onChange={(e) => setManualName(e.target.value)}
+            />
+            <Input
+              placeholder="Telefone (ex: 11999998888)"
+              value={manualPhone}
+              onChange={(e) => setManualPhone(e.target.value)}
+            />
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            className="w-full"
+            onClick={() => {
+              const name = manualName.trim();
+              const digits = manualPhone.replace(/\D/g, "");
+              if (!name) {
+                toast.error("Informe o nome do contato.");
+                return;
+              }
+              if (digits.length < 10) {
+                toast.error("Informe um telefone válido com DDD.");
+                return;
+              }
+              onConfirm({ fullName: name, phone: digits });
+              setManualName("");
+              setManualPhone("");
+              onOpenChange(false);
+            }}
+          >
+            Enviar este contato
+          </Button>
         </div>
         <ScrollArea className="h-72">
           {loading && (
