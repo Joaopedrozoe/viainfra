@@ -133,7 +133,8 @@ serve(async (req) => {
     let errors = 0;
     let missingKey = false;
 
-    const agentsCache = new Map<string, any>();
+    // Pré-carrega todos os agentes ativos para que o backfill avance mesmo sem jobs pendentes.
+    const agentsCache = new Map<string, any>((activeAgents || []).map((a: any) => [a.company_id, a]));
     const companiesCache = new Map<string, string>();
     const limitReachedCompanies = new Set<string>();
 
