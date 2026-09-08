@@ -289,6 +289,7 @@ const Inbox = () => {
                    onResolveConversation={handleResolveConversation}
                    onSelectInternalChat={handleSelectInternalChat}
                    onNewConversation={() => setShowNewConversation(true)}
+                  onNewGroup={() => setShowNewGroup(true)}
                  />
               ) : (
                 <StatusTab />
@@ -362,6 +363,7 @@ const Inbox = () => {
                      onResolveConversation={handleResolveConversation}
                      onSelectInternalChat={handleSelectInternalChat}
                      onNewConversation={() => setShowNewConversation(true)}
+                  onNewGroup={() => setShowNewGroup(true)}
                    />
                 </div>
               </div>
