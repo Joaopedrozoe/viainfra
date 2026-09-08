@@ -34,6 +34,14 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
       url: attachmentData.url,
       filename: attachmentData.filename,
       mimeType: attachmentData.mimeType,
+      size: attachmentData.size,
+      latitude: attachmentData.latitude,
+      longitude: attachmentData.longitude,
+      locationName: attachmentData.locationName,
+      locationAddress: attachmentData.locationAddress,
+      contactName: attachmentData.contactName,
+      contactPhones: attachmentData.contactPhones,
+      vcard: attachmentData.vcard,
     } : undefined;
 
     let deliveryStatus: Message['deliveryStatus'] = undefined;
