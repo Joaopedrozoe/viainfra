@@ -7,10 +7,18 @@ const corsHeaders = {
 };
 
 interface Attachment {
-  type: 'image' | 'video' | 'audio' | 'document' | 'sticker';
+  type: 'image' | 'video' | 'audio' | 'document' | 'sticker' | 'location' | 'contact';
   url: string;
   filename?: string;
   mimeType?: string;
+  // Localização
+  latitude?: number;
+  longitude?: number;
+  locationName?: string;
+  locationAddress?: string;
+  // Contato (vCard)
+  contactName?: string;
+  contactPhones?: string[];
 }
 
 interface SendResult {
@@ -770,6 +778,32 @@ async function sendMediaMessage(
       endpoint = `/message/sendMedia/${instanceName}`;
       body = { ...body, mediatype: 'document', media: attachment.url, fileName: attachment.filename || 'document', caption: mediaCaption };
       break;
+    case 'location':
+      endpoint = `/message/sendLocation/${instanceName}`;
+      body = {
+        ...body,
+        latitude: attachment.latitude,
+        longitude: attachment.longitude,
+        name: attachment.locationName || '',
+        address: attachment.locationAddress || '',
+      };
+      break;
+    case 'contact': {
+      const rawPhone = (attachment.contactPhones && attachment.contactPhones[0]) || '';
+      const digitsOnly = rawPhone.replace(/\D/g, '');
+      endpoint = `/message/sendContact/${instanceName}`;
+      body = {
+        ...body,
+        contact: [
+          {
+            fullName: attachment.contactName || 'Contato',
+            wuid: digitsOnly,
+            phoneNumber: digitsOnly ? `+${digitsOnly}` : rawPhone,
+          },
+        ],
+      };
+      break;
+    }
     default:
       endpoint = `/message/sendText/${instanceName}`;
       body = { number: recipientJid, text: caption || '[Arquivo]', ...(isGroup ? { delay: 1500 } : {}) };
@@ -803,6 +837,8 @@ async function sendMediaMessage(
     if (response.ok) {
       // Áudio e sticker não suportam legenda: enviar o texto como mensagem complementar
       const sentWithoutCaption = attachment.type === 'audio'
+        || attachment.type === 'location'
+        || attachment.type === 'contact'
         || (attachment.type === 'sticker' && (
           (attachment.mimeType || '').toLowerCase().includes('webp')
           || /\.webp(?:$|\?)/i.test(attachment.filename || '')

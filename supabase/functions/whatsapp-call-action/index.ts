@@ -85,7 +85,7 @@ serve(async (req) => {
 
     if (action === "accept") {
       // Best-effort: garante answered_by/answered_by_name mesmo se o cliente não usou claim_call antes.
-      const { data: profile } = await admin.from("profiles").select("name").eq("id", user.id).maybeSingle();
+      const { data: profile } = await admin.from("profiles").select("name").eq("user_id", user.id).maybeSingle();
       const answeredByName = (profile as any)?.name || user.email || null;
       const patch: Record<string, unknown> = { answered_by: user.id, answered_by_name: answeredByName };
       let q = admin.from("calls").update(patch).eq("company_id", company.id).is("answered_by", null);
@@ -99,7 +99,7 @@ serve(async (req) => {
         ended_at: new Date().toISOString(),
       };
       if (action === "reject") {
-        const { data: profile } = await admin.from("profiles").select("name").eq("id", user.id).maybeSingle();
+        const { data: profile } = await admin.from("profiles").select("name").eq("user_id", user.id).maybeSingle();
         (patch as any).answered_by = user.id;
         (patch as any).answered_by_name = (profile as any)?.name || user.email || null;
       }
