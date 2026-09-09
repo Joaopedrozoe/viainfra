@@ -670,6 +670,44 @@ export const useConversations = () => {
     );
   }, []);
 
+  /** Zera a fila de não lidas para TODA a equipe da empresa ativa. */
+  const markAllAsRead = useCallback(async () => {
+    const companyId = company?.id;
+    if (!companyId) return 0;
+
+    const pending = store.conversations.filter((c) => c.hasNewMessage);
+    if (pending.length === 0) return 0;
+
+    const now = new Date().toISOString();
+    const { data: sessionData } = await supabase.auth.getSession();
+    const userId = sessionData?.session?.user?.id ?? null;
+
+    pending.forEach((c) => {
+      readMap.set(c.id, now);
+    });
+    persistReadMap(companyId, readMap);
+    setConversations((prev) => prev.map((c) => (c.hasNewMessage ? { ...c, hasNewMessage: false } : c)));
+
+    const rows = pending.map((c) => ({
+      conversation_id: c.id,
+      company_id: companyId,
+      last_read_at: now,
+      last_read_by: userId,
+    }));
+
+    for (let i = 0; i < rows.length; i += 200) {
+      const { error } = await supabase
+        .from('conversation_reads')
+        .upsert(rows.slice(i, i + 200), { onConflict: 'conversation_id' });
+      if (error) {
+        console.warn('⚠️ markAllAsRead error:', error.message);
+        throw error;
+      }
+    }
+    return pending.length;
+  }, [company?.id]);
+
+
   const updateConversationStatus = useCallback(async (
     conversationId: string,
     status: 'open' | 'resolved' | 'pending'
