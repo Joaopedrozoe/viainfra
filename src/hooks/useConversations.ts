@@ -501,10 +501,30 @@ const startEngine = (companyId: string) => {
 
   let realtimeConnected = true;
 
+  // Carrega o estado de leitura compartilhado ANTES/em paralelo à lista, e
+  // reaplica quando chegar (evita fila "fantasma" em outro dispositivo).
+  void loadServerReadMap(companyId).then(() => {
+    if (engineCompanyId === companyId) applyReadMapToStore();
+  });
+
   void fetchConversations(companyId, false);
 
   const channel = supabase
     .channel(`inbox-rt-${companyId}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'conversation_reads', filter: `company_id=eq.${companyId}` },
+      (payload) => {
+        const row = (payload.new || payload.old) as any;
+        if (!row?.conversation_id || !row?.last_read_at) return;
+        if (engineCompanyId !== companyId) return;
+        if (mergeReadEntry(row.conversation_id, row.last_read_at)) {
+          persistReadMap(companyId, readMap);
+          applyReadMapToStore();
+        }
+      }
+    )
+
     .on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'conversations', filter: `company_id=eq.${companyId}` },
