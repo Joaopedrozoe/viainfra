@@ -475,7 +475,11 @@ export const ChatInput = memo(({
       console.error('Falha ao enviar mensagem, restaurando conteúdo da caixa:', err);
       setNewMessage((current) => (current ? current : textToSend));
       setQueuedFiles((current) => (current.length ? current : filesToSend));
-      toast.error('Não foi possível enviar. Tente novamente.');
+      // Erros já informados ao usuário (ex.: contato sem número) não repetem o aviso
+      if (!(err as any)?.handled) {
+        toast.error('Não foi possível enviar. Tente novamente.');
+      }
+    
     } finally {
       setIsSending(false);
       // Devolve o foco para a caixa para digitação contínua
