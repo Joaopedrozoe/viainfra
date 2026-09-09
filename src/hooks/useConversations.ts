@@ -755,5 +755,6 @@ export const useConversations = () => {
     updateConversationStatus,
     sendMessage,
     clearNewMessageFlag,
+    markAllAsRead,
   };
 };
