@@ -43,7 +43,8 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     return ConversationStorage.getResolvedConversations();
   });
   const { previewConversations } = usePreviewConversation();
-  const { conversations: supabaseConversations, loading: supabaseLoading, refetch, forceSync, lastSyncTime, clearNewMessageFlag } = useConversations();
+  const { conversations: supabaseConversations, loading: supabaseLoading, refetch, forceSync, lastSyncTime, clearNewMessageFlag, markAllAsRead } = useConversations();
+  const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
   const { company } = useAuth();
   const { runGroupAction, isLoading: isGroupSyncing } = useGroupActions();
   const [isSyncing, setIsSyncing] = useState(false);
