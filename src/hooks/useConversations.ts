@@ -589,8 +589,12 @@ const startEngine = (companyId: string) => {
     if (engineCompanyId !== companyId) return;
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
     if (Date.now() - lastFetchAt < 5000) return;
+    void loadServerReadMap(companyId).then(() => {
+      if (engineCompanyId === companyId) applyReadMapToStore();
+    });
     void fetchConversations(companyId, true);
   };
+
   document.addEventListener('visibilitychange', onWake);
   window.addEventListener('focus', onWake);
   window.addEventListener('online', onWake);
