@@ -389,7 +389,7 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
             Todas
           </TabsTrigger>
           <TabsTrigger value="unread" className="text-xs px-2 py-1 h-7 flex-shrink-0">
-            Não lidas {combinedConversations.filter(c => ((c as any).hasNewMessage === true || c.unread > 0) && (c as any).status !== 'resolved' && !(c as any).archived).length > 0 && `(${combinedConversations.filter(c => ((c as any).hasNewMessage === true || c.unread > 0) && (c as any).status !== 'resolved' && !(c as any).archived).length})`}
+            Não lidas {unreadCount > 0 && `(${unreadCount})`}
           </TabsTrigger>
           <TabsTrigger value="bot" className="text-xs px-2 py-1 h-7 flex-shrink-0">
             Bot
@@ -412,6 +412,31 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
           </TabsTrigger>
         </TabsList>
       </Tabs>
+      {activeTab === "unread" && unreadCount > 0 && (
+        <div className="px-3 py-1.5 flex justify-end border-b">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            disabled={isMarkingAllRead}
+            onClick={async () => {
+              setIsMarkingAllRead(true);
+              try {
+                const total = await markAllAsRead();
+                toast.success(total > 0 ? `${total} conversa(s) marcada(s) como lida(s)` : "Nenhuma conversa pendente");
+              } catch {
+                toast.error("Não foi possível marcar todas como lidas");
+              } finally {
+                setIsMarkingAllRead(false);
+              }
+            }}
+          >
+            <CheckCircle2 className="h-3 w-3 mr-1" />
+            {isMarkingAllRead ? "Marcando..." : "Marcar todas como lidas"}
+          </Button>
+        </div>
+      )}
+
       {activeTab === "groups" && company?.id && (
         <div className="px-3 py-1.5 flex justify-end border-b">
           <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" disabled={isGroupSyncing}
