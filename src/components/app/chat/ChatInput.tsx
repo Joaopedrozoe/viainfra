@@ -449,25 +449,40 @@ export const ChatInput = memo(({
   const handleSendMessage = useCallback(async () => {
     if (isSending) return;
     if (newMessage.trim() === "" && queuedFiles.length === 0) return;
+
+    // Snapshot + limpeza imediata da caixa (UX igual ao WhatsApp).
+    // Em caso de falha real no envio, o texto/anexos voltam para a caixa.
+    const textToSend = newMessage;
+    const filesToSend = queuedFiles;
+
     setIsSending(true);
+    setNewMessage("");
+    setQueuedFiles([]);
+
     try {
-      if (queuedFiles.length === 0) {
-        await Promise.resolve(onSendMessage(newMessage));
+      if (filesToSend.length === 0) {
+        await Promise.resolve(onSendMessage(textToSend));
       } else {
         // Envio sequencial: legenda vai apenas no primeiro arquivo (como no WhatsApp oficial)
-        for (let i = 0; i < queuedFiles.length; i++) {
-          const caption = i === 0 ? newMessage : "";
+        for (let i = 0; i < filesToSend.length; i++) {
+          const caption = i === 0 ? textToSend : "";
           // eslint-disable-next-line no-await-in-loop
-          await Promise.resolve(onSendMessage(caption, queuedFiles[i].file));
+          await Promise.resolve(onSendMessage(caption, filesToSend[i].file));
         }
       }
-      setNewMessage("");
-      queuedFiles.forEach((qf) => { if (qf.previewUrl) URL.revokeObjectURL(qf.previewUrl); });
-      setQueuedFiles([]);
+      filesToSend.forEach((qf) => { if (qf.previewUrl) URL.revokeObjectURL(qf.previewUrl); });
+    } catch (err) {
+      console.error('Falha ao enviar mensagem, restaurando conteúdo da caixa:', err);
+      setNewMessage((current) => (current ? current : textToSend));
+      setQueuedFiles((current) => (current.length ? current : filesToSend));
+      toast.error('Não foi possível enviar. Tente novamente.');
     } finally {
       setIsSending(false);
+      // Devolve o foco para a caixa para digitação contínua
+      requestAnimationFrame(() => textareaRef.current?.focus());
     }
   }, [newMessage, queuedFiles, onSendMessage, isSending]);
+
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
