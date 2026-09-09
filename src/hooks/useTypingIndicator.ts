@@ -88,7 +88,7 @@ export const useTypingIndicator = (conversationIds: string[] = []) => {
               newMap.delete(oldData.conversation_id);
               return newMap;
             });
-          } else if (newData?.conversation_id && conversationIds.includes(newData.conversation_id)) {
+          } else if (newData?.conversation_id && idsRef.current.includes(newData.conversation_id)) {
             if (newData.is_typing) {
               setTypingStatuses(prev => {
                 const newMap = new Map(prev);
@@ -119,7 +119,7 @@ export const useTypingIndicator = (conversationIds: string[] = []) => {
       supabase.removeChannel(channel);
       clearInterval(cleanupInterval);
     };
-  }, [conversationIds.join(','), cleanupExpired]);
+  }, [hasIds, cleanupExpired]);
 
   const isTyping = useCallback((conversationId: string): boolean => {
     const status = typingStatuses.get(conversationId);
