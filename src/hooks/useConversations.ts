@@ -189,10 +189,33 @@ let fetchRunning = false;
 let lastFetchAt = 0;
 let lastUnknownRefetchAt = 0;
 
-const markConversationRead = (conversationId: string, timestamp?: string) => {
-  readMap.set(conversationId, timestamp || new Date().toISOString());
+const markConversationRead = (conversationId: string, timestamp?: string, sync = true) => {
+  const ts = timestamp || new Date().toISOString();
+  readMap.set(conversationId, ts);
   persistReadMap(readMapCompanyId, readMap);
+  if (sync && engineCompanyId) {
+    void pushServerRead(engineCompanyId, conversationId, ts);
+  }
 };
+
+/** Aplica no store as conversas cujo estado de leitura veio do servidor. */
+const applyReadMapToStore = () => {
+  setConversations((prev) => {
+    let changed = false;
+    const next = prev.map((conv) => {
+      if (!conv.hasNewMessage) return conv;
+      const readTs = readMap.get(conv.id);
+      const lastTs = conv.lastRealMessage?.created_at;
+      if (readTs && lastTs && new Date(readTs).getTime() >= new Date(lastTs).getTime()) {
+        changed = true;
+        return { ...conv, hasNewMessage: false };
+      }
+      return conv;
+    });
+    return changed ? next : prev;
+  });
+};
+
 
 const fetchConversations = async (companyId: string, silent = false) => {
   if (!companyId || engineCompanyId !== companyId) return;
