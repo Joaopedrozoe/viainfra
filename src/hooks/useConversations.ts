@@ -90,6 +90,8 @@ const mergeReadEntry = (conversationId: string, timestamp: string) => {
   }
   return false;
 };
+const backfilledCompanies = new Set<string>();
+
 
 const loadServerReadMap = async (companyId: string) => {
   const { data, error } = await supabase
