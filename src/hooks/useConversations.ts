@@ -105,11 +105,39 @@ const loadServerReadMap = async (companyId: string) => {
   if (engineCompanyId !== companyId) return;
 
   let changed = false;
+  const serverIds = new Set<string>();
   for (const row of data || []) {
+    serverIds.add(row.conversation_id as string);
     if (mergeReadEntry(row.conversation_id as string, row.last_read_at as string)) changed = true;
   }
   if (changed) persistReadMap(companyId, readMap);
+
+  // Migração única: envia ao servidor as leituras que só existiam neste
+  // navegador, para que a fila zerada localmente também valha para a equipe.
+  if (!backfilledCompanies.has(companyId)) {
+    backfilledCompanies.add(companyId);
+    const missing = Array.from(readMap.entries())
+      .filter(([id]) => !serverIds.has(id))
+      .slice(0, 1000)
+      .map(([conversation_id, last_read_at]) => ({
+        conversation_id,
+        company_id: companyId,
+        last_read_at,
+      }));
+
+    for (let i = 0; i < missing.length; i += 200) {
+      if (engineCompanyId !== companyId) return;
+      const { error: backfillError } = await supabase
+        .from('conversation_reads')
+        .upsert(missing.slice(i, i + 200), { onConflict: 'conversation_id' });
+      if (backfillError) {
+        console.warn('⚠️ conversation_reads backfill error:', backfillError.message);
+        break;
+      }
+    }
+  }
 };
+
 
 const pushServerRead = async (
   companyId: string,
