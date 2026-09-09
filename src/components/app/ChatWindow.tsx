@@ -335,9 +335,11 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
   const handleSendMessage = useCallback(async (content: string, file?: File | Attachment) => {
     console.log('🚀 [SEND] Iniciando envio de mensagem:', { conversationId, content, hasFile: !!file, hasReply: !!replyToMessage });
     
+    const handledError = (message: string) => Object.assign(new Error(message), { handled: true });
+
     if (!conversationId) {
       console.error('❌ [SEND] Sem conversationId');
-      return;
+      throw handledError('Conversa não identificada');
     }
 
     // Contato sem número válido: a API oficial não consegue entregar
@@ -346,15 +348,16 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       toast.error('Contato sem número', {
         description: 'Informe o número do WhatsApp para enviar mensagens.'
       });
-      return;
+      throw handledError('Contato sem número');
     }
 
 
     if (!profile) {
       console.error('❌ [SEND] Perfil não disponível no contexto');
       toast.error('Perfil não encontrado. Por favor, faça logout e login novamente.');
-      return;
+      throw handledError('Perfil não encontrado');
     }
+
 
     // Capturar dados de reply antes de limpar o estado
     const currentReplyTo = replyToMessage;
