@@ -1392,6 +1392,20 @@ export type Database = {
           sender_type: string
         }[]
       }
+      get_inbox_previews_compact: {
+        Args: { _company_id: string; _limit?: number }
+        Returns: {
+          conversation_id: string
+          last_content: string
+          last_created_at: string
+          last_message_id: string
+          last_sender_type: string
+          real_content: string
+          real_created_at: string
+          real_message_id: string
+          real_sender_type: string
+        }[]
+      }
       get_user_company_id: { Args: { _user_id: string }; Returns: string }
       get_user_company_ids: { Args: { _user_id: string }; Returns: string[] }
       get_web_conversation_messages: {

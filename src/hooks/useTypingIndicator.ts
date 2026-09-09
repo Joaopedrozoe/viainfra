@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface TypingStatus {
@@ -32,15 +32,23 @@ export const useTypingIndicator = (conversationIds: string[] = []) => {
     });
   }, []);
 
+  // A lista de conversas é reordenada a cada mensagem nova. Guardar os ids em
+  // um ref evita recriar a assinatura realtime (e refazer a consulta) toda vez
+  // que a ordem muda — isso causava tempestade de reconexões e travamentos.
+  const idsRef = useRef<string[]>(conversationIds);
+  idsRef.current = conversationIds;
+  const hasIds = conversationIds.length > 0;
+
   useEffect(() => {
-    if (conversationIds.length === 0) return;
+    if (!hasIds) return;
 
     // Initial fetch
     const fetchTypingStatus = async () => {
+      const ids = idsRef.current.slice(0, 500);
       const { data, error } = await supabase
         .from('typing_status')
         .select('*')
-        .in('conversation_id', conversationIds)
+        .in('conversation_id', ids)
         .eq('is_typing', true)
         .gt('expires_at', new Date().toISOString());
 
@@ -80,7 +88,7 @@ export const useTypingIndicator = (conversationIds: string[] = []) => {
               newMap.delete(oldData.conversation_id);
               return newMap;
             });
-          } else if (newData?.conversation_id && conversationIds.includes(newData.conversation_id)) {
+          } else if (newData?.conversation_id && idsRef.current.includes(newData.conversation_id)) {
             if (newData.is_typing) {
               setTypingStatuses(prev => {
                 const newMap = new Map(prev);
@@ -111,7 +119,7 @@ export const useTypingIndicator = (conversationIds: string[] = []) => {
       supabase.removeChannel(channel);
       clearInterval(cleanupInterval);
     };
-  }, [conversationIds.join(','), cleanupExpired]);
+  }, [hasIds, cleanupExpired]);
 
   const isTyping = useCallback((conversationId: string): boolean => {
     const status = typingStatuses.get(conversationId);

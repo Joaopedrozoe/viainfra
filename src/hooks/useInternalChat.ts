@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/auth';
 
@@ -39,223 +39,313 @@ export interface InternalMessage {
   };
 }
 
-export const useInternalChat = () => {
-  const { user, profile } = useAuth();
-  const [conversations, setConversations] = useState<InternalConversation[]>([]);
-  const [messages, setMessages] = useState<Record<string, InternalMessage[]>>({});
-  const [loading, setLoading] = useState(true);
+// ---------------------------------------------------------------------------
+// Store compartilhada: o chat interno é usado simultaneamente por Inbox,
+// ConversationList e InternalChatWindow. Antes cada um mantinha sua própria
+// assinatura realtime (recriada a cada mensagem) e refazia as consultas por
+// conversa, o que travava a interface. Agora há uma única engine.
+// ---------------------------------------------------------------------------
+interface InternalStore {
+  conversations: InternalConversation[];
+  messages: Record<string, InternalMessage[]>;
+  loading: boolean;
+}
 
-  // Fetch all internal conversations for current user
-  const fetchConversations = async () => {
-    if (!user?.id || !profile?.company_id) return;
+let store: InternalStore = { conversations: [], messages: {}, loading: true };
+const listeners = new Set<() => void>();
+const emit = () => listeners.forEach((l) => l());
+const setStore = (patch: Partial<InternalStore>) => {
+  store = { ...store, ...patch };
+  emit();
+};
 
+let engineKey: string | null = null;
+let engineRefCount = 0;
+let engineCleanup: (() => void) | null = null;
+let convFetchInFlight: Promise<void> | null = null;
+let lastConvFetchAt = 0;
+
+const fetchConversationsShared = async (
+  userId: string,
+  companyId: string,
+  force = false
+): Promise<void> => {
+  if (convFetchInFlight) return convFetchInFlight;
+  if (!force && Date.now() - lastConvFetchAt < 5000) return;
+
+  convFetchInFlight = (async () => {
     try {
       const { data, error } = await supabase
         .from('internal_conversations')
         .select('*')
-        .contains('participants', [user.id])
-        .eq('company_id', profile.company_id)
+        .contains('participants', [userId])
+        .eq('company_id', companyId)
         .order('updated_at', { ascending: false });
 
       if (error) throw error;
 
-      // Get last message for each conversation
-      const conversationsWithLastMessage = await Promise.all(
-        (data || []).map(async (conv) => {
-          const { data: lastMsg } = await supabase
-            .from('internal_messages')
-            .select('content, created_at, sender_id')
-            .eq('conversation_id', conv.id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
-
-          // Count unread messages
-          const { count } = await supabase
-            .from('internal_messages')
-            .select('*', { count: 'exact', head: true })
-            .eq('conversation_id', conv.id)
-            .not('read_by', 'cs', `{${user.id}}`);
-
-          // Get participant profiles
-          const { data: profiles } = await supabase
-            .from('profiles')
-            .select('name, email, avatar_url')
-            .in('user_id', conv.participants);
-
-          return {
-            ...conv,
-            last_message: lastMsg,
-            unread_count: count || 0,
-            profiles: profiles || [],
-          };
-        })
+      const convs = data || [];
+      const participantIds = Array.from(
+        new Set(convs.flatMap((c) => (c.participants as string[]) || []))
       );
 
-      setConversations(conversationsWithLastMessage);
+      // Perfis de todos os participantes em UMA consulta
+      const profilesById = new Map<string, { name: string; email: string; avatar_url?: string }>();
+      if (participantIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('user_id, name, email, avatar_url')
+          .in('user_id', participantIds);
+        (profiles || []).forEach((p) => {
+          profilesById.set(p.user_id, {
+            name: p.name,
+            email: p.email,
+            avatar_url: p.avatar_url || undefined,
+          });
+        });
+      }
+
+      // Últimas mensagens e não lidas em UMA consulta por lote de conversas
+      const convIds = convs.map((c) => c.id);
+      const lastByConv = new Map<string, { content: string; created_at: string; sender_id: string }>();
+      const unreadByConv = new Map<string, number>();
+
+      if (convIds.length > 0) {
+        const { data: recent } = await supabase
+          .from('internal_messages')
+          .select('conversation_id, content, created_at, sender_id, read_by')
+          .in('conversation_id', convIds)
+          .order('created_at', { ascending: false })
+          .limit(1000);
+
+        (recent || []).forEach((m: any) => {
+          if (!lastByConv.has(m.conversation_id)) {
+            lastByConv.set(m.conversation_id, {
+              content: m.content,
+              created_at: m.created_at,
+              sender_id: m.sender_id,
+            });
+          }
+          const readBy: string[] = m.read_by || [];
+          if (!readBy.includes(userId)) {
+            unreadByConv.set(m.conversation_id, (unreadByConv.get(m.conversation_id) || 0) + 1);
+          }
+        });
+      }
+
+      setStore({
+        conversations: convs.map((conv) => ({
+          ...conv,
+          last_message: lastByConv.get(conv.id),
+          unread_count: unreadByConv.get(conv.id) || 0,
+          profiles: ((conv.participants as string[]) || [])
+            .map((id) => profilesById.get(id))
+            .filter(Boolean) as InternalConversation['profiles'],
+        })) as InternalConversation[],
+        loading: false,
+      });
+      lastConvFetchAt = Date.now();
     } catch (error) {
       console.error('Error fetching internal conversations:', error);
+      setStore({ loading: false });
     } finally {
-      setLoading(false);
+      convFetchInFlight = null;
     }
-  };
+  })();
 
-  // Fetch messages for a specific conversation
-  const fetchMessages = async (conversationId: string) => {
-    try {
-      // First get messages
-      const { data: messagesData, error } = await supabase
-        .from('internal_messages')
-        .select('*')
-        .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: true });
+  return convFetchInFlight;
+};
 
-      if (error) throw error;
+const fetchMessagesShared = async (conversationId: string, userId?: string) => {
+  try {
+    const { data: messagesData, error } = await supabase
+      .from('internal_messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true });
 
-      // Get unique sender IDs
-      const senderIds = [...new Set((messagesData || []).map(m => m.sender_id))];
-      
-      // Fetch sender profiles
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('user_id, name, email, avatar_url')
-        .in('user_id', senderIds);
+    if (error) throw error;
 
-      // Map messages with sender info
-      const formattedMessages = (messagesData || []).map(msg => {
-        const sender = profiles?.find(p => p.user_id === msg.sender_id);
-        return {
-          ...msg,
-          sender: sender ? {
-            name: sender.name,
-            email: sender.email,
-            avatar_url: sender.avatar_url
-          } : undefined
-        };
-      });
+    const senderIds = [...new Set((messagesData || []).map((m) => m.sender_id))];
+    const { data: profiles } = senderIds.length
+      ? await supabase
+          .from('profiles')
+          .select('user_id, name, email, avatar_url')
+          .in('user_id', senderIds)
+      : { data: [] as any[] };
 
-      setMessages(prev => ({
-        ...prev,
-        [conversationId]: formattedMessages
-      }));
+    const formatted = (messagesData || []).map((msg) => {
+      const sender = profiles?.find((p: any) => p.user_id === msg.sender_id);
+      return {
+        ...msg,
+        sender: sender
+          ? { name: sender.name, email: sender.email, avatar_url: sender.avatar_url }
+          : undefined,
+      } as InternalMessage;
+    });
 
-      // Mark messages as read
-      if (user?.id) {
-        const { data: unreadMessages } = await supabase
-          .from('internal_messages')
-          .select('id, read_by')
-          .eq('conversation_id', conversationId)
-          .not('read_by', 'cs', `{${user.id}}`);
+    setStore({ messages: { ...store.messages, [conversationId]: formatted } });
 
-        if (unreadMessages && unreadMessages.length > 0) {
-          for (const msg of unreadMessages) {
-            await supabase
+    // Marca como lidas em uma única atualização por mensagem pendente
+    if (userId) {
+      const unread = (messagesData || []).filter(
+        (m: any) => !((m.read_by as string[]) || []).includes(userId)
+      );
+      if (unread.length > 0) {
+        await Promise.all(
+          unread.map((msg: any) =>
+            supabase
               .from('internal_messages')
-              .update({ read_by: [...msg.read_by, user.id] })
-              .eq('id', msg.id);
-          }
-        }
+              .update({ read_by: [...((msg.read_by as string[]) || []), userId] })
+              .eq('id', msg.id)
+          )
+        );
       }
-    } catch (error) {
-      console.error('Error fetching messages:', error);
     }
+  } catch (error) {
+    console.error('Error fetching messages:', error);
+  }
+};
+
+const startEngine = (userId: string, companyId: string) => {
+  engineKey = `${userId}:${companyId}`;
+  setStore({ conversations: [], messages: {}, loading: true });
+  lastConvFetchAt = 0;
+  void fetchConversationsShared(userId, companyId, true);
+
+  const channel = supabase
+    .channel(`internal-chat-${companyId}`)
+    .on(
+      'postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'internal_messages' },
+      (payload) => {
+        const newMessage = payload.new as InternalMessage;
+        if (store.messages[newMessage.conversation_id]) {
+          void fetchMessagesShared(newMessage.conversation_id, userId);
+        }
+        void fetchConversationsShared(userId, companyId, true);
+      }
+    )
+    .subscribe();
+
+  engineCleanup = () => {
+    supabase.removeChannel(channel);
   };
+};
 
-  // Create new conversation
-  const createConversation = async (participantIds: string[], title?: string, isGroup: boolean = false) => {
-    if (!user?.id || !profile?.company_id) return null;
+const stopEngine = () => {
+  engineCleanup?.();
+  engineCleanup = null;
+  engineKey = null;
+};
 
-    try {
-      const { data, error } = await supabase
-        .from('internal_conversations')
-        .insert({
-          company_id: profile.company_id,
-          participants: [user.id, ...participantIds],
-          title,
-          is_group: isGroup,
-          created_by: user.id,
-        })
-        .select()
-        .single();
+export const useInternalChat = () => {
+  const { user, profile } = useAuth();
+  const [snapshot, setSnapshot] = useState(store);
 
-      if (error) throw error;
+  useEffect(() => {
+    const listener = () => setSnapshot(store);
+    listeners.add(listener);
+    listener();
+    return () => {
+      listeners.delete(listener);
+    };
+  }, []);
 
-      await fetchConversations();
-      return data;
-    } catch (error) {
-      console.error('Error creating conversation:', error);
-      return null;
+  useEffect(() => {
+    const userId = user?.id;
+    const companyId = profile?.company_id;
+    if (!userId || !companyId) return;
+
+    const key = `${userId}:${companyId}`;
+    engineRefCount += 1;
+    if (engineKey !== key) {
+      if (engineKey) stopEngine();
+      startEngine(userId, companyId);
     }
-  };
 
-  // Send message
-  const sendMessage = async (conversationId: string, content: string) => {
-    if (!user?.id) return;
+    return () => {
+      engineRefCount -= 1;
+      if (engineRefCount <= 0) {
+        engineRefCount = 0;
+        stopEngine();
+      }
+    };
+  }, [user?.id, profile?.company_id]);
 
-    try {
-      const { error } = await supabase
-        .from('internal_messages')
-        .insert({
+  const fetchMessages = useCallback(
+    (conversationId: string) => fetchMessagesShared(conversationId, user?.id),
+    [user?.id]
+  );
+
+  const refetch = useCallback(() => {
+    if (!user?.id || !profile?.company_id) return Promise.resolve();
+    return fetchConversationsShared(user.id, profile.company_id, true);
+  }, [user?.id, profile?.company_id]);
+
+  const createConversation = useCallback(
+    async (participantIds: string[], title?: string, isGroup = false) => {
+      if (!user?.id || !profile?.company_id) return null;
+      try {
+        const { data, error } = await supabase
+          .from('internal_conversations')
+          .insert({
+            company_id: profile.company_id,
+            participants: [user.id, ...participantIds],
+            title,
+            is_group: isGroup,
+            created_by: user.id,
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+        await fetchConversationsShared(user.id, profile.company_id, true);
+        return data;
+      } catch (error) {
+        console.error('Error creating conversation:', error);
+        return null;
+      }
+    },
+    [user?.id, profile?.company_id]
+  );
+
+  const sendMessage = useCallback(
+    async (conversationId: string, content: string) => {
+      if (!user?.id) return;
+      try {
+        const { error } = await supabase.from('internal_messages').insert({
           conversation_id: conversationId,
           sender_id: user.id,
           content,
           read_by: [user.id],
         });
 
-      if (error) throw error;
+        if (error) throw error;
 
-      // Update conversation updated_at
-      await supabase
-        .from('internal_conversations')
-        .update({ updated_at: new Date().toISOString() })
-        .eq('id', conversationId);
+        await supabase
+          .from('internal_conversations')
+          .update({ updated_at: new Date().toISOString() })
+          .eq('id', conversationId);
 
-      await fetchMessages(conversationId);
-      await fetchConversations();
-    } catch (error) {
-      console.error('Error sending message:', error);
-    }
-  };
-
-  // Subscribe to new messages
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const channel = supabase
-      .channel('internal-messages-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'internal_messages',
-        },
-        (payload) => {
-          const newMessage = payload.new as InternalMessage;
-          if (messages[newMessage.conversation_id]) {
-            fetchMessages(newMessage.conversation_id);
-          }
-          fetchConversations();
+        await fetchMessagesShared(conversationId, user.id);
+        if (profile?.company_id) {
+          await fetchConversationsShared(user.id, profile.company_id, true);
         }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user?.id, messages]);
-
-  useEffect(() => {
-    fetchConversations();
-  }, [user?.id, profile?.company_id]);
+      } catch (error) {
+        console.error('Error sending message:', error);
+      }
+    },
+    [user?.id, profile?.company_id]
+  );
 
   return {
-    conversations,
-    messages,
-    loading,
+    conversations: snapshot.conversations,
+    messages: snapshot.messages,
+    loading: snapshot.loading,
     fetchMessages,
     createConversation,
     sendMessage,
-    refetch: fetchConversations,
+    refetch,
   };
 };
