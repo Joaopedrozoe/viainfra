@@ -388,8 +388,9 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
         if (uploadError) {
           console.error('❌ [SEND] Erro no upload:', uploadError);
           toast.error('Erro ao enviar arquivo');
-          return;
+          throw handledError('Falha no upload do anexo');
         }
+
 
         // Get public URL
         const { data: publicUrlData } = supabase.storage
