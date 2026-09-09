@@ -44,7 +44,7 @@ const Inbox = () => {
   const [showNewConversation, setShowNewConversation] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const { conversations: internalConversations } = useInternalChat();
-  const { conversations, updateConversationStatus, refetch } = useConversations();
+  const { conversations, updateConversationStatus, refetch, clearNewMessageFlag } = useConversations();
   const { company } = useAuth();
   
   // Notificações de novas mensagens já são disparadas dentro de useConversations,
