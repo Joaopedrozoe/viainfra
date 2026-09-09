@@ -56,6 +56,14 @@ const Inbox = () => {
     return () => setActiveConversationId(null);
   }, [selectedConversation, showChat]);
 
+  // Abrir a conversa (inclusive por link direto ou no desktop) marca como lida
+  // para toda a equipe da empresa ativa.
+  useEffect(() => {
+    if (!selectedConversation) return;
+    if (isMobile && !showChat) return;
+    clearNewMessageFlag(selectedConversation);
+  }, [selectedConversation, showChat, isMobile, clearNewMessageFlag]);
+
   // Badge de não lidas no título da aba
   useEffect(() => {
     const unread = conversations.filter((c: any) => c.hasNewMessage).length;
