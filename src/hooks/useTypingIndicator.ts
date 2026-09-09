@@ -32,15 +32,23 @@ export const useTypingIndicator = (conversationIds: string[] = []) => {
     });
   }, []);
 
+  // A lista de conversas é reordenada a cada mensagem nova. Guardar os ids em
+  // um ref evita recriar a assinatura realtime (e refazer a consulta) toda vez
+  // que a ordem muda — isso causava tempestade de reconexões e travamentos.
+  const idsRef = useRef<string[]>(conversationIds);
+  idsRef.current = conversationIds;
+  const hasIds = conversationIds.length > 0;
+
   useEffect(() => {
-    if (conversationIds.length === 0) return;
+    if (!hasIds) return;
 
     // Initial fetch
     const fetchTypingStatus = async () => {
+      const ids = idsRef.current.slice(0, 500);
       const { data, error } = await supabase
         .from('typing_status')
         .select('*')
-        .in('conversation_id', conversationIds)
+        .in('conversation_id', ids)
         .eq('is_typing', true)
         .gt('expires_at', new Date().toISOString());
 
