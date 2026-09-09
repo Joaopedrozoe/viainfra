@@ -51,7 +51,9 @@ export interface Conversation {
 const INBOX_CONVERSATION_LIMIT = 1000;
 
 // ---------------------------------------------------------------------------
-// Estado de leitura persistido por empresa
+// Estado de leitura COMPARTILHADO por empresa (tabela conversation_reads).
+// O localStorage é apenas cache offline/otimista: a fonte da verdade é o banco,
+// para que quando uma atendente zera a fila, todas as outras vejam zerado.
 // ---------------------------------------------------------------------------
 const readStorageKey = (companyId: string) => `inbox-read-map:${companyId}`;
 
@@ -78,6 +80,88 @@ const persistReadMap = (companyId: string | null, map: Map<string, string>) => {
     // storage indisponível — estado em memória continua válido
   }
 };
+
+/** Mescla o estado do servidor no mapa local, mantendo o timestamp mais recente. */
+const mergeReadEntry = (conversationId: string, timestamp: string) => {
+  const current = readMap.get(conversationId);
+  if (!current || new Date(timestamp).getTime() > new Date(current).getTime()) {
+    readMap.set(conversationId, timestamp);
+    return true;
+  }
+  return false;
+};
+const backfilledCompanies = new Set<string>();
+
+
+const loadServerReadMap = async (companyId: string) => {
+  const { data, error } = await supabase
+    .from('conversation_reads')
+    .select('conversation_id, last_read_at')
+    .eq('company_id', companyId)
+    .limit(5000);
+
+  if (error) {
+    console.warn('⚠️ conversation_reads fetch error:', error.message);
+    return;
+  }
+  if (engineCompanyId !== companyId) return;
+
+  let changed = false;
+  const serverIds = new Set<string>();
+  for (const row of data || []) {
+    serverIds.add(row.conversation_id as string);
+    if (mergeReadEntry(row.conversation_id as string, row.last_read_at as string)) changed = true;
+  }
+  if (changed) persistReadMap(companyId, readMap);
+
+  // Migração única: envia ao servidor as leituras que só existiam neste
+  // navegador, para que a fila zerada localmente também valha para a equipe.
+  if (!backfilledCompanies.has(companyId)) {
+    backfilledCompanies.add(companyId);
+    const missing = Array.from(readMap.entries())
+      .filter(([id]) => !serverIds.has(id))
+      .slice(0, 1000)
+      .map(([conversation_id, last_read_at]) => ({
+        conversation_id,
+        company_id: companyId,
+        last_read_at,
+      }));
+
+    for (let i = 0; i < missing.length; i += 200) {
+      if (engineCompanyId !== companyId) return;
+      const { error: backfillError } = await supabase
+        .from('conversation_reads')
+        .upsert(missing.slice(i, i + 200), { onConflict: 'conversation_id' });
+      if (backfillError) {
+        console.warn('⚠️ conversation_reads backfill error:', backfillError.message);
+        break;
+      }
+    }
+  }
+};
+
+
+const pushServerRead = async (
+  companyId: string,
+  conversationId: string,
+  timestamp: string
+) => {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const userId = sessionData?.session?.user?.id ?? null;
+  const { error } = await supabase
+    .from('conversation_reads')
+    .upsert(
+      {
+        conversation_id: conversationId,
+        company_id: companyId,
+        last_read_at: timestamp,
+        last_read_by: userId,
+      },
+      { onConflict: 'conversation_id' }
+    );
+  if (error) console.warn('⚠️ conversation_reads upsert error:', error.message);
+};
+
 
 // ---------------------------------------------------------------------------
 // Engine única compartilhada por TODOS os consumidores do hook.
@@ -135,10 +219,33 @@ let fetchRunning = false;
 let lastFetchAt = 0;
 let lastUnknownRefetchAt = 0;
 
-const markConversationRead = (conversationId: string, timestamp?: string) => {
-  readMap.set(conversationId, timestamp || new Date().toISOString());
+const markConversationRead = (conversationId: string, timestamp?: string, sync = true) => {
+  const ts = timestamp || new Date().toISOString();
+  readMap.set(conversationId, ts);
   persistReadMap(readMapCompanyId, readMap);
+  if (sync && engineCompanyId) {
+    void pushServerRead(engineCompanyId, conversationId, ts);
+  }
 };
+
+/** Aplica no store as conversas cujo estado de leitura veio do servidor. */
+const applyReadMapToStore = () => {
+  setConversations((prev) => {
+    let changed = false;
+    const next = prev.map((conv) => {
+      if (!conv.hasNewMessage) return conv;
+      const readTs = readMap.get(conv.id);
+      const lastTs = conv.lastRealMessage?.created_at;
+      if (readTs && lastTs && new Date(readTs).getTime() >= new Date(lastTs).getTime()) {
+        changed = true;
+        return { ...conv, hasNewMessage: false };
+      }
+      return conv;
+    });
+    return changed ? next : prev;
+  });
+};
+
 
 const fetchConversations = async (companyId: string, silent = false) => {
   if (!companyId || engineCompanyId !== companyId) return;
@@ -424,10 +531,30 @@ const startEngine = (companyId: string) => {
 
   let realtimeConnected = true;
 
+  // Carrega o estado de leitura compartilhado ANTES/em paralelo à lista, e
+  // reaplica quando chegar (evita fila "fantasma" em outro dispositivo).
+  void loadServerReadMap(companyId).then(() => {
+    if (engineCompanyId === companyId) applyReadMapToStore();
+  });
+
   void fetchConversations(companyId, false);
 
   const channel = supabase
     .channel(`inbox-rt-${companyId}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'conversation_reads', filter: `company_id=eq.${companyId}` },
+      (payload) => {
+        const row = (payload.new || payload.old) as any;
+        if (!row?.conversation_id || !row?.last_read_at) return;
+        if (engineCompanyId !== companyId) return;
+        if (mergeReadEntry(row.conversation_id, row.last_read_at)) {
+          persistReadMap(companyId, readMap);
+          applyReadMapToStore();
+        }
+      }
+    )
+
     .on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'conversations', filter: `company_id=eq.${companyId}` },
@@ -492,8 +619,12 @@ const startEngine = (companyId: string) => {
     if (engineCompanyId !== companyId) return;
     if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
     if (Date.now() - lastFetchAt < 5000) return;
+    void loadServerReadMap(companyId).then(() => {
+      if (engineCompanyId === companyId) applyReadMapToStore();
+    });
     void fetchConversations(companyId, true);
   };
+
   document.addEventListener('visibilitychange', onWake);
   window.addEventListener('focus', onWake);
   window.addEventListener('online', onWake);
@@ -569,6 +700,44 @@ export const useConversations = () => {
     );
   }, []);
 
+  /** Zera a fila de não lidas para TODA a equipe da empresa ativa. */
+  const markAllAsRead = useCallback(async () => {
+    const companyId = company?.id;
+    if (!companyId) return 0;
+
+    const pending = store.conversations.filter((c) => c.hasNewMessage);
+    if (pending.length === 0) return 0;
+
+    const now = new Date().toISOString();
+    const { data: sessionData } = await supabase.auth.getSession();
+    const userId = sessionData?.session?.user?.id ?? null;
+
+    pending.forEach((c) => {
+      readMap.set(c.id, now);
+    });
+    persistReadMap(companyId, readMap);
+    setConversations((prev) => prev.map((c) => (c.hasNewMessage ? { ...c, hasNewMessage: false } : c)));
+
+    const rows = pending.map((c) => ({
+      conversation_id: c.id,
+      company_id: companyId,
+      last_read_at: now,
+      last_read_by: userId,
+    }));
+
+    for (let i = 0; i < rows.length; i += 200) {
+      const { error } = await supabase
+        .from('conversation_reads')
+        .upsert(rows.slice(i, i + 200), { onConflict: 'conversation_id' });
+      if (error) {
+        console.warn('⚠️ markAllAsRead error:', error.message);
+        throw error;
+      }
+    }
+    return pending.length;
+  }, [company?.id]);
+
+
   const updateConversationStatus = useCallback(async (
     conversationId: string,
     status: 'open' | 'resolved' | 'pending'
@@ -616,5 +785,6 @@ export const useConversations = () => {
     updateConversationStatus,
     sendMessage,
     clearNewMessageFlag,
+    markAllAsRead,
   };
 };

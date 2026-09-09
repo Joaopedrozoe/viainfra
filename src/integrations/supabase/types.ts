@@ -653,6 +653,45 @@ export type Database = {
           },
         ]
       }
+      conversation_reads: {
+        Row: {
+          company_id: string
+          conversation_id: string
+          last_read_at: string
+          last_read_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          conversation_id: string
+          last_read_at?: string
+          last_read_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          conversation_id?: string
+          last_read_at?: string
+          last_read_by?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_reads_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_reads_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: true
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       conversations: {
         Row: {
           access_token: string | null

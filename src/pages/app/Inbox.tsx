@@ -44,7 +44,7 @@ const Inbox = () => {
   const [showNewConversation, setShowNewConversation] = useState(false);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const { conversations: internalConversations } = useInternalChat();
-  const { conversations, updateConversationStatus, refetch } = useConversations();
+  const { conversations, updateConversationStatus, refetch, clearNewMessageFlag } = useConversations();
   const { company } = useAuth();
   
   // Notificações de novas mensagens já são disparadas dentro de useConversations,
@@ -55,6 +55,14 @@ const Inbox = () => {
     setActiveConversationId(showChat ? selectedConversation : null);
     return () => setActiveConversationId(null);
   }, [selectedConversation, showChat]);
+
+  // Abrir a conversa (inclusive por link direto ou no desktop) marca como lida
+  // para toda a equipe da empresa ativa.
+  useEffect(() => {
+    if (!selectedConversation) return;
+    if (isMobile && !showChat) return;
+    clearNewMessageFlag(selectedConversation);
+  }, [selectedConversation, showChat, isMobile, clearNewMessageFlag]);
 
   // Badge de não lidas no título da aba
   useEffect(() => {
