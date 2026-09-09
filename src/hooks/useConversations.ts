@@ -51,7 +51,9 @@ export interface Conversation {
 const INBOX_CONVERSATION_LIMIT = 1000;
 
 // ---------------------------------------------------------------------------
-// Estado de leitura persistido por empresa
+// Estado de leitura COMPARTILHADO por empresa (tabela conversation_reads).
+// O localStorage é apenas cache offline/otimista: a fonte da verdade é o banco,
+// para que quando uma atendente zera a fila, todas as outras vejam zerado.
 // ---------------------------------------------------------------------------
 const readStorageKey = (companyId: string) => `inbox-read-map:${companyId}`;
 
@@ -78,6 +80,58 @@ const persistReadMap = (companyId: string | null, map: Map<string, string>) => {
     // storage indisponível — estado em memória continua válido
   }
 };
+
+/** Mescla o estado do servidor no mapa local, mantendo o timestamp mais recente. */
+const mergeReadEntry = (conversationId: string, timestamp: string) => {
+  const current = readMap.get(conversationId);
+  if (!current || new Date(timestamp).getTime() > new Date(current).getTime()) {
+    readMap.set(conversationId, timestamp);
+    return true;
+  }
+  return false;
+};
+
+const loadServerReadMap = async (companyId: string) => {
+  const { data, error } = await supabase
+    .from('conversation_reads')
+    .select('conversation_id, last_read_at')
+    .eq('company_id', companyId)
+    .limit(5000);
+
+  if (error) {
+    console.warn('⚠️ conversation_reads fetch error:', error.message);
+    return;
+  }
+  if (engineCompanyId !== companyId) return;
+
+  let changed = false;
+  for (const row of data || []) {
+    if (mergeReadEntry(row.conversation_id as string, row.last_read_at as string)) changed = true;
+  }
+  if (changed) persistReadMap(companyId, readMap);
+};
+
+const pushServerRead = async (
+  companyId: string,
+  conversationId: string,
+  timestamp: string
+) => {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const userId = sessionData?.session?.user?.id ?? null;
+  const { error } = await supabase
+    .from('conversation_reads')
+    .upsert(
+      {
+        conversation_id: conversationId,
+        company_id: companyId,
+        last_read_at: timestamp,
+        last_read_by: userId,
+      },
+      { onConflict: 'conversation_id' }
+    );
+  if (error) console.warn('⚠️ conversation_reads upsert error:', error.message);
+};
+
 
 // ---------------------------------------------------------------------------
 // Engine única compartilhada por TODOS os consumidores do hook.
