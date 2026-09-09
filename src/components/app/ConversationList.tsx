@@ -192,6 +192,17 @@ export const ConversationList = ({ onSelectConversation, selectedId, refreshTrig
     return combined;
   }, [previewConversations, supabaseConversations]);
 
+  // Contagem única de não lidas (mesma regra usada pela aba "Não lidas")
+  const unreadCount = useMemo(
+    () => combinedConversations.filter((c) =>
+      ((c as any).hasNewMessage === true || c.unread > 0) &&
+      (c as any).status !== 'resolved' &&
+      !(c as any).archived
+    ).length,
+    [combinedConversations]
+  );
+
+
   // Handle conversation selection - memoized
   const handleConversationSelect = useCallback((conversationId: string) => {
     clearNewMessageFlag(conversationId); // Limpar flag de nova mensagem
