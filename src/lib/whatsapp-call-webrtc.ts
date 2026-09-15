@@ -17,6 +17,7 @@ export class WhatsAppCallSession {
   private localStream: MediaStream | null = null;
   private audioEl: HTMLAudioElement | null = null;
   private closed = false;
+  private muted = false;
 
   onConnectionStateChange?: (state: RTCPeerConnectionState) => void;
 
@@ -66,6 +67,9 @@ export class WhatsAppCallSession {
       pc.addTrack(track, this.localStream);
     }
 
+    // Reaplica o mudo escolhido antes do áudio existir (ex.: silenciar ao atender)
+    this.applyMute();
+
     // Áudio remoto
     const audio = document.createElement("audio");
     audio.autoplay = true;
@@ -81,6 +85,8 @@ export class WhatsAppCallSession {
     };
 
     pc.onconnectionstatechange = () => {
+      // Garante que o estado de mudo continue valendo após (re)negociação
+      if (pc.connectionState === "connected") this.applyMute();
       this.onConnectionStateChange?.(pc.connectionState);
     };
 
@@ -111,8 +117,24 @@ export class WhatsAppCallSession {
     await this.pc.setRemoteDescription({ type: "answer", sdp });
   }
 
+  /** Silencia/reativa o microfone. Vale mesmo se o áudio ainda não foi capturado. */
   setMuted(muted: boolean) {
-    this.localStream?.getAudioTracks().forEach((t) => { t.enabled = !muted; });
+    this.muted = muted;
+    this.applyMute();
+  }
+
+  get isMuted() {
+    return this.muted;
+  }
+
+  private applyMute() {
+    const enabled = !this.muted;
+    this.localStream?.getAudioTracks().forEach((t) => { t.enabled = enabled; });
+    try {
+      this.pc?.getSenders().forEach((s) => {
+        if (s.track?.kind === "audio") s.track.enabled = enabled;
+      });
+    } catch { /* noop */ }
   }
 
   close() {
