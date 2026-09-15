@@ -205,24 +205,34 @@ export const IncomingCallDialog = ({ call, onDismiss }: IncomingCallDialogProps)
             </p>
           </div>
 
+          {muted && phase !== "ended" && (
+            <p className="text-xs font-medium text-destructive flex items-center gap-1">
+              <MicOff className="h-3 w-3" /> Microfone desligado
+            </p>
+          )}
+
           {phase === "ringing" && (
             <div className="flex items-center gap-4 pt-2">
               <Button variant="destructive" size="lg" className="rounded-full h-14 w-14 p-0" onClick={handleReject} aria-label="Recusar">
                 <PhoneOff className="h-6 w-6" />
               </Button>
+              {muteButton}
               <Button size="lg" className="rounded-full h-14 w-14 p-0 bg-green-600 hover:bg-green-700" onClick={handleAccept} aria-label="Atender">
                 <Phone className="h-6 w-6" />
               </Button>
             </div>
           )}
 
-          {phase === "accepting" && <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />}
+          {phase === "accepting" && (
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              {muteButton}
+            </div>
+          )}
 
           {phase === "connected" && (
             <div className="flex items-center gap-4 pt-2">
-              <Button variant="outline" size="lg" className="rounded-full h-14 w-14 p-0" onClick={toggleMute} aria-label={muted ? "Ativar microfone" : "Silenciar microfone"}>
-                {muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
-              </Button>
+              {muteButton}
               <Button variant="destructive" size="lg" className="rounded-full h-14 w-14 p-0" onClick={handleHangup} aria-label="Encerrar">
                 <PhoneOff className="h-6 w-6" />
               </Button>
