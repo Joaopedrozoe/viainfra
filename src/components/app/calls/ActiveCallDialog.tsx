@@ -180,6 +180,7 @@ export const ActiveCallDialog = ({
   const toggleMute = () => {
     const next = !muted;
     setMuted(next);
+    mutedRef.current = next;
     sessionRef.current?.setMuted(next);
   };
 
@@ -217,13 +218,20 @@ export const ActiveCallDialog = ({
             <p className="text-sm text-destructive text-center px-2">{errorMsg}</p>
           )}
 
+          {muted && phase !== "ended" && (
+            <p className="text-xs font-medium text-destructive flex items-center gap-1">
+              <MicOff className="h-3 w-3" /> Microfone desligado
+            </p>
+          )}
+
           <div className="flex items-center gap-4 mt-2">
             {phase !== "ended" && (
               <Button
-                variant={muted ? "default" : "outline"}
+                variant={muted ? "destructive" : "outline"}
                 size="icon"
                 className="h-12 w-12 rounded-full"
                 onClick={toggleMute}
+                aria-label={muted ? "Ativar microfone" : "Silenciar microfone"}
                 title={muted ? "Ativar microfone" : "Silenciar microfone"}
               >
                 {muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
