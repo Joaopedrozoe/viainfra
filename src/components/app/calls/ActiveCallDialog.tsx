@@ -45,6 +45,16 @@ export const ActiveCallDialog = ({
   const callIdRef = useRef<string | null>(null);
   const waCallIdRef = useRef<string | null>(null);
   const startedRef = useRef(false);
+  const mutedRef = useRef(false);
+
+  // Toda nova chamada começa com o microfone aberto
+  useEffect(() => {
+    if (!open) return;
+    setMuted(false);
+    mutedRef.current = false;
+    setSeconds(0);
+    setErrorMsg(null);
+  }, [open]);
 
   // Cronômetro
   useEffect(() => {
@@ -82,6 +92,7 @@ export const ActiveCallDialog = ({
     (async () => {
       const session = new WhatsAppCallSession();
       sessionRef.current = session;
+      session.setMuted(mutedRef.current);
 
       let sdp: string;
       try {
