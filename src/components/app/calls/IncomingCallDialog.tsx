@@ -28,6 +28,7 @@ export const IncomingCallDialog = ({ call, onDismiss }: IncomingCallDialogProps)
   const [muted, setMuted] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const sessionRef = useRef<WhatsAppCallSession | null>(null);
+  const mutedRef = useRef(false);
 
   const label = call.contactName || call.phone;
 
@@ -104,6 +105,7 @@ export const IncomingCallDialog = ({ call, onDismiss }: IncomingCallDialogProps)
 
     const session = new WhatsAppCallSession();
     sessionRef.current = session;
+    session.setMuted(mutedRef.current);
     session.onConnectionStateChange = (state) => {
       if (state === "connected") setPhase((p) => (p === "ended" ? p : "connected"));
       if (state === "failed" || state === "closed") setPhase((p) => (p === "connected" ? "ended" : p));
