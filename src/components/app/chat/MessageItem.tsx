@@ -380,63 +380,124 @@ const DocumentAttachment = ({ url, filename }: { url: string; filename?: string 
   );
 };
 
+// Minimapa de localização (tiles OpenStreetMap — sem chave de API)
+const MAP_W = 280;
+const MAP_H = 150;
+const MAP_ZOOM = 16;
+const TILE = 256;
+
+const lngToPx = (lng: number, z: number) => ((lng + 180) / 360) * TILE * Math.pow(2, z);
+const latToPx = (lat: number, z: number) => {
+  const clamped = Math.max(-85.05112878, Math.min(85.05112878, lat));
+  const sin = Math.sin((clamped * Math.PI) / 180);
+  return (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * TILE * Math.pow(2, z);
+};
+
+const MiniMap = ({ lat, lng }: { lat: number; lng: number }) => {
+  const [failed, setFailed] = useState(false);
+
+  const tiles = useMemo(() => {
+    const cx = lngToPx(lng, MAP_ZOOM);
+    const cy = latToPx(lat, MAP_ZOOM);
+    const left = cx - MAP_W / 2;
+    const top = cy - MAP_H / 2;
+    const maxTile = Math.pow(2, MAP_ZOOM) - 1;
+    const out: { key: string; url: string; x: number; y: number }[] = [];
+    for (let tx = Math.floor(left / TILE); tx <= Math.floor((left + MAP_W) / TILE); tx++) {
+      for (let ty = Math.floor(top / TILE); ty <= Math.floor((top + MAP_H) / TILE); ty++) {
+        if (ty < 0 || ty > maxTile) continue;
+        const wrappedX = ((tx % (maxTile + 1)) + maxTile + 1) % (maxTile + 1);
+        out.push({
+          key: `${tx}-${ty}`,
+          url: `https://tile.openstreetmap.org/${MAP_ZOOM}/${wrappedX}/${ty}.png`,
+          x: tx * TILE - left,
+          y: ty * TILE - top,
+        });
+      }
+    }
+    return out;
+  }, [lat, lng]);
+
+  if (failed) {
+    return (
+      <div className="flex items-center justify-center gap-2 bg-muted h-[80px] text-xs text-muted-foreground">
+        <MapPin size={16} className="text-red-500" />
+        Mapa indisponível — abra no aplicativo de mapas
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative overflow-hidden bg-muted" style={{ width: '100%', height: MAP_H }}>
+      <div className="absolute inset-0">
+        {tiles.map((t) => (
+          <img
+            key={t.key}
+            src={t.url}
+            alt=""
+            loading="lazy"
+            draggable={false}
+            onError={() => setFailed(true)}
+            className="absolute select-none"
+            style={{ left: t.x, top: t.y, width: TILE, height: TILE }}
+          />
+        ))}
+      </div>
+      {/* Pino no ponto exato enviado pelo contato */}
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-full drop-shadow-md">
+        <MapPin size={30} className="text-red-600 fill-red-600" strokeWidth={1.5} />
+      </div>
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 h-1.5 w-1.5 rounded-full bg-red-900/70" />
+    </div>
+  );
+};
+
 // Componente para exibir localização
-const LocationAttachment = ({ 
-  url, 
-  latitude, 
-  longitude, 
-  name, 
-  address 
-}: { 
-  url: string; 
-  latitude?: number; 
-  longitude?: number; 
-  name?: string; 
+const LocationAttachment = ({
+  url,
+  latitude,
+  longitude,
+  name,
+  address
+}: {
+  url: string;
+  latitude?: number;
+  longitude?: number;
+  name?: string;
   address?: string;
 }) => {
-  const lat = latitude || 0;
-  const lng = longitude || 0;
-  
-  // Gerar URL do mapa estático para preview
-  const staticMapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=15&size=300x150&maptype=roadmap&markers=color:red%7C${lat},${lng}&key=AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8`;
-  
-  // URL do Google Maps para abrir
-  const mapsUrl = url || `https://www.google.com/maps?q=${lat},${lng}`;
-  
+  const lat = Number(latitude) || 0;
+  const lng = Number(longitude) || 0;
+  const hasCoords = Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0);
+
+  const mapsUrl = hasCoords
+    ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+    : (url || '#');
+
   return (
     <a
       href={mapsUrl}
       target="_blank"
       rel="noopener noreferrer"
-      className="mt-2 block rounded-lg overflow-hidden hover:opacity-90 transition-opacity cursor-pointer border border-border/50"
+      className="mt-2 block w-[280px] max-w-full rounded-lg overflow-hidden hover:opacity-95 transition-opacity cursor-pointer border border-border/50"
     >
-      {/* Preview do mapa usando OpenStreetMap (alternativa sem API key) */}
-      <div className="relative">
-        <iframe
-          src={`https://www.openstreetmap.org/export/embed.html?bbox=${lng-0.01},${lat-0.01},${lng+0.01},${lat+0.01}&layer=mapnik&marker=${lat},${lng}`}
-          width="280"
-          height="150"
-          style={{ border: 0, pointerEvents: 'none' }}
-          loading="lazy"
-          title="Localização"
-          className="w-full"
-        />
-        <div className="absolute inset-0 bg-transparent" />
-      </div>
-      
+      {hasCoords ? (
+        <MiniMap lat={lat} lng={lng} />
+      ) : (
+        <div className="flex items-center justify-center gap-2 bg-muted h-[80px] text-xs text-muted-foreground">
+          <MapPin size={16} className="text-red-500" /> Localização
+        </div>
+      )}
+
       {/* Info da localização */}
       <div className="p-3 bg-muted/50 flex items-center gap-2">
         <MapPin size={20} className="text-red-500 flex-shrink-0" />
         <div className="flex-1 min-w-0">
-          {name && (
-            <div className="font-medium text-sm truncate">{name}</div>
-          )}
-          {address && (
-            <div className="text-xs text-muted-foreground truncate">{address}</div>
-          )}
+          {name && <div className="font-medium text-sm truncate">{name}</div>}
+          {address && <div className="text-xs text-muted-foreground truncate">{address}</div>}
           {!name && !address && (
             <div className="text-sm">
-              {lat.toFixed(6)}, {lng.toFixed(6)}
+              {hasCoords ? `${lat.toFixed(6)}, ${lng.toFixed(6)}` : 'Localização compartilhada'}
             </div>
           )}
         </div>
