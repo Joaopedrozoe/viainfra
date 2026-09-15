@@ -171,8 +171,22 @@ export const IncomingCallDialog = ({ call, onDismiss }: IncomingCallDialogProps)
   const toggleMute = () => {
     const next = !muted;
     setMuted(next);
+    mutedRef.current = next;
     sessionRef.current?.setMuted(next);
   };
+
+  const muteButton = (
+    <Button
+      variant={muted ? "destructive" : "outline"}
+      size="lg"
+      className="rounded-full h-14 w-14 p-0"
+      onClick={toggleMute}
+      aria-label={muted ? "Ativar microfone" : "Silenciar microfone"}
+      title={muted ? "Ativar microfone" : "Silenciar microfone"}
+    >
+      {muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+    </Button>
+  );
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) { if (phase === "connected") handleHangup(); else handleReject(); } }}>
