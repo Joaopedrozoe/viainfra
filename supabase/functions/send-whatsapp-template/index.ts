@@ -306,36 +306,44 @@ serve(async (req) => {
     // Tenta os idiomas mais comuns para o template aprovado
     const languages = language ? [language] : ["en", "pt_BR", "pt", "en_US"];
     let result: any = null;
+    // Cada envio é uma tentativa NOVA e independente: nenhum estado de erro
+    // anterior é reutilizado. Erros de conta/infra da Meta são retentados.
     for (const lang of languages) {
-      result = await sendTemplate(
-        creds.token,
-        resolvedPhone.id,
-        targetPhone,
-        template_name,
-        lang,
-        templateVars,
-      );
-      console.log(
-        `[send-template] ${template_name}/${lang} -> ${result.status}`,
-        JSON.stringify(result.data).substring(0, 300),
-      );
-      if (result.ok) {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        result = await sendTemplate(
+          creds.token,
+          resolvedPhone.id,
+          targetPhone,
+          template_name,
+          lang,
+          templateVars,
+        );
+        console.log(
+          `[send-template] ${template_name}/${lang} tentativa ${attempt} -> ${result.status}`,
+          JSON.stringify(result.data).substring(0, 300),
+        );
+        if (result.ok) break;
+        const code = Number(result.data?.error?.code);
+        if (!RECOVERABLE_META_CODES.has(code) || attempt === 3) break;
+        await new Promise((r) => setTimeout(r, 700 * attempt));
+      }
+      if (result?.ok) {
         result.language = lang;
         break;
       }
-      const code = result.data?.error?.code;
+      const code = result?.data?.error?.code;
       // 132001 = template não existe nesse idioma; segue tentando
       if (code !== 132001 && code !== 132000) break;
     }
 
     if (!result?.ok) {
+      const metaError = result?.data?.error || null;
       return json(
         {
           success: false,
-          error:
-            result?.data?.error?.message ||
-            "Falha ao enviar template pela Meta",
-          details: result?.data?.error || null,
+          error: friendlyMetaError(metaError),
+          recoverable: RECOVERABLE_META_CODES.has(Number(metaError?.code)),
+          details: metaError,
         },
         400,
       );
