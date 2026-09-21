@@ -80,12 +80,16 @@ export const TemplatePickerDialog = ({ open, onOpenChange, conversationId, onSen
 
   const handleSelect = (t: MetaTemplate) => {
     if (t.status.toUpperCase() !== "APPROVED") return;
+    // Erro de uma tentativa anterior nunca permanece ao escolher outro envio
+    setError(null);
     setSelected(t);
     setVariables(Array.from({ length: t.variables }, () => ""));
   };
 
   const handleSend = async () => {
     if (!selected || sending) return;
+    // Cada envio começa limpo: o app não trava no erro da tentativa anterior
+    setError(null);
     setSending(true);
     try {
       const { data, error: fnError } = await supabase.functions.invoke("send-whatsapp-template", {

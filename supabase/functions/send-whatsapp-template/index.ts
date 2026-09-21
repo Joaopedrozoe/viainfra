@@ -93,6 +93,34 @@ async function verifyApprovedTemplate(token: string, wabaId: string, name: strin
   return { approved: true };
 }
 
+/**
+ * Erros da Meta que são de CONTA/INFRA (pagamento, limite temporário, indisponibilidade)
+ * e não do conteúdo do envio. Nunca devem travar o fluxo: tentamos novamente e,
+ * se ainda falhar, devolvemos a causa atual — jamais um erro antigo.
+ */
+const RECOVERABLE_META_CODES = new Set([
+  131042, // Business eligibility payment issue
+  131016, // Serviço temporariamente indisponível
+  131026, // Mensagem não entregável (transitório)
+  131048, // Limite de qualidade/spam temporário
+  131056, // Par de números em limite temporário
+  133016, // Número temporariamente bloqueado
+  80007, // Rate limit da API
+  368, // Bloqueio temporário
+  500,
+  1,
+  2,
+]);
+
+function friendlyMetaError(err: any): string {
+  const code = Number(err?.code);
+  const base = err?.error_user_title || err?.message || "Falha ao enviar template pela Meta";
+  if (code === 131042) {
+    return `${base} — verifique a forma de pagamento da conta Meta. Após regularizar, basta enviar novamente: o app não guarda o erro anterior.`;
+  }
+  return base;
+}
+
 async function sendTemplate(
   token: string,
   phoneNumberId: string,
@@ -278,36 +306,44 @@ serve(async (req) => {
     // Tenta os idiomas mais comuns para o template aprovado
     const languages = language ? [language] : ["en", "pt_BR", "pt", "en_US"];
     let result: any = null;
+    // Cada envio é uma tentativa NOVA e independente: nenhum estado de erro
+    // anterior é reutilizado. Erros de conta/infra da Meta são retentados.
     for (const lang of languages) {
-      result = await sendTemplate(
-        creds.token,
-        resolvedPhone.id,
-        targetPhone,
-        template_name,
-        lang,
-        templateVars,
-      );
-      console.log(
-        `[send-template] ${template_name}/${lang} -> ${result.status}`,
-        JSON.stringify(result.data).substring(0, 300),
-      );
-      if (result.ok) {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        result = await sendTemplate(
+          creds.token,
+          resolvedPhone.id,
+          targetPhone,
+          template_name,
+          lang,
+          templateVars,
+        );
+        console.log(
+          `[send-template] ${template_name}/${lang} tentativa ${attempt} -> ${result.status}`,
+          JSON.stringify(result.data).substring(0, 300),
+        );
+        if (result.ok) break;
+        const code = Number(result.data?.error?.code);
+        if (!RECOVERABLE_META_CODES.has(code) || attempt === 3) break;
+        await new Promise((r) => setTimeout(r, 700 * attempt));
+      }
+      if (result?.ok) {
         result.language = lang;
         break;
       }
-      const code = result.data?.error?.code;
+      const code = result?.data?.error?.code;
       // 132001 = template não existe nesse idioma; segue tentando
       if (code !== 132001 && code !== 132000) break;
     }
 
     if (!result?.ok) {
+      const metaError = result?.data?.error || null;
       return json(
         {
           success: false,
-          error:
-            result?.data?.error?.message ||
-            "Falha ao enviar template pela Meta",
-          details: result?.data?.error || null,
+          error: friendlyMetaError(metaError),
+          recoverable: RECOVERABLE_META_CODES.has(Number(metaError?.code)),
+          details: metaError,
         },
         400,
       );
