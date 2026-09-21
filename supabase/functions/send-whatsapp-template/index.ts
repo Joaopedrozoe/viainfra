@@ -93,6 +93,34 @@ async function verifyApprovedTemplate(token: string, wabaId: string, name: strin
   return { approved: true };
 }
 
+/**
+ * Erros da Meta que são de CONTA/INFRA (pagamento, limite temporário, indisponibilidade)
+ * e não do conteúdo do envio. Nunca devem travar o fluxo: tentamos novamente e,
+ * se ainda falhar, devolvemos a causa atual — jamais um erro antigo.
+ */
+const RECOVERABLE_META_CODES = new Set([
+  131042, // Business eligibility payment issue
+  131016, // Serviço temporariamente indisponível
+  131026, // Mensagem não entregável (transitório)
+  131048, // Limite de qualidade/spam temporário
+  131056, // Par de números em limite temporário
+  133016, // Número temporariamente bloqueado
+  80007, // Rate limit da API
+  368, // Bloqueio temporário
+  500,
+  1,
+  2,
+]);
+
+function friendlyMetaError(err: any): string {
+  const code = Number(err?.code);
+  const base = err?.error_user_title || err?.message || "Falha ao enviar template pela Meta";
+  if (code === 131042) {
+    return `${base} — verifique a forma de pagamento da conta Meta. Após regularizar, basta enviar novamente: o app não guarda o erro anterior.`;
+  }
+  return base;
+}
+
 async function sendTemplate(
   token: string,
   phoneNumberId: string,
