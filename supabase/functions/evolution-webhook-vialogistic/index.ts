@@ -462,9 +462,11 @@ async function processMetaCallEvent(payload: any): Promise<boolean> {
 
     for (const c of calls) {
       const waCallId = c.id;
-      const event = c.event; // 'connect' | 'terminate' | 'permission_update'
-      const from = c.from as string | undefined;
-      const direction = c.direction === 'business_initiated' ? 'outgoing' : 'incoming';
+      const event = String(c.event || '').toLowerCase(); // 'connect' | 'terminate' | 'permission_update'
+      // A Meta envia BUSINESS_INITIATED / USER_INITIATED (maiúsculas)
+      const direction = String(c.direction || '').toLowerCase().includes('business') ? 'outgoing' : 'incoming';
+      // O telefone do contato é o outro lado da ligação, nunca o nosso número
+      const from = (direction === 'outgoing' ? (c.to || c.from) : (c.from || c.to)) as string | undefined;
       const ts = c.timestamp ? new Date(Number(c.timestamp) * 1000).toISOString() : new Date().toISOString();
       if (!waCallId) continue;
 
@@ -496,12 +498,14 @@ async function processMetaCallEvent(payload: any): Promise<boolean> {
         const status = incomingRinging ? 'ringing' : (event === 'connect' ? 'connected' : 'ringing');
 
         if (existing) {
-          await supabase.from('calls').update({
-            status,
-            connected_at: status === 'connected' ? ts : null,
-            ring_deadline: status === 'ringing' ? new Date(new Date(ts).getTime() + 60000).toISOString() : null,
-            metadata: meta,
-          }).eq('id', existing.id);
+          const patch: Record<string, unknown> = { status, metadata: meta };
+          if (status === 'connected') {
+            patch.connected_at = ts;
+            patch.ring_deadline = null;
+          } else {
+            patch.ring_deadline = new Date(new Date(ts).getTime() + 60000).toISOString();
+          }
+          await supabase.from('calls').update(patch).eq('id', existing.id);
         } else {
           await supabase.from('calls').insert({
             company_id: company.id, contact_id: contactId, conversation_id: conversationId,
@@ -512,6 +516,7 @@ async function processMetaCallEvent(payload: any): Promise<boolean> {
             metadata: meta,
           });
         }
+
 
       } else if (event === 'terminate') {
         const endedAt = ts;
