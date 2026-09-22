@@ -109,6 +109,27 @@ serve(async (req) => {
       return json({ error: `META_PHONE_NUMBER_ID_${creds.key} não configurado nos secrets.` }, 500);
     }
 
+    // Um canal de voz por empresa: se já existe ligação tocando/em andamento, não atravessa.
+    const busySince = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    const { data: busy } = await admin
+      .from("calls")
+      .select("id, phone, status, direction, started_at")
+      .eq("company_id", company.id)
+      .in("status", ["ringing", "connected", "permission_pending"])
+      .is("ended_at", null)
+      .gte("started_at", busySince)
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (busy) {
+      const who = (busy as any).phone || "outro número";
+      return json({
+        error: `Já existe uma ligação em andamento com ${who}. Encerre a chamada atual antes de iniciar outra.`,
+        busy: true,
+        activeCall: busy,
+      }, 409);
+    }
+
     const url = `https://graph.facebook.com/v21.0/${creds.phoneNumberId}/calls`;
     const payload = {
       messaging_product: "whatsapp",

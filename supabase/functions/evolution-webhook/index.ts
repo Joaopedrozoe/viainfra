@@ -461,9 +461,11 @@ async function processMetaCallEvent(payload: any): Promise<boolean> {
 
     for (const c of calls) {
       const waCallId = c.id;
-      const event = c.event; // 'connect' | 'terminate' | 'permission_update'
-      const from = c.from as string | undefined;
-      const direction = c.direction === 'business_initiated' ? 'outgoing' : 'incoming';
+      const event = String(c.event || '').toLowerCase(); // 'connect' | 'terminate' | 'permission_update'
+      // A Meta envia BUSINESS_INITIATED / USER_INITIATED (maiúsculas)
+      const direction = String(c.direction || '').toLowerCase().includes('business') ? 'outgoing' : 'incoming';
+      // O telefone do contato é o outro lado da ligação, nunca o nosso número
+      const from = (direction === 'outgoing' ? (c.to || c.from) : (c.from || c.to)) as string | undefined;
       const ts = c.timestamp ? new Date(Number(c.timestamp) * 1000).toISOString() : new Date().toISOString();
 
       if (!waCallId) continue;
@@ -494,15 +496,19 @@ async function processMetaCallEvent(payload: any): Promise<boolean> {
         const meta: Record<string, unknown> = { ...c };
         if (answerSdp) meta.answer_sdp = answerSdp;
         if (offerSdp) meta.offer_sdp = offerSdp;
+        // Saída: 'connect' com answer SDP = o contato atendeu → conectada.
+        // Entrada: 'connect' com offer SDP = está tocando aqui.
         const status = incomingRinging ? 'ringing' : (event === 'connect' ? 'connected' : 'ringing');
 
         if (existing) {
-          await supabase.from('calls').update({
-            status,
-            connected_at: status === 'connected' ? ts : null,
-            ring_deadline: status === 'ringing' ? new Date(new Date(ts).getTime() + 60000).toISOString() : null,
-            metadata: meta,
-          }).eq('id', existing.id);
+          const patch: Record<string, unknown> = { status, metadata: meta };
+          if (status === 'connected') {
+            patch.connected_at = ts;
+            patch.ring_deadline = null;
+          } else {
+            patch.ring_deadline = new Date(new Date(ts).getTime() + 60000).toISOString();
+          }
+          await supabase.from('calls').update(patch).eq('id', existing.id);
         } else {
           await supabase.from('calls').insert({
             company_id: company.id,
@@ -520,6 +526,7 @@ async function processMetaCallEvent(payload: any): Promise<boolean> {
             metadata: meta,
           });
         }
+
 
       } else if (event === 'terminate') {
         const endedAt = ts;
@@ -606,6 +613,57 @@ async function processMetaCallEvent(payload: any): Promise<boolean> {
     return true;
   }
 }
+
+/**
+ * Status de chamada da Meta (statuses[] com type "call"):
+ * RINGING / ACCEPTED / REJECTED / COMPLETED / MISSED / FAILED.
+ * É por aqui que sabemos que o contato atendeu uma ligação nossa.
+ */
+async function processMetaCallStatuses(statuses: any[]): Promise<void> {
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+  );
+  for (const s of statuses) {
+    const waCallId: string | undefined = s?.id;
+    if (!waCallId) continue;
+    const raw = String(s?.status || '').toUpperCase();
+    const ts = s?.timestamp ? new Date(Number(s.timestamp) * 1000).toISOString() : new Date().toISOString();
+
+    const { data: existing } = await supabase
+      .from('calls').select('id, status, started_at').eq('wa_call_id', waCallId).maybeSingle();
+    if (!existing) continue;
+
+    const patch: Record<string, unknown> = {};
+    if (raw === 'RINGING') {
+      if (existing.status === 'connected') continue;
+      patch.status = 'ringing';
+      patch.ring_deadline = new Date(new Date(ts).getTime() + 60000).toISOString();
+    } else if (raw === 'ACCEPTED' || raw === 'CONNECTED' || raw === 'IN_PROGRESS') {
+      patch.status = 'connected';
+      patch.connected_at = ts;
+      patch.ring_deadline = null;
+    } else if (raw === 'COMPLETED' || raw === 'TERMINATED') {
+      patch.status = existing.status === 'connected' ? 'completed' : 'no_answer';
+      patch.ended_at = ts;
+    } else if (raw === 'REJECTED' || raw === 'DECLINED') {
+      patch.status = 'rejected';
+      patch.ended_at = ts;
+    } else if (raw === 'MISSED' || raw === 'NO_ANSWER' || raw === 'UNANSWERED') {
+      patch.status = existing.status === 'connected' ? 'completed' : 'missed';
+      patch.ended_at = ts;
+    } else if (raw === 'FAILED') {
+      patch.status = 'failed';
+      patch.ended_at = ts;
+    } else {
+      continue;
+    }
+    await supabase.from('calls').update(patch).eq('id', existing.id);
+    console.log(`📞 [Meta call status] ${raw} → ${patch.status} (${waCallId})`);
+  }
+}
+
+
 
 // Meta Cloud API — eventos de status de entrega (sent / delivered / read / failed)
 async function processMetaStatuses(payload: any): Promise<boolean> {
@@ -731,7 +789,16 @@ function parseWebhookPayload(payload: any): EvolutionWebhook | null {
         return { event: 'IGNORED', instance: 'VIAINFRA', data: null };
       }
       if (Array.isArray(value?.statuses) && value.statuses.length > 0) {
-        processMetaStatuses(payload).catch(err => console.error('status processing failed', err));
+        const field = payload.entry?.[0]?.changes?.[0]?.field;
+        const callStatuses = value.statuses.filter((s: any) =>
+          String(s?.type || '').toLowerCase() === 'call' || field === 'calls');
+        if (callStatuses.length > 0) {
+          processMetaCallStatuses(callStatuses).catch(err => console.error('call status processing failed', err));
+        }
+        const msgStatuses = value.statuses.filter((s: any) => !callStatuses.includes(s));
+        if (msgStatuses.length > 0) {
+          processMetaStatuses(payload).catch(err => console.error('status processing failed', err));
+        }
         return { event: 'IGNORED', instance: 'VIAINFRA', data: null };
       }
       return convertMetaPayloadToEvolution(payload);
