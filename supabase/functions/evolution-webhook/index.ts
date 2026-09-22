@@ -789,7 +789,16 @@ function parseWebhookPayload(payload: any): EvolutionWebhook | null {
         return { event: 'IGNORED', instance: 'VIAINFRA', data: null };
       }
       if (Array.isArray(value?.statuses) && value.statuses.length > 0) {
-        processMetaStatuses(payload).catch(err => console.error('status processing failed', err));
+        const field = payload.entry?.[0]?.changes?.[0]?.field;
+        const callStatuses = value.statuses.filter((s: any) =>
+          String(s?.type || '').toLowerCase() === 'call' || field === 'calls');
+        if (callStatuses.length > 0) {
+          processMetaCallStatuses(callStatuses).catch(err => console.error('call status processing failed', err));
+        }
+        const msgStatuses = value.statuses.filter((s: any) => !callStatuses.includes(s));
+        if (msgStatuses.length > 0) {
+          processMetaStatuses(payload).catch(err => console.error('status processing failed', err));
+        }
         return { event: 'IGNORED', instance: 'VIAINFRA', data: null };
       }
       return convertMetaPayloadToEvolution(payload);
