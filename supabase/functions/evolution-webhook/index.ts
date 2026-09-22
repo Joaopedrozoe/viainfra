@@ -470,7 +470,7 @@ async function processMetaCallEvent(payload: any): Promise<boolean> {
 
       if (!waCallId) continue;
 
-      const { data: existing } = await supabase.from('calls').select('id, started_at, status').eq('wa_call_id', waCallId).maybeSingle();
+      const { data: existing } = await supabase.from('calls').select('id, started_at, status, connected_at').eq('wa_call_id', waCallId).maybeSingle();
 
       // Try to link contact/conversation by phone
       let contactId: string | null = null;
@@ -529,12 +529,34 @@ async function processMetaCallEvent(payload: any): Promise<boolean> {
 
 
       } else if (event === 'terminate') {
-        const endedAt = ts;
-        const startedAt = existing?.started_at || ts;
-        const duration = Math.max(0, Math.floor((new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000));
-        const finalStatus = existing?.status === 'connected' ? 'completed' : (direction === 'incoming' ? 'missed' : 'no_answer');
+        // A Meta envia start_time / end_time / duration / status no evento terminate.
+        // Usamos esses dados como fonte da verdade — o estado local pode não ter
+        // recebido o ACCEPTED ainda (corrida de webhooks).
+        const metaStatus = String(c.status || '').toUpperCase();
+        const metaDuration = Number(c.duration);
+        const startedAt = c.start_time
+          ? new Date(Number(c.start_time) * 1000).toISOString()
+          : (existing?.started_at || ts);
+        const endedAt = c.end_time ? new Date(Number(c.end_time) * 1000).toISOString() : ts;
+        const duration = Number.isFinite(metaDuration) && metaDuration > 0
+          ? Math.floor(metaDuration)
+          : Math.max(0, Math.floor((new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000));
+        const wasConnected = existing?.status === 'connected'
+          || !!existing?.connected_at
+          || metaStatus === 'COMPLETED'
+          || metaStatus === 'ACCEPTED'
+          || (!!c.start_time && duration > 0);
+        const finalStatus = metaStatus === 'REJECTED' || metaStatus === 'DECLINED'
+          ? 'rejected'
+          : metaStatus === 'FAILED'
+            ? 'failed'
+            : wasConnected
+              ? 'completed'
+              : (direction === 'incoming' ? 'missed' : 'no_answer');
         if (existing) {
-          await supabase.from('calls').update({ status: finalStatus, ended_at: endedAt, duration }).eq('id', existing.id);
+          const patch: Record<string, unknown> = { status: finalStatus, ended_at: endedAt, duration, ring_deadline: null };
+          if (finalStatus === 'completed' && !existing.connected_at) patch.connected_at = startedAt;
+          await supabase.from('calls').update(patch).eq('id', existing.id);
         } else {
           await supabase.from('calls').insert({
             company_id: company.id, contact_id: contactId, conversation_id: conversationId,
@@ -631,26 +653,27 @@ async function processMetaCallStatuses(statuses: any[]): Promise<void> {
     const ts = s?.timestamp ? new Date(Number(s.timestamp) * 1000).toISOString() : new Date().toISOString();
 
     const { data: existing } = await supabase
-      .from('calls').select('id, status, started_at').eq('wa_call_id', waCallId).maybeSingle();
+      .from('calls').select('id, status, started_at, connected_at, duration').eq('wa_call_id', waCallId).maybeSingle();
     if (!existing) continue;
+    const everConnected = existing.status === 'connected' || existing.status === 'completed' || !!existing.connected_at;
 
     const patch: Record<string, unknown> = {};
     if (raw === 'RINGING') {
-      if (existing.status === 'connected') continue;
+      if (everConnected) continue;
       patch.status = 'ringing';
       patch.ring_deadline = new Date(new Date(ts).getTime() + 60000).toISOString();
     } else if (raw === 'ACCEPTED' || raw === 'CONNECTED' || raw === 'IN_PROGRESS') {
       patch.status = 'connected';
-      patch.connected_at = ts;
+      patch.connected_at = existing.connected_at || ts;
       patch.ring_deadline = null;
     } else if (raw === 'COMPLETED' || raw === 'TERMINATED') {
-      patch.status = existing.status === 'connected' ? 'completed' : 'no_answer';
+      patch.status = everConnected ? 'completed' : 'no_answer';
       patch.ended_at = ts;
     } else if (raw === 'REJECTED' || raw === 'DECLINED') {
-      patch.status = 'rejected';
+      patch.status = everConnected ? 'completed' : 'rejected';
       patch.ended_at = ts;
     } else if (raw === 'MISSED' || raw === 'NO_ANSWER' || raw === 'UNANSWERED') {
-      patch.status = existing.status === 'connected' ? 'completed' : 'missed';
+      patch.status = everConnected ? 'completed' : 'missed';
       patch.ended_at = ts;
     } else if (raw === 'FAILED') {
       patch.status = 'failed';
