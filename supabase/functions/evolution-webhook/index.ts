@@ -614,6 +614,57 @@ async function processMetaCallEvent(payload: any): Promise<boolean> {
   }
 }
 
+/**
+ * Status de chamada da Meta (statuses[] com type "call"):
+ * RINGING / ACCEPTED / REJECTED / COMPLETED / MISSED / FAILED.
+ * É por aqui que sabemos que o contato atendeu uma ligação nossa.
+ */
+async function processMetaCallStatuses(statuses: any[]): Promise<void> {
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+  );
+  for (const s of statuses) {
+    const waCallId: string | undefined = s?.id;
+    if (!waCallId) continue;
+    const raw = String(s?.status || '').toUpperCase();
+    const ts = s?.timestamp ? new Date(Number(s.timestamp) * 1000).toISOString() : new Date().toISOString();
+
+    const { data: existing } = await supabase
+      .from('calls').select('id, status, started_at').eq('wa_call_id', waCallId).maybeSingle();
+    if (!existing) continue;
+
+    const patch: Record<string, unknown> = {};
+    if (raw === 'RINGING') {
+      if (existing.status === 'connected') continue;
+      patch.status = 'ringing';
+      patch.ring_deadline = new Date(new Date(ts).getTime() + 60000).toISOString();
+    } else if (raw === 'ACCEPTED' || raw === 'CONNECTED' || raw === 'IN_PROGRESS') {
+      patch.status = 'connected';
+      patch.connected_at = ts;
+      patch.ring_deadline = null;
+    } else if (raw === 'COMPLETED' || raw === 'TERMINATED') {
+      patch.status = existing.status === 'connected' ? 'completed' : 'no_answer';
+      patch.ended_at = ts;
+    } else if (raw === 'REJECTED' || raw === 'DECLINED') {
+      patch.status = 'rejected';
+      patch.ended_at = ts;
+    } else if (raw === 'MISSED' || raw === 'NO_ANSWER' || raw === 'UNANSWERED') {
+      patch.status = existing.status === 'connected' ? 'completed' : 'missed';
+      patch.ended_at = ts;
+    } else if (raw === 'FAILED') {
+      patch.status = 'failed';
+      patch.ended_at = ts;
+    } else {
+      continue;
+    }
+    await supabase.from('calls').update(patch).eq('id', existing.id);
+    console.log(`📞 [Meta call status] ${raw} → ${patch.status} (${waCallId})`);
+  }
+}
+
+
+
 // Meta Cloud API — eventos de status de entrega (sent / delivered / read / failed)
 async function processMetaStatuses(payload: any): Promise<boolean> {
   try {
