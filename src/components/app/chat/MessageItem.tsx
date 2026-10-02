@@ -10,7 +10,8 @@ import { Message, MessageDeliveryStatus, AttachmentType, MessageReaction } from 
 import { ReactionChips, ReactionPicker } from "./MessageReactions";
 import { format, isThisYear } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { FileText, Download, Play, Pause, Volume2, Check, CheckCheck, Clock, AlertCircle, Loader2, Pin, Star, Reply, Image, Video, Mic, File, MapPin, ExternalLink, User } from "lucide-react";
+import { FileText, Download, Play, Pause, Volume2, Check, CheckCheck, Clock, AlertCircle, Loader2, Pin, Star, Reply, Image, Video, Mic, File, MapPin, ExternalLink, User, UserPlus, Forward } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { MessageActions } from "./MessageActions";
@@ -470,9 +471,10 @@ const LocationAttachment = ({
   const lng = Number(longitude) || 0;
   const hasCoords = Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0);
 
+  const textQuery = [name, address].filter(Boolean).join(', ');
   const mapsUrl = hasCoords
     ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
-    : (url || '#');
+    : (url || (textQuery ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(textQuery)}` : '#'));
 
   return (
     <a
@@ -573,6 +575,50 @@ const ContactAttachment = ({
     }
   }, [name, primaryPhone, profile?.company_id]);
 
+  const [saved, setSaved] = useState(false);
+  const handleSave = useCallback(async () => {
+    if (!primaryPhone) return;
+    const companyId = profile?.company_id;
+    if (!companyId) { toast.error("Empresa ativa não encontrada."); return; }
+    let digits = primaryPhone.replace(/\D/g, "");
+    if (digits.length === 10 || digits.length === 11) digits = `55${digits}`;
+    if (digits.length < 10) { toast.error("Número inválido."); return; }
+    setBusy(true);
+    try {
+      const tail = digits.slice(-8);
+      const { data: existing } = await supabase
+        .from("contacts")
+        .select("id, name, phone")
+        .eq("company_id", companyId)
+        .like("phone", `%${tail}`)
+        .limit(5);
+      const match = (existing || []).find((c: any) => {
+        const p = String(c.phone || "").replace(/\D/g, "");
+        return p === digits || p.endsWith(digits.slice(-10)) || digits.endsWith(p.slice(-10));
+      });
+      if (match) {
+        setSaved(true);
+        toast.info(`Já está na agenda como "${match.name}".`, {
+          action: { label: "Abrir conversa", onClick: () => void handleOpenConversation() },
+        });
+        return;
+      }
+      const { error } = await supabase.from("contacts").insert([{
+        company_id: companyId,
+        name: (name || digits).trim(),
+        phone: digits,
+        metadata: { source: "shared_contact" } as any,
+      }]);
+      if (error) throw error;
+      setSaved(true);
+      toast.success(`Contato "${name || digits}" salvo na agenda.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Não foi possível salvar o contato.");
+    } finally {
+      setBusy(false);
+    }
+  }, [name, primaryPhone, profile?.company_id, handleOpenConversation]);
+
   const handleCopy = useCallback(async () => {
     if (!primaryPhone) return;
     try {
@@ -610,6 +656,17 @@ const ContactAttachment = ({
           >
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Reply size={14} />}
             Conversar
+          </button>
+        )}
+        {primaryPhone && (
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={busy || saved}
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline disabled:opacity-60"
+          >
+            {saved ? <Check size={14} /> : <UserPlus size={14} />}
+            {saved ? "Salvo" : "Salvar contato"}
           </button>
         )}
         {primaryPhone && (
@@ -885,6 +942,22 @@ export const MessageItem = memo(({
           isAgentMessage={isAgentMessage}
           onToggle={onReact ? (emoji) => onReact(message, emoji) : undefined}
         />
+      )}
+
+      {onForward && !isTempMessage && !message.isDeleted && (
+        <button
+          type="button"
+          aria-label="Encaminhar mensagem"
+          title="Encaminhar"
+          onClick={(e) => { e.stopPropagation(); onForward(message); }}
+          className={cn(
+            "absolute top-1/2 -translate-y-1/2 opacity-60 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition-opacity",
+            "rounded-full border border-border bg-card p-1 text-muted-foreground shadow-sm hover:text-foreground",
+            isAgentMessage ? "-left-9" : "-right-9"
+          )}
+        >
+          <Forward className="h-3.5 w-3.5" />
+        </button>
       )}
 
       {onReact && !isTempMessage && (

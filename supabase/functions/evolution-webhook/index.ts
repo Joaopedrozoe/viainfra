@@ -3546,6 +3546,8 @@ async function downloadMetaMediaAndUpload(
 
 // Download media from WhatsApp
 async function downloadAndUploadMedia(supabase: any, attachment: Attachment, message: EvolutionMessage, conversationId: string, instanceName: string): Promise<string | null> {
+  // Localização e contato são dados estruturados — não há binário para baixar
+  if ((attachment as any)?.type === 'location' || (attachment as any)?.type === 'contact') return null;
   // Meta Cloud API path: no url is provided by the webhook, only a media id
   const metaMediaId = getMetaMediaId(message);
   if (metaMediaId) {

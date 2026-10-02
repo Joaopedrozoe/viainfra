@@ -88,7 +88,7 @@ export function ForwardMessageModal({
     };
 
     loadConversations();
-  }, [open]);
+  }, [open, company?.id]);
 
   // Filtrar conversas
   const filteredConversations = conversations.filter((conv) =>
@@ -103,10 +103,15 @@ export function ForwardMessageModal({
     try {
       // Resolver attachment de message.attachment OU message.metadata.attachment
       const attachment = message.attachment || (message as any).metadata?.attachment;
-      const hasAttachment = !!(attachment && attachment.url && attachment.type);
+      const isStructured = attachment?.type === 'location' || attachment?.type === 'contact';
+      const structuredValid = attachment?.type === 'location'
+        ? (typeof attachment.latitude === 'number' && typeof attachment.longitude === 'number')
+        : attachment?.type === 'contact'
+          ? !!(attachment.contactPhones?.length || attachment.vcard)
+          : false;
+      const hasAttachment = !!(attachment && attachment.type && (isStructured ? structuredValid : !!attachment.url));
 
       // Para anexos: enviar APENAS o conteúdo original como caption (sem prefixo "↪️")
-      // Para texto puro: prefixar com indicador de encaminhamento
       const forwardContent = hasAttachment
         ? (message.content?.trim() || undefined)
         : `↪️ Encaminhada:\n${message.content}`;
@@ -121,10 +126,11 @@ export function ForwardMessageModal({
         metadata.attachment = attachment;
       }
 
-      // Validar attachment se presente
-      if (attachment && (!attachment.url || !attachment.type)) {
+      if (attachment && attachment.type && !hasAttachment) {
         console.error('[Forward] Attachment inválido:', attachment);
-        toast.error('Anexo inválido: URL ou tipo ausente. Não é possível encaminhar.');
+        toast.error(isStructured
+          ? 'Este contato/localização não tem dados suficientes para encaminhar.'
+          : 'Anexo inválido: arquivo ausente. Não é possível encaminhar.');
         setSendingTo(null);
         return;
       }
