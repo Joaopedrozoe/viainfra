@@ -944,6 +944,22 @@ export const MessageItem = memo(({
         />
       )}
 
+      {onForward && !isTempMessage && !message.isDeleted && (
+        <button
+          type="button"
+          aria-label="Encaminhar mensagem"
+          title="Encaminhar"
+          onClick={(e) => { e.stopPropagation(); onForward(message); }}
+          className={cn(
+            "absolute top-1/2 -translate-y-1/2 opacity-60 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition-opacity",
+            "rounded-full border border-border bg-card p-1 text-muted-foreground shadow-sm hover:text-foreground",
+            isAgentMessage ? "-left-9" : "-right-9"
+          )}
+        >
+          <Forward className="h-3.5 w-3.5" />
+        </button>
+      )}
+
       {onReact && !isTempMessage && (
         <ReactionPicker
           isAgentMessage={isAgentMessage}
