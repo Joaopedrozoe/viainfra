@@ -41,66 +41,96 @@ export function ForwardMessageModal({
   const [sendingTo, setSendingTo] = useState<string | null>(null);
   const { profile, company } = useAuth();
 
-  // Carregar conversas (filtrando pela empresa atual)
+  // Carregar conversas recentes (qualquer status) + busca em toda a agenda da empresa
   useEffect(() => {
-    if (!open) return;
+    if (!open || !company?.id) return;
+    const term = search.trim();
+    let cancelled = false;
 
-    const loadConversations = async () => {
+    const t = setTimeout(async () => {
       setIsLoading(true);
       try {
-        let query = supabase
-          .from('conversations')
-          .select(`
-            id,
-            channel,
-            company_id,
-            contacts (
-              name,
-              avatar_url
-            )
-          `)
-          .eq('status', 'open')
-          .order('updated_at', { ascending: false })
-          .limit(100);
+        const results: Conversation[] = [];
+        const seen = new Set<string>();
 
-        if (company?.id) {
-          query = query.eq('company_id', company.id);
+        // 1) Conversas da empresa (todas, mais recentes primeiro)
+        let convQuery = supabase
+          .from('conversations')
+          .select('id, channel, contact_id, contacts!inner(name, phone, avatar_url)')
+          .eq('company_id', company.id)
+          .order('updated_at', { ascending: false })
+          .limit(term ? 50 : 200);
+        if (term) {
+          const safe = term.replace(/[%,()]/g, '');
+          const digits = safe.replace(/\D/g, '');
+          convQuery = convQuery.or(
+            digits.length >= 3
+              ? `name.ilike.%${safe}%,phone.ilike.%${digits}%`
+              : `name.ilike.%${safe}%`,
+            { referencedTable: 'contacts' },
+          );
+        }
+        const { data: convs } = await convQuery;
+        for (const c of (convs || []) as any[]) {
+          if (c.contact_id && seen.has(c.contact_id)) continue;
+          if (c.contact_id) seen.add(c.contact_id);
+          results.push({
+            id: c.id,
+            contactName: c.contacts?.name || c.contacts?.phone || 'Cliente',
+            contactAvatar: c.contacts?.avatar_url || null,
+            channel: c.channel || 'whatsapp',
+            lastMessage: c.contacts?.phone || '',
+          });
         }
 
-        const { data, error } = await query;
+        // 2) Contatos da agenda sem conversa
+        if (term) {
+          const safe = term.replace(/[%,()]/g, '');
+          const digits = safe.replace(/\D/g, '');
+          const { data: contacts } = await supabase
+            .from('contacts')
+            .select('id, name, phone, avatar_url')
+            .eq('company_id', company.id)
+            .not('phone', 'is', null)
+            .or(digits.length >= 3 ? `name.ilike.%${safe}%,phone.ilike.%${digits}%` : `name.ilike.%${safe}%`)
+            .limit(50);
+          for (const ct of (contacts || []) as any[]) {
+            if (seen.has(ct.id)) continue;
+            seen.add(ct.id);
+            results.push({
+              id: `contact:${ct.id}`,
+              contactName: ct.name || ct.phone,
+              contactAvatar: ct.avatar_url || null,
+              channel: 'whatsapp',
+              lastMessage: ct.phone || '',
+              phone: ct.phone,
+            });
+          }
+        }
 
-        if (error) throw error;
-
-        const mapped: Conversation[] = (data || []).map((conv: any) => ({
-          id: conv.id,
-          contactName: conv.contacts?.name || 'Cliente',
-          contactAvatar: conv.contacts?.avatar_url || null,
-          channel: conv.channel || 'web',
-          lastMessage: '',
-        }));
-
-        setConversations(mapped);
+        if (!cancelled) setConversations(results);
       } catch (error) {
         console.error('Erro ao carregar conversas:', error);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
-    };
+    }, term ? 300 : 0);
 
-    loadConversations();
-  }, [open, company?.id]);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [open, company?.id, search]);
 
-  // Filtrar conversas
-  const filteredConversations = conversations.filter((conv) =>
-    conv.contactName.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredConversations = conversations;
 
-  // Encaminhar mensagem - AGORA COM ENVIO REAL PARA WHATSAPP
-  const handleForward = async (targetConversation: Conversation) => {
+  const handleForward = async (picked: Conversation) => {
     if (!message || !profile) return;
 
-    setSendingTo(targetConversation.id);
+    setSendingTo(picked.id);
     try {
+      let targetConversation = picked;
+      if (picked.id.startsWith('contact:') && company?.id && picked.phone) {
+        const started = await startConversation({ companyId: company.id, name: picked.contactName, phone: picked.phone });
+        targetConversation = { ...picked, id: started.conversationId, channel: 'whatsapp' };
+      }
       // Resolver attachment de message.attachment OU message.metadata.attachment
       const attachment = message.attachment || (message as any).metadata?.attachment;
       const isStructured = attachment?.type === 'location' || attachment?.type === 'contact';
