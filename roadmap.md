@@ -8,3 +8,6 @@
 - [x] 5b. IA ativa via Lovable AI (troca para Gemini direto quando GEMINI_API_KEY for configurada)
 - [x] Typecheck OK; funções implantadas
 - [ ] Validação autenticada no navegador — bloqueada (Supabase externo, sem sessão de teste); validar com o usuário logado
+
+- [x] Encaminhar: lista completa (todas conversas + agenda)
+- [x] Template Vialogistic pós-regularização (verificado: último envio barrado por 131049, não pagamento)
