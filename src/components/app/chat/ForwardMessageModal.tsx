@@ -15,6 +15,7 @@ import { Message } from "./types";
 import { Search, Send, MessageSquare, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { startConversation } from "@/hooks/useStartConversation";
 
 interface Conversation {
   id: string;
@@ -22,6 +23,7 @@ interface Conversation {
   contactAvatar: string | null;
   channel: string;
   lastMessage: string;
+  phone?: string;
 }
 
 interface ForwardMessageModalProps {
