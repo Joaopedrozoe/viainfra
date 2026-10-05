@@ -172,7 +172,11 @@ const DeliveryStatusIcon = ({ status, isAgentMessage, error, errorCode }: { stat
               <AlertCircle className={cn(iconClass, "text-red-300")} />
             </TooltipTrigger>
             <TooltipContent side="left" className="text-xs bg-destructive text-destructive-foreground">
-              {error ? `Falha ${errorCode ? `(${errorCode})` : ''}: ${error}` : 'Falha confirmada pelo WhatsApp'}
+              {String(errorCode) === '131049'
+                ? 'Meta segurou o envio (131049): limite de mensagens de marketing para este contato. Não é pagamento — tente mais tarde ou use um template de utilidade.'
+                : String(errorCode) === '131042'
+                  ? 'Meta recusou por pagamento (131042) nesta tentativa. Após regularizar, um novo envio funciona normalmente.'
+                  : error ? `Falha ${errorCode ? `(${errorCode})` : ''}: ${error}` : 'Falha confirmada pelo WhatsApp'}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
