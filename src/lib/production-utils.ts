@@ -115,7 +115,8 @@ export const validateProductionConfig = () => {
   ];
   
   requiredEnvVars.forEach(envVar => {
-    if (!process.env[envVar]) {
+    const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+    if (!env?.[envVar]) {
       errors.push(`Missing environment variable: ${envVar}`);
     }
   });
