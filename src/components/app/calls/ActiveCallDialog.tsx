@@ -48,8 +48,12 @@ export const ActiveCallDialog = ({
   const mutedRef = useRef(false);
 
   // Toda nova chamada começa com o microfone aberto
+  // Ao fechar (por qualquer botão), libera a próxima discagem
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      startedRef.current = false;
+      return;
+    }
     setMuted(false);
     mutedRef.current = false;
     setSeconds(0);

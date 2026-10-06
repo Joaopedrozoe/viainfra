@@ -110,14 +110,15 @@ serve(async (req) => {
     }
 
     // Um canal de voz por empresa: se já existe ligação tocando/em andamento, não atravessa.
-    const busySince = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    // Tocando: vale por 2 min. Conectada: vale enquanto não encerrar (limite de segurança de 4h).
+    const ringingSince = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    const connectedSince = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
     const { data: busy } = await admin
       .from("calls")
       .select("id, phone, status, direction, started_at")
       .eq("company_id", company.id)
-      .in("status", ["ringing", "connected", "permission_pending"])
       .is("ended_at", null)
-      .gte("started_at", busySince)
+      .or(`and(status.in.(ringing,permission_pending),updated_at.gte.${ringingSince}),and(status.eq.connected,updated_at.gte.${connectedSince})`)
       .order("started_at", { ascending: false })
       .limit(1)
       .maybeSingle();
