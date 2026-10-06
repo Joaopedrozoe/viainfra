@@ -90,6 +90,7 @@ export const ActiveCallDialog = ({
   useEffect(() => {
     if (!open || startedRef.current) return;
     startedRef.current = true;
+    setPhase("connecting" as any);
 
     let cancelled = false;
 
