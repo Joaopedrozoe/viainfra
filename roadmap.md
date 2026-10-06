@@ -11,3 +11,4 @@
 
 - [x] Encaminhar: lista completa (todas conversas + agenda)
 - [x] Template Vialogistic pós-regularização (verificado: último envio barrado por 131049, não pagamento)
+- [ ] Usar a imagem enviada (Cloud API + marcas) como ícone do aplicativo instalado, preservando o favicon do site.

@@ -1,3 +1,3 @@
 # Architecture rules
 
-- Derive favicon, Apple touch icon, and manifest installation icons from the same existing brand asset, padding to square without stretching; this keeps browser and installed-app identity consistent.
+- Derive manifest and Apple touch icons from the user-selected installation image, padding to square without stretching; preserve the website favicon when a separate installation image is requested.
