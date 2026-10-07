@@ -11,6 +11,7 @@ interface UseInfiniteMessagesReturn {
   hasMore: boolean;
   totalCount: number;
   loadInitialMessages: () => Promise<void>;
+  syncLatest: () => Promise<void>;
   loadMoreMessages: () => Promise<void>;
   addMessage: (message: Message) => void;
   updateMessage: (id: string, updates: Partial<Message>) => void;
