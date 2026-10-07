@@ -28,6 +28,47 @@ interface SendResult {
   queued?: boolean;
 }
 
+async function sendContactViaMeta(instanceName: string, recipientJid: string, attachment: Attachment): Promise<SendResult | null> {
+  const isVialogistic = /vialogistic/i.test(instanceName || '');
+  const token = Deno.env.get(isVialogistic ? 'META_ACCESS_TOKEN_VIALOGISTIC' : 'META_ACCESS_TOKEN_VIAINFRA');
+  const phoneId = Deno.env.get(isVialogistic ? 'META_PHONE_NUMBER_ID_VIALOGISTIC' : 'META_PHONE_NUMBER_ID_VIAINFRA')
+    || (isVialogistic ? '1157997970738498' : '1221458467717278');
+  if (!token) return null;
+  const to = recipientJid.split('@')[0].replace(/\D/g, '');
+  const phones = (attachment.contactPhones || [])
+    .map((p) => { let d = String(p || '').replace(/\D/g, ''); if (d.length === 10 || d.length === 11) d = `55${d}`; return d; })
+    .filter((d) => d.length >= 10);
+  if (!to || phones.length === 0) return null;
+  const fullName = attachment.contactName || 'Contato';
+  const parts = fullName.trim().split(/\s+/);
+  const body = {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'contacts',
+    contacts: [{
+      name: { formatted_name: fullName, first_name: parts[0] || fullName, ...(parts.length > 1 ? { last_name: parts.slice(1).join(' ') } : {}) },
+      phones: phones.map((d) => ({ phone: `+${d}`, wa_id: d, type: 'CELL' })),
+    }],
+  };
+  try {
+    const r = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j?.messages?.[0]?.id) {
+      console.log('[send-whatsapp] Contato enviado via Meta com wa_id', j.messages[0].id);
+      return { success: true, messageId: j.messages[0].id };
+    }
+    console.warn('[send-whatsapp] Meta contato falhou, usando Evolution:', JSON.stringify(j));
+    return null;
+  } catch (e) {
+    console.warn('[send-whatsapp] Meta contato erro, usando Evolution', e);
+    return null;
+  }
+}
+
 function isAllowedInstance(name: string): boolean {
   const upper = name.toUpperCase();
   return upper.includes('VIAINFRA') || upper.includes('VIALOGISTIC');
@@ -448,7 +489,12 @@ serve(async (req) => {
       console.error('[send-whatsapp] Falha ao checar janela de 24h:', e);
     }
 
-    if (attachment) {
+    if (attachment && attachment.type === 'contact' && !isGroup) {
+      // Envio direto pela Cloud API oficial com wa_id, para o destinatário
+      // ver "Conversar" (e não "Convidar para o WhatsApp").
+      const direct = await sendContactViaMeta(instance.instance_name, recipientJid, attachment);
+      sendResult = direct ?? await sendMediaMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, attachment, message_content, effectiveAgentName, isGroup, quotedData);
+    } else if (attachment) {
       sendResult = await sendMediaMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, attachment, message_content, effectiveAgentName, isGroup, quotedData);
     } else {
       sendResult = await sendTextMessage(evolutionUrl, evolutionKey, instance.instance_name, recipientJid, formattedMessage, isGroup, quotedData);

@@ -870,6 +870,15 @@ export const MessageItem = memo(({
       {message.content && !isMediaPlaceholder(message.content) && (
         <div className="whitespace-pre-wrap emoji-text">{formatMessageContent(message.content, !!attachment)}</div>
       )}
+
+      {/* Link de mapa enviado como texto → minimapa clicável */}
+      {!attachment && message.content && (() => {
+        const m = message.content.match(/https?:\/\/\S*(?:maps\.google|google\.[a-z.]+\/maps|maps\.app\.goo\.gl|goo\.gl\/maps|openstreetmap)\S*/i);
+        if (!m) return null;
+        const c = m[0].match(/(?:q=|query=|@|ll=|destination=)(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/);
+        if (!c) return null;
+        return <LocationAttachment url={m[0]} latitude={Number(c[1])} longitude={Number(c[2])} />;
+      })()}
       
       {/* Anexo com mídia real */}
       {attachment && (
