@@ -18,6 +18,7 @@ import { MessageActions } from "./MessageActions";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/auth";
 import { startConversation } from "@/hooks/useStartConversation";
+import { extractMapCoordinates, findMapLink, resolveMapCoordinates } from '@/lib/maps-location';
 
 export type MessageItemProps = {
   message: Message;
@@ -471,15 +472,34 @@ const LocationAttachment = ({
   name?: string;
   address?: string;
 }) => {
-  let lat = Number(latitude) || 0;
-  let lng = Number(longitude) || 0;
-  if ((!lat && !lng) && url) {
-    // Fallback: extrair coordenadas de links do Maps / geo:
-    const m = String(url).match(/(?:q=|query=|geo:|@|ll=)(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/);
-    if (m) { lat = Number(m[1]); lng = Number(m[2]); }
-  }
-  const hasCoords = Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)
-    && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+  const native = typeof latitude === 'number' && typeof longitude === 'number'
+    && Number.isFinite(latitude) && Number.isFinite(longitude)
+    && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180
+    ? { lat: latitude, lng: longitude } : null;
+  const direct = native || extractMapCoordinates(url);
+  const [resolved, setResolved] = useState<{ url: string; lat: number; lng: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const locationRef = useRef<HTMLAnchorElement>(null);
+  useEffect(() => {
+    if (direct || !findMapLink(url)) return;
+    let cancelled = false;
+    const observer = new IntersectionObserver(entries => {
+      if (!entries.some(entry => entry.isIntersecting)) return;
+      observer.disconnect();
+      setLoading(true);
+      void resolveMapCoordinates(url).then(point => {
+        if (cancelled) return;
+        setResolved(point ? { url, ...point } : null);
+        setLoading(false);
+      });
+    });
+    if (locationRef.current) observer.observe(locationRef.current);
+    return () => { cancelled = true; observer.disconnect(); };
+  }, [url, direct?.lat, direct?.lng]);
+  const point = direct || (resolved?.url === url ? resolved : null);
+  const lat = point?.lat ?? 0;
+  const lng = point?.lng ?? 0;
+  const hasCoords = !!point;
 
   const textQuery = [name, address].filter(Boolean).join(', ');
   const mapsUrl = hasCoords
@@ -488,6 +508,7 @@ const LocationAttachment = ({
 
   return (
     <a
+      ref={locationRef}
       href={mapsUrl}
       target="_blank"
       rel="noopener noreferrer"
@@ -497,7 +518,8 @@ const LocationAttachment = ({
         <MiniMap lat={lat} lng={lng} />
       ) : (
         <div className="flex items-center justify-center gap-2 bg-muted h-[80px] text-xs text-muted-foreground">
-          <MapPin size={16} className="text-red-500" /> Localização
+          {loading ? <Loader2 size={16} className="animate-spin" /> : <MapPin size={16} />}
+          {loading ? 'Carregando mapa…' : 'Abrir no Google Maps'}
         </div>
       )}
 
@@ -873,11 +895,8 @@ export const MessageItem = memo(({
 
       {/* Link de mapa enviado como texto → minimapa clicável */}
       {!attachment && message.content && (() => {
-        const m = message.content.match(/https?:\/\/\S*(?:maps\.google|google\.[a-z.]+\/maps|maps\.app\.goo\.gl|goo\.gl\/maps|openstreetmap)\S*/i);
-        if (!m) return null;
-        const c = m[0].match(/(?:q=|query=|@|ll=|destination=)(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/);
-        if (!c) return null;
-        return <LocationAttachment url={m[0]} latitude={Number(c[1])} longitude={Number(c[2])} />;
+        const url = findMapLink(message.content);
+        return url ? <LocationAttachment url={url} /> : null;
       })()}
       
       {/* Anexo com mídia real */}
