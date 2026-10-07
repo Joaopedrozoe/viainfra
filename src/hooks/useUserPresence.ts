@@ -119,7 +119,7 @@ export const useUserPresence = () => {
     if (!profile?.company_id) return;
 
     const channel = supabase
-      .channel('user-presence-changes')
+      .channel(`user-presence-changes-${profile.company_id}-${Math.random().toString(36).slice(2)}`)
       .on(
         'postgres_changes',
         {
