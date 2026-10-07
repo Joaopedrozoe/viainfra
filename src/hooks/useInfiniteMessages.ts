@@ -11,6 +11,7 @@ interface UseInfiniteMessagesReturn {
   hasMore: boolean;
   totalCount: number;
   loadInitialMessages: () => Promise<void>;
+  syncLatest: () => Promise<void>;
   loadMoreMessages: () => Promise<void>;
   addMessage: (message: Message) => void;
   updateMessage: (id: string, updates: Partial<Message>) => void;
@@ -120,7 +121,14 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
 
       setHasMore(hasMoreThanPage);
       setTotalCount(mappedMessages.length + (hasMoreThanPage ? 1 : 0));
-      setMessages(mappedMessages);
+      // Preservar mensagens recebidas via realtime durante a carga
+      setMessages(prev => {
+        const lastTs = mappedMessages.length ? mappedMessages[mappedMessages.length - 1].timestamp : '';
+        const extra = prev.filter(m => !seenIdsRef.current.has(m.id) && !m.id.startsWith('temp-') && m.timestamp >= lastTs);
+        extra.forEach(m => seenIdsRef.current.add(m.id));
+        const temps = prev.filter(m => m.id.startsWith('temp-'));
+        return [...mappedMessages, ...extra, ...temps];
+      });
 
       // Removido: markMessagesAsRead. metadata.read não é utilizado em nenhum
       // ponto do app e gerava um UPDATE por mensagem a cada abertura do chat.
@@ -238,6 +246,27 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
     setTotalCount(prev => Math.max(0, prev - 1));
   }, []);
 
+  // Busca incremental das mensagens mais recentes (reconexão, foco da aba,
+  // preview mais novo que o chat). Não reseta a lista nem o scroll.
+  const syncLatest = useCallback(async () => {
+    if (!conversationId) return;
+    const { data, error } = await supabase
+      .from('messages')
+      .select('id, content, sender_type, created_at, metadata, sender_id')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: false })
+      .limit(30);
+    if (error || !data) return;
+    const fresh = data.reverse().filter(m => !seenIdsRef.current.has(m.id)).map(mapMessage);
+    if (fresh.length === 0) return;
+    setMessages(prev => {
+      const add = fresh.filter(m => !seenIdsRef.current.has(m.id));
+      add.forEach(m => seenIdsRef.current.add(m.id));
+      if (!add.length) return prev;
+      return [...prev, ...add].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    });
+  }, [conversationId, mapMessage]);
+
   return {
     messages,
     isLoading,
@@ -245,6 +274,7 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
     hasMore,
     totalCount,
     loadInitialMessages,
+    syncLatest,
     loadMoreMessages,
     addMessage,
     updateMessage,

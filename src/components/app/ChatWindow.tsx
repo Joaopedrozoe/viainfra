@@ -113,12 +113,29 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     hasMore,
     totalCount,
     loadInitialMessages,
+    syncLatest,
     loadMoreMessages,
     addMessage,
     updateMessage,
     replaceTemporaryMessage,
     deleteMessage,
   } = useInfiniteMessages(conversationId);
+
+  // Recuperar mensagens perdidas: ao voltar o foco/aba e a cada 15s com a aba visível
+  useEffect(() => {
+    if (!conversationId) return;
+    const run = () => { if (document.visibilityState === 'visible') void syncLatest(); };
+    document.addEventListener('visibilitychange', run);
+    window.addEventListener('focus', run);
+    window.addEventListener('online', run);
+    const iv = setInterval(run, 15000);
+    return () => {
+      document.removeEventListener('visibilitychange', run);
+      window.removeEventListener('focus', run);
+      window.removeEventListener('online', run);
+      clearInterval(iv);
+    };
+  }, [conversationId, syncLatest]);
 
   // Reações (emoji) da conversa
   const { reactionsByMessage, toggleReaction } = useMessageReactions({ conversationId });
@@ -188,7 +205,10 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
             deleteMessage(removedMessage.id);
           }
         )
-        .subscribe();
+        .subscribe((status) => {
+          // Ao (re)conectar, buscar o que possa ter chegado no intervalo
+          if (status === 'SUBSCRIBED') void syncLatest();
+        });
 
       return () => {
         supabase.removeChannel(channel);
