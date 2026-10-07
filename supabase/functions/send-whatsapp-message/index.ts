@@ -815,19 +815,47 @@ async function sendMediaMessage(
       };
       break;
     case 'contact': {
-      const contacts = (attachment.contactPhones && attachment.contactPhones.length > 0)
-        ? attachment.contactPhones
-        : [''];
+      const rawList = (attachment.contactPhones || [])
+        .map((p) => {
+          let d = String(p || '').replace(/\D/g, '');
+          if (d.length === 10 || d.length === 11) d = `55${d}`;
+          return d;
+        })
+        .filter((d) => d.length >= 10);
+      if (rawList.length === 0) {
+        return { success: false, error: 'Contato sem número de telefone válido.' };
+      }
+      // Resolver o WhatsApp ID real (ex.: números BR antigos sem o 9º dígito),
+      // senão o destinatário recebe o cartão de "Convidar para o WhatsApp".
+      const resolved: Record<string, string> = {};
+      try {
+        const r = await fetch(`${evolutionUrl}/chat/whatsappNumbers/${instanceName}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': evolutionKey },
+          body: JSON.stringify({ numbers: rawList }),
+        });
+        if (r.ok) {
+          const arr = await r.json();
+          for (const item of Array.isArray(arr) ? arr : []) {
+            const num = String(item?.number || '').replace(/\D/g, '');
+            const jid = String(item?.jid || '').split('@')[0].replace(/\D/g, '');
+            if (num && item?.exists && jid) resolved[num] = jid;
+          }
+        } else {
+          console.warn('[send-whatsapp] whatsappNumbers status', r.status);
+        }
+      } catch (e) {
+        console.warn('[send-whatsapp] whatsappNumbers falhou', e);
+      }
       endpoint = `/message/sendContact/${instanceName}`;
       body = {
         ...body,
-        contact: contacts.map((rawPhone) => {
-          let digitsOnly = String(rawPhone || '').replace(/\D/g, '');
-          if (digitsOnly.length === 10 || digitsOnly.length === 11) digitsOnly = `55${digitsOnly}`;
+        contact: rawList.map((digits) => {
+          const waId = resolved[digits] || digits;
           return {
             fullName: attachment.contactName || 'Contato',
-            wuid: digitsOnly,
-            phoneNumber: digitsOnly ? `+${digitsOnly}` : String(rawPhone || ''),
+            wuid: waId,
+            phoneNumber: `+${waId}`,
           };
         }),
       };

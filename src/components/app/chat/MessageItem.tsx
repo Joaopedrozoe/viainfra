@@ -471,9 +471,15 @@ const LocationAttachment = ({
   name?: string;
   address?: string;
 }) => {
-  const lat = Number(latitude) || 0;
-  const lng = Number(longitude) || 0;
-  const hasCoords = Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0);
+  let lat = Number(latitude) || 0;
+  let lng = Number(longitude) || 0;
+  if ((!lat && !lng) && url) {
+    // Fallback: extrair coordenadas de links do Maps / geo:
+    const m = String(url).match(/(?:q=|query=|geo:|@|ll=)(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/);
+    if (m) { lat = Number(m[1]); lng = Number(m[2]); }
+  }
+  const hasCoords = Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)
+    && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
 
   const textQuery = [name, address].filter(Boolean).join(', ');
   const mapsUrl = hasCoords
