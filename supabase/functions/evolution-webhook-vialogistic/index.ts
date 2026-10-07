@@ -4118,6 +4118,26 @@ async function triggerBotResponse(supabase: any, conversationId: string, message
   }
 
   console.log('[BOT] ✅ Bot ATIVO - processando resposta...');
+
+  // ANTI-LOOP (robô x robô): se o bot já respondeu 3+ vezes em 3 minutos,
+  // desliga o bot nesta conversa e entrega para atendente humano.
+  try {
+    const since = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+    const { count: recentBot } = await supabase
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('conversation_id', conversationId)
+      .eq('sender_type', 'bot')
+      .gte('created_at', since);
+    if ((recentBot || 0) >= 3) {
+      console.warn('[BOT] 🛑 Loop detectado — bot desligado para', conversationId);
+      await supabase.from('conversations').update({
+        bot_active: false,
+        metadata: { ...(freshConversation.metadata || {}), agent_takeover: true, bot_loop_detected_at: new Date().toISOString() },
+      }).eq('id', conversationId);
+      return;
+    }
+  } catch (e) { console.warn('[BOT] anti-loop check falhou', e); }
   
   // Anti-flood
   const floodCheck = await shouldSkipBotResponse(supabase, conversationId);
