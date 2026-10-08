@@ -433,34 +433,71 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
+  // Token ensures only the latest company switch is applied (prevents race
+  // conditions when the user clicks quickly between companies).
+  const switchCompanyTokenRef = useRef(0);
+
   const switchCompany = async (companyId: string) => {
+    const token = ++switchCompanyTokenRef.current;
     try {
       // First check if there's a local profile for this company
       const selectedProfile = userProfiles.find(p => p.company_id === companyId);
-      
-      if (selectedProfile) {
-        const { data: companyData } = await supabase
-          .from('companies')
-          .select('*')
-          .eq('id', companyId)
-          .single();
 
-        if (companyData) {
+      if (!selectedProfile) return;
+
+      // Apply instantly from session cache when available (no network wait)
+      let appliedFromCache = false;
+      try {
+        const cached = sessionStorage.getItem(`company_data_${companyId}`);
+        if (cached) {
+          const cachedCompany = JSON.parse(cached) as Company;
           setProfile(selectedProfile);
-          setCompany({
-            ...companyData,
-            plan: companyData.plan as 'free' | 'pro' | 'enterprise',
-            settings: (companyData.settings as any) || {},
-          });
+          setCompany(cachedCompany);
           sessionStorage.setItem('active_company_id', companyId);
-          toast.success(`Alternado para ${companyData.name}`);
+          appliedFromCache = true;
         }
+      } catch {
+        // ignore cache parse errors and fall through to network fetch
       }
+
+      // Refresh company data in the background; ignore stale responses
+      const { data: companyData, error } = await supabase
+        .from('companies')
+        .select('*')
+        .eq('id', companyId)
+        .single();
+
+      if (token !== switchCompanyTokenRef.current) return; // a newer switch superseded this one
+
+      if (error || !companyData) {
+        if (!appliedFromCache) {
+          toast.error('Erro ao trocar de empresa. Tente novamente.');
+        }
+        return;
+      }
+
+      const fullCompany: Company = {
+        ...companyData,
+        plan: companyData.plan as 'free' | 'pro' | 'enterprise',
+        settings: (companyData.settings as any) || {},
+      };
+
+      try {
+        sessionStorage.setItem(`company_data_${companyId}`, JSON.stringify(fullCompany));
+      } catch {
+        // storage full/unavailable — non-fatal
+      }
+
+      setProfile(selectedProfile);
+      setCompany(fullCompany);
+      sessionStorage.setItem('active_company_id', companyId);
+      toast.success(`Alternado para ${fullCompany.name}`);
       // If no local profile, the CompanySwitcher will handle auth modal
       // and call switchCompanyWithProfile after successful verification
     } catch (error) {
+      if (token !== switchCompanyTokenRef.current) return;
       console.error('Error switching company:', error);
-      toast.error('Erro ao trocar de empresa');
+      toast.error('Erro ao trocar de empresa. Tente novamente.');
     }
   };
 
