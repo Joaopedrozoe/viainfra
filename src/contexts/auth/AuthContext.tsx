@@ -423,7 +423,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       sessionStorage.removeItem('verified_companies');
       // Clear cached external profiles
       Object.keys(sessionStorage).forEach(key => {
-        if (key.startsWith('external_profile_')) {
+        if (key.startsWith('external_profile_') || key.startsWith('company_data_')) {
           sessionStorage.removeItem(key);
         }
       });
@@ -502,9 +502,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const switchCompanyWithProfile = (companyId: string, externalProfile: Profile, companyData: Company) => {
+    // Invalidate any in-flight switchCompany fetch so it cannot overwrite this switch
+    switchCompanyTokenRef.current++;
     setProfile(externalProfile);
     setCompany(companyData);
     sessionStorage.setItem('active_company_id', companyId);
+    try {
+      sessionStorage.setItem(`company_data_${companyId}`, JSON.stringify(companyData));
+    } catch {
+      // storage full/unavailable — non-fatal
+    }
     toast.success(`Alternado para ${companyData.name}`);
   };
 
