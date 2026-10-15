@@ -258,7 +258,7 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
   const syncLatest = useCallback(async () => {
     if (!conversationId || syncingRef.current) return;
     const convAtStart = conversationId;
-    let cursor = newestConfirmed(messagesRef.current);
+    let cursor: { id: string; timestamp: string } | null = newestConfirmed(messagesRef.current);
     if (!cursor) return;
     syncingRef.current = true;
     try {
