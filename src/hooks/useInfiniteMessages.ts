@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Message, Attachment } from '@/components/app/chat/types';
+import { mergeMessages, newestConfirmed, olderThanFilter, newerThanFilter } from '@/lib/message-pagination';
 
 const PAGE_SIZE = 50; // Mensagens por página
 
@@ -10,6 +11,7 @@ interface UseInfiniteMessagesReturn {
   isLoadingMore: boolean;
   hasMore: boolean;
   totalCount: number;
+  loadMoreError: boolean;
   loadInitialMessages: () => Promise<void>;
   syncLatest: () => Promise<void>;
   loadMoreMessages: () => Promise<void>;
@@ -25,7 +27,13 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
+  const [loadMoreError, setLoadMoreError] = useState(false);
   const oldestTimestampRef = useRef<string | null>(null);
+  const oldestRef = useRef<{ id: string; timestamp: string } | null>(null);
+  const activeConvRef = useRef<string | null>(conversationId);
+  activeConvRef.current = conversationId;
+  const messagesRef = useRef<Message[]>([]);
+  const syncingRef = useRef(false);
   const seenIdsRef = useRef<Set<string>>(new Set());
 
   const mapMessage = useCallback((msg: any): Message => {
@@ -74,9 +82,12 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
   const loadInitialMessages = useCallback(async () => {
     if (!conversationId) return;
 
+    const convAtStart = conversationId;
     setIsLoading(true);
+    setLoadMoreError(false);
     seenIdsRef.current.clear();
     oldestTimestampRef.current = null;
+    oldestRef.current = null;
 
     try {
       // Carregar as últimas PAGE_SIZE+1 mensagens para descobrir se há mais,
@@ -86,8 +97,10 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
         .select('id, content, sender_type, created_at, metadata, sender_id')
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
         .limit(PAGE_SIZE + 1);
 
+      if (activeConvRef.current !== convAtStart) return;
       if (error) {
         console.error('❌ [INFINITE] Erro ao carregar mensagens:', error);
         return;
@@ -117,6 +130,7 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
 
       if (mappedMessages.length > 0) {
         oldestTimestampRef.current = mappedMessages[0].timestamp;
+        oldestRef.current = { id: mappedMessages[0].id, timestamp: mappedMessages[0].timestamp };
       }
 
       setHasMore(hasMoreThanPage);
@@ -145,63 +159,46 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
       return;
     }
 
+    const convAtStart = conversationId;
+    const cursor = oldestRef.current;
+    if (!cursor) return;
     setIsLoadingMore(true);
+    setLoadMoreError(false);
 
     try {
-      console.log('📥 [INFINITE] Carregando mais mensagens antigas...');
-
-      // Buscar mensagens ANTES do timestamp mais antigo atual
       const { data: olderMessages, error } = await supabase
         .from('messages')
         .select('id, content, sender_type, created_at, metadata, sender_id')
         .eq('conversation_id', conversationId)
-        .lt('created_at', oldestTimestampRef.current)
+        .or(olderThanFilter(cursor))
         .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
         .limit(PAGE_SIZE);
 
+      if (activeConvRef.current !== convAtStart) return;
       if (error) {
         console.error('❌ [INFINITE] Erro ao carregar mais mensagens:', error);
+        setLoadMoreError(true);
         return;
       }
 
-      if (!olderMessages || olderMessages.length === 0) {
-        console.log('📭 [INFINITE] Não há mais mensagens antigas');
-        setHasMore(false);
-        return;
+      const rows = olderMessages || [];
+      if (rows.length > 0) {
+        const last = rows[rows.length - 1];
+        // Cursor avança sempre pelo banco, mesmo se a página vier repetida
+        oldestRef.current = { id: last.id, timestamp: last.created_at };
+        oldestTimestampRef.current = last.created_at;
+        const mapped = rows.reverse().filter(m => !seenIdsRef.current.has(m.id)).map(mapMessage);
+        mapped.forEach(m => seenIdsRef.current.add(m.id));
+        if (mapped.length) setMessages(prev => mergeMessages(prev, mapped));
       }
-
-      // Reverter ordem para exibição
-      const orderedMessages = olderMessages.reverse();
-
-      // Mapear e deduplicar
-      const mappedMessages: Message[] = [];
-      for (const msg of orderedMessages) {
-        if (!seenIdsRef.current.has(msg.id)) {
-          seenIdsRef.current.add(msg.id);
-          mappedMessages.push(mapMessage(msg));
-        }
-      }
-
-      if (mappedMessages.length === 0) {
-        setHasMore(false);
-        return;
-      }
-
-      // Atualizar timestamp mais antigo
-      oldestTimestampRef.current = mappedMessages[0].timestamp;
-
-      // Adicionar mensagens antigas NO INÍCIO do array
-      setMessages(prev => [...mappedMessages, ...prev]);
-
-      // Verificar se há mais
-      setHasMore(olderMessages.length === PAGE_SIZE);
-
-      console.log(`✅ [INFINITE] +${mappedMessages.length} mensagens antigas carregadas`);
-
+      // Fim do histórico só quando o banco devolve menos que uma página
+      setHasMore(rows.length === PAGE_SIZE);
     } catch (error) {
       console.error('💥 [INFINITE] Erro ao carregar mais:', error);
+      if (activeConvRef.current === convAtStart) setLoadMoreError(true);
     } finally {
-      setIsLoadingMore(false);
+      if (activeConvRef.current === convAtStart) setIsLoadingMore(false);
     }
   }, [conversationId, hasMore, isLoadingMore, mapMessage]);
 
@@ -249,23 +246,39 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
   // Busca incremental das mensagens mais recentes (reconexão, foco da aba,
   // preview mais novo que o chat). Não reseta a lista nem o scroll.
   const syncLatest = useCallback(async () => {
-    if (!conversationId) return;
-    const { data, error } = await supabase
-      .from('messages')
-      .select('id, content, sender_type, created_at, metadata, sender_id')
-      .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: false })
-      .limit(30);
-    if (error || !data) return;
-    const fresh = data.reverse().filter(m => !seenIdsRef.current.has(m.id)).map(mapMessage);
-    if (fresh.length === 0) return;
-    setMessages(prev => {
-      const add = fresh.filter(m => !seenIdsRef.current.has(m.id));
-      add.forEach(m => seenIdsRef.current.add(m.id));
-      if (!add.length) return prev;
-      return [...prev, ...add].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-    });
-  }, [conversationId, mapMessage]);
+    if (!conversationId || syncingRef.current) return;
+    const convAtStart = conversationId;
+    let cursor = newestConfirmed(messagesRef.current);
+    if (!cursor) return;
+    syncingRef.current = true;
+    try {
+      for (let batch = 0; batch < 10; batch++) {
+        const { data, error } = await supabase
+          .from('messages')
+          .select('id, content, sender_type, created_at, metadata, sender_id')
+          .eq('conversation_id', conversationId)
+          .or(newerThanFilter(cursor))
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+          .limit(PAGE_SIZE);
+        if (activeConvRef.current !== convAtStart || error || !data) return;
+        if (data.length) {
+          const last = data[data.length - 1];
+          cursor = { id: last.id, timestamp: last.created_at };
+          const fresh = data.filter(m => !seenIdsRef.current.has(m.id)).map(mapMessage);
+          fresh.forEach(m => seenIdsRef.current.add(m.id));
+          if (fresh.length) setMessages(prev => mergeMessages(prev, fresh));
+        }
+        if (data.length < PAGE_SIZE) return;
+      }
+      // Lacuna maior que 500: recarrega preservando temporárias
+      if (activeConvRef.current === convAtStart) await loadInitialMessages();
+    } finally {
+      syncingRef.current = false;
+    }
+  }, [conversationId, mapMessage, loadInitialMessages]);
+
+  messagesRef.current = messages;
 
   return {
     messages,
@@ -273,6 +286,7 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
     isLoadingMore,
     hasMore,
     totalCount,
+    loadMoreError,
     loadInitialMessages,
     syncLatest,
     loadMoreMessages,
