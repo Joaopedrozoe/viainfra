@@ -112,6 +112,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
     isLoadingMore,
     hasMore,
     totalCount,
+    loadMoreError,
     loadInitialMessages,
     syncLatest,
     loadMoreMessages,
@@ -1217,7 +1218,18 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
           )}
           
           {/* Indicador de que há mais mensagens */}
-          {hasMore && !isLoadingMore && (
+          {loadMoreError && !isLoadingMore && (
+            <div className="flex items-center justify-center gap-2 py-2">
+              <span className="text-xs text-destructive">Não foi possível carregar mensagens anteriores</span>
+              <button type="button" onClick={() => loadMoreMessages()} className="text-xs font-medium text-primary underline">Tentar novamente</button>
+            </div>
+          )}
+          {!hasMore && !isLoadingMore && !isLoadingMessages && messages.length > 0 && (
+            <div className="flex items-center justify-center py-2">
+              <span className="text-xs text-muted-foreground">Início da conversa</span>
+            </div>
+          )}
+          {hasMore && !isLoadingMore && !loadMoreError && (
             <div className="flex items-center justify-center py-2">
               <span className="text-xs text-muted-foreground">
                 ↑ Role para cima para ver mensagens antigas ({totalCount} total)

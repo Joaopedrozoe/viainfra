@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Message, Attachment } from '@/components/app/chat/types';
 import { mergeMessages, newestConfirmed, olderThanFilter, newerThanFilter } from '@/lib/message-pagination';
@@ -34,6 +34,16 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
   activeConvRef.current = conversationId;
   const messagesRef = useRef<Message[]>([]);
   const syncingRef = useRef(false);
+
+  // Troca de conversa: limpa estado para nada da conversa anterior permanecer
+  useEffect(() => {
+    setMessages([]);
+    setHasMore(true);
+    setLoadMoreError(false);
+    seenIdsRef.current = new Set();
+    oldestRef.current = null;
+    oldestTimestampRef.current = null;
+  }, [conversationId]);
   const seenIdsRef = useRef<Set<string>>(new Set());
 
   const mapMessage = useCallback((msg: any): Message => {
