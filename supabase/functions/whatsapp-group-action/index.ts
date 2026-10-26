@@ -13,8 +13,10 @@ const COMPANY_IDS = {
 } as const;
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
+  // Recusas esperadas (Meta/validação) voltam 200 com ok:false para o app mostrar só um aviso.
+  const finalStatus = body.ok === false && status >= 400 && status < 500 && status !== 401 ? 200 : status;
   return new Response(JSON.stringify(body), {
-    status,
+    status: finalStatus,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 }
