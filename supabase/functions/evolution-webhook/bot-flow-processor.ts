@@ -58,9 +58,9 @@ export class BotFlowProcessor {
   // ============================================================
   private static readonly SETORES: Array<{ nome: string; atendente: string; keys: string[] }> = [
     { nome: 'Atendimento', atendente: 'Joicy Souza', keys: ['atendimento', 'atendente', 'suporte'] },
-    { nome: 'Comercial', atendente: 'Elisabete Silva', keys: ['comercial', 'vendas', 'venda', 'orcamento'] },
+    { nome: 'Comercial', atendente: '', keys: ['comercial', 'vendas', 'venda', 'orcamento'] },
     { nome: 'Manutenção', atendente: 'Suelem Souza', keys: ['manutencao', 'oficina', 'mecanica', 'tecnico'] },
-    { nome: 'Financeiro', atendente: 'André Rocha', keys: ['financeiro', 'pagamento', 'boleto', 'nota fiscal', 'cobranca'] },
+    { nome: 'Financeiro', atendente: 'Rosângela Bernini', keys: ['financeiro', 'pagamento', 'boleto', 'nota fiscal', 'cobranca'] },
     { nome: 'RH', atendente: 'Sandra Romano', keys: ['rh', 'recursos humanos', 'vaga', 'curriculo'] },
   ];
 
@@ -369,7 +369,9 @@ export class BotFlowProcessor {
         this.conversationState.collectedData['atendente_nome'] = departamento.atendente;
 
         return {
-          response: `✅ Você será atendido por **${departamento.atendente}** do setor ${departamento.nome}.\n\n⏳ Aguarde um momento enquanto conectamos você...`,
+          response: departamento.atendente
+            ? `✅ Você será atendido por **${departamento.atendente}** do setor ${departamento.nome}.\n\n⏳ Aguarde um momento enquanto conectamos você...`
+            : `✅ Você está sendo transferido para o atendimento da nossa equipe do setor ${departamento.nome}.\n\n⏳ Aguarde um momento enquanto conectamos você...`,
           newState: this.conversationState,
           shouldTransferToAgent: true,
         };
