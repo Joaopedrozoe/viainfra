@@ -3,6 +3,7 @@ import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { z } from 'npm:zod@3';
 import { authorizeCompany } from '../_shared/company-auth.ts';
 import { permitsBroadcast } from './rules.ts';
+import { permitsValidatedRecipients, whatsappValidationUnavailable } from './validation.ts';
 
 const COMPANY = 'e3ad9c68-cf12-4e39-a12d-3f3068e975a0';
 const db = createClient(Deno.env.get('SUPABASE_URL') || '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '');
@@ -31,6 +32,9 @@ async function validate(phones: string[]) {
     method:'POST',headers:{'Content-Type':'application/json',apikey:key},body:JSON.stringify({numbers:phones}),
   });
   const text = await response.text();
+  if (whatsappValidationUnavailable(response.status, text)) {
+    return phones.map(phone => ({phone, status:'unavailable'}));
+  }
   if (!response.ok) throw new Error(`Validação WhatsApp (${response.status}): ${text.slice(0,300)}`);
   const data = JSON.parse(text);
   if (!Array.isArray(data)) throw new Error('Não foi possível confirmar os números no WhatsApp');
@@ -94,7 +98,7 @@ Deno.serve(async req => {
       if(!template || template.status!=='APPROVED' || template.header_format!=='IMAGE') return reply({success:false,error:'Selecione um template aprovado com cabeçalho de imagem'},400);
       if(template.variables !== (input.variables || []).length) return reply({success:false,error:'Preencha as variáveis do template'},400);
       const checked=await validate([...new Set(input.phones)]);
-      if(checked.some(p=>p.status!=='valid')) return reply({success:false,error:'Existem números inválidos ou não confirmados no WhatsApp'},400);
+      if(!permitsValidatedRecipients(checked.map(p=>p.status))) return reply({success:false,error:'Existem números inválidos ou não confirmados no WhatsApp'},400);
       const {data: run,error} = await db.from('broadcast_runs').insert({request_id:input.request_id,company_id:COMPANY,created_by:userId,template_name:input.template_name,language:input.language,image_url:input.image_url,body_preview:template.body,variables:input.variables || [],status:'draft',is_test:input.is_test || false}).select().single();
       if(error) throw error;
       const {error: recipientError}=await db.from('broadcast_recipients').insert(checked.map(p=>({run_id:run.id,company_id:COMPANY,phone:p.phone})));

@@ -31,3 +31,7 @@
 ## Current request — template images
 - [x] Bind the six Vialogistic templates to their corresponding images in both pickers; clear manual images when switching unrelated templates.
 - [ ] User validation of template switching and actual delivery; no real messages sent by the agent.
+
+## Current request — unsupported WhatsApp lookup
+- [x] Handle the explicit unsupported-method response without falsely confirming WhatsApp existence or blocking format-valid sends.
+- [ ] User validates the verification and broadcast flow; agent sends no real messages.
