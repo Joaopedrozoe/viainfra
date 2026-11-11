@@ -337,6 +337,116 @@ export type Database = {
           },
         ]
       }
+      broadcast_recipients: {
+        Row: {
+          claimed_at: string | null
+          company_id: string
+          conversation_id: string | null
+          created_at: string
+          error: string | null
+          id: string
+          message_id: string | null
+          phone: string
+          run_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          claimed_at?: string | null
+          company_id: string
+          conversation_id?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          message_id?: string | null
+          phone: string
+          run_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          claimed_at?: string | null
+          company_id?: string
+          conversation_id?: string | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          message_id?: string | null
+          phone?: string
+          run_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broadcast_recipients_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "broadcast_recipients_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "broadcast_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      broadcast_runs: {
+        Row: {
+          body_preview: string
+          company_id: string
+          created_at: string
+          created_by: string
+          id: string
+          image_url: string
+          is_test: boolean
+          language: string
+          status: string
+          template_name: string
+          updated_at: string
+          variables: Json
+        }
+        Insert: {
+          body_preview?: string
+          company_id: string
+          created_at?: string
+          created_by: string
+          id?: string
+          image_url: string
+          is_test?: boolean
+          language: string
+          status?: string
+          template_name: string
+          updated_at?: string
+          variables?: Json
+        }
+        Update: {
+          body_preview?: string
+          company_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          image_url?: string
+          is_test?: boolean
+          language?: string
+          status?: string
+          template_name?: string
+          updated_at?: string
+          variables?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broadcast_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       calls: {
         Row: {
           agent_id: string | null
@@ -605,6 +715,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      contact_name_history: {
+        Row: {
+          changed_by: string | null
+          company_id: string
+          contact_id: string
+          created_at: string
+          id: string
+          new_name: string
+          previous_name: string
+          updated_at: string
+        }
+        Insert: {
+          changed_by?: string | null
+          company_id: string
+          contact_id: string
+          created_at?: string
+          id?: string
+          new_name: string
+          previous_name: string
+          updated_at?: string
+        }
+        Update: {
+          changed_by?: string | null
+          company_id?: string
+          contact_id?: string
+          created_at?: string
+          id?: string
+          new_name?: string
+          previous_name?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       contacts: {
         Row: {
@@ -1406,6 +1549,28 @@ export type Database = {
       call_log_label: {
         Args: { _duration: number; _status: string }
         Returns: string
+      }
+      claim_broadcast_recipients: {
+        Args: { p_run: string }
+        Returns: {
+          claimed_at: string | null
+          company_id: string
+          conversation_id: string | null
+          created_at: string
+          error: string | null
+          id: string
+          message_id: string | null
+          phone: string
+          run_id: string
+          status: string
+          updated_at: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "broadcast_recipients"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       claim_call: { Args: { _action: string; _call_id: string }; Returns: Json }
       cleanup_expired_typing_status: { Args: never; Returns: undefined }
