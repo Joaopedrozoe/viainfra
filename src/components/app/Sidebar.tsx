@@ -74,7 +74,7 @@ export const AppSidebar = () => {
   // Preload route on hover for instant navigation
   const handleMouseEnter = (url: string) => {
     if (routePreloaders[url]) {
-      routePreloaders[url]();
+      void routePreloaders[url]().catch((error) => console.warn('Route preload failed:', error));
     }
   };
 
@@ -84,7 +84,7 @@ export const AppSidebar = () => {
     { title: "Construtor de Bots", url: "/bot-builder", icon: Workflow, available: true },
     { title: "Canais", url: "/channels", icon: Share2, available: true },
     { title: "Relacionamento", url: "/contacts", icon: Users, available: true },
-    { title: "Transmissão", url: "/broadcast", icon: Radio, available: true, comingSoon: true },
+    { title: "Transmissão", url: "/broadcast", icon: Radio, available: true },
     { title: "Ligações", url: "/calls", icon: Phone, available: true, comingSoon: true },
     { 
       title: "Agentes IA", 
@@ -157,7 +157,6 @@ export const AppSidebar = () => {
                         <div className="font-semibold truncate text-sm text-foreground">{profile?.name || 'Usuário'}</div>
                         <div className="text-xs text-muted-foreground/70 truncate">{profile?.email || ''}</div>
                       </div>
-                      <StatusSelector />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" className="w-56">
@@ -175,6 +174,7 @@ export const AppSidebar = () => {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                <StatusSelector />
               </div>
             )}
             

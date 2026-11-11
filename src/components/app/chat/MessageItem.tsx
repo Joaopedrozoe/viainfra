@@ -176,8 +176,11 @@ const DeliveryStatusIcon = ({ status, isAgentMessage, error, errorCode }: { stat
               {String(errorCode) === '131049'
                 ? 'Meta segurou o envio (131049): limite de mensagens de marketing para este contato. Não é pagamento — tente mais tarde ou use um template de utilidade.'
                 : String(errorCode) === '131042'
-                  ? 'Meta recusou por pagamento (131042) nesta tentativa. Após regularizar, um novo envio funciona normalmente.'
+                  ? 'Meta recusou por pagamento (131042) nesta tentativa. Após regularizar, faça um novo envio para consultar a situação atual.'
+                  : String(errorCode) === '130472'
+                    ? 'Meta recusou esta tentativa (130472): o destinatário participa de um experimento da Meta. Não é um erro de pagamento.'
                   : error ? `Falha ${errorCode ? `(${errorCode})` : ''}: ${error}` : 'Falha confirmada pelo WhatsApp'}
+              <p className="mt-2">Se persistir, reporte ao suporte com print, horário, empresa e telefone do destinatário.</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>

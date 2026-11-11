@@ -70,6 +70,8 @@ const fetchConversationsShared = async (
   companyId: string,
   force = false
 ): Promise<void> => {
+  const requestKey = `${userId}:${companyId}`;
+  if (engineKey !== requestKey) return;
   if (convFetchInFlight) return convFetchInFlight;
   if (!force && Date.now() - lastConvFetchAt < 5000) return;
 
@@ -133,6 +135,7 @@ const fetchConversationsShared = async (
         });
       }
 
+      if (engineKey !== requestKey) return;
       setStore({
         conversations: convs.map((conv) => ({
           ...conv,
@@ -147,9 +150,9 @@ const fetchConversationsShared = async (
       lastConvFetchAt = Date.now();
     } catch (error) {
       console.error('Error fetching internal conversations:', error);
-      setStore({ loading: false });
+      if (engineKey === requestKey) setStore({ loading: false });
     } finally {
-      convFetchInFlight = null;
+      if (engineKey === requestKey) convFetchInFlight = null;
     }
   })();
 
@@ -157,6 +160,7 @@ const fetchConversationsShared = async (
 };
 
 const fetchMessagesShared = async (conversationId: string, userId?: string) => {
+  const requestKey = engineKey;
   try {
     const { data: messagesData, error } = await supabase
       .from('internal_messages')
@@ -184,6 +188,7 @@ const fetchMessagesShared = async (conversationId: string, userId?: string) => {
       } as InternalMessage;
     });
 
+    if (engineKey !== requestKey) return;
     setStore({ messages: { ...store.messages, [conversationId]: formatted } });
 
     // Marca como lidas em uma única atualização por mensagem pendente
@@ -211,14 +216,16 @@ const startEngine = (userId: string, companyId: string) => {
   engineKey = `${userId}:${companyId}`;
   setStore({ conversations: [], messages: {}, loading: true });
   lastConvFetchAt = 0;
+  convFetchInFlight = null;
   void fetchConversationsShared(userId, companyId, true);
 
   const channel = supabase
-    .channel(`internal-chat-${companyId}`)
+    .channel(`internal-chat-${companyId}-${crypto.randomUUID()}`)
     .on(
       'postgres_changes',
       { event: 'INSERT', schema: 'public', table: 'internal_messages' },
       (payload) => {
+        if (engineKey !== `${userId}:${companyId}`) return;
         const newMessage = payload.new as InternalMessage;
         if (store.messages[newMessage.conversation_id]) {
           void fetchMessagesShared(newMessage.conversation_id, userId);
@@ -237,6 +244,7 @@ const stopEngine = () => {
   engineCleanup?.();
   engineCleanup = null;
   engineKey = null;
+  convFetchInFlight = null;
 };
 
 export const useInternalChat = () => {

@@ -540,7 +540,7 @@ const startEngine = (companyId: string) => {
   void fetchConversations(companyId, false);
 
   const channel = supabase
-    .channel(`inbox-rt-${companyId}`)
+    .channel(`inbox-rt-${companyId}-${crypto.randomUUID()}`)
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'conversation_reads', filter: `company_id=eq.${companyId}` },

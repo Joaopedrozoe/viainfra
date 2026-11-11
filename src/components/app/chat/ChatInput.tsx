@@ -377,6 +377,19 @@ export const ChatInput = memo(({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const resize = () => {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(240, Math.max(40, textarea.scrollHeight))}px`;
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
+    if (textarea.parentElement) observer.observe(textarea.parentElement);
+    return () => observer.disconnect();
+  }, [newMessage]);
+
   // Detectar tema do sistema/app
   const [isDarkMode, setIsDarkMode] = useState(false);
   
@@ -693,7 +706,7 @@ export const ChatInput = memo(({
         </div>
       )}
 
-       <div className="flex space-x-2 items-end">
+       <div className="flex space-x-2 items-start">
          <input
            ref={fileInputRef}
            type="file"
@@ -789,7 +802,7 @@ export const ChatInput = memo(({
             onChange={(e) => setNewMessage(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            className="w-full min-h-10 max-h-32 resize-none py-2 bg-muted/30 border-0 focus:ring-1 focus:ring-primary/50"
+            className="w-full min-h-10 max-h-60 resize-none overflow-y-auto py-2 bg-muted/30 border-0 focus:ring-1 focus:ring-primary/50"
             disabled={isRecording}
             aria-label="Digite uma mensagem"
             rows={1}

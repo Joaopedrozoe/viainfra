@@ -1,5 +1,13 @@
 # Roadmap
 
+## Current request — Vialogistic
+- [ ] Diagnose navigation/company switching and prevent stale subscriptions.
+- [ ] Expand message composer vertically.
+- [ ] Preserve customized contact names; investigate recoverable prior names.
+- [ ] Investigate template failures and show current error/report instructions.
+- [ ] Implement image-template broadcasts, recipient import, test, validation, progress and history.
+- [ ] Run focused tests; authenticated UI verification depends on external Supabase session availability.
+
 - [x] 1. Grupos (API oficial): aba Grupos, ícone, painel de informações, criar grupo, participantes, link de convite, configurações, sair; edge function whatsapp-group-action
 - [x] 2. Anexos: arrastar/colar, múltiplos arquivos, validação limites Meta, localização, cartão de contato
 - [x] 3. Contatos/nova conversa: RLS multi-empresa (company_access) + mensagem de erro real
