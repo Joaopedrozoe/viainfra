@@ -27,3 +27,7 @@
 - [x] Encaminhar: lista completa (todas conversas + agenda)
 - [x] Template Vialogistic pós-regularização (verificado: último envio barrado por 131049, não pagamento)
 - [x] Usar a imagem enviada (Cloud API + marcas) como ícone do aplicativo instalado, preservando o favicon do site.
+
+## Current request — template images
+- [x] Bind the six Vialogistic templates to their corresponding images in both pickers; clear manual images when switching unrelated templates.
+- [ ] User validation of template switching and actual delivery; no real messages sent by the agent.

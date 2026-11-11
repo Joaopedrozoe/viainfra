@@ -10,7 +10,7 @@ import { AlertCircle, Loader2, RefreshCw, Send } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { FunctionsHttpError } from '@supabase/supabase-js';
-import { broadcastMedia } from '@/lib/broadcast-media';
+import { broadcastMedia, broadcastMediaIndexForTemplate } from '@/lib/broadcast-media';
 import { useAuth } from '@/contexts/auth';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
@@ -40,13 +40,18 @@ const statusLabel = (status: string) => {
 
 export const TemplatePickerDialog = ({ open, onOpenChange, conversationId, onSent }: TemplatePickerDialogProps) => {
   const { company } = useAuth();
-  const [mediaIndex, setMediaIndex] = useState('0');
+  const [mediaIndex, setMediaIndex] = useState('');
   const [templates, setTemplates] = useState<MetaTemplate[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<MetaTemplate | null>(null);
   const [variables, setVariables] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
+
+  const mappedIndex = selected ? broadcastMediaIndexForTemplate(selected.name) : null;
+  const imageIndex = mappedIndex ?? (mediaIndex === '' ? null : Number(mediaIndex));
+  const selectedMedia = imageIndex === null ? undefined : broadcastMedia[imageIndex];
+  const needsImage = selected?.header_format === 'IMAGE' && company?.name?.toUpperCase() === 'VIALOGISTIC';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -72,6 +77,7 @@ export const TemplatePickerDialog = ({ open, onOpenChange, conversationId, onSen
   useEffect(() => {
     if (open) {
       setSelected(null);
+      setMediaIndex('');
       setVariables([]);
       void load();
     }
@@ -91,11 +97,12 @@ export const TemplatePickerDialog = ({ open, onOpenChange, conversationId, onSen
     // Erro de uma tentativa anterior nunca permanece ao escolher outro envio
     setError(null);
     setSelected(t);
+    setMediaIndex('');
     setVariables(Array.from({ length: t.variables }, () => ""));
   };
 
   const handleSend = async () => {
-    if (!selected || sending) return;
+    if (!selected || sending || (needsImage && !selectedMedia)) return;
     // Cada envio começa limpo: o app não trava no erro da tentativa anterior
     setError(null);
     setSending(true);
@@ -107,7 +114,7 @@ export const TemplatePickerDialog = ({ open, onOpenChange, conversationId, onSen
           language: selected.language,
           variables,
           body_preview: selected.body,
-          ...(selected.header_format === 'IMAGE' && company?.name?.toUpperCase() === 'VIALOGISTIC' ? { image_url: new URL(broadcastMedia[Number(mediaIndex)].image, window.location.origin).href } : {}),
+          ...(needsImage && selectedMedia ? { image_url: new URL(selectedMedia.image, window.location.origin).href } : {}),
         },
       });
       if (fnError || !data?.success) {
@@ -212,11 +219,11 @@ export const TemplatePickerDialog = ({ open, onOpenChange, conversationId, onSen
         {selected?.header_format === 'IMAGE' && company?.name?.toUpperCase() === 'VIALOGISTIC' && (
           <div className="space-y-2">
             <Label>Imagem do template</Label>
-            <Select value={mediaIndex} onValueChange={setMediaIndex}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+            <Select value={imageIndex === null ? '' : String(imageIndex)} onValueChange={setMediaIndex} disabled={mappedIndex !== null}>
+              <SelectTrigger><SelectValue placeholder="Selecionar imagem" /></SelectTrigger>
               <SelectContent>{broadcastMedia.map((media, index) => <SelectItem key={media.label} value={String(index)}>{media.label}</SelectItem>)}</SelectContent>
             </Select>
-            <img src={broadcastMedia[Number(mediaIndex)].image} alt="Imagem do template" className="h-40 w-full object-contain" />
+            {selectedMedia && <img src={selectedMedia.image} alt={selectedMedia.label} className="h-40 w-full object-contain" />}
           </div>
         )}
 
@@ -225,7 +232,7 @@ export const TemplatePickerDialog = ({ open, onOpenChange, conversationId, onSen
             <RefreshCw className="mr-2 h-3.5 w-3.5" /> Atualizar
           </Button>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button onClick={handleSend} disabled={!selected || sending || missingVars}>
+          <Button onClick={handleSend} disabled={!selected || sending || missingVars || (needsImage && !selectedMedia)}>
             {sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
             Enviar
           </Button>

@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useAuth } from '@/contexts/auth';
 import { supabase } from '@/integrations/supabase/client';
-import { broadcastMedia } from '@/lib/broadcast-media';
+import { broadcastMedia, broadcastMediaIndexForTemplate } from '@/lib/broadcast-media';
 import { parseRecipients } from '@/lib/broadcast-recipients';
 import { broadcastDeliveryStatuses } from '@/lib/broadcast-delivery';
 import { Radio, RefreshCw, Send, Upload, FlaskConical, Pause, Play, ArrowLeft } from 'lucide-react';
@@ -43,7 +43,7 @@ export default function BroadcastLists() {
   const [contacts,setContacts]=useState<{id:string;name:string;phone:string|null}[]>([]);
   const [selectedIds,setSelectedIds]=useState<string[]>([]);
   const [templateKey,setTemplateKey]=useState('');
-  const [mediaIndex,setMediaIndex]=useState(0);
+  const [mediaIndex,setMediaIndex]=useState<number|null>(null);
   const [numbers,setNumbers]=useState('');
   const [search,setSearch]=useState('');
   const [testPhone,setTestPhone]=useState('');
@@ -57,6 +57,9 @@ export default function BroadcastLists() {
   const fileRef=useRef<HTMLInputElement>(null);
   const sendLock=useRef(false);
   const template=templates.find(t=>`${t.name}|${t.language}`===templateKey);
+  const mappedIndex=template ? broadcastMediaIndexForTemplate(template.name) : null;
+  const imageIndex=mappedIndex ?? mediaIndex;
+  const selectedMedia=imageIndex===null ? undefined : broadcastMedia[imageIndex];
   const parsed=parseRecipients([numbers,...contacts.filter(c=>selectedIds.includes(c.id)).map(c=>c.phone || '')].join('\n'));
   const allowed=company?.id===COMPANY;
   const loadTemplates=async()=>{
@@ -102,10 +105,10 @@ export default function BroadcastLists() {
     return ()=>{cancelled=true;clearInterval(timer);};
   },[allowed,runId]);
   useEffect(()=>{setValidation([]);},[numbers,selectedIds]);
-  const absoluteImage=new URL(broadcastMedia[mediaIndex].image,window.location.origin).href;
+  const absoluteImage=selectedMedia ? new URL(selectedMedia.image,window.location.origin).href : null;
   const send=async(isTest:boolean)=>{
     if(sendLock.current)return;
-    if(!template || template.status!=='APPROVED' || template.header_format!=='IMAGE')return;
+    if(!template || !absoluteImage || template.status!=='APPROVED' || template.header_format!=='IMAGE')return;
     const target=isTest ? parseRecipients(testPhone) : parsed;
     if(target.invalid.length || !target.phones.length || (isTest && target.phones.length!==1)){setError('Informe números válidos; o teste usa somente um destinatário.');return;}
     if(!window.confirm(isTest?`Enviar teste real para ${target.phones[0]}?`:`Enviar ${template.name} com esta imagem para ${target.phones.length} destinatários?`))return;
@@ -123,8 +126,8 @@ export default function BroadcastLists() {
     <Tabs value={params.get('tab') || 'send'} onValueChange={tab=>setParams({tab})}><TabsList><TabsTrigger value="send">Novo envio</TabsTrigger><TabsTrigger value="history">Histórico e progresso</TabsTrigger></TabsList>
     <TabsContent value="send" className="mt-6 space-y-6">
       <section className="space-y-3"><div className="flex items-center justify-between"><h2 className="font-semibold">Template e imagem</h2><Button variant="ghost" size="sm" disabled={busy} onClick={loadTemplates}><RefreshCw className="mr-2 h-4 w-4"/>Atualizar Meta</Button></div>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">{broadcastMedia.map((m,i)=><Button key={m.label} variant="outline" onClick={()=>setMediaIndex(i)} className={`h-auto flex-col items-start overflow-hidden p-2 text-left whitespace-normal ${i===mediaIndex?'border-primary ring-1 ring-primary':''}`}><img src={m.image} alt={m.label} className="mb-2 aspect-[4/5] w-full object-contain"/><span className="text-sm">{m.label}</span></Button>)}</div>
-      <Label>Template da Meta</Label><Select value={templateKey} onValueChange={key=>{setTemplateKey(key);const t=templates.find(t=>`${t.name}|${t.language}`===key);setVariables(Array(t?.variables || 0).fill(''));}}><SelectTrigger><SelectValue placeholder="Selecionar template com imagem"/></SelectTrigger><SelectContent>{templates.map(t=><SelectItem key={`${t.name}|${t.language}`} value={`${t.name}|${t.language}`} disabled={t.status!=='APPROVED'||t.header_format!=='IMAGE'}>{t.name} · {t.language} · {t.status} · {t.header_format || 'Texto'}</SelectItem>)}</SelectContent></Select>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">{broadcastMedia.map((m,i)=><Button key={m.label} variant="outline" disabled={mappedIndex!==null && i!==mappedIndex} onClick={()=>setMediaIndex(i)} className={`h-auto flex-col items-start overflow-hidden p-2 text-left whitespace-normal ${i===imageIndex?'border-primary ring-1 ring-primary':''}`}><img src={m.image} alt={m.label} className="mb-2 aspect-[4/5] w-full object-contain"/><span className="text-sm">{m.label}</span></Button>)}</div>
+      <Label>Template da Meta</Label><Select value={templateKey} onValueChange={key=>{setTemplateKey(key);setMediaIndex(null);const t=templates.find(t=>`${t.name}|${t.language}`===key);setVariables(Array(t?.variables || 0).fill(''));}}><SelectTrigger><SelectValue placeholder="Selecionar template com imagem"/></SelectTrigger><SelectContent>{templates.map(t=><SelectItem key={`${t.name}|${t.language}`} value={`${t.name}|${t.language}`} disabled={t.status!=='APPROVED'||t.header_format!=='IMAGE'}>{t.name} · {t.language} · {t.status} · {t.header_format || 'Texto'}</SelectItem>)}</SelectContent></Select>
       {!templates.some(t=>t.header_format==='IMAGE')&&<p className="text-sm text-muted-foreground">Nenhum template com imagem retornado pela Meta nesta conta. Atualize após a aprovação.</p>}
       {template&&<p className="whitespace-pre-wrap text-sm">{template.body}</p>}{variables.map((value,i)=><div key={i}><Label>Variável {i+1}</Label><Input value={value} onChange={e=>setVariables(v=>v.map((old,j)=>j===i?e.target.value:old))}/></div>)}
       </section>
@@ -132,7 +135,7 @@ export default function BroadcastLists() {
       <Label>Números separados por vírgula ou uma coluna CSV de celulares</Label><Textarea value={numbers} onChange={e=>setNumbers(e.target.value)} placeholder="11999999999, 11988888888" rows={4}/><input type="file" accept=".csv,text/csv" ref={fileRef} className="hidden" onChange={async e=>{const file=e.target.files?.[0];if(file){if(file.size>2*1024*1024){setError('CSV deve ter até 2 MB');return;}const text=await file.text();setNumbers(v=>`${v}\n${text}`);}e.target.value='';}}/><Button variant="outline" onClick={()=>fileRef.current?.click()}><Upload className="mr-2 h-4 w-4"/>Importar CSV</Button><p className="text-sm">{parsed.phones.length} números únicos · {parsed.invalid.length} inválidos</p>
       <Button variant="outline" disabled={busy||!parsed.phones.length||parsed.phones.length>500} onClick={async()=>{setBusy(true);setError('');try{const data=await call('broadcast-action',{action:'validate',company_id:COMPANY,phones:parsed.phones});setValidation(data.results);}catch(e){setError(String(e));}finally{setBusy(false);}}}>Verificar números no WhatsApp</Button>{validation.length>0&&<div className="max-h-48 overflow-y-auto text-sm">{validation.map(v=><p key={v.phone}>{v.phone} · {v.status==='valid'?'WhatsApp confirmado':v.status==='invalid'?'Não encontrado':'Não confirmado'}</p>)}</div>}
       </section>
-      <section className="space-y-3 border-t pt-4"><Label>Número para teste</Label><div className="flex flex-wrap gap-2"><Input className="max-w-xs" value={testPhone} onChange={e=>setTestPhone(e.target.value)} placeholder="Celular com DDD"/><Button variant="outline" disabled={busy||!template||variables.some(v=>!v.trim())} onClick={()=>void send(true)}><FlaskConical className="mr-2 h-4 w-4"/>Enviar teste</Button></div><label className="flex items-center gap-2 text-sm"><Checkbox id="consent" checked={params.get('consent')==='yes'} onCheckedChange={checked=>setParams({tab:'send',...(checked?{consent:'yes'}:{})})}/>Destinatários autorizaram mensagens da Vialogistic</label><Button disabled={busy||!template||!parsed.phones.length||parsed.phones.length>500||parsed.invalid.length>0||params.get('consent')!=='yes'||variables.some(v=>!v.trim())} onClick={()=>void send(false)}><Send className="mr-2 h-4 w-4"/>Iniciar envio ({parsed.phones.length})</Button></section>
+      <section className="space-y-3 border-t pt-4"><Label>Número para teste</Label><div className="flex flex-wrap gap-2"><Input className="max-w-xs" value={testPhone} onChange={e=>setTestPhone(e.target.value)} placeholder="Celular com DDD"/><Button variant="outline" disabled={busy||!template||!absoluteImage||variables.some(v=>!v.trim())} onClick={()=>void send(true)}><FlaskConical className="mr-2 h-4 w-4"/>Enviar teste</Button></div><label className="flex items-center gap-2 text-sm"><Checkbox id="consent" checked={params.get('consent')==='yes'} onCheckedChange={checked=>setParams({tab:'send',...(checked?{consent:'yes'}:{})})}/>Destinatários autorizaram mensagens da Vialogistic</label><Button disabled={busy||!template||!absoluteImage||!parsed.phones.length||parsed.phones.length>500||parsed.invalid.length>0||params.get('consent')!=='yes'||variables.some(v=>!v.trim())} onClick={()=>void send(false)}><Send className="mr-2 h-4 w-4"/>Iniciar envio ({parsed.phones.length})</Button></section>
     </TabsContent>
     <TabsContent value="history" className="mt-6 space-y-4">{runId?<><Button variant="ghost" onClick={()=>setParams({tab:'history'})}><ArrowLeft className="mr-2 h-4 w-4"/>Voltar ao histórico</Button><h2 className="font-semibold">{selectedRun?.template_name} {selectedRun?.is_test?'· Teste':''}</h2><Badge>{statusNames[selectedRun?.status || ''] || selectedRun?.status}</Badge><Progress value={recipients.length?finished/recipients.length*100:0}/><p className="text-sm">{finished}/{recipients.length} processados</p><div className="flex gap-2"><Button variant="outline" disabled={busy} onClick={()=>void control('pause')}><Pause className="mr-2 h-4 w-4"/>Pausar</Button><Button variant="outline" disabled={busy||selectedRun?.status==='completed'} onClick={()=>void control('resume')}><Play className="mr-2 h-4 w-4"/>Continuar fila</Button></div><div className="divide-y">{recipients.map(r=><div key={r.id} className="py-3 text-sm"><p>{r.phone} · {statusNames[(r.message_id&&delivery[r.message_id])||r.status] || r.status}</p>{r.error&&<p className="mt-1 break-words text-destructive">{r.error} · Reporte ao suporte com print e horário.</p>}<p className="break-all text-xs text-muted-foreground">{r.message_id}</p></div>)}</div></>:runs.length?runs.map(r=><Button key={r.id} variant="outline" className="h-auto w-full flex-wrap justify-between gap-2 py-4" onClick={()=>setParams({tab:'history',run:r.id})}><span>{r.template_name}{r.is_test?' · Teste':''} · {new Date(r.created_at).toLocaleString('pt-BR')}</span><Badge>{statusNames[r.status] || r.status}</Badge></Button>):<p className="text-sm text-muted-foreground">Nenhuma transmissão registrada.</p>}</TabsContent>
     </Tabs></>}

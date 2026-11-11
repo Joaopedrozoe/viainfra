@@ -12,3 +12,18 @@ export const broadcastMedia = [
   { label: '5 Conheça nosso Munck', image: munck.url },
   { label: '6 Disponibilidade da frota', image: benefits.url },
 ];
+// Match approved names explicitly; unrelated templates have no default image.
+const templateMediaNames = [
+  ['apresentao', 'apresentacao', 'apresetao'],
+  ['conhea_nossas_solues', 'conheca_nossas_solucoes'],
+  ['voc_sabia_caminho_pipa', 'voce_sabia_caminhao_pipa', 'voce_sabia_caminho_pipa'],
+  ['segurana_no_transporte', 'seguranca_no_transporte'],
+  ['conhea_nosso_munck', 'conheca_nosso_munck'],
+  ['disponibilidade_da_frota'],
+];
+export function broadcastMediaIndexForTemplate(name: string): number | null {
+  const normalized = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_?\d+$/, '').replace(/^_|_$/g, '');
+  const index = templateMediaNames.findIndex(names => names.includes(normalized));
+  return index < 0 ? null : index;
+}
