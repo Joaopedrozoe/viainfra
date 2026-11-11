@@ -127,33 +127,70 @@ serve(async (req) => {
 
     const creds = resolveMetaCreds(name);
     await authorizeCompany(req, companyId);
-    if (!creds.token) {
-      return json({ success: false, error: `META_ACCESS_TOKEN_${creds.key} não configurado` }, 500);
+    // Fonte principal: Evolution API (instância conectada da própria empresa, sem fallback entre empresas)
+    const sources: Record<string, string> = {};
+    const raw: any[] = [];
+    const evoUrl = (Deno.env.get("EVOLUTION_API_URL") || "").replace(/\/+$/, "");
+    const evoKey = Deno.env.get("EVOLUTION_API_KEY") || "";
+    if (evoUrl && evoKey) {
+      try {
+        const { data: inst } = await supabase
+          .from("whatsapp_instances")
+          .select("instance_name, connection_state")
+          .eq("company_id", companyId)
+          .ilike("instance_name", creds.key)
+          .maybeSingle();
+        if (inst?.instance_name) {
+          const r = await fetch(`${evoUrl}/template/find/${encodeURIComponent(inst.instance_name)}`, {
+            headers: { apikey: evoKey },
+            signal: AbortSignal.timeout(15000),
+          });
+          const d = await r.json().catch(() => null);
+          const list = Array.isArray(d) ? d : Array.isArray(d?.data) ? d.data : Array.isArray(d?.templates) ? d.templates : null;
+          if (r.ok && list) {
+            raw.push(...list);
+            sources.evolution = `ok:${list.length}`;
+          } else {
+            sources.evolution = `erro ${r.status}: ${JSON.stringify(d).slice(0, 200)}`;
+          }
+        } else {
+          sources.evolution = "instância da empresa não encontrada";
+        }
+      } catch (e) {
+        sources.evolution = `falha: ${String(e).slice(0, 200)}`;
+      }
     }
 
-    const wabaId = await resolveWabaId(creds.token, creds.phoneNumberId, storedWaba || creds.wabaId);
-    if (!wabaId) {
-      return json(
-        {
-          success: false,
-          error:
-            "WABA ID ainda não identificado. Ele é capturado automaticamente no próximo webhook recebido da Meta.",
-        },
-        400,
-      );
+    // Complemento: Graph API direta da mesma WABA
+    if (creds.token) {
+      const wabaId = await resolveWabaId(creds.token, creds.phoneNumberId, storedWaba || creds.wabaId);
+      if (wabaId) {
+        let url: string | null =
+          `https://graph.facebook.com/v21.0/${wabaId}/message_templates?limit=100&fields=name,language,status,category,components`;
+        let pages = 0;
+        while (url && pages < 5) {
+          const resp = await fetch(url, { headers: { Authorization: `Bearer ${creds.token}` } });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok) { sources.meta = `erro: ${data?.error?.message || resp.status}`; break; }
+          raw.push(...(data?.data || []));
+          sources.meta = `ok:${wabaId}`;
+          url = data?.paging?.next || null;
+          pages++;
+        }
+      }
     }
 
-    const resp = await fetch(
-      `https://graph.facebook.com/v21.0/${wabaId}/message_templates?limit=200&fields=name,language,status,category,components`,
-      { headers: { Authorization: `Bearer ${creds.token}` } },
-    );
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      return json(
-        { success: false, error: data?.error?.message || "Falha ao listar templates da Meta" },
-        400,
-      );
+    if (!raw.length) {
+      return json({ success: false, error: `Nenhum template retornado (${JSON.stringify(sources)})` }, 400);
     }
+    const seen = new Set<string>();
+    const data = { data: raw.filter((t: any) => {
+      const k = `${t?.name}|${t?.language}`;
+      if (!t?.name || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    }) };
+    const wabaId = storedWaba || creds.wabaId || null;
 
     const allowed = new Set(["APPROVED", "PENDING", "IN_APPEAL", "PENDING_DELETION"]);
     const templates = (data?.data || [])
@@ -179,7 +216,7 @@ serve(async (req) => {
         a.status === b.status ? a.name.localeCompare(b.name) : a.status === "APPROVED" ? -1 : 1,
       );
 
-    return json({ success: true, company: creds.key, wabaId, templates });
+    return json({ success: true, company: creds.key, wabaId, sources, templates });
   } catch (error) {
     if (String(error).includes('AUTH_REQUIRED')) return json({ success: false, error: 'Entre novamente para consultar os templates' }, 401);
     if (String(error).includes('COMPANY_FORBIDDEN')) return json({ success: false, error: 'Sem acesso à empresa' }, 403);
