@@ -17,6 +17,7 @@ import { useAuth } from '@/contexts/auth';
 import { supabase } from '@/integrations/supabase/client';
 import { broadcastMedia } from '@/lib/broadcast-media';
 import { parseRecipients } from '@/lib/broadcast-recipients';
+import { broadcastDeliveryStatuses } from '@/lib/broadcast-delivery';
 import { Radio, RefreshCw, Send, Upload, FlaskConical, Pause, Play, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -89,12 +90,15 @@ export default function BroadcastLists() {
         if(cancelled)return;if(rError){setError(rError.message);return;}setRecipients(rows || []);
         const ids=(rows || []).map(r=>r.message_id).filter((v):v is string=>!!v);
         if(ids.length){
-          const {data: messages}=await supabase.from('messages').select('metadata').in('metadata->>whatsappMessageId',ids);
-          if(!cancelled)setDelivery(Object.fromEntries((messages || []).map(m=>{const meta=m.metadata as Record<string,string>;return [meta.whatsappMessageId,meta.whatsappStatus];})));
-        }
+          const {data: messages,error:deliveryError}=await supabase.from('messages').select('metadata').in('metadata->>whatsappMessageId',ids);
+          if(cancelled)return;
+          if(deliveryError){setError(deliveryError.message);return;}
+          setDelivery(broadcastDeliveryStatuses(messages || []));
+        }else if(!cancelled){setDelivery({});}
       }
     };
-    void load();const timer=setInterval(()=>void load(),5000);
+    const safelyLoad=async()=>{try{await load();}catch(e){if(!cancelled)setError(`Não foi possível atualizar o histórico: ${String(e)}`);}};
+    void safelyLoad();const timer=setInterval(()=>void safelyLoad(),5000);
     return ()=>{cancelled=true;clearInterval(timer);};
   },[allowed,runId]);
   useEffect(()=>{setValidation([]);},[numbers,selectedIds]);

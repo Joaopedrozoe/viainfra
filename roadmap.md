@@ -1,5 +1,10 @@
 # Roadmap
 
+## Current request — transmission screen failure
+- [x] Guard delivery metadata and handle failed history requests without interrupting the screen.
+- [x] Five focused regression tests passed.
+- [ ] Reproduce the reported screen failure authenticated: external Supabase has no available browser session; public browser check reached login without errors and captured logs do not identify the reported exception.
+
 ## Current request — Vialogistic
 - [x] Navigation: unique subscriptions, stale-response guards, deferred auth callbacks and removed nested buttons.
 - [x] Expand message composer vertically.
