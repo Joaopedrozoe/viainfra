@@ -290,7 +290,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     initializeAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
         setUser(null);
         setProfile(null);
@@ -300,10 +300,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         sessionStorage.removeItem('active_company_id');
       } else if (event === 'SIGNED_IN' && session) {
         // Always use latest initializeAuth via ref to avoid stale closures
-        initializeAuthRef.current();
+        // Supabase calls this listener while holding its auth lock. Defer queries.
+        setTimeout(() => void initializeAuthRef.current(), 0);
       } else if (event === 'TOKEN_REFRESHED' && session) {
         console.log('🔐 [AuthContext] Token refreshed, preserving company selection');
-        initializeAuthRef.current(true);
+        setTimeout(() => void initializeAuthRef.current(true), 0);
       }
     });
 

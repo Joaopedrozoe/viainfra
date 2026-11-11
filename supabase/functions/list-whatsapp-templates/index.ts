@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { authorizeCompany } from '../_shared/company-auth.ts';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -125,6 +126,7 @@ serve(async (req) => {
     }
 
     const creds = resolveMetaCreds(name);
+    await authorizeCompany(req, companyId);
     if (!creds.token) {
       return json({ success: false, error: `META_ACCESS_TOKEN_${creds.key} não configurado` }, 500);
     }
@@ -169,6 +171,8 @@ serve(async (req) => {
           category: t.category,
           body: text,
           variables: vars.length,
+          header_format: (t.components || []).find((c: any) => c.type === 'HEADER')?.format || null,
+          components: t.components || [],
         };
       })
       .sort((a: any, b: any) =>
@@ -177,6 +181,8 @@ serve(async (req) => {
 
     return json({ success: true, company: creds.key, wabaId, templates });
   } catch (error) {
+    if (String(error).includes('AUTH_REQUIRED')) return json({ success: false, error: 'Entre novamente para consultar os templates' }, 401);
+    if (String(error).includes('COMPANY_FORBIDDEN')) return json({ success: false, error: 'Sem acesso à empresa' }, 403);
     console.error("[list-templates] Erro:", error);
     return json({ success: false, error: String(error) }, 500);
   }

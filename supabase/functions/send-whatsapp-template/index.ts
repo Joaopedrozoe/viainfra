@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { authorizeCompany } from '../_shared/company-auth.ts';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -128,19 +129,23 @@ async function sendTemplate(
   templateName: string,
   language: string,
   variables: string[] = [],
+  imageUrl?: string,
 ) {
   const template: Record<string, unknown> = {
     name: templateName,
     language: { code: language },
   };
+  const components: Record<string, unknown>[] = [];
+  if (imageUrl) components.push({ type: 'header', parameters: [{ type: 'image', image: { link: imageUrl } }] });
   if (variables.length > 0) {
-    template.components = [
+    components.push(
       {
         type: "body",
         parameters: variables.map((v) => ({ type: "text", text: String(v ?? "") })),
       },
-    ];
+    );
   }
+  if (components.length) template.components = components;
   const resp = await fetch(
     `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
     {
@@ -201,6 +206,7 @@ serve(async (req) => {
       language,
       variables = [],
       body_preview,
+      image_url,
     } = body ?? {};
     const templateVars: string[] = Array.isArray(variables) ? variables.map(String) : [];
 
@@ -226,6 +232,10 @@ serve(async (req) => {
 
     if (!companyId) {
       return json({ success: false, error: "Empresa da conversa não identificada" }, 400);
+    }
+    await authorizeCompany(req, companyId);
+    if (image_url && (typeof image_url !== 'string' || !/^https:\/\//.test(image_url) || image_url.length > 2048)) {
+      return json({ success: false, error: 'URL da imagem inválida' }, 400);
     }
 
     if (!targetPhone || targetPhone.length < 12) {
@@ -317,6 +327,7 @@ serve(async (req) => {
           template_name,
           lang,
           templateVars,
+          image_url,
         );
         console.log(
           `[send-template] ${template_name}/${lang} tentativa ${attempt} -> ${result.status}`,
@@ -366,6 +377,7 @@ serve(async (req) => {
           status: "pending",
           whatsappSentAt: new Date().toISOString(),
           isTemplate: true,
+          ...(image_url ? { type: 'image', mediaUrl: image_url, attachment: { type: 'image', url: image_url } } : {}),
         },
       });
       if (insertError) {
@@ -387,6 +399,8 @@ serve(async (req) => {
       company: creds.key,
     });
   } catch (error) {
+    if (String(error).includes('AUTH_REQUIRED')) return json({ success: false, error: 'Entre novamente para enviar' }, 401);
+    if (String(error).includes('COMPANY_FORBIDDEN')) return json({ success: false, error: 'Sem acesso à empresa' }, 403);
     console.error("[send-template] Erro:", error);
     return json({ success: false, error: String(error) }, 500);
   }

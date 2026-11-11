@@ -1,0 +1,1 @@
+REVOKE ALL ON FUNCTION public.preserve_contact_custom_name() FROM PUBLIC, anon, authenticated; GRANT EXECUTE ON FUNCTION public.preserve_contact_custom_name() TO service_role;

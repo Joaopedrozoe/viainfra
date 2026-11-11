@@ -967,6 +967,13 @@ export const MessageItem = memo(({
       )}
       
       {/* Timestamp e status de entrega */}
+      {isAgentMessage && effectiveStatus === 'failed' && (
+        <div role="alert" className="mt-3 border-t border-primary-foreground/30 pt-2 text-xs whitespace-pre-wrap break-words">
+          <p>Falha nesta tentativa{message.deliveryErrorCode ? ` · código ${message.deliveryErrorCode}` : ''}: {message.deliveryError || 'A Meta não confirmou a entrega.'}</p>
+          <p className="mt-1">{String(message.deliveryErrorCode) === '131042' ? 'Após regularizar o pagamento, faça um novo envio para consultar o estado atual.' : 'A recusa se refere a esta mensagem, não bloqueia novas tentativas.'}</p>
+          <p className="mt-1">Se persistir, reporte ao suporte com print, horário, empresa e telefone.</p>
+        </div>
+      )}
       <div className={cn(
         "text-[10px] mt-1.5 flex items-center justify-end gap-1",
         isAgentMessage ? "text-primary-foreground/70" : "text-muted-foreground"
