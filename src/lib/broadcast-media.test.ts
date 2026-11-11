@@ -5,7 +5,7 @@ import solutions from '@/assets/broadcast/solutions.png.asset.json';
 import benefits from '@/assets/broadcast/benefits.png.asset.json';
 import water from '@/assets/broadcast/water-truck.png.asset.json';
 import munck from '@/assets/broadcast/munck.png.asset.json';
-import safety from '@/assets/broadcast/safety.png.asset.json';
+import safety from '@/assets/broadcast/transport-image-four.png.asset.json';
 
 describe('Vialogistic template images', () => {
   const cases = [
