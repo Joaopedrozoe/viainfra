@@ -1,12 +1,14 @@
 # Roadmap
 
 ## Current request — Vialogistic
-- [ ] Diagnose navigation/company switching and prevent stale subscriptions.
-- [ ] Expand message composer vertically.
-- [ ] Preserve customized contact names; investigate recoverable prior names.
-- [ ] Investigate template failures and show current error/report instructions.
-- [ ] Implement image-template broadcasts, recipient import, test, validation, progress and history.
-- [ ] Run focused tests; authenticated UI verification depends on external Supabase session availability.
+- [x] Navigation: unique subscriptions, stale-response guards, deferred auth callbacks and removed nested buttons.
+- [x] Expand message composer vertically.
+- [x] Preserve customized contact names; prior metadata contains numeric names, not evidence for safe rollback.
+- [x] Investigate template failures and show current error/report instructions; recent Vialogistic morning templates read successfully.
+- [x] Implement image-template broadcasts, recipient import, test, validation, progress and history.
+- [x] Focused tests: 9 passed; all six images load.
+- [ ] Six new templates: Meta currently returns only existing text templates; cannot enable image sending until returned by correct WABA.
+- [ ] Authenticated navigation and end-to-end broadcast delivery: external unmanaged Supabase has no reusable browser session; no real destination authorized for agent tests.
 
 - [x] 1. Grupos (API oficial): aba Grupos, ícone, painel de informações, criar grupo, participantes, link de convite, configurações, sair; edge function whatsapp-group-action
 - [x] 2. Anexos: arrastar/colar, múltiplos arquivos, validação limites Meta, localização, cartão de contato

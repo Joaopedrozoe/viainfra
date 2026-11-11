@@ -54,6 +54,7 @@ export default function BroadcastLists() {
   const [recipients,setRecipients]=useState<Recipient[]>([]);
   const [delivery,setDelivery]=useState<Record<string,string>>({});
   const fileRef=useRef<HTMLInputElement>(null);
+  const sendLock=useRef(false);
   const template=templates.find(t=>`${t.name}|${t.language}`===templateKey);
   const parsed=parseRecipients([numbers,...contacts.filter(c=>selectedIds.includes(c.id)).map(c=>c.phone || '')].join('\n'));
   const allowed=company?.id===COMPANY;
@@ -99,13 +100,14 @@ export default function BroadcastLists() {
   useEffect(()=>{setValidation([]);},[numbers,selectedIds]);
   const absoluteImage=new URL(broadcastMedia[mediaIndex].image,window.location.origin).href;
   const send=async(isTest:boolean)=>{
+    if(sendLock.current)return;
     if(!template || template.status!=='APPROVED' || template.header_format!=='IMAGE')return;
     const target=isTest ? parseRecipients(testPhone) : parsed;
     if(target.invalid.length || !target.phones.length || (isTest && target.phones.length!==1)){setError('Informe números válidos; o teste usa somente um destinatário.');return;}
     if(!window.confirm(isTest?`Enviar teste real para ${target.phones[0]}?`:`Enviar ${template.name} com esta imagem para ${target.phones.length} destinatários?`))return;
-    setBusy(true);setError('');
-    try{const result=await call('broadcast-action',{action:'create',company_id:COMPANY,phones:target.phones,template_name:template.name,language:template.language,image_url:absoluteImage,variables,is_test:isTest});setParams({tab:'history',run:result.run_id});toast.success('Transmissão iniciada. Acompanhe as confirmações da Meta.');}
-    catch(e){setError(`${String(e)}. Se persistir, reporte ao suporte com print, empresa, horário e número.`);}finally{setBusy(false);}
+    sendLock.current=true;setBusy(true);setError('');
+    try{const result=await call('broadcast-action',{action:'create',request_id:crypto.randomUUID(),company_id:COMPANY,phones:target.phones,template_name:template.name,language:template.language,image_url:absoluteImage,variables,is_test:isTest});setParams({tab:'history',run:result.run_id});toast.success('Transmissão iniciada. Acompanhe as confirmações da Meta.');}
+    catch(e){setError(`${String(e)}. Se persistir, reporte ao suporte com print, empresa, horário e número.`);}finally{sendLock.current=false;setBusy(false);}
   };
   const control=async(action:string)=>{setBusy(true);try{await call('broadcast-action',{action,company_id:COMPANY,run_id:runId});toast.success(action==='pause'?'Transmissão pausada':'Fila retomada');}catch(e){setError(String(e));}finally{setBusy(false);}};
   const selectedRun=runs.find(r=>r.id===runId);

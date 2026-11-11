@@ -114,6 +114,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   });
 
   const initializeAuth = async (preserveCompany = false) => {
+    const switchToken = switchCompanyTokenRef.current;
     try {
       console.log('🔐 [AuthContext] Initializing auth...', { preserveCompany });
       const { data: { session } } = await supabase.auth.getSession();
@@ -123,6 +124,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           .from('profiles')
           .select('*, companies(*)')
           .eq('user_id', session.user.id);
+
+        if (switchToken !== switchCompanyTokenRef.current) return;
 
         if (profilesError) {
           console.error('❌ [AuthContext] Error fetching profiles:', profilesError);
@@ -292,6 +295,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
+        switchCompanyTokenRef.current++;
         setUser(null);
         setProfile(null);
         setCompany(null);
@@ -412,6 +416,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const signOut = async () => {
+    switchCompanyTokenRef.current++;
     try {
       await supabase.auth.signOut();
       setUser(null);

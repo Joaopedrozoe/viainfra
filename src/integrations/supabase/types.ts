@@ -404,10 +404,12 @@ export type Database = {
           image_url: string
           is_test: boolean
           language: string
+          request_id: string | null
           status: string
           template_name: string
           updated_at: string
           variables: Json
+          worker_until: string | null
         }
         Insert: {
           body_preview?: string
@@ -418,10 +420,12 @@ export type Database = {
           image_url: string
           is_test?: boolean
           language: string
+          request_id?: string | null
           status?: string
           template_name: string
           updated_at?: string
           variables?: Json
+          worker_until?: string | null
         }
         Update: {
           body_preview?: string
@@ -432,10 +436,12 @@ export type Database = {
           image_url?: string
           is_test?: boolean
           language?: string
+          request_id?: string | null
           status?: string
           template_name?: string
           updated_at?: string
           variables?: Json
+          worker_until?: string | null
         }
         Relationships: [
           {

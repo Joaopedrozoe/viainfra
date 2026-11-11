@@ -9,6 +9,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, Loader2, RefreshCw, Send } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import { FunctionsHttpError } from '@supabase/supabase-js';
+import { broadcastMedia } from '@/lib/broadcast-media';
+import { useAuth } from '@/contexts/auth';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export interface MetaTemplate {
   name: string;
@@ -17,6 +21,7 @@ export interface MetaTemplate {
   category: string;
   body: string;
   variables: number;
+  header_format?: string;
 }
 
 interface TemplatePickerDialogProps {
@@ -34,6 +39,8 @@ const statusLabel = (status: string) => {
 };
 
 export const TemplatePickerDialog = ({ open, onOpenChange, conversationId, onSent }: TemplatePickerDialogProps) => {
+  const { company } = useAuth();
+  const [mediaIndex, setMediaIndex] = useState('0');
   const [templates, setTemplates] = useState<MetaTemplate[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +56,8 @@ export const TemplatePickerDialog = ({ open, onOpenChange, conversationId, onSen
         body: { conversation_id: conversationId },
       });
       if (fnError || !data?.success) {
-        setError((data as any)?.error || fnError?.message || "Não foi possível carregar os templates");
+        const details = fnError instanceof FunctionsHttpError ? await fnError.context.json().catch(() => ({})) : null;
+        setError(details?.error || (data as any)?.error || fnError?.message || "Não foi possível carregar os templates");
         setTemplates([]);
         return;
       }
@@ -99,10 +107,12 @@ export const TemplatePickerDialog = ({ open, onOpenChange, conversationId, onSen
           language: selected.language,
           variables,
           body_preview: selected.body,
+          ...(selected.header_format === 'IMAGE' && company?.name?.toUpperCase() === 'VIALOGISTIC' ? { image_url: new URL(broadcastMedia[Number(mediaIndex)].image, window.location.origin).href } : {}),
         },
       });
       if (fnError || !data?.success) {
-        setError((data as any)?.error || fnError?.message || "Falha ao enviar o template");
+        const details = fnError instanceof FunctionsHttpError ? await fnError.context.json().catch(() => ({})) : null;
+        setError(`${details?.error || (data as any)?.error || fnError?.message || "Falha ao enviar o template"}. Se persistir, reporte ao suporte com print, horário, empresa e telefone.`);
         return;
       }
       onSent(selected.name);
@@ -198,6 +208,16 @@ export const TemplatePickerDialog = ({ open, onOpenChange, conversationId, onSen
 
         {selected && preview && (
           <div className="rounded-lg bg-muted p-3 text-xs whitespace-pre-wrap">{preview}</div>
+        )}
+        {selected?.header_format === 'IMAGE' && company?.name?.toUpperCase() === 'VIALOGISTIC' && (
+          <div className="space-y-2">
+            <Label>Imagem do template</Label>
+            <Select value={mediaIndex} onValueChange={setMediaIndex}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{broadcastMedia.map((media, index) => <SelectItem key={media.label} value={String(index)}>{media.label}</SelectItem>)}</SelectContent>
+            </Select>
+            <img src={broadcastMedia[Number(mediaIndex)].image} alt="Imagem do template" className="h-40 w-full object-contain" />
+          </div>
         )}
 
         <DialogFooter className="gap-2">
