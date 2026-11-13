@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { broadcastMedia, broadcastMediaIndexForTemplate } from './broadcast-media';
 import presentation from '@/assets/broadcast/presentation.png.asset.json';
 import solutions from '@/assets/broadcast/solutions.png.asset.json';
-import benefits from '@/assets/broadcast/benefits.png.asset.json';
+import benefits from '@/assets/broadcast/fleet-availability.png.asset.json';
 import water from '@/assets/broadcast/water-truck-v2.png.asset.json';
 import munck from '@/assets/broadcast/munck.png.asset.json';
 import safety from '@/assets/broadcast/transport-image-four.png.asset.json';
