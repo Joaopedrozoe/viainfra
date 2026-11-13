@@ -11,7 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { AlertTriangle, Bot, RefreshCw, Sparkles } from "lucide-react";
+import { AlertTriangle, Bot, FileDown, RefreshCw, Sparkles } from "lucide-react";
+import { generateViviReportPdf } from "@/lib/vivi-report";
 import { PlanGate } from "@/components/ui/plan-gate";
 import { PLAN_FEATURES } from "@/types/plans";
 import { useViviAgent, type ViviInsight } from "@/hooks/useViviAgent";
@@ -208,6 +209,22 @@ const Agents = () => {
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={filteredInsights.length === 0}
+                    onClick={() => {
+                      try {
+                        generateViviReportPdf(filteredInsights, company?.name ?? "Empresa", periodFilter === "all" ? "Todo o período" : `Últimos ${periodFilter} dias`);
+                        toast.success("Relatório PDF gerado!");
+                      } catch (e) {
+                        console.error(e);
+                        toast.error("Erro ao gerar PDF");
+                      }
+                    }}
+                  >
+                    <FileDown className="h-4 w-4 mr-1" /> Exportar PDF
+                  </Button>
                   <span className="text-sm text-muted-foreground">{agent.status === "active" ? "Ativa" : "Pausada"}</span>
                   <Switch checked={agent.status === "active"} onCheckedChange={() => toggleStatus()} />
                 </div>
