@@ -433,6 +433,9 @@ const Settings = () => {
             </TabsContent>
 
             <TabsContent value="backup">
+              <div className="mb-4">
+                <Button asChild variant="outline"><a href="/settings/backups">Backup externo automático</a></Button>
+              </div>
               <BackupImport />
             </TabsContent>
 

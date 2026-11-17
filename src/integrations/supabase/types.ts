@@ -293,6 +293,263 @@ export type Database = {
           },
         ]
       }
+      backup_events: {
+        Row: {
+          action: string
+          actor: string | null
+          created_at: string
+          details: Json | null
+          id: string
+        }
+        Insert: {
+          action: string
+          actor?: string | null
+          created_at?: string
+          details?: Json | null
+          id?: string
+        }
+        Update: {
+          action?: string
+          actor?: string | null
+          created_at?: string
+          details?: Json | null
+          id?: string
+        }
+        Relationships: []
+      }
+      backup_internal_config: {
+        Row: {
+          key: string
+          value: string
+        }
+        Insert: {
+          key: string
+          value: string
+        }
+        Update: {
+          key?: string
+          value?: string
+        }
+        Relationships: []
+      }
+      backup_items: {
+        Row: {
+          attempts: number
+          component: string
+          created_at: string
+          id: string
+          item_key: string
+          last_attempt_at: string | null
+          last_error: string | null
+          metadata: Json | null
+          row_count: number | null
+          run_id: string
+          sha256_expected: string | null
+          sha256_received: string | null
+          size_bytes: number
+          status: string
+          updated_at: string
+          verified_at: string | null
+        }
+        Insert: {
+          attempts?: number
+          component: string
+          created_at?: string
+          id?: string
+          item_key: string
+          last_attempt_at?: string | null
+          last_error?: string | null
+          metadata?: Json | null
+          row_count?: number | null
+          run_id: string
+          sha256_expected?: string | null
+          sha256_received?: string | null
+          size_bytes?: number
+          status?: string
+          updated_at?: string
+          verified_at?: string | null
+        }
+        Update: {
+          attempts?: number
+          component?: string
+          created_at?: string
+          id?: string
+          item_key?: string
+          last_attempt_at?: string | null
+          last_error?: string | null
+          metadata?: Json | null
+          row_count?: number | null
+          run_id?: string
+          sha256_expected?: string | null
+          sha256_received?: string | null
+          size_bytes?: number
+          status?: string
+          updated_at?: string
+          verified_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "backup_items_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "backup_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      backup_runs: {
+        Row: {
+          bytes_total: number
+          created_at: string
+          finished_at: string | null
+          id: string
+          items_failed: number
+          items_total: number
+          items_verified: number
+          last_error: string | null
+          manifest_sha256: string | null
+          occurrence_key: string | null
+          progress: Json
+          receiver_confirmed_at: string | null
+          requested_by: string | null
+          restore_result: string | null
+          restore_tested_at: string | null
+          snapshot_at: string | null
+          stage: string | null
+          started_at: string | null
+          status: string
+          step_lock_until: string | null
+          trigger_type: string
+          updated_at: string
+        }
+        Insert: {
+          bytes_total?: number
+          created_at?: string
+          finished_at?: string | null
+          id?: string
+          items_failed?: number
+          items_total?: number
+          items_verified?: number
+          last_error?: string | null
+          manifest_sha256?: string | null
+          occurrence_key?: string | null
+          progress?: Json
+          receiver_confirmed_at?: string | null
+          requested_by?: string | null
+          restore_result?: string | null
+          restore_tested_at?: string | null
+          snapshot_at?: string | null
+          stage?: string | null
+          started_at?: string | null
+          status?: string
+          step_lock_until?: string | null
+          trigger_type?: string
+          updated_at?: string
+        }
+        Update: {
+          bytes_total?: number
+          created_at?: string
+          finished_at?: string | null
+          id?: string
+          items_failed?: number
+          items_total?: number
+          items_verified?: number
+          last_error?: string | null
+          manifest_sha256?: string | null
+          occurrence_key?: string | null
+          progress?: Json
+          receiver_confirmed_at?: string | null
+          requested_by?: string | null
+          restore_result?: string | null
+          restore_tested_at?: string | null
+          snapshot_at?: string | null
+          stage?: string | null
+          started_at?: string | null
+          status?: string
+          step_lock_until?: string | null
+          trigger_type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      backup_schedule_occurrences: {
+        Row: {
+          attempts: number
+          created_at: string
+          id: string
+          last_error: string | null
+          occurrence_key: string
+          run_id: string | null
+          scheduled_for: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          occurrence_key: string
+          run_id?: string | null
+          scheduled_for: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          occurrence_key?: string
+          run_id?: string | null
+          scheduled_for?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      backup_schedules: {
+        Row: {
+          cron_expression_utc: string | null
+          enabled: boolean
+          frequency: string
+          id: number
+          month_day: number | null
+          next_run_at: string | null
+          time_of_day: string
+          timezone: string
+          updated_at: string
+          updated_by: string | null
+          weekday: number | null
+        }
+        Insert: {
+          cron_expression_utc?: string | null
+          enabled?: boolean
+          frequency?: string
+          id?: number
+          month_day?: number | null
+          next_run_at?: string | null
+          time_of_day?: string
+          timezone?: string
+          updated_at?: string
+          updated_by?: string | null
+          weekday?: number | null
+        }
+        Update: {
+          cron_expression_utc?: string | null
+          enabled?: boolean
+          frequency?: string
+          id?: number
+          month_day?: number | null
+          next_run_at?: string | null
+          time_of_day?: string
+          timezone?: string
+          updated_at?: string
+          updated_by?: string | null
+          weekday?: number | null
+        }
+        Relationships: []
+      }
       bots: {
         Row: {
           channels: string[] | null
@@ -1547,7 +1804,81 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_backup_schedule: {
+        Args: {
+          _enabled: boolean
+          _frequency: string
+          _month_day: number
+          _time: string
+          _weekday: number
+        }
+        Returns: {
+          cron_expression_utc: string | null
+          enabled: boolean
+          frequency: string
+          id: number
+          month_day: number | null
+          next_run_at: string | null
+          time_of_day: string
+          timezone: string
+          updated_at: string
+          updated_by: string | null
+          weekday: number | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "backup_schedules"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       assert_repair_allowed: { Args: never; Returns: undefined }
+      backup_compute_next_run: {
+        Args: {
+          _freq: string
+          _from?: string
+          _month_day: number
+          _time: string
+          _weekday: number
+        }
+        Returns: string
+      }
+      backup_cron_command: { Args: { _body: Json }; Returns: string }
+      backup_cron_history: {
+        Args: { _limit?: number }
+        Returns: {
+          jobname: string
+          return_message: string
+          start_time: string
+          status: string
+        }[]
+      }
+      backup_cron_jobs: {
+        Args: never
+        Returns: {
+          active: boolean
+          jobname: string
+          schedule: string
+        }[]
+      }
+      backup_list_storage_objects: {
+        Args: { _after: string; _limit: number }
+        Returns: {
+          bucket_id: string
+          created_at: string
+          id: string
+          metadata: Json
+          name: string
+          updated_at: string
+        }[]
+      }
+      backup_schedule_once: {
+        Args: { _at: string; _body: Json; _job: string }
+        Returns: undefined
+      }
+      backup_schema_catalog: { Args: never; Returns: Json }
+      backup_table_counts: { Args: never; Returns: Json }
+      backup_unschedule_job: { Args: { _job: string }; Returns: undefined }
       bot_http_fetch: {
         Args: { p_body?: Json; p_method?: string; p_url: string }
         Returns: string

@@ -36,6 +36,7 @@ const Schedule = lazy(() => import("@/pages/app/Schedule"));
 const Integrations = lazy(() => import("@/pages/app/Integrations"));
 const ApiDocs = lazy(() => import("@/pages/app/ApiDocs")); 
 const Settings = lazy(() => import("@/pages/app/Settings"));
+const Backups = lazy(() => import("@/pages/app/Backups"));
 const Help = lazy(() => import("@/pages/app/Help"));
 const ContactDetails = lazy(() => import("@/pages/app/ContactDetails"));
 const Contacts = lazy(() => import("@/pages/app/Contacts"));
@@ -112,6 +113,7 @@ const App = () => (
                 <Route path="/integrations" element={<Integrations />} />
                 <Route path="/api-docs" element={<ApiDocs />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/settings/backups" element={<Backups />} />
                 <Route path="/help" element={<Help />} />
                 <Route path="/contacts/:id" element={<ContactDetails />} />
               </Route>

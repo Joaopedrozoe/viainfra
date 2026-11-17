@@ -8,3 +8,4 @@
 - Share map-coordinate parsing between chat and the authenticated map-link resolver; resolve only allowlisted map URLs with bounded redirects, time and response size to avoid arbitrary network access.
 - Both template pickers derive Vialogistic campaign images from the shared exact-name mapping; never retain a prior image or default an unknown template to the first image.
 - Treat only the explicit official WhatsApp unsupported-number-lookup response as unavailable, not confirmed; format-validated broadcasts may proceed while other validation failures remain blocked.
+- External backup lives in `supabase/functions/backup-export-schema/` (ported from T.INFORMATICA); runs are `complete` only after the receiver confirms the manifest SHA-256, scheduling uses one exact-time pg_cron job rewritten by `apply_backup_schedule`, and the receiver folder name comes from the `BACKUP_PROJECT_ID` secret.
