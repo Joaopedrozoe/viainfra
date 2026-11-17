@@ -6,7 +6,7 @@ import {
 } from "../_shared/backup-client.ts";
 import { makeStore } from "./store.ts";
 import {
-  buildTasks, EXCLUDED_BUCKETS, occurrenceKey, pageSizeFor, partKey, retryDelayMinutes, retryJobName,
+  buildTasks, EXCLUDED_BUCKETS, orderKeyFor, occurrenceKey, pageSizeFor, partKey, retryDelayMinutes, retryJobName,
   storageItemKey, type Task,
 } from "./plan.ts";
 
@@ -85,21 +85,22 @@ async function doSchema(c: Ctx) {
 
 async function doTablePage(c: Ctx, table: string) {
   const size = pageSizeFor(table);
-  let q = c.admin.from(table).select("*").order("id", { ascending: true }).limit(size);
-  if (c.p.cursor) q = q.gt("id", c.p.cursor);
+  const key = orderKeyFor(table);
+  let q = c.admin.from(table).select("*").order(key, { ascending: true }).limit(size);
+  if (c.p.cursor) q = q.gt(key, c.p.cursor);
   if (!c.p.table_windows[table]) c.p.table_windows[table] = { started_at: new Date().toISOString() };
   const { data, error } = await q;
   if (error) throw new Error(`Falha ao ler ${table}: ${redact(error.message)}`);
   const rows = data ?? [];
   if (rows.length === 0 && c.p.part > 0) return true;
   const part = c.p.part + 1;
-  const body = enc.encode(JSON.stringify({ table, part, order_by: "id", after_id: c.p.cursor, row_count: rows.length, rows }));
+  const body = enc.encode(JSON.stringify({ table, part, order_by: key, after_id: c.p.cursor, row_count: rows.length, rows }));
   await sendItem(c.admin, c.cfg, c.runId, "db_data", partKey(table, part), await gzip(body), {
-    row_count: rows.length, metadata: { table, part, first_id: rows[0]?.id ?? null, last_id: rows.at(-1)?.id ?? null },
+    row_count: rows.length, metadata: { table, part, order_by: key, first_id: rows[0]?.[key] ?? null, last_id: rows.at(-1)?.[key] ?? null },
   });
   c.p.table_rows[table] = (c.p.table_rows[table] ?? 0) + rows.length;
   c.p.part = part;
-  c.p.cursor = rows.at(-1)?.id ?? c.p.cursor;
+  c.p.cursor = rows.at(-1)?.[key] ?? c.p.cursor;
   if (rows.length < size) {
     const { count } = await c.admin.from(table).select("*", { count: "exact", head: true });
     c.p.table_windows[table].finished_at = new Date().toISOString();

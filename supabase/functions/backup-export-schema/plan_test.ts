@@ -25,3 +25,10 @@ Deno.test("chaves aceitas pelo receptor", () => {
   assertEquals(re.test(storageItemKey("whatsapp-media", "6D611F37-E32D-4E60-A48E-7D5DF689FB68")), true);
   assertEquals(/^backup-retry-[a-z0-9]+$/.test(retryJobName("2026-10-27T06:00Z")), true);
 });
+
+Deno.test("orderKeyFor usa a chave primária real", async () => {
+  const { orderKeyFor } = await import("./plan.ts");
+  if (orderKeyFor("conversation_reads") !== "conversation_id") throw new Error("conversation_reads");
+  if (orderKeyFor("user_presence") !== "user_id") throw new Error("user_presence");
+  if (orderKeyFor("messages") !== "id") throw new Error("messages");
+});

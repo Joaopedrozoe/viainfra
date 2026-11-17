@@ -26,6 +26,10 @@ export function buildTasks(tableNames: string[]): Task[] {
 
 export const pageSizeFor = (table: string) => (table === "messages" || table === "webhook_events" ? 500 : 1000);
 
+// Tabelas cuja chave primária não se chama "id".
+const ORDER_KEYS: Record<string, string> = { conversation_reads: "conversation_id", user_presence: "user_id" };
+export const orderKeyFor = (table: string) => ORDER_KEYS[table] ?? "id";
+
 export const partKey = (table: string, part: number) =>
   `db/data/${table}/part-${String(part).padStart(5, "0")}.json.gz`;
 
