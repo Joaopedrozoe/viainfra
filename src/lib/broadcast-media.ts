@@ -4,6 +4,8 @@ import benefits from '@/assets/broadcast/fleet-availability.png.asset.json';
 import water from '@/assets/broadcast/water-truck-v2.png.asset.json';
 import munck from '@/assets/broadcast/munck.png.asset.json';
 import safety from '@/assets/broadcast/transport-image-four.png.asset.json';
+import consciousness from '@/assets/broadcast/black-consciousness-day.png.asset.json';
+import review from '@/assets/broadcast/customer-review.png.asset.json';
 export const broadcastMedia = [
   { label: '1 Apresentação', image: presentation.url },
   { label: '2 Conheça nossas soluções', image: solutions.url },
@@ -11,6 +13,8 @@ export const broadcastMedia = [
   { label: '4 Segurança no transporte', image: safety.url },
   { label: '5 Conheça nosso Munck', image: munck.url },
   { label: '6 Disponibilidade da frota', image: benefits.url },
+  { label: '7 Dia da Consciência Negra', image: consciousness.url },
+  { label: '8 Avaliação', image: review.url },
 ];
 // Match approved names explicitly; unrelated templates have no default image.
 const templateMediaNames = [
@@ -20,6 +24,8 @@ const templateMediaNames = [
   ['segurana_no_transporte', 'seguranca_no_transporte'],
   ['conhea_nosso_munck', 'conheca_nosso_munck'],
   ['disponibilidade_da_frota'],
+  ['dia_da_consciencia_negra'],
+  ['avaliacao'],
 ];
 export function broadcastMediaIndexForTemplate(name: string): number | null {
   const normalized = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '')

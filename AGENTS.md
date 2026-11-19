@@ -9,3 +9,6 @@
 - Both template pickers derive Vialogistic campaign images from the shared exact-name mapping; never retain a prior image or default an unknown template to the first image.
 - Treat only the explicit official WhatsApp unsupported-number-lookup response as unavailable, not confirmed; format-validated broadcasts may proceed while other validation failures remain blocked.
 - External backup lives in `supabase/functions/backup-export-schema/` (ported from T.INFORMATICA); runs are `complete` only after the receiver confirms the manifest SHA-256, scheduling uses one exact-time pg_cron job rewritten by `apply_backup_schedule`, and the receiver folder name comes from the `BACKUP_PROJECT_ID` secret.
+- Reconcile uncertain backup finalization through one-shot checks and before status/start/scheduled operations; release unconfirmed runs as incomplete after a bounded grace period, never as validated, so uncertainty cannot block future backups forever.
+- Empty-chat synchronization retries the initial page under the synchronization lock; keep conversation guards and message deduplication so recovery does not mix contexts or replay messages.
+- Merge template catalogs by exact name/language with the current same-company Meta result overriding older Evolution metadata, so newly approved image templates are not hidden by stale duplicates.

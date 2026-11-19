@@ -1,7 +1,7 @@
 // Backup completo em etapas: cada chamada processa partes até o limite de tempo,
 // grava o ponto de parada em backup_runs.progress e chama a próxima etapa.
 import {
-  applyFinalization, buildManifest, finalizeRun, MANIFEST_ITEM_KEY, redact, sha256Hex, uploadItem,
+  applyFinalization, buildManifest, finalizeRun, MANIFEST_ITEM_KEY, reconcileRun, redact, sha256Hex, uploadItem,
   type ReceiverConfig,
 } from "../_shared/backup-client.ts";
 import { makeStore } from "./store.ts";
@@ -14,6 +14,8 @@ import {
 type Admin = any;
 // deno-lint-ignore no-explicit-any
 type Progress = Record<string, any>;
+
+declare const Deno: { env: { toObject(): Record<string, string> } };
 
 const STEP_BUDGET_MS = 75_000;
 const LOCK_SECONDS = 140;
@@ -268,8 +270,36 @@ async function finalizeFull(admin: Admin, cfg: ReceiverConfig, runId: string, p:
 }
 
 // ------------------------------------------------------------------ agendamento
+export async function armValidationCheck(admin: Admin, runId: string) {
+  const at = new Date(Date.now() + 5 * 60_000);
+  at.setUTCSeconds(0, 0);
+  const { error } = await admin.rpc("backup_schedule_once", {
+    _job: `backup-retry-validation${runId.replace(/-/g, "")}`, _at: at.toISOString(),
+    _body: { mode: "reconcile", run_id: runId },
+  });
+  if (error) throw new Error("Falha ao agendar a verificação do manifesto");
+}
+
+export async function recoverFinalizing(admin: Admin, cfg: ReceiverConfig) {
+  const { data: run, error } = await admin.from("backup_runs").select("id").eq("status", "finalizing").maybeSingle();
+  if (error) throw new Error("Falha ao consultar validação pendente");
+  if (!run) return;
+  const outcome = await reconcileRun(makeStore(admin, ""), cfg, run.id);
+  if (["promoted", "already_complete", "expired", "hash_mismatch"].includes(outcome)) {
+    await admin.rpc("backup_unschedule_job", { _job: `backup-retry-validation${run.id.replace(/-/g, "")}` });
+    await afterRun(admin, run.id);
+  } else {
+    await armValidationCheck(admin, run.id);
+  }
+  return outcome;
+}
+
 export async function afterRun(admin: Admin, runId: string) {
   const { data: run } = await admin.from("backup_runs").select("status, occurrence_key, last_error").eq("id", runId).single();
+  if (run?.status === "finalizing") {
+    await armValidationCheck(admin, runId);
+    return;
+  }
   if (!run?.occurrence_key) return;
   const { data: occ } = await admin.from("backup_schedule_occurrences").select("attempts").eq("occurrence_key", run.occurrence_key).single();
   const attempts = occ?.attempts ?? 1;
@@ -277,7 +307,6 @@ export async function afterRun(admin: Admin, runId: string) {
     await admin.from("backup_schedule_occurrences").update({ status: "complete", last_error: null, updated_at: new Date().toISOString() }).eq("occurrence_key", run.occurrence_key);
     return;
   }
-  if (run.status === "finalizing") return; // aguarda reconciliação
   const delay = retryDelayMinutes(attempts);
   await admin.from("backup_schedule_occurrences").update({
     status: "failed", last_error: (run.last_error ?? "falha").slice(0, 500), updated_at: new Date().toISOString(),

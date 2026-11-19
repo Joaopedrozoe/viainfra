@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { FunctionsHttpError } from '@supabase/supabase-js';
 import { SidebarProvider } from '@/components/ui/sidebar';
@@ -56,17 +56,29 @@ export default function BroadcastLists() {
   const [delivery,setDelivery]=useState<Record<string,string>>({});
   const fileRef=useRef<HTMLInputElement>(null);
   const sendLock=useRef(false);
+  const templateRequest=useRef(0);
+  const companyRef=useRef(company?.id);
+  companyRef.current=company?.id;
   const template=templates.find(t=>`${t.name}|${t.language}`===templateKey);
   const mappedIndex=template ? broadcastMediaIndexForTemplate(template.name) : null;
   const imageIndex=mappedIndex ?? mediaIndex;
   const selectedMedia=imageIndex===null ? undefined : broadcastMedia[imageIndex];
   const parsed=parseRecipients([numbers,...contacts.filter(c=>selectedIds.includes(c.id)).map(c=>c.phone || '')].join('\n'));
   const allowed=company?.id===COMPANY;
-  const loadTemplates=async()=>{
+  const loadTemplates=useCallback(async()=>{
+    if(!allowed)return;
+    const request=++templateRequest.current;
     setBusy(true);setError('');
-    try {const data=await call('list-whatsapp-templates',{company_id:COMPANY});setTemplates(data.templates || []);}
-    catch(e){setError(String(e));}finally{setBusy(false);}
-  };
+    try {const data=await call('list-whatsapp-templates',{company_id:COMPANY});if(companyRef.current===COMPANY&&request===templateRequest.current)setTemplates(data.templates || []);}
+    catch(e){if(companyRef.current===COMPANY&&request===templateRequest.current)setError(String(e));}finally{if(request===templateRequest.current)setBusy(false);}
+  },[allowed]);
+  useEffect(()=>{
+    if(!allowed){setTemplates([]);return;}
+    const refresh=()=>{if(document.visibilityState==='visible')void loadTemplates();};
+    window.addEventListener('focus',refresh);
+    window.addEventListener('online',refresh);
+    return()=>{window.removeEventListener('focus',refresh);window.removeEventListener('online',refresh);templateRequest.current++;};
+  },[allowed,loadTemplates]);
   useEffect(()=>{
     if(!allowed){setContacts([]);setRuns([]);return;}
     let cancelled=false;
@@ -81,7 +93,7 @@ export default function BroadcastLists() {
       if(!cancelled)setContacts(all.sort((a,b)=>a.name.localeCompare(b.name)));
     })();
     return ()=>{cancelled=true;};
-  },[allowed]);
+  },[allowed,loadTemplates]);
   useEffect(()=>{
     if(!allowed)return;
     let cancelled=false;

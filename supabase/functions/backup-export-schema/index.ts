@@ -2,16 +2,10 @@
 // Admin-only. Lê BACKUP_RECEIVER_URL/TOKEN apenas no backend; nunca os retorna/loga.
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.4";
+import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { executeBackupRun, reconcileRun } from "../_shared/backup-client.ts";
 import { makeStore } from "./store.ts";
-import { handleScheduled, internalKey, markMissed, runSteps, startFullRun } from "./full.ts";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+import { handleScheduled, internalKey, markMissed, recoverFinalizing, runSteps, startFullRun } from "./full.ts";
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
@@ -240,7 +234,9 @@ async function handle(req: Request): Promise<Response> {
       return json({ success: true, accepted: true });
     }
     if (mode === "scheduled_run") {
-      if (!receiverCfg()) return json({ success: false, error: "Backup secrets not available" }, 500);
+      const cfg = receiverCfg();
+      if (!cfg) return json({ success: false, error: "Backup secrets not available" }, 500);
+      await recoverFinalizing(admin, cfg);
       const r = await handleScheduled(admin, body);
       console.log(`backup: scheduled outcome=${r.outcome} occurrence=${r.occurrence}`);
       if (r.outcome === "started" && r.run_id) background(r.run_id);
@@ -249,6 +245,17 @@ async function handle(req: Request): Promise<Response> {
         if (a?.status === "running" && Date.now() - new Date(a.updated_at).getTime() > 10 * 60_000) background(r.active_run);
       }
       return json({ success: true, ...r });
+    }
+    if (mode === "reconcile") {
+      const cfg = receiverCfg();
+      if (!cfg) return json({ success: false, error: "Backup secrets not available" }, 500);
+      const runId = typeof body.run_id === "string" ? body.run_id : "";
+      if (!/^[0-9a-f-]{36}$/.test(runId) || body.retry_job !== `backup-retry-validation${runId.replace(/-/g, "")}`) {
+        return json({ success: false, error: "Invalid validation job" }, 400);
+      }
+      await admin.rpc("backup_unschedule_job", { _job: body.retry_job });
+      const outcome = await recoverFinalizing(admin, cfg);
+      return json({ success: true, outcome });
     }
     return json({ success: false, error: "Invalid mode" }, 400);
   }
@@ -266,7 +273,9 @@ async function handle(req: Request): Promise<Response> {
   const store = makeStore(admin as any, userId);
 
   if (mode === "start") {
-    if (!receiverCfg()) return json({ success: false, error: "Backup secrets not available" }, 500);
+    const cfg = receiverCfg();
+    if (!cfg) return json({ success: false, error: "Backup secrets not available" }, 500);
+    await recoverFinalizing(admin, cfg);
     const r = await startFullRun(admin, { trigger: "manual", userId });
     if (r.conflict) return json({ success: false, error: "Já existe um backup em andamento" }, 409);
     background(r.run_id);
@@ -275,6 +284,8 @@ async function handle(req: Request): Promise<Response> {
 
   if (mode === "status") {
     await markMissed(admin);
+    const cfg = receiverCfg();
+    if (cfg) await recoverFinalizing(admin, cfg);
     const { data: active } = await admin.from("backup_runs").select("id, status, updated_at, step_lock_until")
       .in("status", ["running"]).maybeSingle();
     let resumed = false;

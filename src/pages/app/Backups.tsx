@@ -43,7 +43,8 @@ function statusInfo(r: Run): { label: string; variant: "default" | "secondary" |
   if (r.status === "finalizing") return { label: r.last_error ? "Validação pendente" : "Finalizando no receptor", variant: "secondary" };
   if (r.status === "running") return { label: "Em andamento", variant: "secondary" };
   if (r.status === "pending") return { label: "Aguardando execução", variant: "outline" };
-  if (r.status === "failed" || r.status === "incomplete") return { label: "Falhou", variant: "destructive" };
+  if (r.status === "incomplete") return { label: "Incompleto · integridade não confirmada", variant: "destructive" };
+  if (r.status === "failed") return { label: "Falhou", variant: "destructive" };
   return { label: r.status, variant: "outline" };
 }
 

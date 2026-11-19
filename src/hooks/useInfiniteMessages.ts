@@ -259,9 +259,12 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
     if (!conversationId || syncingRef.current) return;
     const convAtStart = conversationId;
     let cursor: { id: string; timestamp: string } | null = newestConfirmed(messagesRef.current);
-    if (!cursor) return;
     syncingRef.current = true;
     try {
+      if (!cursor) {
+        await loadInitialMessages();
+        return;
+      }
       for (let batch = 0; batch < 10; batch++) {
         const { data, error } = await supabase
           .from('messages')

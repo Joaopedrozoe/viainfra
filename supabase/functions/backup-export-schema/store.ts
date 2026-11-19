@@ -18,7 +18,7 @@ export function makeStore(admin: any, userId: string): BackupStore {
       await admin.from("backup_items").update(patch).eq("run_id", runId).eq("item_key", itemKey);
     },
     async getRun(runId) {
-      const { data } = await admin.from("backup_runs").select("id, status, manifest_sha256, receiver_confirmed_at").eq("id", runId).maybeSingle();
+      const { data } = await admin.from("backup_runs").select("id, status, manifest_sha256, receiver_confirmed_at, updated_at").eq("id", runId).maybeSingle();
       return data ?? null;
     },
     async updateRunIf(runId, fromStatus, patch) {

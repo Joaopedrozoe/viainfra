@@ -186,6 +186,7 @@ export interface RunRow {
   status: string;
   manifest_sha256: string | null;
   receiver_confirmed_at: string | null;
+  updated_at?: string;
 }
 
 export interface BackupStore {
@@ -261,7 +262,10 @@ export async function applyFinalization(store: BackupStore, runId: string, expec
 
 export type ReconcileOutcome =
   | "promoted" | "already_complete" | "still_open" | "receiver_unknown"
-  | "hash_mismatch" | "not_eligible" | "not_found" | "invalid_run_id";
+  | "hash_mismatch" | "not_eligible" | "not_found" | "invalid_run_id" | "expired";
+
+// Uncertainty must not monopolize the single active-run slot indefinitely.
+export const FINALIZATION_GRACE_MS = 60 * 60_000;
 
 // Só execuções em "finalizing" com manifest_sha256 registrado podem ser promovidas,
 // e somente se a EC2 reportar COMPLETE com exatamente o mesmo hash.
@@ -272,8 +276,16 @@ export async function reconcileRun(store: BackupStore, cfg: ReceiverConfig, runI
   if (run.status === "complete") return "already_complete";
   if (run.status !== "finalizing" || !run.manifest_sha256 || !SHA_RE.test(run.manifest_sha256)) return "not_eligible";
   const st = await getRunStatus(cfg, runId);
-  if (st.state === "unknown") return "receiver_unknown";
-  if (st.state !== "complete") return "still_open";
+  if (st.state !== "complete") {
+    if (run.updated_at && Date.now() - new Date(run.updated_at).getTime() >= FINALIZATION_GRACE_MS) {
+      const changed = await store.updateRunIf(runId, "finalizing", {
+        status: "incomplete", stage: "incomplete", finished_at: new Date().toISOString(),
+        last_error: "Validação do manifesto não confirmada pelo receptor em 1 hora; arquivos preservados, integridade não confirmada.",
+      });
+      return changed ? "expired" : "not_eligible";
+    }
+    return st.state === "unknown" ? "receiver_unknown" : "still_open";
+  }
   if (st.manifest_sha256 !== run.manifest_sha256) {
     await store.updateRunIf(runId, "finalizing", { status: "failed", finished_at: new Date().toISOString(), last_error: "Manifesto confirmado pela EC2 difere do esperado" });
     return "hash_mismatch";

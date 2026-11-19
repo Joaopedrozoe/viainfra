@@ -1,5 +1,16 @@
 # Roadmap
 
+## Current request — new Vialogistic templates
+- [x] Associate uploaded images respectively with dia_da_consciencia_negra and avaliacao in both template pickers.
+- [x] Verify available-template merge/refresh and focused mapping tests; both original images load, no real WhatsApp sends.
+- [ ] Confirm the live authenticated catalog contains both approved image templates: external Supabase has no available browser session.
+
+## Current request — monitoring recovery findings
+- [x] Recover pending backup validation from page polling, manual starts and scheduled calls; bound uncertainty without claiming integrity, with one-shot server checks.
+- [x] Recover empty conversations after initial-load failures or missed first-message events.
+- [x] Run focused regression tests: 28 passed; functions deployed and build OK.
+- [ ] Authenticated end-to-end validation: external Supabase session unavailable; browser checks reached login without runtime errors.
+
 ## Current request — transmission screen failure
 - [x] Guard delivery metadata and handle failed history requests without interrupting the screen.
 - [x] Five focused regression tests passed.

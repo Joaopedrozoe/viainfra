@@ -6,6 +6,8 @@ import benefits from '@/assets/broadcast/fleet-availability.png.asset.json';
 import water from '@/assets/broadcast/water-truck-v2.png.asset.json';
 import munck from '@/assets/broadcast/munck.png.asset.json';
 import safety from '@/assets/broadcast/transport-image-four.png.asset.json';
+import consciousness from '@/assets/broadcast/black-consciousness-day.png.asset.json';
+import review from '@/assets/broadcast/customer-review.png.asset.json';
 
 describe('Vialogistic template images', () => {
   const cases = [
@@ -15,6 +17,8 @@ describe('Vialogistic template images', () => {
     ['segurana_no_transporte', safety.url],
     ['conhea_nosso_munck', munck.url],
     ['disponibilidade_da_frota', benefits.url],
+    ['dia_da_consciencia_negra', consciousness.url],
+    ['avaliacao', review.url],
   ];
   for (const [name, image] of cases) {
     it(`${name} selects its own image`, () => {

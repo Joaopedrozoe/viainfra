@@ -1,12 +1,8 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { authorizeCompany } from '../_shared/company-auth.ts';
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
+import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
+import { mergeTemplateCatalog } from '../_shared/template-catalog.ts';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -183,13 +179,7 @@ serve(async (req) => {
     if (!raw.length) {
       return json({ success: false, error: `Nenhum template retornado (${JSON.stringify(sources)})` }, 400);
     }
-    const seen = new Set<string>();
-    const data = { data: raw.filter((t: any) => {
-      const k = `${t?.name}|${t?.language}`;
-      if (!t?.name || seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    }) };
+    const data = { data: mergeTemplateCatalog(raw) };
     const wabaId = storedWaba || creds.wabaId || null;
 
     const allowed = new Set(["APPROVED", "PENDING", "IN_APPEAL", "PENDING_DELETION"]);
