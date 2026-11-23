@@ -1,7 +1,7 @@
 
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { MessageSquare, MoreHorizontal, Users, Calendar, Settings, ExternalLink, Layers, BarChart3, Plug, HelpCircle, Radio, Phone, Building2, ChevronDown } from "lucide-react";
+import { MessageSquare, MoreHorizontal, Users, Calendar, Settings, ExternalLink, Layers, BarChart3, Plug, HelpCircle, Radio, Phone, Building2, ChevronDown, Megaphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Sheet,
@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/sheet";
 import { useAuth } from "@/contexts/auth";
 import { CompanySwitcher } from "@/components/app/CompanySwitcher";
+import { useAnnouncementAdmin } from "@/hooks/useAnnouncements";
 
 
 // Navigation items for the bottom bar
@@ -65,6 +66,12 @@ const moreNavItems = [
     icon: <Settings size={20} />
   },
   {
+    title: "Avisos e releases",
+    path: "/settings/announcements",
+    icon: <Megaphone size={20} />,
+    adminOnly: true
+  },
+  {
     title: "Ajuda",
     path: "/help",
     icon: <HelpCircle size={20} />
@@ -73,6 +80,7 @@ const moreNavItems = [
 
 export const MobileNavigation = () => {
   const location = useLocation();
+  const announcementAdmin = useAnnouncementAdmin();
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const { accessibleCompanies, company, switchCompany, switchCompanyWithProfile, userProfiles } = useAuth();
   const hasMultipleCompanies = (accessibleCompanies?.length || 0) > 1;
@@ -142,7 +150,7 @@ export const MobileNavigation = () => {
           <div className="pt-6 pb-6">
             <h3 className="text-lg font-semibold mb-4">Mais opções</h3>
             <div className="grid grid-cols-3 gap-4">
-              {moreNavItems.map((item) => {
+              {moreNavItems.filter(item => !('adminOnly' in item) || announcementAdmin.data === true).map((item) => {
                 const isActive = location.pathname.startsWith(item.path);
                 return (
                   <SheetClose key={item.path} asChild>

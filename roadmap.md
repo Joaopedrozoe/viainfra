@@ -1,10 +1,10 @@
 # Roadmap
 
 ## Current request — company update banners
-- [ ] Add protected administrator management for company announcements, drafts, publication, types and close-button controls.
-- [ ] Show a persistent horizontal summary on every internal page without covering page controls.
-- [ ] Verify company isolation and dismissal rules with focused tests; leave live release publication to the administrator.
-- [ ] User validation of the signed-in management and banner flow.
+- [x] Add protected administrator management for company announcements, drafts, publication, types and close-button controls.
+- [x] Place the horizontal summary outside the page scroll container on all internal routes, with space reserved below the mobile company selector.
+- [x] Six company isolation/dismissal regression tests passed; database permissions reviewed and no announcements published.
+- [ ] User validation of signed-in management and banner layout: external unmanaged Supabase has no reusable browser session; desktop/mobile checks reached login without runtime errors.
 
 ## Current request — new Vialogistic templates
 - [x] Associate uploaded images respectively with dia_da_consciencia_negra and avaliacao in both template pickers.

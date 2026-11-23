@@ -1,5 +1,8 @@
 # Architecture rules
 
+- Company announcements use company-scoped, non-client-writable announcement roles in `user_roles`; role checks and publication run as the caller under RLS so profile edits cannot grant announcement management.
+- Publish announcements atomically with one active notice per company; keep the banner outside the page scroll container and scope dismissal to user, company and notice revision so required or changed notices remain visible.
+
 - Use unique Realtime channel names per engine lifetime and discard responses from obsolete company contexts to prevent route-remount crashes and cross-company state.
 - Broadcasts use durable recipient claims and never replay uncertain delivery outcomes automatically; Meta message IDs are the source of delivery status.
 - Parse broadcast delivery metadata defensively and catch history refresh failures locally so incomplete records or network interruptions do not escape into the page.

@@ -9,6 +9,7 @@ import { AppSidebar } from "@/components/app/Sidebar";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MobileNavigation } from "@/components/app/MobileNavigation";
+import { GlobalAnnouncementBanner } from "@/components/app/announcements/GlobalAnnouncementBanner";
 
 
 export const PrivateRoute = () => {
@@ -53,14 +54,15 @@ export const PrivateRoute = () => {
       <div className="h-screen flex w-full overflow-hidden">
         {!isMobile && <AppSidebar />}
         
-        <SidebarInset className="flex-1 flex flex-col overflow-hidden">
+        <SidebarInset className={`flex-1 flex flex-col min-w-0 overflow-hidden ${isMobile && hasMultipleCompanies ? 'pt-14' : ''}`}>
+          <GlobalAnnouncementBanner />
           {!isMobile && (
             <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
               <SidebarTrigger className="-ml-1" />
             </header>
           )}
           
-          <main className={`flex-1 overflow-y-auto ${isMobile ? 'pb-mobile-nav' : ''} ${isMobile && hasMultipleCompanies ? 'pt-14' : ''}`}>
+          <main className={`flex-1 min-h-0 overflow-y-auto ${isMobile ? 'pb-mobile-nav' : ''}`}>
             <AppErrorBoundary resetKey={location.pathname} inline>
               <Suspense fallback={<div className="flex h-full min-h-[60vh] items-center justify-center"><div className="w-10 h-10 border-4 border-muted border-t-primary rounded-full animate-spin" /></div>}>
                 <Outlet />

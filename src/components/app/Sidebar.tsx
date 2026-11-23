@@ -14,6 +14,7 @@ import {
   Workflow,
   Radio,
   Phone,
+  Megaphone,
   Lock
 } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
@@ -44,6 +45,7 @@ import {
 } from "@/components/ui/sidebar";
 import { StatusSelector } from "@/components/app/StatusSelector";
 import { CompanySwitcher } from "@/components/app/CompanySwitcher";
+import { useAnnouncementAdmin } from "@/hooks/useAnnouncements";
 
 
 export const AppSidebar = () => {
@@ -51,6 +53,7 @@ export const AppSidebar = () => {
   const location = useLocation();
   const { profile, company, userProfiles, accessibleCompanies, switchCompany, switchCompanyWithProfile, signOut } = useAuth();
   const { hasFeature } = usePlanPermissions();
+  const announcementAdmin = useAnnouncementAdmin();
   const collapsed = state === "collapsed";
   
   // Use accessibleCompanies (profiles + company_access) instead of just userProfiles
@@ -101,6 +104,7 @@ export const AppSidebar = () => {
       feature: PLAN_FEATURES.SCHEDULE
     },
     { title: "Configurações", url: "/settings", icon: Settings, available: true },
+    ...(announcementAdmin.data === true ? [{ title: "Avisos e releases", url: "/settings/announcements", icon: Megaphone, available: true }] : []),
     { title: "Ajuda", url: "/help", icon: HelpCircle, available: true },
   ];
   

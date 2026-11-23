@@ -37,6 +37,7 @@ const Integrations = lazy(() => import("@/pages/app/Integrations"));
 const ApiDocs = lazy(() => import("@/pages/app/ApiDocs")); 
 const Settings = lazy(() => import("@/pages/app/Settings"));
 const Backups = lazy(() => import("@/pages/app/Backups"));
+const Announcements = lazy(() => import("@/pages/app/Announcements"));
 const Help = lazy(() => import("@/pages/app/Help"));
 const ContactDetails = lazy(() => import("@/pages/app/ContactDetails"));
 const Contacts = lazy(() => import("@/pages/app/Contacts"));
@@ -114,6 +115,7 @@ const App = () => (
                 <Route path="/api-docs" element={<ApiDocs />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/settings/backups" element={<Backups />} />
+                <Route path="/settings/announcements" element={<Announcements />} />
                 <Route path="/help" element={<Help />} />
                 <Route path="/contacts/:id" element={<ContactDetails />} />
               </Route>

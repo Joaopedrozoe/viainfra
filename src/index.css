@@ -54,6 +54,14 @@
     --vialogistic-secondary: 45 96% 42%;   /* Amarelo mais escuro */
     --vialogistic-dark: 220 9% 46%;        /* Cinza */
     --vialogistic-accent: 45 100% 60%;     /* Amarelo claro */
+    --notice-update-bg: 145 45% 94%;
+    --notice-update-fg: 145 60% 22%;
+    --notice-alert-bg: 46 95% 92%;
+    --notice-alert-fg: 35 85% 24%;
+    --notice-incident-bg: 0 80% 96%;
+    --notice-incident-fg: 0 65% 33%;
+    --notice-info-bg: 193 65% 94%;
+    --notice-info-fg: 195 75% 24%;
   }
 
   /* ViaLogistic Theme Override */
@@ -120,6 +128,14 @@
     --vialogistic-secondary: 45 96% 42%;
     --vialogistic-dark: 220 9% 46%;
     --vialogistic-accent: 45 100% 60%;
+    --notice-update-bg: 145 35% 16%;
+    --notice-update-fg: 145 50% 85%;
+    --notice-alert-bg: 40 45% 17%;
+    --notice-alert-fg: 46 90% 84%;
+    --notice-incident-bg: 0 35% 19%;
+    --notice-incident-fg: 0 70% 88%;
+    --notice-info-bg: 193 40% 17%;
+    --notice-info-fg: 193 60% 85%;
   }
 
   /* ViaLogistic Theme Override - Dark Mode */
@@ -201,6 +217,15 @@
 }
 
 @layer utilities {
+  .announcement-update { --notice-bg: var(--notice-update-bg); --notice-fg: var(--notice-update-fg); }
+  .announcement-alert { --notice-bg: var(--notice-alert-bg); --notice-fg: var(--notice-alert-fg); }
+  .announcement-incident { --notice-bg: var(--notice-incident-bg); --notice-fg: var(--notice-incident-fg); }
+  .announcement-info { --notice-bg: var(--notice-info-bg); --notice-fg: var(--notice-info-fg); }
+  .announcement-tone {
+    background-color: hsl(var(--notice-bg));
+    color: hsl(var(--notice-fg));
+    border-color: hsl(var(--notice-fg) / 0.2);
+  }
   .pb-safe {
     padding-bottom: env(safe-area-inset-bottom, 16px);
   }
