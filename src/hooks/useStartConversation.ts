@@ -24,8 +24,6 @@ export const normalizeWhatsAppPhone = (value: string): string | null => {
   return normalized.length >= 12 && normalized.length <= 15 ? normalized : null;
 };
 
-const activeConversationStatuses = ["open", "pending"] as const;
-
 export const startConversation = async ({
   companyId,
   name,
@@ -91,7 +89,6 @@ export const startConversation = async ({
     .eq("company_id", companyId)
     .eq("contact_id", contact.id)
     .eq("channel", "whatsapp")
-    .in("status", [...activeConversationStatuses])
     .order("updated_at", { ascending: false })
     .limit(1);
 
@@ -128,7 +125,29 @@ export const startConversation = async ({
     .select("id")
     .single();
 
-  if (conversationInsertError) throw conversationInsertError;
+  if (conversationInsertError) {
+    // Cada contato tem uma única conversa de WhatsApp (inclusive resolvida/arquivada): reutilizá-la.
+    if (conversationInsertError.code === "23505") {
+      const { data: raced } = await supabase
+        .from("conversations")
+        .select("id")
+        .eq("company_id", companyId)
+        .eq("contact_id", contact.id)
+        .eq("channel", "whatsapp")
+        .limit(1);
+      if (raced?.[0]) {
+        return {
+          conversationId: raced[0].id,
+          contactId: contact.id,
+          contactName: contact.name || trimmedName,
+          normalizedPhone,
+          createdContact,
+          createdConversation: false,
+        };
+      }
+    }
+    throw conversationInsertError;
+  }
   if (!createdConversation) throw new Error("Não foi possível criar a conversa.");
 
   return {

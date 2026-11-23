@@ -1,4 +1,6 @@
-import { Fragment } from "react";
+import type { ReactNode } from "react";
+
+const CompanyScope = ({ children }: { children: ReactNode }) => <>{children}</>;
 
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { Suspense } from "react";
@@ -67,7 +69,7 @@ export const PrivateRoute = () => {
             <AppErrorBoundary resetKey={location.pathname} inline>
               <Suspense fallback={<div className="flex h-full min-h-[60vh] items-center justify-center"><div className="w-10 h-10 border-4 border-muted border-t-primary rounded-full animate-spin" /></div>}>
                 {/* Trocar de empresa recria a tela: nada aberto da empresa anterior permanece. */}
-                <Fragment key={company?.id ?? "no-company"}><Outlet /></Fragment>
+                <CompanyScope key={company?.id ?? "no-company"}><Outlet /></CompanyScope>
               </Suspense>
             </AppErrorBoundary>
           </main>
