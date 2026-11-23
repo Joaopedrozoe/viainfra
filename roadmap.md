@@ -1,5 +1,11 @@
 # Roadmap
 
+## Current request — company update banners
+- [ ] Add protected administrator management for company announcements, drafts, publication, types and close-button controls.
+- [ ] Show a persistent horizontal summary on every internal page without covering page controls.
+- [ ] Verify company isolation and dismissal rules with focused tests; leave live release publication to the administrator.
+- [ ] User validation of the signed-in management and banner flow.
+
 ## Current request — new Vialogistic templates
 - [x] Associate uploaded images respectively with dia_da_consciencia_negra and avaliacao in both template pickers.
 - [x] Verify available-template merge/refresh and focused mapping tests; both original images load, no real WhatsApp sends.
