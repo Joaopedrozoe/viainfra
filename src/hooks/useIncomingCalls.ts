@@ -121,10 +121,12 @@ export function useIncomingCalls() {
 
     let channel: ReturnType<typeof supabase.channel> | null = null;
 
+    let disposed = false;
     const subscribe = () => {
+      if (disposed) return;
       if (channel) supabase.removeChannel(channel);
       channel = supabase
-        .channel(`incoming-calls-${company.id}`)
+        .channel(`incoming-calls-${company.id}-${crypto.randomUUID()}`)
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "calls", filter: `company_id=eq.${company.id}` },
@@ -153,6 +155,7 @@ export function useIncomingCalls() {
     document.addEventListener("visibilitychange", onVisible);
 
     return () => {
+      disposed = true;
       document.removeEventListener("visibilitychange", onVisible);
       if (channel) supabase.removeChannel(channel);
     };
