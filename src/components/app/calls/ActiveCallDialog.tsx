@@ -147,7 +147,7 @@ export const ActiveCallDialog = ({
   useEffect(() => {
     if (!open || !company?.id) return;
     const channel = supabase
-      .channel(`active-call-${company.id}-${Date.now()}`)
+      .channel(`active-call-${company.id}-${crypto.randomUUID()}`)
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "calls", filter: `company_id=eq.${company.id}` },

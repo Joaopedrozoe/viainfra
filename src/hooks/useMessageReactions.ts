@@ -68,7 +68,7 @@ export const useMessageReactions = ({ conversationId, remoteJid }: UseMessageRea
     }
 
     const channel = supabase
-      .channel(`message-reactions-${conversationId}`)
+      .channel(`message-reactions-${conversationId}-${crypto.randomUUID()}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'message_reactions', filter: `conversation_id=eq.${conversationId}` },

@@ -104,7 +104,7 @@ export const ChatHeader = memo(({
     
     // Subscription para atualizações em tempo real
     const channel = supabase
-      .channel(`bot-status-${conversationId}`)
+      .channel(`bot-status-${conversationId}-${crypto.randomUUID()}`)
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',

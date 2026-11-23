@@ -111,7 +111,7 @@ export const StatusTab: React.FC = () => {
     // Subscribe to real-time updates
     if (company?.id) {
       const channel = supabase
-        .channel(`statuses-${company.id}`)
+        .channel(`statuses-${company.id}-${crypto.randomUUID()}`)
         .on(
           'postgres_changes',
           {

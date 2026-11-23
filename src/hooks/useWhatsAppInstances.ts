@@ -86,7 +86,7 @@ export const useWhatsAppInstances = () => {
     loadInstances();
 
     const channel = supabase
-      .channel('whatsapp-instances-changes')
+      .channel(`whatsapp-instances-changes-${crypto.randomUUID()}`)
       .on(
         'postgres_changes',
         {

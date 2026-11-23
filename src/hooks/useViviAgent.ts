@@ -111,7 +111,7 @@ export function useViviAgent() {
     if (!companyId) return;
 
     const channel = supabase
-      .channel(`vivi-agent-${companyId}`)
+      .channel(`vivi-agent-${companyId}-${crypto.randomUUID()}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "ai_agents", filter: `company_id=eq.${companyId}` },

@@ -49,7 +49,7 @@ export function useCalls() {
   useEffect(() => {
     if (!company?.id) return;
     const ch = supabase
-      .channel(`calls-${company.id}`)
+      .channel(`calls-${company.id}-${crypto.randomUUID()}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "calls", filter: `company_id=eq.${company.id}` },
         () => load())
       .subscribe();

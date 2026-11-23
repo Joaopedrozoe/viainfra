@@ -70,7 +70,7 @@ export const useTypingIndicator = (conversationIds: string[] = []) => {
 
     // Real-time subscription
     const channel = supabase
-      .channel('typing-status-changes')
+      .channel(`typing-status-changes-${crypto.randomUUID()}`)
       .on(
         'postgres_changes',
         {

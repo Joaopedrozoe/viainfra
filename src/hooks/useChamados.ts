@@ -57,7 +57,7 @@ export const useChamados = () => {
     // Real-time subscription
     if (company?.id) {
       const channel = supabase
-        .channel('chamados-changes')
+        .channel(`chamados-changes-${crypto.randomUUID()}`)
         .on(
           'postgres_changes',
           {

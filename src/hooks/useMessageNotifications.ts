@@ -13,7 +13,7 @@ export const useMessageNotifications = () => {
 
     // Subscrever a mudanças na tabela de mensagens
     const channel = supabase
-      .channel('new-messages-notifications')
+      .channel(`new-messages-notifications-${crypto.randomUUID()}`)
       .on(
         'postgres_changes',
         {

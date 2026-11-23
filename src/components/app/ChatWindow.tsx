@@ -166,7 +166,7 @@ export const ChatWindow = memo(({ conversationId, onBack, onEndConversation }: C
       
       // Configurar subscription para novas mensagens em tempo real
       const channel = supabase
-        .channel(`messages-${conversationId}`)
+        .channel(`messages-${conversationId}-${crypto.randomUUID()}`)
         .on(
           'postgres_changes',
           {
