@@ -1,5 +1,7 @@
 
-import { Navigate, Outlet } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { Suspense } from "react";
+import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 import { useAuth } from "@/contexts/auth";
 import { useState, useEffect } from "react";
 import { AppSidebar } from "@/components/app/Sidebar";
@@ -13,6 +15,7 @@ export const PrivateRoute = () => {
   const { isAuthenticated, isLoading, accessibleCompanies } = useAuth();
   const [hasWaited, setHasWaited] = useState(false);
   const isMobile = useIsMobile();
+  const location = useLocation();
   const hasMultipleCompanies = (accessibleCompanies?.length || 0) > 1;
 
   
@@ -58,7 +61,11 @@ export const PrivateRoute = () => {
           )}
           
           <main className={`flex-1 overflow-y-auto ${isMobile ? 'pb-mobile-nav' : ''} ${isMobile && hasMultipleCompanies ? 'pt-14' : ''}`}>
-            <Outlet />
+            <AppErrorBoundary resetKey={location.pathname} inline>
+              <Suspense fallback={<div className="flex h-full min-h-[60vh] items-center justify-center"><div className="w-10 h-10 border-4 border-muted border-t-primary rounded-full animate-spin" /></div>}>
+                <Outlet />
+              </Suspense>
+            </AppErrorBoundary>
           </main>
         </SidebarInset>
         

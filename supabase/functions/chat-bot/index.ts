@@ -34,10 +34,11 @@ interface ChatState {
 
 const sanitizeAgentNames = (text: string) => text
   .replace(/Eliane\s+Furtado/gi, 'Sandra Romano')
-  .replace(/Giovanna\s+Ferreira/gi, 'André Rocha')
-  .replace(/Fl[aá]via(?:\s+Financeiro)?/gi, 'André Rocha')
-  .replace(/\*\*Andr[eé]\*\*(?=\s+do setor Financeiro)/gi, '**André Rocha**')
-  .replace(/\bAndr[eé]\b(?=\s+do setor Financeiro)/gi, 'André Rocha');
+  .replace(/Giovanna\s+Ferreira/gi, 'Rosangela Pacheco')
+  .replace(/Fl[aá]via(?:\s+Financeiro)?/gi, 'Rosangela Pacheco')
+  .replace(/\*\*Andr[eé](?:\s+Rocha)?\*\*(?=\s+do setor Financeiro)/gi, '**Rosangela Pacheco**')
+  .replace(/\bAndr[eé](?:\s+Rocha)?\b(?=\s+do setor Financeiro)/gi, 'Rosangela Pacheco')
+  .replace(/Ros[aâ]ngela\s+Bernini/gi, 'Rosangela Pacheco');
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -346,7 +347,7 @@ serve(async (req) => {
         "atendimento": "Joicy Souza",
         "comercial": "Elisabete Silva",
         "manutencao": "Suelem Souza",
-        "financeiro": "André Rocha",
+        "financeiro": "Rosangela Pacheco",
         "rh": "Sandra Romano"
       };
 

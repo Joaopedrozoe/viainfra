@@ -25,8 +25,13 @@ interface State {
   error: Error | null;
 }
 
-export class AppErrorBoundary extends Component<{ children: ReactNode }, State> {
+export class AppErrorBoundary extends Component<{ children: ReactNode; resetKey?: string; inline?: boolean }, State> {
   state: State = { error: null };
+
+  componentDidUpdate(prev: { resetKey?: string }) {
+    // Ao trocar de página, descarta o erro da página anterior
+    if (this.state.error && prev.resetKey !== this.props.resetKey) this.setState({ error: null });
+  }
 
   static getDerivedStateFromError(error: Error): State {
     return { error };
@@ -40,7 +45,7 @@ export class AppErrorBoundary extends Component<{ children: ReactNode }, State> 
   render() {
     if (!this.state.error) return this.props.children;
     return (
-      <div className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-background p-6 text-center">
+      <div className={`flex ${this.props.inline ? "h-full min-h-[60vh] w-full" : "h-screen w-screen"} flex-col items-center justify-center gap-4 bg-background p-6 text-center`}>
         <h1 className="text-xl font-semibold text-foreground">Algo deu errado ao exibir esta tela</h1>
         <p className="max-w-md text-sm text-muted-foreground">
           Suas conversas e dados estão preservados. Recarregue para continuar.

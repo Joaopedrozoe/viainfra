@@ -76,15 +76,15 @@ export const MetricsOverview: React.FC = () => {
     },
     {
       title: "Tempo de Resposta",
-      tooltip: "Média de tempo entre mensagem do cliente e resposta do agente",
-      value: formatResponseTime(metrics.averageResponseTime),
+      tooltip: "Média de hoje entre a mensagem do cliente e a próxima resposta da equipe",
+      value: metrics.averageResponseTime > 0 ? formatResponseTime(metrics.averageResponseTime) : "Sem dados hoje",
       icon: Clock,
       color: getPerformanceColor(metrics.averageResponseTime),
       bgColor: "bg-amber-50 dark:bg-amber-950/30"
     },
     {
       title: "Taxa de Resolução",
-      tooltip: "Percentual de conversas resolvidas sobre o total",
+      tooltip: "Conversas marcadas como resolvidas sobre o total de conversas da empresa",
       value: `${metrics.resolutionRate.toFixed(1)}%`,
       icon: CheckCircle,
       color: metrics.resolutionRate >= 50 ? "text-emerald-600" : "text-amber-600",
@@ -92,7 +92,7 @@ export const MetricsOverview: React.FC = () => {
     },
     {
       title: "Canais Conectados",
-      tooltip: "Instâncias WhatsApp ativas sobre o total configurado",
+      tooltip: "Números WhatsApp desta empresa conectados sobre o total cadastrado",
       value: `${metrics.connectedChannels}/${metrics.totalChannels}`,
       icon: Share2,
       color: metrics.connectedChannels > 0 ? "text-violet-600" : "text-muted-foreground",

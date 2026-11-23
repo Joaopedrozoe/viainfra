@@ -1,4 +1,4 @@
-import { useState, useCallback, memo, useMemo, useRef, useEffect } from "react";
+import { useState, useCallback, memo, useMemo, useRef, useEffect, useLayoutEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -377,17 +377,14 @@ export const ChatInput = memo(({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
+  // Cresce para baixo a cada quebra de linha (até 240px, depois rola)
+  useLayoutEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
-    const resize = () => {
-      textarea.style.height = 'auto';
-      textarea.style.height = `${Math.min(240, Math.max(40, textarea.scrollHeight))}px`;
-    };
-    resize();
-    const observer = new ResizeObserver(resize);
-    if (textarea.parentElement) observer.observe(textarea.parentElement);
-    return () => observer.disconnect();
+    textarea.style.height = '0px';
+    const next = Math.min(240, Math.max(40, textarea.scrollHeight + 2));
+    textarea.style.height = `${next}px`;
+    textarea.style.overflowY = textarea.scrollHeight > 240 ? 'auto' : 'hidden';
   }, [newMessage]);
 
   // Detectar tema do sistema/app
@@ -706,7 +703,7 @@ export const ChatInput = memo(({
         </div>
       )}
 
-       <div className="flex space-x-2 items-start">
+       <div className="flex space-x-2 items-end">
          <input
            ref={fileInputRef}
            type="file"
@@ -802,7 +799,7 @@ export const ChatInput = memo(({
             onChange={(e) => setNewMessage(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            className="w-full min-h-10 max-h-60 resize-none overflow-y-auto py-2 bg-muted/30 border-0 focus:ring-1 focus:ring-primary/50"
+            className="w-full min-h-10 resize-none py-2 leading-5 bg-muted/30 border-0 focus:ring-1 focus:ring-primary/50"
             disabled={isRecording}
             aria-label="Digite uma mensagem"
             rows={1}

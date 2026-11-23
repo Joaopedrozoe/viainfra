@@ -38,64 +38,66 @@ const CACHE_DURATION = 30000; // 30 segundos
 // FUNÇÕES ASSÍNCRONAS PARA BUSCAR DADOS REAIS
 // =====================================================
 
+const PAGE = 1000;
+const MAX_PAGES = 30;
+
+// Mensagens da empresa via join (sem lista gigante de IDs e sem limite de 1000 linhas)
+async function fetchCompanyMessagesSince(companyId: string, sinceIso: string) {
+  const rows: { conversation_id: string | null; sender_type: string; created_at: string }[] = [];
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('conversation_id, sender_type, created_at, conversations!inner(company_id)')
+      .eq('conversations.company_id', companyId)
+      .gte('created_at', sinceIso)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(page * PAGE, page * PAGE + PAGE - 1);
+    if (error) throw error;
+    rows.push(...((data || []) as any[]).map(r => ({ conversation_id: r.conversation_id, sender_type: r.sender_type, created_at: r.created_at })));
+    if (!data || data.length < PAGE) break;
+  }
+  return rows;
+}
+
+async function countConversations(companyId: string, status?: string[]) {
+  let q = supabase.from('conversations').select('id', { count: 'exact', head: true }).eq('company_id', companyId);
+  if (status) q = q.in('status', status);
+  const { count, error } = await q;
+  if (error) throw error;
+  return count || 0;
+}
+
 export async function fetchConversationStats(companyId: string) {
   try {
-    const { data: conversations, error } = await supabase
-      .from('conversations')
-      .select('id, status, created_at')
-      .eq('company_id', companyId);
-
-    if (error) throw error;
-
-    const total = conversations?.length || 0;
-    const open = conversations?.filter(c => c.status === 'open').length || 0;
-    const pending = conversations?.filter(c => c.status === 'pending').length || 0;
-    const resolved = conversations?.filter(c => c.status === 'resolved').length || 0;
-    
-    const today = startOfDay(new Date());
-    const todayConversations = conversations?.filter(c => 
-      new Date(c.created_at) >= today
-    ).length || 0;
-
+    const today = startOfDay(new Date()).toISOString();
+    const [total, active, resolved, todayRes] = await Promise.all([
+      countConversations(companyId),
+      countConversations(companyId, ['open', 'pending']),
+      countConversations(companyId, ['resolved']),
+      supabase.from('conversations').select('id', { count: 'exact', head: true }).eq('company_id', companyId).gte('created_at', today),
+    ]);
     return {
-      activeConversations: open + pending,
+      activeConversations: active,
       totalConversations: total,
       resolvedConversations: resolved,
-      todayConversations,
+      todayConversations: todayRes.count || 0,
       resolutionRate: total > 0 ? (resolved / total) * 100 : 0
     };
   } catch (error) {
     console.error('Error fetching conversation stats:', error);
-    return {
-      activeConversations: 0,
-      totalConversations: 0,
-      resolvedConversations: 0,
-      todayConversations: 0,
-      resolutionRate: 0
-    };
+    return { activeConversations: 0, totalConversations: 0, resolvedConversations: 0, todayConversations: 0, resolutionRate: 0 };
   }
 }
 
 export async function fetchTodayMessages(companyId: string) {
   try {
     const today = startOfDay(new Date()).toISOString();
-    
-    // Get conversation IDs for this company first
-    const { data: companyConvs, error: convError } = await supabase
-      .from('conversations')
-      .select('id')
-      .eq('company_id', companyId);
-
-    if (convError) throw convError;
-    const convIds = (companyConvs || []).map(c => c.id);
-    if (convIds.length === 0) return 0;
-
     const { count, error } = await supabase
       .from('messages')
-      .select('id', { count: 'exact', head: true })
-      .in('conversation_id', convIds)
+      .select('id, conversations!inner(company_id)', { count: 'exact', head: true })
+      .eq('conversations.company_id', companyId)
       .gte('created_at', today);
-
     if (error) throw error;
     return count || 0;
   } catch (error) {
@@ -104,138 +106,68 @@ export async function fetchTodayMessages(companyId: string) {
   }
 }
 
-export async function fetchHourlyActivity(companyId: string): Promise<{ hour: string; messages: number }[]> {
+/** Tempo médio (s) entre mensagem do cliente e a próxima resposta da equipe, hoje. */
+export function computeAverageResponseTime(rows: { conversation_id: string | null; sender_type: string; created_at: string }[]): number {
+  const pending = new Map<string, number>();
+  let sum = 0, n = 0;
+  for (const r of rows) {
+    if (!r.conversation_id) continue;
+    const ts = new Date(r.created_at).getTime();
+    if (r.sender_type === 'user') {
+      if (!pending.has(r.conversation_id)) pending.set(r.conversation_id, ts);
+    } else if (r.sender_type === 'agent') {
+      const start = pending.get(r.conversation_id);
+      if (start !== undefined) {
+        const gap = (ts - start) / 1000;
+        if (gap >= 0 && gap <= 86400) { sum += gap; n++; }
+        pending.delete(r.conversation_id);
+      }
+    }
+  }
+  return n > 0 ? sum / n : 0;
+}
+
+export async function fetchTodayResponseTime(companyId: string) {
   try {
-    const today = startOfDay(new Date()).toISOString();
-    
-    // Get conversation IDs for this company
-    const { data: companyConvs, error: convError } = await supabase
-      .from('conversations')
-      .select('id')
-      .eq('company_id', companyId);
-
-    if (convError) throw convError;
-    const convIds = (companyConvs || []).map(c => c.id);
-
-    // Inicializar todas as horas com 0
-    const hourlyMap: Record<number, number> = {};
-    for (let i = 0; i < 24; i++) {
-      hourlyMap[i] = 0;
-    }
-
-    if (convIds.length === 0) {
-      return Object.entries(hourlyMap).map(([hour, count]) => ({
-        hour: `${hour.padStart(2, '0')}:00`,
-        messages: count
-      }));
-    }
-
-    const { data: messages, error } = await supabase
-      .from('messages')
-      .select('created_at')
-      .in('conversation_id', convIds)
-      .gte('created_at', today)
-      .order('created_at');
-
-    if (error) throw error;
-
-    messages?.forEach(msg => {
-      const hour = getHours(new Date(msg.created_at));
-      hourlyMap[hour] = (hourlyMap[hour] || 0) + 1;
-    });
-
-    return Object.entries(hourlyMap).map(([hour, count]) => ({
-      hour: `${hour.padStart(2, '0')}:00`,
-      messages: count
-    }));
+    const rows = await fetchCompanyMessagesSince(companyId, startOfDay(new Date()).toISOString());
+    return computeAverageResponseTime(rows);
   } catch (error) {
-    console.error('Error fetching hourly activity:', error);
-    return Array.from({ length: 24 }, (_, i) => ({
-      hour: `${i.toString().padStart(2, '0')}:00`,
-      messages: 0
-    }));
+    console.error('Error fetching response time:', error);
+    return 0;
   }
 }
 
+export async function fetchHourlyActivity(companyId: string): Promise<{ hour: string; messages: number }[]> {
+  const hourlyMap: Record<number, number> = {};
+  for (let i = 0; i < 24; i++) hourlyMap[i] = 0;
+  try {
+    const messages = await fetchCompanyMessagesSince(companyId, startOfDay(new Date()).toISOString());
+    messages.forEach(msg => { hourlyMap[getHours(new Date(msg.created_at))] += 1; });
+  } catch (error) {
+    console.error('Error fetching hourly activity:', error);
+  }
+  return Object.entries(hourlyMap).map(([hour, count]) => ({ hour: `${hour.padStart(2, '0')}:00`, messages: count }));
+}
+
 export async function fetchWeeklyTrend(companyId: string): Promise<{ day: string; date: string; conversations: number; messages: number }[]> {
+  const dailyMap: Record<string, { conversations: number; messages: number }> = {};
+  for (let i = 6; i >= 0; i--) dailyMap[format(subDays(new Date(), i), 'yyyy-MM-dd')] = { conversations: 0, messages: 0 };
   try {
     const sevenDaysAgo = subDays(startOfDay(new Date()), 6).toISOString();
-    
-    // Get conversation IDs for this company
-    const { data: companyConvs, error: convIdError } = await supabase
-      .from('conversations')
-      .select('id')
-      .eq('company_id', companyId);
-
-    if (convIdError) throw convIdError;
-    const convIds = (companyConvs || []).map(c => c.id);
-
-    // Buscar conversas dos últimos 7 dias (already filtered by company)
-    const { data: conversations, error: conversationsError } = await supabase
-      .from('conversations')
-      .select('created_at')
-      .eq('company_id', companyId)
-      .gte('created_at', sevenDaysAgo)
-      .order('created_at');
-
-    if (conversationsError) throw conversationsError;
-
-    // Criar mapa para os últimos 7 dias
-    const dailyMap: Record<string, { conversations: number; messages: number }> = {};
-    for (let i = 6; i >= 0; i--) {
-      const date = subDays(new Date(), i);
-      const dateKey = format(date, 'yyyy-MM-dd');
-      dailyMap[dateKey] = { conversations: 0, messages: 0 };
-    }
-
-    // Buscar mensagens filtradas por conversas da empresa
-    if (convIds.length > 0) {
-      const { data: messages, error: messagesError } = await supabase
-        .from('messages')
-        .select('created_at')
-        .in('conversation_id', convIds)
-        .gte('created_at', sevenDaysAgo)
-        .order('created_at');
-
-      if (messagesError) throw messagesError;
-
-      messages?.forEach(msg => {
-        const dateKey = format(new Date(msg.created_at), 'yyyy-MM-dd');
-        if (dailyMap[dateKey]) {
-          dailyMap[dateKey].messages += 1;
-        }
-      });
-    }
-
-    // Contar conversas por dia
-    conversations?.forEach(conv => {
-      const dateKey = format(new Date(conv.created_at), 'yyyy-MM-dd');
-      if (dailyMap[dateKey]) {
-        dailyMap[dateKey].conversations += 1;
-      }
-    });
-
-    return Object.entries(dailyMap).map(([dateKey, data]) => {
-      const date = new Date(dateKey + 'T12:00:00');
-      return {
-        day: format(date, 'EEE', { locale: ptBR }),
-        date: format(date, 'dd/MM'),
-        conversations: data.conversations,
-        messages: data.messages
-      };
-    });
+    const [messages, convRes] = await Promise.all([
+      fetchCompanyMessagesSince(companyId, sevenDaysAgo),
+      supabase.from('conversations').select('created_at').eq('company_id', companyId).gte('created_at', sevenDaysAgo).limit(5000),
+    ]);
+    if (convRes.error) throw convRes.error;
+    messages.forEach(m => { const k = format(new Date(m.created_at), 'yyyy-MM-dd'); if (dailyMap[k]) dailyMap[k].messages += 1; });
+    (convRes.data || []).forEach(c => { const k = format(new Date(c.created_at), 'yyyy-MM-dd'); if (dailyMap[k]) dailyMap[k].conversations += 1; });
   } catch (error) {
     console.error('Error fetching weekly trend:', error);
-    return Array.from({ length: 7 }, (_, i) => {
-      const date = subDays(new Date(), 6 - i);
-      return {
-        day: format(date, 'EEE', { locale: ptBR }),
-        date: format(date, 'dd/MM'),
-        conversations: 0,
-        messages: 0
-      };
-    });
   }
+  return Object.entries(dailyMap).map(([dateKey, data]) => {
+    const date = new Date(dateKey + 'T12:00:00');
+    return { day: format(date, 'EEE', { locale: ptBR }), date: format(date, 'dd/MM'), ...data };
+  });
 }
 
 export async function fetchChannelDistribution(companyId: string): Promise<{ name: string; value: number; percentage: number }[]> {
@@ -243,7 +175,8 @@ export async function fetchChannelDistribution(companyId: string): Promise<{ nam
     const { data: conversations, error } = await supabase
       .from('conversations')
       .select('channel')
-      .eq('company_id', companyId);
+      .eq('company_id', companyId)
+      .limit(10000);
 
     if (error) throw error;
 
@@ -362,18 +295,19 @@ export async function fetchDashboardMetrics(companyId: string): Promise<Dashboar
       fetchChannelDistribution(companyId),
       fetchWhatsAppStatus(companyId),
       fetchQueueStatus(),
-      fetchConnectedChannels(companyId)
+      fetchConnectedChannels(companyId),
     ]);
+    const averageResponseTime = await fetchTodayResponseTime(companyId);
 
     const metrics: DashboardMetrics = {
       activeConversations: conversationStats.activeConversations,
       totalConversations: conversationStats.totalConversations,
       todayMessages,
-      averageResponseTime: 0, // Será calculado quando tivermos dados de timing
+      averageResponseTime,
       firstResponseTime: 0,
       resolutionRate: conversationStats.resolutionRate,
       connectedChannels: channels.connected,
-      totalChannels: Math.max(channels.total, 1), // Pelo menos 1 para evitar divisão por zero
+      totalChannels: channels.total,
       hourlyActivity,
       weeklyTrend,
       channelDistribution,
