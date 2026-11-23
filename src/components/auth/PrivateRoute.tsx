@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { Suspense } from "react";
@@ -13,7 +14,7 @@ import { GlobalAnnouncementBanner } from "@/components/app/announcements/GlobalA
 
 
 export const PrivateRoute = () => {
-  const { isAuthenticated, isLoading, accessibleCompanies } = useAuth();
+  const { isAuthenticated, isLoading, accessibleCompanies, company } = useAuth();
   const [hasWaited, setHasWaited] = useState(false);
   const isMobile = useIsMobile();
   const location = useLocation();
@@ -65,7 +66,8 @@ export const PrivateRoute = () => {
           <main className={`flex-1 min-h-0 overflow-y-auto ${isMobile ? 'pb-mobile-nav' : ''}`}>
             <AppErrorBoundary resetKey={location.pathname} inline>
               <Suspense fallback={<div className="flex h-full min-h-[60vh] items-center justify-center"><div className="w-10 h-10 border-4 border-muted border-t-primary rounded-full animate-spin" /></div>}>
-                <Outlet />
+                {/* Trocar de empresa recria a tela: nada aberto da empresa anterior permanece. */}
+                <Fragment key={company?.id ?? "no-company"}><Outlet /></Fragment>
               </Suspense>
             </AppErrorBoundary>
           </main>
