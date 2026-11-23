@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ConversationList } from "@/components/app/ConversationList";
 import { ChatWindow } from "@/components/app/ChatWindow";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -46,6 +46,18 @@ const Inbox = () => {
   const { conversations: internalConversations } = useInternalChat();
   const { conversations, updateConversationStatus, refetch, clearNewMessageFlag } = useConversations();
   const { company } = useAuth();
+
+  // Ao trocar de empresa, fecha a conversa aberta: nunca mostrar dados de outra empresa.
+  const previousCompanyRef = useRef<string | undefined>(company?.id);
+  useEffect(() => {
+    const prev = previousCompanyRef.current;
+    previousCompanyRef.current = company?.id;
+    if (prev && company?.id && prev !== company.id) {
+      setSelectedConversation(undefined);
+      setShowChat(false);
+      setSelectedInternalChat(null);
+    }
+  }, [company?.id]);
   
   // Notificações de novas mensagens já são disparadas dentro de useConversations,
   // evitando subscription + query duplicadas por mensagem recebida.
