@@ -25,7 +25,7 @@ import { CreateGroupDialog } from "@/components/app/groups/CreateGroupDialog";
 
 const Inbox = () => {
   const location = useLocation();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const initialConversation = location.state?.selectedConversation;
   const shouldShowChat = location.state?.showChat;
   const conversationFromUrl = searchParams.get('conversation');
@@ -56,25 +56,71 @@ const Inbox = () => {
       setSelectedConversation(undefined);
       setShowChat(false);
       setSelectedInternalChat(null);
+      if (searchParams.has('conversation')) {
+        const next = new URLSearchParams(searchParams);
+        next.delete('conversation');
+        setSearchParams(next, { replace: true });
+      }
     }
   }, [company?.id]);
   
+  // Só exibe uma conversa depois de confirmar que ela pertence à empresa ativa.
+  // Evita que um link (?conversation=) ou estado antigo abra conversa de outra empresa.
+  const [verifiedConversation, setVerifiedConversation] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    const id = selectedConversation;
+    const companyId = company?.id;
+    if (!id || !companyId) {
+      setVerifiedConversation(undefined);
+      return;
+    }
+    if (conversations.some((c: any) => c.id === id)) {
+      setVerifiedConversation(id);
+      return;
+    }
+    setVerifiedConversation(undefined);
+    supabase
+      .from('conversations')
+      .select('id')
+      .eq('id', id)
+      .eq('company_id', companyId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled || error) return;
+        if (data?.id === id) {
+          setVerifiedConversation(id);
+        } else {
+          setSelectedConversation(undefined);
+          setShowChat(false);
+          if (searchParams.get('conversation') === id) {
+            const next = new URLSearchParams(searchParams);
+            next.delete('conversation');
+            setSearchParams(next, { replace: true });
+          }
+        }
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedConversation, company?.id, conversations]);
+  const activeConversation = verifiedConversation === selectedConversation ? verifiedConversation : undefined;
+
   // Notificações de novas mensagens já são disparadas dentro de useConversations,
   // evitando subscription + query duplicadas por mensagem recebida.
 
   // Informar qual conversa está aberta (evita som/notificação redundante)
   useEffect(() => {
-    setActiveConversationId(showChat ? selectedConversation : null);
+    setActiveConversationId(showChat ? activeConversation ?? null : null);
     return () => setActiveConversationId(null);
-  }, [selectedConversation, showChat]);
+  }, [activeConversation, showChat]);
 
   // Abrir a conversa (inclusive por link direto ou no desktop) marca como lida
   // para toda a equipe da empresa ativa.
   useEffect(() => {
-    if (!selectedConversation) return;
+    if (!activeConversation) return;
     if (isMobile && !showChat) return;
-    clearNewMessageFlag(selectedConversation);
-  }, [selectedConversation, showChat, isMobile, clearNewMessageFlag]);
+    clearNewMessageFlag(activeConversation);
+  }, [activeConversation, showChat, isMobile, clearNewMessageFlag]);
 
   // Badge de não lidas no título da aba
   useEffect(() => {
@@ -256,8 +302,8 @@ const Inbox = () => {
 
         {showChat && activeMainTab === "conversations" ? (
           <ChatWindow 
-            conversationId={selectedConversation || ""} 
-            key={selectedConversation}
+            conversationId={activeConversation || ""} 
+            key={activeConversation || "none"}
             onBack={handleBackToList}
           />
         ) : (
@@ -391,9 +437,9 @@ const Inbox = () => {
               {/* Chat Window */}
               <div className="flex-1 overflow-hidden">
                 <ChatWindow 
-                  conversationId={selectedConversation || ""} 
-                  key={selectedConversation}
-                  onEndConversation={() => selectedConversation && handleEndConversation(selectedConversation)}
+                  conversationId={activeConversation || ""} 
+                  key={activeConversation || "none"}
+                  onEndConversation={() => activeConversation && handleEndConversation(activeConversation)}
                 />
               </div>
             </>
