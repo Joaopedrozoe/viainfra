@@ -935,6 +935,59 @@ export type Database = {
           },
         ]
       }
+      company_announcements: {
+        Row: {
+          company_id: string
+          created_at: string
+          details: string
+          dismissible: boolean
+          id: string
+          kind: string
+          published_at: string | null
+          release_version: string
+          status: string
+          summary: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          details?: string
+          dismissible?: boolean
+          id?: string
+          kind?: string
+          published_at?: string | null
+          release_version?: string
+          status?: string
+          summary: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          details?: string
+          dismissible?: boolean
+          id?: string
+          kind?: string
+          published_at?: string | null
+          release_version?: string
+          status?: string
+          summary?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_announcements_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contact_directory: {
         Row: {
           company_id: string | null
@@ -1671,6 +1724,38 @@ export type Database = {
         }
         Relationships: []
       }
+      user_roles: {
+        Row: {
+          company_id: string
+          created_at: string
+          id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          id?: string
+          role?: string
+          user_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_roles_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       whatsapp_instances: {
         Row: {
           bot_enabled: boolean | null
@@ -1959,6 +2044,10 @@ export type Database = {
           sender_type: string
         }[]
       }
+      has_announcement_admin: {
+        Args: { _company_id: string }
+        Returns: boolean
+      }
       is_admin: { Args: { _user_id: string }; Returns: boolean }
       merge_duplicate_contacts: {
         Args: { _company_id?: string; _dry_run?: boolean }
@@ -1974,6 +2063,10 @@ export type Database = {
       }
       normalize_name: { Args: { _raw: string }; Returns: string }
       normalize_phone: { Args: { _raw: string }; Returns: string }
+      publish_company_announcement: {
+        Args: { _announcement_id: string; _company_id: string }
+        Returns: undefined
+      }
       repair_contact_names: {
         Args: { _company_id?: string; _dry_run?: boolean; _limit?: number }
         Returns: {
