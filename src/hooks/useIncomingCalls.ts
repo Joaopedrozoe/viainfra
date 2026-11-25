@@ -124,8 +124,10 @@ export function useIncomingCalls() {
     let disposed = false;
     const subscribe = () => {
       if (disposed) return;
-      if (channel) supabase.removeChannel(channel);
-      channel = supabase
+      const previous = channel;
+      channel = null;
+      if (previous) void supabase.removeChannel(previous);
+      const current = supabase
         .channel(`incoming-calls-${company.id}-${crypto.randomUUID()}`)
         .on(
           "postgres_changes",
@@ -138,10 +140,13 @@ export function useIncomingCalls() {
           },
         )
         .subscribe((status) => {
+          // Ignore status from replaced channels: removing one emits CLOSED
+          if (disposed || channel !== current) return;
           if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
             setTimeout(() => { subscribe(); fetchRinging(); }, 1500);
           }
         });
+      channel = current;
     };
 
     subscribe();

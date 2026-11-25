@@ -12,7 +12,7 @@ interface UseInfiniteMessagesReturn {
   hasMore: boolean;
   totalCount: number;
   loadMoreError: boolean;
-  loadInitialMessages: () => Promise<void>;
+  loadInitialMessages: (opts?: { silent?: boolean }) => Promise<void>;
   syncLatest: () => Promise<void>;
   loadMoreMessages: () => Promise<void>;
   addMessage: (message: Message) => void;
@@ -89,15 +89,16 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
     };
   }, []);
 
-  const loadInitialMessages = useCallback(async () => {
+  const loadSeqRef = useRef(0);
+  const loadInitialMessages = useCallback(async (opts?: { silent?: boolean }) => {
     if (!conversationId) return;
 
     const convAtStart = conversationId;
-    setIsLoading(true);
+    // Only the most recent load may apply results; overlapping loads used to
+    // wipe each other's messages and leave the chat empty.
+    const seq = ++loadSeqRef.current;
+    if (!opts?.silent) setIsLoading(true);
     setLoadMoreError(false);
-    seenIdsRef.current.clear();
-    oldestTimestampRef.current = null;
-    oldestRef.current = null;
 
     try {
       // Carregar as últimas PAGE_SIZE+1 mensagens para descobrir se há mais,
@@ -110,14 +111,18 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
         .order('id', { ascending: false })
         .limit(PAGE_SIZE + 1);
 
-      if (activeConvRef.current !== convAtStart) return;
+      if (activeConvRef.current !== convAtStart || seq !== loadSeqRef.current) return;
       if (error) {
         console.error('❌ [INFINITE] Erro ao carregar mensagens:', error);
         return;
       }
 
+      seenIdsRef.current = new Set();
+      oldestTimestampRef.current = null;
+      oldestRef.current = null;
+
       if (!recentMessages || recentMessages.length === 0) {
-        setMessages([]);
+        setMessages(prev => prev.filter(m => m.id.startsWith('temp-')));
         setHasMore(false);
         setTotalCount(0);
         return;
@@ -160,7 +165,7 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
     } catch (error) {
       console.error('💥 [INFINITE] Erro:', error);
     } finally {
-      setIsLoading(false);
+      if (seq === loadSeqRef.current) setIsLoading(false);
     }
   }, [conversationId, mapMessage]);
 
@@ -262,7 +267,8 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
     syncingRef.current = true;
     try {
       if (!cursor) {
-        await loadInitialMessages();
+        // Empty chat: refresh silently so the composer never unmounts
+        await loadInitialMessages({ silent: true });
         return;
       }
       for (let batch = 0; batch < 10; batch++) {
@@ -285,7 +291,7 @@ export function useInfiniteMessages(conversationId: string | null): UseInfiniteM
         if (data.length < PAGE_SIZE) return;
       }
       // Lacuna maior que 500: recarrega preservando temporárias
-      if (activeConvRef.current === convAtStart) await loadInitialMessages();
+      if (activeConvRef.current === convAtStart) await loadInitialMessages({ silent: true });
     } finally {
       syncingRef.current = false;
     }
