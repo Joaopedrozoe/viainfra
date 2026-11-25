@@ -348,7 +348,7 @@ serve(async (req) => {
         "comercial": "Elisabete Silva",
         "manutencao": "Suelem Souza",
         "financeiro": "Rosangela Pacheco",
-        "rh": "Sandra Romano"
+        "rh": "Rosangela Pacheco"
       };
 
       const input = userMessage?.trim();

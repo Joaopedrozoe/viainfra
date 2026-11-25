@@ -61,7 +61,7 @@ export class BotFlowProcessor {
     { nome: 'Comercial', atendente: '', keys: ['comercial', 'vendas', 'venda', 'orcamento'] },
     { nome: 'Manutenção', atendente: 'Suelem Souza', keys: ['manutencao', 'oficina', 'mecanica', 'tecnico'] },
     { nome: 'Financeiro', atendente: 'Rosangela Pacheco', keys: ['financeiro', 'pagamento', 'boleto', 'nota fiscal', 'cobranca'] },
-    { nome: 'RH', atendente: 'Sandra Romano', keys: ['rh', 'recursos humanos', 'vaga', 'curriculo'] },
+    { nome: 'RH', atendente: 'Rosangela Pacheco', keys: ['rh', 'recursos humanos', 'vaga', 'curriculo'] },
   ];
 
   private static readonly SETOR_MENU =
