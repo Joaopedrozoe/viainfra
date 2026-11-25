@@ -118,16 +118,22 @@ serve(async (req) => {
         console.log(`📋 Processing ALL ${recentChats.length} chats for complete WhatsApp parity`);
 
         // Get existing data for this company
-        const { data: existingContacts } = await supabase
+        // Paginated: the API caps each query at 1000 rows, so a single query
+        // silently truncated contacts and caused duplicate-insert failures.
+        const existingContacts = await fetchAllRows((from, to) => supabase
           .from('contacts')
           .select('*')
-          .eq('company_id', companyId);
+          .eq('company_id', companyId)
+          .order('created_at', { ascending: true })
+          .range(from, to));
 
-        const { data: existingConvs } = await supabase
+        const existingConvs = await fetchAllRows((from, to) => supabase
           .from('conversations')
           .select('*, contacts(*)')
           .eq('company_id', companyId)
-          .eq('channel', 'whatsapp');
+          .eq('channel', 'whatsapp')
+          .order('created_at', { ascending: true })
+          .range(from, to));
 
         // Build lookup maps
         const contactByPhone = new Map<string, any>();
@@ -319,7 +325,7 @@ serve(async (req) => {
             if (validPhone || isGroup) {
               console.log(`➕ Creating: ${contactName} (${isGroup ? 'GROUP' : 'PHONE'})`);
               
-              let contact = contactByPhone.get(phone || '') || contactByName.get(cleanName);
+              let contact = contactByPhone.get(phone || '') || (phone ? contactByPhone.get(`55${phone}`) : undefined) || contactByName.get(cleanName);
               
               if (!contact) {
                 const { data: newContact, error: contactErr } = await supabase
@@ -344,8 +350,17 @@ serve(async (req) => {
                   if (phone) contactByPhone.set(phone, contact);
                   contactByName.set(cleanName, contact);
                 } else if (contactErr) {
-                  console.log(`⚠️ Contact error: ${contactErr.message}`);
-                  continue;
+                  // Concurrent webhook/sync may have created it: reuse the existing
+                  // same-company contact instead of dropping the chat.
+                  const existing = (contactErr as any).code === '23505' && phone
+                    ? await findCompanyContactByPhone(supabase, companyId, phone)
+                    : null;
+                  if (!existing) {
+                    console.log(`⚠️ Contact error: ${contactErr.message}`);
+                    continue;
+                  }
+                  contact = existing;
+                  contactByPhone.set(phone!, existing);
                 }
               } else if (isLid) {
                 // Se já temos contato @lid, pular criação de conversa
@@ -354,6 +369,25 @@ serve(async (req) => {
               }
 
               if (contact) {
+                // Reuse any existing same-company WhatsApp conversation of this
+                // contact so history is never split across duplicate conversations.
+                const { data: existingConv } = await supabase
+                  .from('conversations')
+                  .select('*, contacts(*)')
+                  .eq('company_id', companyId)
+                  .eq('contact_id', contact.id)
+                  .eq('channel', 'whatsapp')
+                  .order('updated_at', { ascending: false })
+                  .limit(1)
+                  .maybeSingle();
+                if (existingConv) {
+                  conversation = existingConv;
+                  convByJid.set(remoteJid, existingConv);
+                  if (phone) convByPhone.set(phone, existingConv);
+                }
+              }
+
+              if (contact && !conversation) {
                 const { data: newConv, error: convErr } = await supabase
                   .from('conversations')
                   .insert({
@@ -612,17 +646,39 @@ async function syncMessages(
     if (newMessages.length > 0) {
       console.log(`  📥 Importing ${newMessages.length} new messages for ${remoteJid.split('@')[0]}`);
       
-      // Insert in smaller batches
+      // The unique index on metadata->>messageId is global, and a single
+      // duplicate aborts a whole multi-row insert. Drop IDs already stored,
+      // then fall back to row-by-row inserts so one conflict never discards
+      // the other legitimate messages of the batch.
+      const ids = newMessages.map((m) => m.metadata.messageId).filter(Boolean) as string[];
+      const alreadyStored = new Set<string>();
+      for (let i = 0; i < ids.length; i += 50) {
+        const { data: found } = await supabase
+          .from('messages')
+          .select('metadata->>messageId')
+          .in('metadata->>messageId', ids.slice(i, i + 50));
+        for (const row of (found || []) as any[]) {
+          if (row.messageId) alreadyStored.add(row.messageId);
+        }
+      }
+      const pending = newMessages.filter((m) => !m.metadata.messageId || !alreadyStored.has(m.metadata.messageId));
+
       const batchSize = 25;
       let inserted = 0;
-      
-      for (let i = 0; i < newMessages.length; i += batchSize) {
-        const batch = newMessages.slice(i, i + batchSize);
+
+      for (let i = 0; i < pending.length; i += batchSize) {
+        const batch = pending.slice(i, i + batchSize);
         const { error } = await supabase.from('messages').insert(batch);
         if (!error) {
           inserted += batch.length;
-        } else {
-          console.error(`  ❌ Insert error: ${error.message}`);
+          continue;
+        }
+        for (const row of batch) {
+          const { error: rowErr } = await supabase.from('messages').insert(row);
+          if (!rowErr) inserted++;
+          else if ((rowErr as any).code !== '23505') {
+            console.error(`  ❌ Insert error: ${rowErr.message}`);
+          }
         }
       }
       
@@ -681,4 +737,27 @@ function extractContent(msg: any): string {
   if (text) return text;
   
   return '';
+}
+
+async function fetchAllRows(query: (from: number, to: number) => any): Promise<any[]> {
+  const pageSize = 1000;
+  const rows: any[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await query(from, from + pageSize - 1);
+    if (error) throw new Error(`Paginated load failed: ${error.message}`);
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) return rows;
+  }
+}
+
+async function findCompanyContactByPhone(supabase: any, companyId: string, phone: string) {
+  const { data } = await supabase
+    .from('contacts')
+    .select('*')
+    .eq('company_id', companyId)
+    // Contacts are stored normalized with the 55 country code by a DB trigger.
+    .in('phone', phone.startsWith('55') ? [phone] : [phone, `55${phone}`])
+    .limit(1)
+    .maybeSingle();
+  return data ?? null;
 }

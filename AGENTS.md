@@ -15,3 +15,4 @@
 - Reconcile uncertain backup finalization through one-shot checks and before status/start/scheduled operations; release unconfirmed runs as incomplete after a bounded grace period, never as validated, so uncertainty cannot block future backups forever.
 - Empty-chat synchronization retries the initial page under the synchronization lock; keep conversation guards and message deduplication so recovery does not mix contexts or replay messages.
 - Merge template catalogs by exact name/language with the current same-company Meta result overriding older Evolution metadata, so newly approved image templates are not hidden by stale duplicates.
+- Background WhatsApp sync paginates company data, skips message IDs already stored anywhere and inserts row-by-row on conflict, and reuses an existing same-company contact/conversation before creating one, so one duplicate never discards a batch or splits history.
