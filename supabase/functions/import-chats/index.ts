@@ -620,8 +620,13 @@ async function importMessages(
         const chunk = toInsert.slice(i, i + 50);
         try {
           const { error } = await supabase.from('messages').insert(chunk);
-          if (error && error.code !== '23505') {
-            console.error(`   Insert error:`, error);
+          if (error) {
+            // One duplicate aborts the whole chunk: retry row by row so the
+            // remaining new messages are still saved.
+            for (const row of chunk) {
+              const { error: rowErr } = await supabase.from('messages').insert(row);
+              if (rowErr && rowErr.code !== '23505') console.error(`   Insert error:`, rowErr);
+            }
           }
         } catch (e: any) {
           if (e.code !== '23505') console.error(`   Insert exception:`, e);

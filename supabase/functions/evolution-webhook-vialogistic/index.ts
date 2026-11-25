@@ -2926,6 +2926,21 @@ async function getOrCreateContact(
     .single();
 
   if (error) {
+    // A concurrent webhook may have just created this same-company contact:
+    // reuse it so the incoming message is still saved.
+    if (error.code === '23505' && normalizedPhone) {
+      const { data: existing } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('company_id', companyId)
+        .eq('phone', normalizedPhone)
+        .limit(1)
+        .maybeSingle();
+      if (existing) {
+        console.log('♻️ Contact created concurrently, reusing:', existing.id);
+        return existing;
+      }
+    }
     console.error('Error creating contact:', error);
     throw error;
   }
